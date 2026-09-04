@@ -124,6 +124,27 @@ describe("content sniffing", () => {
     expect(extensionMatchesKind("invoice.pdf", "xlsx")).toBe(false)
     expect(extensionMatchesKind("invoice", "pdf")).toBe(true)
   })
+
+  it("identifies a file the browser could not label", () => {
+    // This pair is the whole reason the upload routes stopped refusing on the
+    // browser's declared content type. `file.type` is a guess from an
+    // extension — Windows says application/x-zip-compressed for a .docx and
+    // an empty string when nothing is registered — and rejecting on it turned
+    // away files the pipeline reads without difficulty. These two checks are
+    // what the decision actually rests on, and neither consults the client:
+    // one reads the bytes, the other compares them to the name.
+    const docx = Buffer.concat([
+      Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      Buffer.from("  word/document.xml"),
+    ])
+
+    const detected = detectDocumentType(docx)
+    expect(detected?.kind).toBe("docx")
+    expect(extensionMatchesKind("contract.docx", detected!.kind)).toBe(true)
+
+    // And a file lying about what it is still does not get through.
+    expect(extensionMatchesKind("contract.pdf", detected!.kind)).toBe(false)
+  })
 })
 
 describe("identifiers", () => {

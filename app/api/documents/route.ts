@@ -6,11 +6,7 @@ import {
   jsonResponse,
   readJson,
 } from "@/lib/api/http"
-import {
-  ACCEPTED_MIME_TYPES,
-  ALLOWED_TTL_SECONDS,
-  MAX_UPLOAD_BYTES,
-} from "@/lib/config"
+import { ALLOWED_TTL_SECONDS, MAX_UPLOAD_BYTES } from "@/lib/config"
 import { prisma } from "@/lib/database/prisma"
 import { extensionOf } from "@/lib/documents/detect"
 import { newDocumentId } from "@/lib/documents/ids"
@@ -96,9 +92,17 @@ export async function POST(request: Request) {
     if (!kind) {
       return errorResponse("Unsupported file type", 415)
     }
-    if (contentType && ACCEPTED_MIME_TYPES[contentType] === undefined) {
-      return errorResponse("Unsupported file type", 415)
-    }
+
+    // The browser's `file.type` is a guess, not a fact, and it is wrong often
+    // enough to matter: Windows reports application/x-zip-compressed for a
+    // .docx, an empty string when nothing is registered for the extension, and
+    // application/octet-stream for anything dragged out of an archive. Refusing
+    // on it rejected files this pipeline handles perfectly well.
+    //
+    // Nothing is lost by trusting it less. The extension is checked above, and
+    // ingest sniffs the actual bytes and refuses a file whose contents do not
+    // match what it claims to be — which is the check that was ever worth
+    // anything, because it is the only one the uploader cannot choose.
 
     // The per-page and per-cell allowances are charged once the pipeline knows
     // the real size; the upload count is charged here, before any work starts.
