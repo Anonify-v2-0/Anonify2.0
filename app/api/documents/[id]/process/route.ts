@@ -14,7 +14,7 @@ import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { processDocument } from "@/lib/workflows/process-document"
 
 export const runtime = "nodejs"
-export const maxDuration = 900
+export const maxDuration = 300
 
 /**
  * A stored handle is either an absolute URL (Vercel Blob) or a `driver:path`

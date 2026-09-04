@@ -6,7 +6,7 @@ import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 
 export const runtime = "nodejs"
-export const maxDuration = 900
+export const maxDuration = 300
 
 /**
  * Server-sent events carrying the workflow run's progress.
