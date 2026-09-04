@@ -1,0 +1,53 @@
+name: Feature or improvement
+description: Something Anonify should do and does not.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        [CONTRIBUTING.md §3](https://github.com/nabeel-w/Anonify2.0/blob/main/CONTRIBUTING.md#3-the-next-phase)
+        lists what is already planned, and
+        [§2](https://github.com/nabeel-w/Anonify2.0/blob/main/CONTRIBUTING.md#2-design-positions)
+        lists what we have deliberately decided not to do. Worth a look first —
+        if your idea is in §2, make the case against the reasoning there rather
+        than for the feature.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description:
+        What are you trying to do that Anonify makes hard? Describe the
+        situation, not the solution — the fix is often not the one you would
+        have asked for.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Invariants
+      description:
+        The eight rules in
+        [CONTRIBUTING.md](https://github.com/nabeel-w/Anonify2.0/blob/main/CONTRIBUTING.md#the-invariants).
+        A change that breaks one will not be merged, however good the rest of it
+        is — so it is worth checking before either of us spends an evening on it.
+      options:
+        - label: I have read them and this does not break any of them.
+        - label:
+            This does touch one of them, and I have said which and why below.
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description:
+        Prior art, links, a sketch. If you are offering to implement it, say so
+        — it changes what a useful reply looks like.

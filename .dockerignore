@@ -20,3 +20,8 @@ coverage
 *.traineddata
 README.md
 CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+
+# LICENSE and NOTICE are deliberately absent from this list: the runtime image
+# copies them in, because distributing the image distributes the Work.

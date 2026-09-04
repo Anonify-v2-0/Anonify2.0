@@ -1,0 +1,87 @@
+name: Bug report
+description: Something behaves incorrectly — but no value escaped a redaction.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **If content came back out of an exported document, stop here.**
+        That is a security report: use
+        [private reporting](https://github.com/nabeel-w/Anonify2.0/security/advisories/new)
+        instead, so the fix lands before the recipe does. See
+        [SECURITY.md](https://github.com/nabeel-w/Anonify2.0/blob/main/SECURITY.md).
+
+  - type: checkboxes
+    id: no-real-data
+    attributes:
+      label: Before you attach anything
+      options:
+        - label:
+            My attachments and screenshots contain no real personal data — the
+            file is synthetic, or the names in it are made up.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+      placeholder: |
+        1. Uploaded a two-page PDF
+        2. Accepted the three suggested emails
+        3. Exported with "add labels" on
+        4. The label was drawn on page 1 but not page 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: A file that reproduces it
+      description:
+        Synthetic only. `tests/fixtures.ts` builds PDFs, DOCX, workbooks and
+        images of exactly the right kind — a short script that produces your
+        file is better than an attachment, because it can be committed as a test.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: format
+    attributes:
+      label: Format
+      multiple: true
+      options:
+        - PDF
+        - DOCX
+        - XLSX
+        - Image
+        - Not format-specific
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How are you running it
+      options:
+        - docker compose (self-hosted)
+        - pnpm dev against local services
+        - pnpm dev against Neon / Vercel Blob
+        - The hosted demo
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit
+      description: "`git rev-parse --short HEAD`, or the demo's date."
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description:
+        Server output around the failure. Anonify never logs document content,
+        so this should be safe to paste — read it before you do.
+      render: shell

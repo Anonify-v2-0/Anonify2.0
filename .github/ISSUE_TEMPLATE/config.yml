@@ -1,0 +1,17 @@
+# A redaction bypass must not arrive as a public issue, so the security link
+# comes first and the blank-issue escape hatch is closed — every path here
+# starts by asking whether real personal data is about to be pasted in.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Security issue — a value survived a redaction
+    url: https://github.com/nabeel-w/Anonify2.0/security/advisories/new
+    about:
+      Report privately. Do not open a public issue for anything where content
+      came back out of an exported document. See SECURITY.md.
+
+  - name: Question or idea
+    url: https://github.com/nabeel-w/Anonify2.0/discussions
+    about:
+      For "how does X work" and "should we do Y". Issues are for work that is
+      ready to be picked up.
