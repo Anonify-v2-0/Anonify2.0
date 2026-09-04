@@ -32,6 +32,19 @@ function masterKey(): Buffer {
   return parseMasterKey(requiredEnv("ENCRYPTION_KEY"))
 }
 
+/**
+ * Reads and validates the master key, for a caller that wants to find out now
+ * rather than at the moment it first encrypts something.
+ *
+ * The key is otherwise only touched deep inside the pipeline, so a malformed
+ * one arrives as a workflow step failing three retries in — a long way from the
+ * line of configuration that caused it, and after the upload has already been
+ * accepted.
+ */
+export function assertMasterKey(): void {
+  masterKey()
+}
+
 /** Seals `plaintext` with `key`, returning iv || tag || ciphertext. */
 export function sealWithKey(plaintext: Uint8Array, key: Buffer): Buffer {
   const iv = randomBytes(IV_BYTES)

@@ -19,9 +19,12 @@ env:
   #
   #  - DATABASE_URL is only parsed. Every route is dynamic and the Prisma client
   #    connects lazily, so the build never opens a connection.
-  #  - ENCRYPTION_KEY and FINGERPRINT_SECRET have to decode to 32 bytes or the
-  #    modules that read them throw on import. The suites that exercise crypto
-  #    generate their own random keys and ignore these.
+  #  - ENCRYPTION_KEY has to decode to 32 bytes. It used to be 64 zeroes, and
+  #    unquoted YAML reads that as the integer zero — so the container was handed
+  #    the string "0". Nothing caught it for a long time: the crypto suites
+  #    generate their own random keys, and the compose stack was the first thing
+  #    to encrypt anything with the configured one. Quoted now, and hex with
+  #    letters in it, which no YAML parser can turn into a number.
   #
   # Deliberately NOT set, and the reason matters:
   #
@@ -31,8 +34,8 @@ env:
   #  - AI_GATEWAY_API_KEY — absent, aiConfigured() is false and the analysis
   #    layer short-circuits, so CI can never make a billable model call.
   DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
-  ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
-  FINGERPRINT_SECRET: 1111111111111111111111111111111111111111111111111111111111111111
+  ENCRYPTION_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+  FINGERPRINT_SECRET: "feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface"
   NEXT_TELEMETRY_DISABLED: "1"
 
 jobs:
@@ -163,8 +166,8 @@ jobs:
       # The compose file refuses to start without these, deliberately — see the
       # comment on the `app` service. The values are the workflow placeholders
       # above; this stack is destroyed at the end of the job.
-      ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
-      FINGERPRINT_SECRET: 1111111111111111111111111111111111111111111111111111111111111111
+      ENCRYPTION_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+      FINGERPRINT_SECRET: "feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface"
 
     steps:
       - uses: actions/checkout@v5

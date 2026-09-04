@@ -13,6 +13,16 @@ export async function register() {
   // The edge runtime has no long-lived process to poll from.
   if (process.env.NEXT_RUNTIME === "edge") return
 
+  // Fail on the way up, not on the first document.
+  //
+  // ENCRYPTION_KEY is read lazily, deep in the pipeline, so a malformed one
+  // used to present as a workflow step exhausting its retries — by which point
+  // the upload had been accepted and the cause was several layers away from the
+  // message. CI spent a run on exactly that, over a key YAML had quietly turned
+  // into the integer zero.
+  const { assertMasterKey } = await import("@/lib/storage/encryption")
+  assertMasterKey()
+
   // Unset on Vercel, where the platform's own world is selected for us. Calling
   // start() there is harmless, but skipping makes the intent explicit.
   if (!process.env.WORKFLOW_TARGET_WORLD) return
