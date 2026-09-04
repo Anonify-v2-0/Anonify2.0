@@ -127,6 +127,15 @@ services:
       ANONIFY_RATE_LIMIT_EXPORT: ${ANONIFY_RATE_LIMIT_EXPORT:-}
       ANONIFY_RATE_LIMIT_READ: ${ANONIFY_RATE_LIMIT_READ:-}
 
+      # Daily allowances. Unlimited on the self-hosted profile, which is the
+      # default — set these only if you are running something shared. 0 is
+      # unlimited; see lib/security/quota-config.ts.
+      ANONIFY_QUOTA_PDF_PAGES: ${ANONIFY_QUOTA_PDF_PAGES:-}
+      ANONIFY_QUOTA_DOCX_PAGES: ${ANONIFY_QUOTA_DOCX_PAGES:-}
+      ANONIFY_QUOTA_XLSX_CELLS: ${ANONIFY_QUOTA_XLSX_CELLS:-}
+      ANONIFY_QUOTA_IMAGES: ${ANONIFY_QUOTA_IMAGES:-}
+      ANONIFY_QUOTA_UPLOADS: ${ANONIFY_QUOTA_UPLOADS:-}
+
       OCR_PROVIDER: ${OCR_PROVIDER:-tesseract}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
 

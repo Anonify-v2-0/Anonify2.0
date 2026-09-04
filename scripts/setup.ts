@@ -138,9 +138,16 @@ function demoEnv(): string {
       heading: "Runtime profile",
       lines: [
         {
+          // The profile describes who can reach the instance, not which
+          // services it uses. This branch picks Neon and Vercel Blob; it is
+          // still your instance, so it gets your allowances. Setting "demo"
+          // here meant an ordinary spreadsheet failed to process against a
+          // quota sized for a shared anonymous endpoint.
           key: "ANONIFY_PROFILE",
-          value: "demo",
-          comment: "Restrictive rate limits, as on the shared demo.",
+          value: "self-hosted",
+          comment:
+            'Set to "demo" only if this deployment is public and shared: ' +
+            "strict rate limits and small daily quotas.",
         },
       ],
     },

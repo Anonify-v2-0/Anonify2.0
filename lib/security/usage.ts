@@ -1,17 +1,25 @@
-import { DAILY_QUOTA } from "@/lib/config"
 import { prisma } from "@/lib/database/prisma"
 import { newUsageId } from "@/lib/documents/ids"
+import {
+  effectiveQuotas,
+  isUnlimited,
+  type UsageKind,
+} from "@/lib/security/quota-config"
 import type { DocumentKind } from "@/types/document"
 
 /**
- * Anonymous demo quotas.
+ * Quota accounting.
  *
  * Enforced server-side, keyed by a hashed identifier, and counted in the
  * database — never in Redux, never in localStorage. A quota a client can edit
  * is not a quota.
+ *
+ * How large the allowances are is a deployment question, not a code one:
+ * lib/security/quota-config.ts resolves them from the profile and the
+ * environment, and a self-hosted install has none.
  */
 
-export type UsageKind = "pdfPages" | "docxPages" | "xlsxCells" | "images" | "uploads"
+export type { UsageKind }
 
 export type QuotaCheck = {
   allowed: boolean
@@ -57,8 +65,15 @@ export async function checkQuota(
   kind: UsageKind,
   quantity = 1
 ): Promise<QuotaCheck> {
+  const limit = effectiveQuotas()[kind]
+
+  // Nothing to account for, and nothing to read: an unlimited quota does not
+  // need a usage row created just to be ignored.
+  if (isUnlimited(limit)) {
+    return { allowed: true, kind, used: 0, limit: 0, remaining: Infinity }
+  }
+
   const record = await currentUsage(fingerprint)
-  const limit = DAILY_QUOTA[kind]
   const used = record[kind]
 
   return {
@@ -92,8 +107,14 @@ export async function recordUsage(input: {
     update: { [input.kind]: { increment: input.quantity } },
   })
 
-  const limit = DAILY_QUOTA[input.kind]
+  const limit = effectiveQuotas()[input.kind]
   const used = record[input.kind]
+
+  // Usage is still recorded when unlimited — the numbers are what the usage
+  // panel reports, and turning the limit off should not blind the counter.
+  if (isUnlimited(limit)) {
+    return { allowed: true, kind: input.kind, used, limit: 0, remaining: Infinity }
+  }
 
   return {
     allowed: used <= limit,

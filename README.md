@@ -330,6 +330,29 @@ Three layers, later winning: profile defaults →
 `ANONIFY_RATE_LIMIT_<NAME>=100/60` → the CLI, which writes to the database and
 takes effect without a restart.
 
+### Daily quotas
+
+Separate from rate limits, and counted per identity per UTC day: pages, cells,
+images and uploads. They exist so one anonymous visitor cannot spend the shared
+demo's whole budget.
+
+**A self-hosted install has none.** There is nobody to ration against, and a
+quota here is indistinguishable from the software being broken — it arrives as
+"processing failed" on a spreadsheet that is in no way unusual. If you are
+running something shared, set them explicitly:
+
+```bash
+ANONIFY_QUOTA_XLSX_CELLS=500000   # 0, or unset on self-hosted, means unlimited
+ANONIFY_QUOTA_PDF_PAGES=200
+ANONIFY_QUOTA_DOCX_PAGES=200
+ANONIFY_QUOTA_IMAGES=100
+ANONIFY_QUOTA_UPLOADS=200
+```
+
+Spreadsheet cells are counted as cells that hold something, not as the area of
+the used range — a sheet with three filled columns and one stray value out in
+column AN is charged for what it contains, not for the blanks between.
+
 ### Expiring documents when you self-host
 
 Documents are temporary, which is only true if something is actually deleting

@@ -31,18 +31,12 @@ export const ALLOWED_TTL_SECONDS: TtlOption[] = [3600, 21600, 86400, 259200]
  */
 export const MAX_RETENTION_SECONDS = 72 * 60 * 60
 
-/** Anonymous demo quotas, enforced server-side per fingerprint per day. */
-export const DAILY_QUOTA = {
-  pdfPages: 10,
-  docxPages: 10,
-  xlsxCells: 100 * 100,
-  images: 3,
-  uploads: 20,
-}
-
-// Rate limits live in lib/security/rate-limit-config.ts: they differ by
-// deployment profile and can be changed at runtime, so they are not constants.
+// Quotas live in lib/security/quota-config.ts and rate limits in
+// lib/security/rate-limit-config.ts. Both differ by deployment profile — the
+// demo rations a shared endpoint, a self-hosted install has nobody to ration
+// against — so neither belongs here as a constant.
 export type { RateLimitName } from "@/lib/security/rate-limit-config"
+export type { UsageKind } from "@/lib/security/quota-config"
 
 export function requiredEnv(name: string): string {
   const value = process.env[name]
