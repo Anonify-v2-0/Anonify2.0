@@ -26,10 +26,10 @@ export type OwnedDocument = {
   pageCount: number | null
   createdAt: Date
   expiresAt: Date
-  sourceBlobKey: string
+  sourceBlobKey: string | null
   processedBlobKey: string | null
-  encryptionKey: string
-  checksum: string
+  encryptionKey: string | null
+  checksum: string | null
   error: string | null
   userFingerprint: string
 }

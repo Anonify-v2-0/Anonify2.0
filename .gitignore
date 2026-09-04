@@ -43,3 +43,7 @@ next-env.d.ts
 
 # copied build artifact
 /public/pdf.worker.min.mjs
+/.swc
+
+# workflow sdk generated routes
+/app/.well-known/

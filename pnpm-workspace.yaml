@@ -6,5 +6,7 @@ allowBuilds:
   msw: false
   esbuild: true
   "@prisma/client": true
-  prisma: true
   "@prisma/engines": true
+  prisma: true
+  "@swc/core": true
+  cbor-extract: true

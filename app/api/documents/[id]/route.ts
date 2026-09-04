@@ -47,9 +47,8 @@ export async function DELETE(
     const identity = await peekIdentity()
     const document = await requireDocument(id, identity?.ownerKey)
 
-    await deleteObject(document.sourceBlobKey)
-    if (document.processedBlobKey) {
-      await deleteObject(document.processedBlobKey)
+    for (const key of [document.sourceBlobKey, document.processedBlobKey]) {
+      if (key) await deleteObject(key)
     }
     await prisma.document.delete({ where: { id: document.id } })
 

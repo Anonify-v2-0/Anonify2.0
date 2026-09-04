@@ -1,4 +1,5 @@
 import type { NextConfig } from "next"
+import { withWorkflow } from "workflow/next"
 
 const nextConfig: NextConfig = {
   // Server-side PDF extraction reads font and CMap data from disk, so those
@@ -13,4 +14,4 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["pdfjs-dist"],
 }
 
-export default nextConfig
+export default withWorkflow(nextConfig)

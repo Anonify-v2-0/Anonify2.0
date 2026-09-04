@@ -25,11 +25,17 @@ model Document {
   status           String   @default("queued")
   error            String?
 
-  sourceBlobKey    String
+  /// Set once the client upload has been ingested and re-sealed by the
+  /// pipeline. Null while the browser is still uploading.
+  sourceBlobKey    String?
+  /// Plaintext client-upload landing spot, deleted as soon as ingest re-seals it.
+  uploadBlobKey    String?
   processedBlobKey String?
+  /// Durable run that is processing (or last processed) this document.
+  workflowRunId    String?
   /// Wrapped per-document data key (base64), unwrapped server-side only.
-  encryptionKey    String
-  checksum         String
+  encryptionKey    String?
+  checksum         String?
   processedChecksum String?
 
   userFingerprint  String

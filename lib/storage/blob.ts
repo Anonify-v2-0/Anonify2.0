@@ -97,6 +97,12 @@ export async function objectExists(key: string): Promise<boolean> {
   }
 }
 
+/** Landing path for a browser upload, before ingest re-seals the bytes. */
+export function uploadKey(documentId: string, filename: string): string {
+  const safe = filename.replace(/[^A-Za-z0-9._-]/g, "_").slice(-80)
+  return `documents/${documentId}/upload/${safe}`
+}
+
 export function sourceKey(documentId: string): string {
   return `documents/${documentId}/source.bin`
 }

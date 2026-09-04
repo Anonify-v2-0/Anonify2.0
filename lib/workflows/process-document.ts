@@ -1,40 +1,70 @@
+import { FatalError, getWritable } from "workflow"
+
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
+import { MAX_UPLOAD_BYTES } from "@/lib/config"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { extractPdf } from "@/lib/documents/pdf/extract"
+import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { newEventId } from "@/lib/documents/ids"
 import { saveNormalized } from "@/lib/documents/normalized-store"
-import { getObject } from "@/lib/storage/blob"
-import { decryptDocument } from "@/lib/storage/encryption"
+import { deleteObject, getObject, putObject, sourceKey } from "@/lib/storage/blob"
+import { decryptDocument, encryptDocument } from "@/lib/storage/encryption"
 import { checksumMatches, sha256 } from "@/lib/storage/integrity"
-import type { DocumentKind, NormalizedDocument } from "@/types/document"
-import type { ProcessingEventType, ProcessingStatus } from "@/types/processing"
+import {
+  encodeStreamEvent,
+  type ProcessingStreamEvent,
+} from "@/lib/workflows/events"
+import type { DocumentKind } from "@/types/document"
+import type {
+  ProcessingEventType,
+  ProcessingStatus,
+} from "@/types/processing"
 
 /**
- * Document processing pipeline.
+ * Durable document processing.
  *
- * Each stage is separately retryable and records its own event, so a failure in
- * analysis never loses the uploaded file and the client can watch progress
- * arrive. Milestone 9 moves the driver onto Vercel Workflows; the stage
- * boundaries here are exactly what it will schedule.
+ * The orchestrator below only sequences steps; all real work lives in `"use
+ * step"` functions, which have full Node access, are retried independently, and
+ * have their results persisted. A step that fails — an extractor that chokes, a
+ * provider that times out — never costs the user their upload, and the run
+ * resumes from the last completed step rather than from the beginning.
+ *
+ * Every stage writes a small progress event to the run's stream so the
+ * workspace can show suggestions arriving instead of a spinner.
  */
 
-export async function recordEvent(
+async function emit(
   documentId: string,
   type: ProcessingEventType,
-  payload?: Record<string, unknown>
+  extra: Omit<ProcessingStreamEvent, "type" | "documentId" | "at"> = {}
 ): Promise<void> {
+  const event: ProcessingStreamEvent = {
+    type,
+    documentId,
+    at: new Date().toISOString(),
+    ...extra,
+  }
+
+  const writer = getWritable<string>().getWriter()
+  try {
+    await writer.write(encodeStreamEvent(event))
+  } finally {
+    // An unreleased lock keeps the step's request alive until it times out.
+    writer.releaseLock()
+  }
+
   await prisma.processingEvent.create({
     data: {
       id: newEventId(),
       documentId,
       type,
-      payload: (payload ?? undefined) as Prisma.InputJsonValue | undefined,
+      payload: (extra.payload ?? undefined) as Prisma.InputJsonValue | undefined,
     },
   })
 }
 
-export async function setStatus(
+async function setStatus(
   documentId: string,
   status: ProcessingStatus,
   data: {
@@ -49,100 +79,208 @@ export async function setStatus(
   })
 }
 
-type ExtractionResult = {
-  model: NormalizedDocument
-  pageCount: number
-  ocrPages: number[]
+/**
+ * Ingest.
+ *
+ * The browser uploads straight to Blob storage, so the first thing the pipeline
+ * does is take ownership of those bytes: sniff what they actually are, checksum
+ * them, seal them under a fresh per-document key, and delete the plaintext
+ * upload. That window is the only time the file exists unencrypted at rest.
+ */
+async function ingestUpload(documentId: string): Promise<{ kind: DocumentKind }> {
+  "use step"
+
+  const document = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: {
+      id: true,
+      originalName: true,
+      uploadBlobKey: true,
+      sourceBlobKey: true,
+      kind: true,
+    },
+  })
+
+  if (!document) throw new FatalError("Document no longer exists")
+
+  // Already ingested: the step is replaying after a retry.
+  if (document.sourceBlobKey) {
+    return { kind: document.kind as DocumentKind }
+  }
+  if (!document.uploadBlobKey) {
+    throw new FatalError("No upload to ingest")
+  }
+
+  const bytes = await getObject(document.uploadBlobKey)
+
+  if (bytes.byteLength === 0) throw new FatalError("Uploaded file is empty")
+  if (bytes.byteLength > MAX_UPLOAD_BYTES) {
+    throw new FatalError("Uploaded file is too large")
+  }
+
+  const detected = detectDocumentType(bytes)
+  if (!detected) throw new FatalError("Unsupported file type")
+  if (!extensionMatchesKind(document.originalName, detected.kind)) {
+    throw new FatalError("File contents do not match its extension")
+  }
+
+  const checksum = sha256(bytes)
+  const { ciphertext, wrappedKey } = encryptDocument(bytes)
+  const stored = await putObject(sourceKey(documentId), ciphertext)
+
+  await prisma.document.update({
+    where: { id: documentId },
+    data: {
+      sourceBlobKey: stored.key,
+      encryptionKey: wrappedKey,
+      checksum,
+      size: bytes.byteLength,
+      kind: detected.kind,
+      mimeType: detected.mimeType,
+    },
+  })
+
+  await deleteObject(document.uploadBlobKey)
+  await prisma.document.update({
+    where: { id: documentId },
+    data: { uploadBlobKey: null },
+  })
+
+  return { kind: detected.kind }
 }
 
-/** Reads the source back, verifies its checksum, and normalizes it. */
-export async function extractDocument(
-  document: {
-    id: string
-    kind: string
-    sourceBlobKey: string
-    encryptionKey: string
-    checksum: string
+/** Reads the sealed source back, verifies its checksum and normalizes it. */
+async function extractAndNormalize(documentId: string): Promise<{ pageCount: number }> {
+  "use step"
+
+  const document = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: {
+      id: true,
+      kind: true,
+      sourceBlobKey: true,
+      encryptionKey: true,
+      checksum: true,
+    },
+  })
+
+  if (!document?.sourceBlobKey || !document.encryptionKey || !document.checksum) {
+    throw new FatalError("Document has not been ingested")
   }
-): Promise<ExtractionResult> {
+
   const sealed = await getObject(document.sourceBlobKey)
   const bytes = decryptDocument(sealed, document.encryptionKey)
 
   if (!checksumMatches(document.checksum, sha256(bytes))) {
-    throw new Error("Source checksum mismatch")
+    throw new FatalError("Source checksum mismatch")
   }
 
-  switch (document.kind as DocumentKind) {
+  const model = await extractByKind(document.id, document.kind as DocumentKind, bytes)
+  const normalizedBlobKey = await saveNormalized(
+    documentId,
+    document.encryptionKey,
+    model
+  )
+
+  await prisma.document.update({
+    where: { id: documentId },
+    data: { normalizedBlobKey, pageCount: model.pages.length },
+  })
+
+  return { pageCount: model.pages.length }
+}
+
+async function extractByKind(
+  documentId: string,
+  kind: DocumentKind,
+  bytes: Uint8Array
+) {
+  switch (kind) {
     case "pdf": {
-      const { document: model, ocrPages } = await extractPdf(document.id, bytes)
-      return { model, pageCount: model.pages.length, ocrPages }
+      const { document } = await extractPdf(documentId, bytes)
+      return document
     }
     case "docx": {
-      const { document: model } = extractDocx(document.id, bytes)
-      return { model, pageCount: model.pages.length, ocrPages: [] }
+      const { document } = extractDocx(documentId, bytes)
+      return document
     }
     default:
       // XLSX and image pipelines attach in milestones 5-6.
-      throw new Error(`No extractor registered for ${document.kind}`)
+      throw new FatalError(`No extractor registered for ${kind}`)
   }
 }
 
-export async function startProcessing(documentId: string): Promise<void> {
-  const startedAt = Date.now()
+async function publishStatus(
+  documentId: string,
+  status: ProcessingStatus,
+  type: ProcessingEventType,
+  extra: Omit<ProcessingStreamEvent, "type" | "documentId" | "at"> = {}
+): Promise<void> {
+  "use step"
+
+  await setStatus(documentId, status)
+  await emit(documentId, type, { status, ...extra })
+}
+
+async function finish(documentId: string, pageCount: number): Promise<void> {
+  "use step"
+
+  await setStatus(documentId, "ready", { error: null, pageCount })
+  await emit(documentId, "document.ready", {
+    status: "ready",
+    progress: 100,
+    payload: { pageCount },
+  })
+  await getWritable().close()
+}
+
+async function fail(documentId: string, message: string): Promise<void> {
+  "use step"
+
+  console.error(
+    JSON.stringify({
+      level: "error",
+      context: "process-document",
+      documentId,
+      errorCategory: "processing",
+    })
+  )
+
+  // The uploaded file is untouched; the user can retry the analysis.
+  await setStatus(documentId, "failed", { error: message.slice(0, 500) })
+  await emit(documentId, "document.failed", {
+    status: "failed",
+    message: message.slice(0, 200),
+  })
+  await getWritable().close()
+}
+
+export async function processDocument(documentId: string): Promise<{
+  documentId: string
+  status: ProcessingStatus
+}> {
+  "use workflow"
 
   try {
-    await recordEvent(documentId, "document.queued")
+    await publishStatus(documentId, "queued", "document.queued", { progress: 10 })
 
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
-      select: {
-        id: true,
-        kind: true,
-        sourceBlobKey: true,
-        encryptionKey: true,
-        checksum: true,
-      },
+    await publishStatus(documentId, "extracting", "document.extracting", {
+      progress: 30,
     })
-    if (!document) return
+    await ingestUpload(documentId)
 
-    await setStatus(documentId, "extracting")
-    await recordEvent(documentId, "document.extracting")
-    const { model, pageCount } = await extractDocument(document)
-
-    await setStatus(documentId, "normalizing")
-    await recordEvent(documentId, "document.normalizing")
-    const normalizedBlobKey = await saveNormalized(
-      documentId,
-      document.encryptionKey,
-      model
-    )
+    await publishStatus(documentId, "normalizing", "document.normalizing", {
+      progress: 55,
+    })
+    const { pageCount } = await extractAndNormalize(documentId)
 
     // Deterministic detection and AI analysis attach in milestones 7-8.
 
-    await setStatus(documentId, "ready", {
-      error: null,
-      pageCount,
-      normalizedBlobKey,
-    })
-    await recordEvent(documentId, "document.ready", {
-      pageCount,
-      durationMs: Date.now() - startedAt,
-    })
+    await finish(documentId, pageCount)
+    return { documentId, status: "ready" }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error(
-      JSON.stringify({
-        level: "error",
-        context: "process-document",
-        documentId,
-        durationMs: Date.now() - startedAt,
-        errorCategory: "processing",
-      })
-    )
-    // The source file is untouched; the user can retry analysis.
-    await setStatus(documentId, "failed", {
-      error: message.slice(0, 500),
-    }).catch(() => undefined)
-    await recordEvent(documentId, "document.failed").catch(() => undefined)
+    await fail(documentId, message)
+    return { documentId, status: "failed" }
   }
 }

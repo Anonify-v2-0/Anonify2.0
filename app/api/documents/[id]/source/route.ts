@@ -1,4 +1,4 @@
-import { handleRouteError } from "@/lib/api/http"
+import { errorResponse, handleRouteError } from "@/lib/api/http"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
@@ -22,6 +22,10 @@ export async function GET(
     await consumeRateLimit("read", identity?.networkKey ?? "anonymous")
 
     const document = await requireDocument(id, identity?.ownerKey)
+    if (!document.sourceBlobKey || !document.encryptionKey) {
+      return errorResponse("Document is still being ingested", 409)
+    }
+
     const sealed = await getObject(document.sourceBlobKey)
     const bytes = decryptDocument(sealed, document.encryptionKey)
 

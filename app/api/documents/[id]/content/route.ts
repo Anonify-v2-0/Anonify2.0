@@ -24,7 +24,7 @@ export async function GET(
       select: { normalizedBlobKey: true },
     })
 
-    if (!record?.normalizedBlobKey) {
+    if (!record?.normalizedBlobKey || !document.encryptionKey) {
       return errorResponse("Document is not normalized yet", 409)
     }
 
