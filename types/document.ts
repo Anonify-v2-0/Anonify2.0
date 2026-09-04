@@ -120,6 +120,14 @@ export type SpreadsheetCell = {
   numberFormat?: string
 }
 
+/**
+ * How the workbook hides a sheet. Absent means visible.
+ *
+ * `veryHidden` cannot be unhidden from Excel's own sheet menu — it takes the
+ * VBA editor — which is precisely why people forget the data is in there.
+ */
+export type SheetVisibility = "hidden" | "veryHidden"
+
 export type SpreadsheetSheet = {
   name: string
   rowCount: number
@@ -129,6 +137,7 @@ export type SpreadsheetSheet = {
   mergedRanges?: string[]
   hiddenRows?: number[]
   hiddenColumns?: number[]
+  visibility?: SheetVisibility
 }
 
 export type ImageRegion = {

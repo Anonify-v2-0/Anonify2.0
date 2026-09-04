@@ -21,7 +21,25 @@ import type { NormalizedDocument, SpreadsheetSheet } from "@/types/document"
  * a cell, a whole row, or a whole column. Hidden rows and columns are shown
  * rather than skipped — data the user cannot see is exactly the data they are
  * most likely to leak.
+ *
+ * Hidden sheets get the same treatment as DOCX headers and footers: rendering
+ * a hidden sheet exactly like a visible one is what makes it dangerous. The
+ * reviewer needs to know that what they are reading is content the workbook
+ * does not normally show, because that changes what they decide about it.
  */
+
+const VISIBILITY_COPY = {
+  hidden: {
+    label: "Hidden sheet",
+    detail:
+      "This sheet is hidden in the workbook. Anyone who unhides it sees everything below.",
+  },
+  veryHidden: {
+    label: "Very hidden sheet",
+    detail:
+      "This sheet is marked very hidden — it cannot be unhidden from Excel's sheet menu, only from the VBA editor. The data is still in the file.",
+  },
+} as const
 
 /** 1 -> A, 27 -> AA. */
 export function columnLabel(index: number): string {
@@ -47,6 +65,50 @@ function buildCellMap(sheet: SpreadsheetSheet): CellMap {
     map.set(cellKey(cell.row, cell.column), cell.value)
   }
   return map
+}
+
+function countLabel(count: number, singular: string): string {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`
+}
+
+/**
+ * States what the grid cannot show by drawing it: that this sheet, or some of
+ * its rows and columns, are ones the workbook keeps out of sight. Rendered
+ * above the grid rather than as a tooltip, because a reviewer who has to hover
+ * to find out has already read the sheet as if it were ordinary.
+ */
+function SheetNotice({ sheet }: { sheet: SpreadsheetSheet }) {
+  const copy = sheet.visibility ? VISIBILITY_COPY[sheet.visibility] : null
+  const hiddenRowCount = sheet.hiddenRows?.length ?? 0
+  const hiddenColumnCount = sheet.hiddenColumns?.length ?? 0
+
+  if (!copy && hiddenRowCount === 0 && hiddenColumnCount === 0) return null
+
+  const withinSheet = [
+    hiddenRowCount > 0 ? countLabel(hiddenRowCount, "hidden row") : null,
+    hiddenColumnCount > 0 ? countLabel(hiddenColumnCount, "hidden column") : null,
+  ].filter(Boolean) as string[]
+
+  return (
+    <div className="flex shrink-0 items-start gap-2 border-b border-red-border bg-red-soft px-4 py-2 text-xs text-text-secondary">
+      <EyeOff aria-hidden className="mt-0.5 size-3.5 shrink-0 text-primary" />
+      <p>
+        {copy ? (
+          <>
+            <span className="font-medium text-primary">{copy.label}.</span>{" "}
+            {copy.detail}{" "}
+          </>
+        ) : null}
+        {withinSheet.length > 0 ? (
+          <>
+            {withinSheet.join(" and ")} on this sheet
+            {copy ? "" : ", shown here and marked in the gutter"}. They are
+            extracted, reviewable and redacted like everything else.
+          </>
+        ) : null}
+      </p>
+    </div>
+  )
 }
 
 export function SpreadsheetGrid({
@@ -88,24 +150,41 @@ export function SpreadsheetGrid({
   return (
     <section className="flex min-w-0 flex-1 flex-col bg-surface-1">
       {sheets.length > 1 ? (
-        <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2">
-          {sheets.map((candidate) => (
-            <button
-              key={candidate.name}
-              type="button"
-              onClick={() => dispatch(sheetChanged(candidate.name))}
-              className={cn(
-                "rounded-full px-3 py-1 text-xs transition-colors",
-                candidate.name === sheet.name
-                  ? "bg-red-soft text-primary"
-                  : "text-text-muted hover:text-white"
-              )}
-            >
-              {candidate.name}
-            </button>
-          ))}
+        <div
+          role="tablist"
+          aria-label="Worksheets"
+          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-3 py-2"
+        >
+          {sheets.map((candidate) => {
+            const active = candidate.name === sheet.name
+            const copy = candidate.visibility
+              ? VISIBILITY_COPY[candidate.visibility]
+              : null
+
+            return (
+              <button
+                key={candidate.name}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => dispatch(sheetChanged(candidate.name))}
+                className={cn(
+                  "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors",
+                  active
+                    ? "bg-red-soft text-primary"
+                    : "text-text-muted hover:text-white"
+                )}
+              >
+                {copy ? <EyeOff aria-hidden className="size-3" /> : null}
+                {candidate.name}
+                {copy ? <span className="sr-only"> ({copy.label})</span> : null}
+              </button>
+            )
+          })}
         </div>
       ) : null}
+
+      <SheetNotice sheet={sheet} />
 
       <ScrollArea className="flex-1">
         <div className="min-w-max p-4">
@@ -140,7 +219,13 @@ export function SpreadsheetGrid({
                         </span>
                       ) : null}
                       {hiddenColumns.has(column) ? (
-                        <EyeOff className="size-3 text-neutral-400" />
+                        <>
+                          <EyeOff
+                            aria-hidden
+                            className="size-3 text-neutral-400"
+                          />
+                          <span className="sr-only">(hidden column)</span>
+                        </>
                       ) : null}
                     </span>
                   </th>
@@ -172,7 +257,13 @@ export function SpreadsheetGrid({
                     >
                       <span className="flex items-center justify-end gap-1">
                         {hiddenRows.has(row) ? (
-                          <EyeOff className="size-3 text-neutral-400" />
+                          <>
+                            <EyeOff
+                              aria-hidden
+                              className="size-3 text-neutral-400"
+                            />
+                            <span className="sr-only">(hidden row)</span>
+                          </>
                         ) : null}
                         {row}
                       </span>

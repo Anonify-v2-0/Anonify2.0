@@ -2,6 +2,7 @@ import ExcelJS from "exceljs"
 
 import type {
   NormalizedDocument,
+  SheetVisibility,
   SpreadsheetCell,
   SpreadsheetSheet,
 } from "@/types/document"
@@ -100,7 +101,19 @@ function readSheet(worksheet: ExcelJS.Worksheet): SpreadsheetSheet {
     ),
     hiddenRows: hiddenRows.length > 0 ? hiddenRows : undefined,
     hiddenColumns: hiddenColumns.length > 0 ? hiddenColumns : undefined,
+    // Carried through to the editor rather than used here: the redactor already
+    // treats every sheet alike, but a reviewer looking at a grid has no way to
+    // tell that these rows are ones nobody opening the workbook would see.
+    visibility: sheetVisibility(worksheet),
   }
+}
+
+function sheetVisibility(
+  worksheet: ExcelJS.Worksheet
+): SheetVisibility | undefined {
+  return worksheet.state === "hidden" || worksheet.state === "veryHidden"
+    ? worksheet.state
+    : undefined
 }
 
 export async function loadWorkbook(

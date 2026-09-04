@@ -39,6 +39,18 @@ describe("xlsx extraction", () => {
     expect(archive.cells.some((cell) => cell.value === SENSITIVE.email)).toBe(true)
   })
 
+  it("records which sheets the workbook hides", async () => {
+    // The redactor treats every sheet alike, so this is carried purely for the
+    // reviewer: a hidden sheet rendered exactly like a visible one is read as
+    // ordinary content, and the decision made about it is the wrong one.
+    const bytes = await makeXlsxFixture()
+    const { document } = await extractXlsx("doc_1", bytes)
+    const [customers, archive] = document.sheets ?? []
+
+    expect(customers.visibility).toBeUndefined()
+    expect(archive.visibility).toBe("hidden")
+  })
+
   it("records formulas alongside values", async () => {
     const bytes = await makeXlsxFixture()
     const { document } = await extractXlsx("doc_1", bytes)
