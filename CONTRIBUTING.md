@@ -90,8 +90,8 @@ Ordered by how much they unblock. Each item says where the code is and what
 
 ### 3.1 Make it actually clone-and-run
 
-Done. A fresh clone now runs with `pnpm setup && docker compose up -d &&
-pnpm db:migrate && pnpm dev`, against local Postgres and MinIO, with no account
+Done. A fresh clone now runs with `pnpm setup && docker compose up -d`, which
+builds and starts Anonify along with local Postgres and MinIO, with no account
 anywhere.
 
 - [x] ~~**Browser uploads require a real Blob store.**~~ The server reports which
@@ -105,13 +105,15 @@ anywhere.
       empty database and fails if the schema and the migrations disagree.
 - [x] ~~**A `docker compose` for the dependencies.**~~ Postgres and MinIO, with
       health checks, named volumes and automatic bucket creation.
+- [x] ~~**A container image for the app itself.**~~ A standalone Next.js build on
+      `node:22-slim`, with a separate migrator stage that runs before the app
+      starts, and durable runs backed by `@workflow/world-postgres` rather than
+      Vercel's world.
 - [x] ~~**`engines` and `packageManager`.**~~ Node 22+, pnpm 11+, enforced by
       `engine-strict`.
 
 Still open:
 
-- [ ] **A container image for the app itself**, so `docker compose up` runs
-      Anonify too rather than only its dependencies.
 - [ ] **Verify the compose stack in CI.** The services are exercised by hand and
       by the migration job, but nothing yet boots the whole stack end to end.
 

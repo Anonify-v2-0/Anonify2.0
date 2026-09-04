@@ -191,8 +191,22 @@ service is involved at any point.
 ```bash
 git clone <this repo> && cd Anonify2.0
 pnpm install
-pnpm setup              # choose 1 (fully local)
-docker compose up -d    # Postgres + MinIO, bucket created automatically
+pnpm setup              # choose 1 (fully local); generates the secrets
+docker compose up -d    # Postgres, MinIO, migrations, then Anonify itself
+                        # http://localhost:3000
+```
+
+`docker compose up -d` runs the whole application. The app image is built from
+this repo, the schema is applied before the app starts, and nothing needs to be
+installed on the host beyond Docker itself — `pnpm install` and `pnpm setup` are
+there to write `.env`, which is where the encryption key and the fingerprint
+secret come from.
+
+**To develop against those services with the app on the host**, start only the
+dependencies so port 3000 stays free:
+
+```bash
+docker compose up -d postgres minio minio-init
 pnpm db:migrate         # apply the schema
 pnpm ocr:warm           # optional: fetch the OCR model now rather than later
 pnpm dev                # http://localhost:3000
@@ -208,13 +222,29 @@ What `docker compose up -d` starts:
 
 | Service | Port | Credentials | Purpose |
 | --- | --- | --- | --- |
+| `app` | 3000 | — | Anonify, built from this repo |
 | Postgres 17 | 5432 | `anonify` / `anonify` | The database, in place of Neon |
 | MinIO | 9000 (API), 9001 (console) | `anonify` / `anonify-dev-secret` | S3-compatible storage, in place of Vercel Blob |
 | `minio-init` | — | — | Creates the `anonify` bucket, then exits |
+| `migrate` | — | — | Applies migrations and the workflow schema, then exits |
+| `scheduler` | — | — | Opt-in expiry sweep; see [Scheduled cleanup](#scheduled-cleanup) |
 
-Both bind to `127.0.0.1` only, and both keep their data in named volumes across
-restarts. The credentials are development defaults — do not reuse them anywhere
-reachable from outside your machine.
+Every published port binds to `127.0.0.1` only, and the data lives in named
+volumes across restarts. The credentials are development defaults — do not reuse
+them anywhere reachable from outside your machine. If something on your machine
+already holds one of these ports, set `APP_PORT`, `POSTGRES_PORT`, `MINIO_PORT`
+or `MINIO_CONSOLE_PORT` in `.env`; the addresses used inside the compose network
+are fixed and unaffected.
+
+The app starts only after `migrate` exits successfully, so a fresh `up` never
+serves against a schema that has not been applied. The container image is a
+Next.js standalone build on `node:22-slim` — Debian rather than Alpine, because
+sharp, `@napi-rs/canvas` and the pdf.js renderer all ship native binaries.
+
+Durable runs need somewhere to live. On Vercel that is provided; in the
+container it is Postgres, through `@workflow/world-postgres`, and
+`instrumentation.ts` starts the worker that polls for jobs. Without that worker
+a self-hosted install would accept uploads and never process them.
 
 The resulting configuration:
 
@@ -323,11 +353,15 @@ Or let Compose call the endpoint for you:
 docker compose --profile scheduler up -d
 ```
 
-It is opt-in because the app runs on the host in this compose file, so there is
-nothing to call until you have started it. Tune with `CLEANUP_INTERVAL_SECONDS`
-(default 900) and `ANONIFY_URL` (default `http://host.docker.internal:3000`),
-and set `CRON_SECRET` on both the app and the scheduler for any deployment
-reachable from the internet.
+It is opt-in because a short-lived local install has little worth sweeping. Tune
+with `CLEANUP_INTERVAL_SECONDS` (default 900) and `ANONIFY_URL` (default
+`http://app:3000` — point it at `http://host.docker.internal:3000` if you run
+the app on the host).
+
+`CRON_SECRET` is required for this. The container image runs as production,
+where the cleanup endpoint refuses any request that does not carry it; compose
+fails to start the scheduler without one rather than letting the sweep quietly
+401 while documents outlive their retention window. `pnpm setup` generates it.
 
 Whichever you choose, the sweep deletes the source, the normalized model, every
 export and the database row — and is idempotent, so a failed run is retried

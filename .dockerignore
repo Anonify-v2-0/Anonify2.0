@@ -1,0 +1,22 @@
+# The build context is sent to the daemon before anything runs. node_modules
+# alone is ~2 GB here, and the image installs its own anyway.
+node_modules
+.next
+.git
+.cache
+.anonify-storage
+
+# Secrets and local state must never reach an image layer.
+.env
+.env.*
+!.env.example
+
+# Not needed to build or run the server.
+tests
+docs
+coverage
+*.log
+*.pdf
+*.traineddata
+README.md
+CONTRIBUTING.md

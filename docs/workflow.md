@@ -60,6 +60,23 @@ export async function processDocument(documentId: string) {
 Everything real is a `"use step"` function with full Node access — file parsing,
 crypto, database, model calls.
 
+### Where the runs live
+
+A durable run needs durable storage. On Vercel that backend is supplied by the
+platform; anywhere else it has to be named. The container sets
+`WORKFLOW_TARGET_WORLD=@workflow/world-postgres` and keeps runs, steps and
+streams in the same Postgres as everything else, and `instrumentation.ts` starts
+the worker that polls for jobs.
+
+Two details are easy to get wrong and both fail quietly:
+
+- **The worker has to be started.** Without it a self-hosted install accepts
+  uploads and never processes them — the run is created and nothing picks it up.
+- **The world reads `WORKFLOW_POSTGRES_URL`, not `DATABASE_URL`,** and when that
+  is unset it defaults to `postgres://world:world@localhost:5432/world` rather
+  than failing. `instrumentation.ts` therefore defaults it from `DATABASE_URL`,
+  so one connection string configures both.
+
 ---
 
 ## 3. The steps

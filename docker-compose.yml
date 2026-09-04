@@ -1,12 +1,17 @@
-# Local dependencies for a self-hosted Anonify.
+# A self-hosted Anonify: the app and everything it depends on.
 #
-#   docker compose up -d
-#   pnpm db:migrate
-#   pnpm dev
+#   pnpm setup            # writes .env, including the two required secrets
+#   docker compose up -d  # postgres, minio, migrations, then the app on :3000
 #
 # Nothing here needs an account anywhere. Postgres replaces Neon, MinIO replaces
 # Vercel Blob, and OCR runs locally through Tesseract, so a fresh clone works
-# offline once the images are pulled.
+# offline once the images are built.
+#
+# To develop against these services with the app on the host instead, start only
+# the dependencies and leave port 3000 free:
+#
+#   docker compose up -d postgres minio minio-init
+#   pnpm db:migrate && pnpm dev
 #
 # The credentials below are development defaults and are deliberately obvious.
 # They are safe because the ports bind to localhost only — do not reuse them for
@@ -26,7 +31,8 @@ services:
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
     ports:
       # Bound to localhost so the database is not exposed on your network.
-      - "127.0.0.1:5432:5432"
+      # Override POSTGRES_PORT in .env if you already run Postgres on 5432.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -46,8 +52,8 @@ services:
       MINIO_ROOT_USER: anonify
       MINIO_ROOT_PASSWORD: anonify-dev-secret
     ports:
-      - "127.0.0.1:9000:9000" # S3 API
-      - "127.0.0.1:9001:9001" # web console
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000" # S3 API
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001" # web console
     volumes:
       - minio-data:/data
     healthcheck:
@@ -72,14 +78,82 @@ services:
       "
     restart: "no"
 
+  # Schema and workflow tables, then exits. The app waits for this to succeed,
+  # so a fresh `up` migrates before it serves anything.
+  migrate:
+    build:
+      context: .
+      target: migrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://anonify:anonify@postgres:5432/anonify
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: runner
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    environment:
+      # Service names, not localhost: these are resolved on the compose network,
+      # so a .env written for host development still works unchanged.
+      DATABASE_URL: postgresql://anonify:anonify@postgres:5432/anonify
+      DATABASE_DRIVER: postgres
+      STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: anonify
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: anonify
+      S3_SECRET_ACCESS_KEY: anonify-dev-secret
+      S3_FORCE_PATH_STYLE: "true"
+
+      # Required, and deliberately not defaulted. ENCRYPTION_KEY is the master
+      # key for every stored document; a value committed to this file would be
+      # the same value on every install. `pnpm setup` generates both.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set it in .env, or run `pnpm setup` to generate one}
+      FINGERPRINT_SECRET: ${FINGERPRINT_SECRET:?set it in .env, or run `pnpm setup` to generate one}
+
+      ANONIFY_PROFILE: ${ANONIFY_PROFILE:-self-hosted}
+      ANONIFY_RATE_LIMIT_UPLOAD: ${ANONIFY_RATE_LIMIT_UPLOAD:-}
+      ANONIFY_RATE_LIMIT_PROCESSING: ${ANONIFY_RATE_LIMIT_PROCESSING:-}
+      ANONIFY_RATE_LIMIT_EXPORT: ${ANONIFY_RATE_LIMIT_EXPORT:-}
+      ANONIFY_RATE_LIMIT_READ: ${ANONIFY_RATE_LIMIT_READ:-}
+
+      OCR_PROVIDER: ${OCR_PROVIDER:-tesseract}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+
+      # Optional. Without a key the contextual pass is skipped and pattern
+      # detection, manual redaction and export all still work.
+      AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_PRICE_INPUT_PER_MTOK: ${AI_PRICE_INPUT_PER_MTOK:-}
+      AI_PRICE_OUTPUT_PER_MTOK: ${AI_PRICE_OUTPUT_PER_MTOK:-}
+
+      # NODE_ENV is production in the image, so the cleanup endpoint refuses
+      # every request that does not carry this. Leave it unset and the sweep
+      # simply will not run.
+      CRON_SECRET: ${CRON_SECRET:-}
+    volumes:
+      # Tesseract downloads its ~5 MB language model on first use. Without this
+      # the download repeats on every container restart.
+      - tesseract-cache:/data/tesseract
+    restart: unless-stopped
+
   # Expiry sweep.
   #
   # vercel.json's cron entry is read by Vercel and by nothing else, so a
   # self-hosted install has no scheduler at all — and "temporary by default"
   # stops being true the moment nothing is deleting anything.
   #
-  # Opt in, because the app runs on the host in this compose file and there is
-  # nothing to call until it is up:
+  # Opt in, because a short-lived local install has nothing worth sweeping:
   #
   #   docker compose --profile scheduler up -d
   #
@@ -90,13 +164,17 @@ services:
     image: curlimages/curl:latest
     profiles: ["scheduler"]
     restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
     environment:
-      # Where the app is listening. host.docker.internal reaches the host from
-      # inside the container; override if the app runs elsewhere.
-      ANONIFY_URL: ${ANONIFY_URL:-http://host.docker.internal:3000}
-      # Must match the app's CRON_SECRET when one is set. Empty is fine in
-      # development, where the endpoint does not require it.
-      CRON_SECRET: ${CRON_SECRET:-}
+      # The app on the compose network. Override with host.docker.internal:3000
+      # if you run the app on the host instead.
+      ANONIFY_URL: ${ANONIFY_URL:-http://app:3000}
+      # The image runs as production, where the cleanup endpoint requires this.
+      # Required here rather than defaulted, because the alternative is a sweep
+      # that quietly 401s and a "temporary" document that is never deleted.
+      CRON_SECRET: ${CRON_SECRET:?set it in .env, or run `pnpm setup` to generate one}
       CLEANUP_INTERVAL_SECONDS: ${CLEANUP_INTERVAL_SECONDS:-900}
     extra_hosts:
       # Docker Desktop provides this name already; Linux needs it spelled out.
@@ -120,3 +198,4 @@ services:
 volumes:
   postgres-data:
   minio-data:
+  tesseract-cache:

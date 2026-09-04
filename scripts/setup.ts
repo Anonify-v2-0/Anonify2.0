@@ -108,6 +108,17 @@ function localEnv(): string {
       ],
     },
     {
+      heading: "Scheduled cleanup",
+      lines: [
+        {
+          key: "CRON_SECRET",
+          value: secret(),
+          comment:
+            "Gates the expiry sweep. The container runs as production, where the endpoint requires it.",
+        },
+      ],
+    },
+    {
       heading: "Optional",
       lines: [
         {
