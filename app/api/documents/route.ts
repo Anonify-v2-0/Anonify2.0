@@ -11,6 +11,7 @@ import { extensionOf } from "@/lib/documents/detect"
 import { newDocumentId } from "@/lib/documents/ids"
 import { getIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
+import { checkQuota, quotaMessage, recordUsage } from "@/lib/security/usage"
 import { uploadKey } from "@/lib/storage/blob"
 import { DEFAULT_TTL_SECONDS } from "@/types/document"
 
@@ -70,6 +71,16 @@ export async function POST(request: Request) {
       return errorResponse("Unsupported file type", 415)
     }
 
+    // The per-page and per-cell allowances are charged once the pipeline knows
+    // the real size; the upload count is charged here, before any work starts.
+    const quota = await checkQuota(identity.quotaKey, "uploads")
+    if (!quota.allowed) {
+      return errorResponse(quotaMessage(quota), 429, {
+        limit: quota.limit,
+        used: quota.used,
+      })
+    }
+
     const documentId = newDocumentId()
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000)
 
@@ -83,9 +94,16 @@ export async function POST(request: Request) {
         size,
         status: "uploading",
         userFingerprint: identity.ownerKey,
+        quotaKey: identity.quotaKey,
         ttlSeconds,
         expiresAt,
       },
+    })
+
+    await recordUsage({
+      fingerprint: identity.quotaKey,
+      kind: "uploads",
+      quantity: 1,
     })
 
     return jsonResponse(
@@ -93,6 +111,7 @@ export async function POST(request: Request) {
         id: documentId,
         pathname: uploadKey(documentId, filename),
         expiresAt: expiresAt.toISOString(),
+        quota: { used: quota.used + 1, limit: quota.limit },
       },
       201
     )

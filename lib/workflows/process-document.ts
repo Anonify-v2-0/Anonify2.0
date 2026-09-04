@@ -13,6 +13,11 @@ import { newEventId } from "@/lib/documents/ids"
 import { saveNormalized } from "@/lib/documents/normalized-store"
 import { loadNormalized } from "@/lib/documents/normalized-store"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
+import {
+  quotaMessage,
+  recordUsage,
+  usageKindFor,
+} from "@/lib/security/usage"
 import { deleteObject, getObject, putObject, sourceKey } from "@/lib/storage/blob"
 import { decryptDocument, encryptDocument } from "@/lib/storage/encryption"
 import { checksumMatches, sha256 } from "@/lib/storage/integrity"
@@ -166,6 +171,7 @@ async function extractAndNormalize(documentId: string): Promise<{ pageCount: num
       sourceBlobKey: true,
       encryptionKey: true,
       checksum: true,
+      quotaKey: true,
     },
   })
 
@@ -191,6 +197,28 @@ async function extractAndNormalize(documentId: string): Promise<{ pageCount: num
     where: { id: documentId },
     data: { normalizedBlobKey, pageCount: model.pages.length },
   })
+
+  // The real cost is only knowable now, so this is where the demo allowance is
+  // charged. Going over stops the pipeline; it never deletes what was uploaded.
+  if (document.quotaKey) {
+    const kind = usageKindFor(document.kind as DocumentKind)
+    const quantity =
+      kind === "xlsxCells"
+        ? (model.sheets ?? []).reduce(
+            (total, sheet) => total + sheet.rowCount * sheet.columnCount,
+            0
+          )
+        : kind === "images"
+          ? 1
+          : model.pages.length
+
+    const quota = await recordUsage({
+      fingerprint: document.quotaKey,
+      kind,
+      quantity,
+    })
+    if (!quota.allowed) throw new FatalError(quotaMessage(quota))
+  }
 
   return { pageCount: model.pages.length }
 }

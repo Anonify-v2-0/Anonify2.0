@@ -38,7 +38,11 @@ model Document {
   checksum         String?
   processedChecksum String?
 
+  /// Hashed owner identity; a document belongs to this and nothing else.
   userFingerprint  String
+  /// Hashed quota bucket (session + coarse network), charged after extraction
+  /// when the real page or cell count is known.
+  quotaKey         String?
   /// Encrypted normalized-model artifact. Extracted text never sits in the
   /// database in the clear.
   normalizedBlobKey String?
