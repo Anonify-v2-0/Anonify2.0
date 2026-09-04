@@ -15,6 +15,7 @@ under a black rectangle is not a redaction system.
 | [docs/workflow.md](docs/workflow.md) | The durable pipeline, its steps, streaming, expiry, failure modes |
 | [docs/ai-engine.md](docs/ai-engine.md) | Detection order, cost discipline, prompts, suggestion → decision → removal |
 | [docs/pipelines.md](docs/pipelines.md) | Why each format's pipeline is built the way it is |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | The invariants, the roadmap, and the benchmarks we would like |
 
 ## Where this came from
 
@@ -217,6 +218,25 @@ pnpm db:push     # apply the Prisma schema
   *suggestion* the user never accepted is still present in the output.
 - `tests/detectors.test.ts` — that an order number is not reported as a card,
   and a date is only a birth date when it is labelled as one.
+
+## Contributing
+
+The project is meant to be cloned, read and changed.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the invariants that must not break, an
+audit of what is currently half-wired, and what the next phase of work is.
+
+Two asks stand out:
+
+- **Make a fresh clone work without a Vercel account.** Browser uploads still
+  require a real Blob store and the database adapter is hardcoded to Neon, which
+  contradicts the point of the repo.
+- **Benchmark it.** The architecture claims that deterministic detection plus a
+  narrow model pass costs far fewer tokens than sending documents to a model, at
+  comparable quality. Nobody has measured that, and it could be wrong.
+
+There are no accounts and no auth, deliberately: you run this against your own
+database and your own storage. The hosted demo is anonymous so people can try
+the tool without setting it up.
 
 ## Security notes
 
