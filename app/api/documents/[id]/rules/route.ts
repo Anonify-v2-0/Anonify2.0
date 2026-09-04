@@ -1,6 +1,11 @@
 import { z } from "zod"
 
-import { errorResponse, handleRouteError, jsonResponse } from "@/lib/api/http"
+import {
+  errorResponse,
+  handleRouteError,
+  jsonResponse,
+  readJson,
+} from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import { newRuleId } from "@/lib/documents/ids"
 import { loadNormalized } from "@/lib/documents/normalized-store"
@@ -38,7 +43,7 @@ export async function POST(
 
     const document = await requireDocument(id, identity?.ownerKey)
 
-    const parsed = createSchema.safeParse(await request.json())
+    const parsed = createSchema.safeParse(await readJson(request))
     if (!parsed.success) {
       return errorResponse("Invalid rule", 400)
     }

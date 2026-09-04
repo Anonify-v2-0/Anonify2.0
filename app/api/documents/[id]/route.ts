@@ -1,6 +1,11 @@
 import { z } from "zod"
 
-import { errorResponse, handleRouteError, jsonResponse } from "@/lib/api/http"
+import {
+  errorResponse,
+  handleRouteError,
+  jsonResponse,
+  readJson,
+} from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
@@ -74,7 +79,7 @@ export async function PATCH(
 
     const document = await requireDocument(id, identity?.ownerKey)
 
-    const parsed = extendSchema.safeParse(await request.json())
+    const parsed = extendSchema.safeParse(await readJson(request))
     if (!parsed.success) {
       return errorResponse("Invalid retention window", 400)
     }

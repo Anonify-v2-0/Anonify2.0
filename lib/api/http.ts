@@ -1,5 +1,30 @@
 import { AccessError } from "@/lib/security/access-control"
 
+/**
+ * Reads a request body, treating a malformed one as a client error.
+ *
+ * `request.json()` and `request.formData()` throw on a body that is absent or
+ * the wrong shape, and letting that reach the generic handler turns a bad
+ * request into a 500 — which reads as "the server is broken" when it is not.
+ */
+export async function readJson(request: Request): Promise<unknown | undefined> {
+  try {
+    return await request.json()
+  } catch {
+    return undefined
+  }
+}
+
+export async function readFormData(
+  request: Request
+): Promise<FormData | undefined> {
+  try {
+    return await request.formData()
+  } catch {
+    return undefined
+  }
+}
+
 export function jsonResponse(data: unknown, status = 200): Response {
   return Response.json(data, {
     status,
