@@ -121,3 +121,28 @@ export async function makeDocxFixture(): Promise<Uint8Array> {
   const buffer = await Packer.toBuffer(doc)
   return new Uint8Array(buffer)
 }
+
+/**
+ * Builds a workbook with a header row, a formula, a hidden row and a hidden
+ * sheet — the places redaction is easiest to get wrong.
+ */
+export async function makeXlsxFixture(): Promise<Uint8Array> {
+  const ExcelJS = (await import("exceljs")).default
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = "Test Author"
+
+  const sheet = workbook.addWorksheet("Customers")
+  sheet.addRow(["Name", "Email", "Account", "Amount"])
+  sheet.addRow([SENSITIVE.person, SENSITIVE.email, SENSITIVE.account, 4000])
+  sheet.addRow(["Jane Doe", "jane@example.com", "87654321", 2500])
+  sheet.getCell("E2").value = { formula: "B2", result: SENSITIVE.email }
+  sheet.getRow(3).hidden = true
+
+  const hidden = workbook.addWorksheet("Archive")
+  hidden.state = "hidden"
+  hidden.addRow(["Name", "Email"])
+  hidden.addRow([SENSITIVE.person, SENSITIVE.email])
+
+  const output = await workbook.xlsx.writeBuffer()
+  return new Uint8Array(output)
+}

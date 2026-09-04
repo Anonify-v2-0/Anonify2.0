@@ -2,6 +2,21 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit"
 
 export type EditorTool = "select" | "redact" | "pan"
 
+/** What the user currently has marked in the spreadsheet grid. */
+export type GridSelection = {
+  sheet: string | null
+  cells: { row: number; column: number }[]
+  rows: number[]
+  columns: number[]
+}
+
+const emptySelection: GridSelection = {
+  sheet: null,
+  cells: [],
+  rows: [],
+  columns: [],
+}
+
 type EditorState = {
   currentPage: number
   zoom: number
@@ -9,6 +24,7 @@ type EditorState = {
   activeSheet: string | null
   fitMode: "width" | "page" | "custom"
   inspectorOpen: boolean
+  selection: GridSelection
 }
 
 const initialState: EditorState = {
@@ -18,6 +34,7 @@ const initialState: EditorState = {
   activeSheet: null,
   fitMode: "width",
   inspectorOpen: true,
+  selection: emptySelection,
 }
 
 export const MIN_ZOOM = 0.25
@@ -46,6 +63,79 @@ const editorSlice = createSlice({
     },
     sheetChanged(state, action: PayloadAction<string | null>) {
       state.activeSheet = action.payload
+      state.selection = { ...emptySelection, sheet: action.payload }
+    },
+    cellSelected(
+      state,
+      action: PayloadAction<{
+        sheet: string
+        row: number
+        column: number
+        additive?: boolean
+      }>
+    ) {
+      const { sheet, row, column, additive } = action.payload
+      const base =
+        additive && state.selection.sheet === sheet
+          ? state.selection
+          : { ...emptySelection, sheet }
+
+      const already = base.cells.some(
+        (cell) => cell.row === row && cell.column === column
+      )
+
+      state.selection = {
+        ...base,
+        sheet,
+        cells: already
+          ? base.cells.filter(
+              (cell) => !(cell.row === row && cell.column === column)
+            )
+          : [...base.cells, { row, column }],
+      }
+    },
+    rowSelected(
+      state,
+      action: PayloadAction<{ sheet: string; row: number; additive?: boolean }>
+    ) {
+      const { sheet, row, additive } = action.payload
+      const base =
+        additive && state.selection.sheet === sheet
+          ? state.selection
+          : { ...emptySelection, sheet }
+
+      state.selection = {
+        ...base,
+        sheet,
+        rows: base.rows.includes(row)
+          ? base.rows.filter((candidate) => candidate !== row)
+          : [...base.rows, row],
+      }
+    },
+    columnSelected(
+      state,
+      action: PayloadAction<{
+        sheet: string
+        column: number
+        additive?: boolean
+      }>
+    ) {
+      const { sheet, column, additive } = action.payload
+      const base =
+        additive && state.selection.sheet === sheet
+          ? state.selection
+          : { ...emptySelection, sheet }
+
+      state.selection = {
+        ...base,
+        sheet,
+        columns: base.columns.includes(column)
+          ? base.columns.filter((candidate) => candidate !== column)
+          : [...base.columns, column],
+      }
+    },
+    selectionCleared(state) {
+      state.selection = { ...emptySelection, sheet: state.activeSheet }
     },
     inspectorToggled(state, action: PayloadAction<boolean | undefined>) {
       state.inspectorOpen = action.payload ?? !state.inspectorOpen
@@ -63,6 +153,10 @@ export const {
   fitModeChanged,
   toolChanged,
   sheetChanged,
+  cellSelected,
+  rowSelected,
+  columnSelected,
+  selectionCleared,
   inspectorToggled,
   editorReset,
 } = editorSlice.actions

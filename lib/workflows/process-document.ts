@@ -5,6 +5,7 @@ import { prisma } from "@/lib/database/prisma"
 import { MAX_UPLOAD_BYTES } from "@/lib/config"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { extractPdf } from "@/lib/documents/pdf/extract"
+import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { newEventId } from "@/lib/documents/ids"
 import { saveNormalized } from "@/lib/documents/normalized-store"
@@ -204,8 +205,12 @@ async function extractByKind(
       const { document } = extractDocx(documentId, bytes)
       return document
     }
+    case "xlsx": {
+      const { document } = await extractXlsx(documentId, bytes)
+      return document
+    }
     default:
-      // XLSX and image pipelines attach in milestones 5-6.
+      // The image pipeline attaches in milestone 6.
       throw new FatalError(`No extractor registered for ${kind}`)
   }
 }

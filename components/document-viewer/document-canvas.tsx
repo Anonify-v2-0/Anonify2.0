@@ -5,6 +5,7 @@ import { FileWarning } from "lucide-react"
 
 import { DocxViewer } from "@/components/document-viewer/docx-viewer"
 import { PdfViewer } from "@/components/document-viewer/pdf-viewer"
+import { SpreadsheetGrid } from "@/components/spreadsheet/spreadsheet-grid"
 import { useNormalizedDocument } from "@/hooks/use-normalized-document"
 import { fitModeChanged, zoomChanged } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
@@ -53,6 +54,17 @@ export function DocumentCanvas({ summary }: { summary: DocumentSummary }) {
     observer.observe(container)
     return () => observer.disconnect()
   }, [dispatch, fitMode, page])
+
+  // Workbooks bring their own scrolling surface and ignore page zoom.
+  if (summary.kind === "xlsx") {
+    return normalized ? (
+      <SpreadsheetGrid normalized={normalized} />
+    ) : (
+      <section className="flex min-w-0 flex-1 items-center justify-center bg-surface-1">
+        <Placeholder summary={summary} />
+      </section>
+    )
+  }
 
   return (
     <section
