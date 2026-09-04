@@ -162,11 +162,13 @@ model AiUsage {
   @@index([documentId])
 }
 
-/// Fixed-window rate limiting, keyed by hashed network/session identifiers.
+/// Token-bucket rate limiting, keyed by hashed network/session identifiers.
+/// A bucket refills continuously, so there is no window boundary to burst
+/// across the way a fixed window allows.
 model RateLimit {
-  key         String   @id
-  windowStart DateTime
-  count       Int      @default(0)
+  key       String   @id
+  tokens    Float
+  updatedAt DateTime
 
-  @@index([windowStart])
+  @@index([updatedAt])
 }
