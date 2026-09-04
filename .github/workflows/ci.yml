@@ -99,12 +99,54 @@ jobs:
       - name: Build
         run: pnpm run build
 
+  # Proves a fresh clone can actually stand the schema up. `db push` would hide
+  # a broken migration by rebuilding from the schema instead of replaying it.
+  migrations:
+    name: Migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: anonify
+          POSTGRES_PASSWORD: anonify
+          POSTGRES_DB: anonify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U anonify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://anonify:anonify@localhost:5432/anonify
+      DATABASE_DRIVER: postgres
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+
+      - name: Apply migrations to an empty database
+        run: pnpm db:migrate:deploy
+
+      - name: Fail if the schema and the migrations disagree
+        # Catches a schema.prisma edited without a matching migration, which
+        # would work locally via `db push` and break every fresh install.
+        run: pnpm exec prisma migrate diff
+          --from-migrations prisma/migrations
+          --to-schema-datamodel prisma/schema.prisma
+          --shadow-database-url "$DATABASE_URL"
+          --exit-code
+
   # A single check to require in branch protection, so adding a job above does
   # not mean editing the protected-branch settings.
   ci:
     name: CI
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, build]
+    needs: [lint, typecheck, test, build, migrations]
     if: always()
     steps:
       - name: Report
@@ -113,6 +155,7 @@ jobs:
           echo "typecheck: ${{ needs.typecheck.result }}"
           echo "test:      ${{ needs.test.result }}"
           echo "build:     ${{ needs.build.result }}"
+          echo "migrations: ${{ needs.migrations.result }}"
 
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
             echo "::error::One or more checks failed."
