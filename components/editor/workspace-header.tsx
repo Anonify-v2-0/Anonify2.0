@@ -21,7 +21,7 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
       <Brand size={26} className="hidden sm:flex" />
 
       <Link
-        href="/"
+        href="/documents"
         className="flex items-center gap-1.5 text-xs text-text-muted transition-colors hover:text-white"
       >
         <ArrowLeft className="size-4" />

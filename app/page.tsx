@@ -1,4 +1,5 @@
 import Image from "next/image"
+import Link from "next/link"
 import { FileSpreadsheet, FileText, Image as ImageIcon, ShieldCheck } from "lucide-react"
 
 import { Brand } from "@/components/layout/brand"
@@ -24,10 +25,18 @@ export default function Page() {
     <div className="flex min-h-svh flex-col">
       <header className="flex h-16 items-center justify-between border-b border-border px-6 lg:h-20 lg:px-10">
         <Brand />
-        <span className="hidden items-center gap-2 text-xs text-text-muted sm:flex">
-          <ShieldCheck className="size-4 text-primary" />
-          Temporary by default
-        </span>
+        <nav className="flex items-center gap-5">
+          <Link
+            href="/documents"
+            className="text-xs text-text-secondary transition-colors hover:text-white"
+          >
+            Your documents
+          </Link>
+          <span className="hidden items-center gap-2 text-xs text-text-muted sm:flex">
+            <ShieldCheck className="size-4 text-primary" />
+            Temporary by default
+          </span>
+        </nav>
       </header>
 
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-14 px-6 py-12 lg:px-10 lg:py-20">

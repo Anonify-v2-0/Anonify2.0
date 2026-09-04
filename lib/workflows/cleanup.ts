@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/database/prisma"
+import { purgeDocument, PURGE_SELECT } from "@/lib/documents/purge"
 import { pruneRateLimits } from "@/lib/security/rate-limit"
-import { deleteObject } from "@/lib/storage/blob"
 
 /**
  * Expiry cleanup.
@@ -26,14 +26,7 @@ const BATCH_SIZE = 50
 export async function cleanupExpired(now = new Date()): Promise<CleanupResult> {
   const expired = await prisma.document.findMany({
     where: { expiresAt: { lte: now } },
-    select: {
-      id: true,
-      sourceBlobKey: true,
-      uploadBlobKey: true,
-      processedBlobKey: true,
-      normalizedBlobKey: true,
-      exports: { select: { blobKey: true } },
-    },
+    select: PURGE_SELECT,
     take: BATCH_SIZE,
   })
 
@@ -42,34 +35,13 @@ export async function cleanupExpired(now = new Date()): Promise<CleanupResult> {
   let failures = 0
 
   for (const document of expired) {
-    const keys = [
-      document.sourceBlobKey,
-      document.uploadBlobKey,
-      document.processedBlobKey,
-      document.normalizedBlobKey,
-      ...document.exports.map((artifact) => artifact.blobKey),
-    ].filter((key): key is string => Boolean(key))
+    const result = await purgeDocument(document)
+    objectsDeleted += result.objectsDeleted
 
-    let storageCleared = true
-    for (const key of keys) {
-      try {
-        await deleteObject(key)
-        objectsDeleted += 1
-      } catch {
-        // Leave the record in place so the next run retries this document
-        // rather than orphaning bytes nobody is tracking any more.
-        storageCleared = false
-      }
-    }
-
-    if (!storageCleared) {
-      failures += 1
-      continue
-    }
-
-    // Redactions, rules, events and exports cascade from the document.
-    await prisma.document.delete({ where: { id: document.id } })
-    documentsDeleted += 1
+    // A document whose storage did not clear keeps its record, so the next run
+    // retries it rather than orphaning bytes nobody is tracking any more.
+    if (result.recordDeleted) documentsDeleted += 1
+    else failures += 1
   }
 
   const rateLimitsPruned = await pruneRateLimits().catch(() => 0)

@@ -9,13 +9,37 @@ import {
 import { prisma } from "@/lib/database/prisma"
 import { extensionOf } from "@/lib/documents/detect"
 import { newDocumentId } from "@/lib/documents/ids"
-import { getIdentity } from "@/lib/security/fingerprint"
+import { listDocuments } from "@/lib/documents/listing"
+import { getIdentity, peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { checkQuota, quotaMessage, recordUsage } from "@/lib/security/usage"
 import { uploadKey } from "@/lib/storage/blob"
 import { DEFAULT_TTL_SECONDS } from "@/types/document"
 
 export const runtime = "nodejs"
+
+/**
+ * The caller's own documents, newest first.
+ *
+ * No session means no documents — not an error. The list is scoped by the same
+ * owner key that guards every other read.
+ */
+export async function GET() {
+  try {
+    const identity = await peekIdentity()
+
+    // Without a session there is nothing to return and nothing to protect, so
+    // this path does no database work at all — including the rate-limit write
+    // that would otherwise turn an unauthenticated flood into write load.
+    if (!identity) return jsonResponse({ documents: [] })
+
+    await consumeRateLimit("read", identity.networkKey)
+
+    return jsonResponse({ documents: await listDocuments(identity.ownerKey) })
+  } catch (error) {
+    return handleRouteError(error, "documents.list")
+  }
+}
 
 const EXTENSION_KINDS: Record<string, string> = {
   pdf: "pdf",
