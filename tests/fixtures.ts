@@ -66,6 +66,8 @@ export async function makeScannedPdfFixture(): Promise<Uint8Array> {
 export async function makeDocxFixture(): Promise<Uint8Array> {
   const {
     Document,
+    Footer,
+    Header,
     HeadingLevel,
     Packer,
     Paragraph,
@@ -78,6 +80,20 @@ export async function makeDocxFixture(): Promise<Uint8Array> {
   const doc = new Document({
     sections: [
       {
+        // A name that appears *only* in the header is the case that used to be
+        // swept at export but never shown to the reviewer.
+        headers: {
+          default: new Header({
+            children: [
+              new Paragraph(`Prepared for ${SENSITIVE.person} - confidential`),
+            ],
+          }),
+        },
+        footers: {
+          default: new Footer({
+            children: [new Paragraph(`Contact ${SENSITIVE.email}`)],
+          }),
+        },
         children: [
           new Paragraph({
             text: "Client Report",

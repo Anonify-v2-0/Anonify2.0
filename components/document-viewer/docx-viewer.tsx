@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from "react"
 import type {
   DocxBlock,
   DocxParagraph,
+  DocxRegion,
   DocxRun,
   NormalizedPage,
   TextStyle,
@@ -20,6 +21,20 @@ import type {
  */
 
 const PAGE_MARGIN = 72
+
+/**
+ * Headers, footers, footnotes and comments are shown as labelled bands around
+ * the body. They used to be swept at export but never displayed, which meant a
+ * name appearing only in a header could never be reviewed — the user was
+ * trusting a removal they could not see.
+ */
+const REGION_LABELS: Partial<Record<DocxRegion, string>> = {
+  header: "Header",
+  footer: "Footer",
+  footnote: "Footnotes",
+  endnote: "Endnotes",
+  comment: "Comments",
+}
 
 function styleOf(style: TextStyle | undefined): CSSProperties | undefined {
   if (!style) return undefined
@@ -137,6 +152,22 @@ function Block({
   )
 }
 
+/** Groups consecutive blocks by region, preserving extraction order. */
+function groupByRegion(
+  blocks: DocxBlock[]
+): { region: DocxRegion; blocks: DocxBlock[] }[] {
+  const groups: { region: DocxRegion; blocks: DocxBlock[] }[] = []
+
+  for (const block of blocks) {
+    const region = block.region ?? "body"
+    const last = groups[groups.length - 1]
+    if (last && last.region === region) last.blocks.push(block)
+    else groups.push({ region, blocks: [block] })
+  }
+
+  return groups
+}
+
 export function DocxViewer({
   page,
   zoom,
@@ -165,9 +196,28 @@ export function DocxViewer({
           lineHeight: 1.5,
         }}
       >
-        {(page.blocks ?? []).map((block) => (
-          <Block key={block.id} block={block} renderSpan={renderSpan} />
-        ))}
+        {groupByRegion(page.blocks ?? []).map((group) =>
+          group.region === "body" ? (
+            <div key={group.region}>
+              {group.blocks.map((block) => (
+                <Block key={block.id} block={block} renderSpan={renderSpan} />
+              ))}
+            </div>
+          ) : (
+            <section
+              key={group.region}
+              aria-label={REGION_LABELS[group.region] ?? group.region}
+              className="my-3 border-y border-dashed border-neutral-300 py-2"
+            >
+              <p className="mb-1 text-[8pt] tracking-[0.14em] text-neutral-500 uppercase">
+                {REGION_LABELS[group.region] ?? group.region}
+              </p>
+              {group.blocks.map((block) => (
+                <Block key={block.id} block={block} renderSpan={renderSpan} />
+              ))}
+            </section>
+          )
+        )}
         {children}
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { parseSpanAddress } from "@/lib/documents/docx/extract"
 import {
   listParts,
   openPackage,
@@ -29,7 +30,11 @@ import {
  */
 
 export type DocxRedactionPlan = {
-  /** Precise edits, addressed by the run ids extraction assigned (p3r1). */
+  /**
+   * Precise edits, addressed by the run ids extraction assigned — part
+   * qualified, e.g. `word/header1.xml#p3r1`, because each part has its own
+   * paragraph numbering.
+   */
   runEdits: Record<string, CharRange[]>
   /** Accepted values, removed wherever else they appear in the package. */
   values: string[]
@@ -118,7 +123,16 @@ function editsForSegments(
   return edits
 }
 
-function applyRunEdits(xml: string, runEdits: Record<string, CharRange[]>, label: string | null): string {
+/**
+ * Applies one part's edits. The paragraph and run indices are re-derived by
+ * walking this part in document order — the same walk extraction used, which is
+ * what makes an address captured then still point at the same run now.
+ */
+function applyRunEdits(
+  xml: string,
+  localEdits: Record<string, CharRange[]>,
+  label: string | null
+): string {
   const paragraphs = scanElements(xml, "w:p")
   const edits: TextEdit[] = []
 
@@ -128,7 +142,7 @@ function applyRunEdits(xml: string, runEdits: Record<string, CharRange[]>, label
     )
 
     runs.forEach((run, runIndex) => {
-      const ranges = runEdits[`p${paragraphIndex}r${runIndex}`]
+      const ranges = localEdits[`p${paragraphIndex}r${runIndex}`]
       if (!ranges || ranges.length === 0) return
       edits.push(
         ...editsForSegments(segmentsOfRun(xml, run.start, run.end), ranges, label)
@@ -137,6 +151,27 @@ function applyRunEdits(xml: string, runEdits: Record<string, CharRange[]>, label
   })
 
   return applyTextEdits(xml, edits)
+}
+
+/** Splits part-qualified addresses into per-part edit maps. */
+export function groupEditsByPart(
+  runEdits: Record<string, CharRange[]>
+): Map<string, Record<string, CharRange[]>> {
+  const grouped = new Map<string, Record<string, CharRange[]>>()
+
+  for (const [address, ranges] of Object.entries(runEdits)) {
+    const parsed = parseSpanAddress(address)
+    // An address with no part is from an older normalized model; document.xml
+    // is where those addresses were always relative to.
+    const part = parsed?.part ?? "word/document.xml"
+    const local = parsed?.local ?? address
+
+    const existing = grouped.get(part) ?? {}
+    existing[local] = ranges
+    grouped.set(part, existing)
+  }
+
+  return grouped
 }
 
 /**
@@ -213,16 +248,16 @@ export function redactDocx(
   const pkg = openPackage(bytes)
   const label = plan.label
 
-  const documentXml = readPart(pkg, "word/document.xml")
-  if (!documentXml) {
+  if (!readPart(pkg, "word/document.xml")) {
     throw new Error("word/document.xml is missing; the file is not a DOCX")
   }
 
-  writePart(
-    pkg,
-    "word/document.xml",
-    applyRunEdits(documentXml, plan.runEdits, label)
-  )
+  // Precise edits, applied to whichever part each address names.
+  for (const [part, localEdits] of groupEditsByPart(plan.runEdits)) {
+    const xml = readPart(pkg, part)
+    if (!xml) continue
+    writePart(pkg, part, applyRunEdits(xml, localEdits, label))
+  }
 
   // Safety net: the same values, everywhere else Word can keep text.
   for (const part of listParts(pkg, WORD_TEXT_PARTS)) {

@@ -3,15 +3,18 @@ import {
   attr,
   childrenOf,
   findChild,
+  listParts,
   nodeName,
   openPackage,
   readPart,
+  WORD_TEXT_PARTS,
   xmlParser,
   type XmlNode,
 } from "@/lib/documents/docx/ooxml"
 import type {
   DocxBlock,
   DocxParagraph,
+  DocxRegion,
   DocxRun,
   DocxTable,
   NormalizedDocument,
@@ -183,30 +186,60 @@ function collectRuns(node: XmlNode, into: XmlNode[] = []): XmlNode[] {
   return into
 }
 
-function buildParagraph(paragraphNode: XmlNode, counter: Counter): DocxParagraph {
-  const index = counter.paragraph()
+/**
+ * Addresses are qualified by the part they live in, because each part is walked
+ * — and later re-walked by the exporter — independently. `word/header1.xml#p0r1`
+ * is the second run of the first paragraph of that header.
+ */
+export const PART_SEPARATOR = "#"
+
+export function spanAddress(part: string, paragraph: number, run: number): string {
+  return `${part}${PART_SEPARATOR}p${paragraph}r${run}`
+}
+
+/** Splits an address back into the part and the local `p{n}r{m}` key. */
+export function parseSpanAddress(
+  address: string
+): { part: string; local: string } | null {
+  const index = address.indexOf(PART_SEPARATOR)
+  if (index === -1) return null
+  return {
+    part: address.slice(0, index),
+    local: address.slice(index + 1),
+  }
+}
+
+type PartContext = { part: string; region: DocxRegion; counter: Counter }
+
+function buildParagraph(
+  paragraphNode: XmlNode,
+  context: PartContext
+): DocxParagraph {
+  const index = context.counter.paragraph()
   const runs: DocxRun[] = []
 
   collectRuns(paragraphNode).forEach((runNode, runIndex) => {
     const text = textOfRun(runNode)
     if (text.length === 0) return
     runs.push({
-      id: `p${index}r${runIndex}`,
+      id: spanAddress(context.part, index, runIndex),
       text,
       style: runStyle(runNode),
     })
   })
 
   return {
-    id: `p${index}`,
+    id: `${context.part}${PART_SEPARATOR}p${index}`,
     type: "paragraph",
+    region: context.region,
+    part: context.part,
     runs,
     ...paragraphProps(paragraphNode),
   }
 }
 
-function buildTable(tableNode: XmlNode, counter: Counter): DocxTable {
-  const id = `tbl${counter.table()}`
+function buildTable(tableNode: XmlNode, context: PartContext): DocxTable {
+  const id = `${context.part}${PART_SEPARATOR}tbl${context.counter.table()}`
   const rows: DocxParagraph[][][] = []
 
   for (const rowNode of childrenOf(tableNode)) {
@@ -219,10 +252,10 @@ function buildTable(tableNode: XmlNode, counter: Counter): DocxTable {
       for (const child of childrenOf(cellNode)) {
         const name = nodeName(child)
         if (name === "w:p") {
-          paragraphs.push(buildParagraph(child, counter))
+          paragraphs.push(buildParagraph(child, context))
         } else if (name === "w:tbl") {
           // A nested table still contributes its paragraphs in document order.
-          for (const nested of buildTable(child, counter).rows.flat(2)) {
+          for (const nested of buildTable(child, context).rows.flat(2)) {
             paragraphs.push(nested)
           }
         }
@@ -233,7 +266,49 @@ function buildTable(tableNode: XmlNode, counter: Counter): DocxTable {
     rows.push(cells)
   }
 
-  return { id, type: "table", rows }
+  return { id, type: "table", region: context.region, part: context.part, rows }
+}
+
+/**
+ * Collects paragraphs and tables from anywhere in a part, in document order.
+ *
+ * Each part wraps its content differently — `w:body`, `w:hdr`, `w:ftr`,
+ * `w:footnote`, `w:comment` — so rather than encode every wrapper this walks
+ * through anything that is not itself a block. Tables are not descended into
+ * here; `buildTable` handles their paragraphs so they are counted exactly once.
+ */
+function collectBlocks(
+  node: XmlNode,
+  context: PartContext,
+  into: DocxBlock[] = [],
+  onPageBreak?: (blockCount: number) => void
+): DocxBlock[] {
+  for (const child of childrenOf(node)) {
+    const name = nodeName(child)
+    if (name === "w:p") {
+      const breaks = hasPageBreak(child)
+      into.push(buildParagraph(child, context))
+      // Reported as a position rather than by handing the caller a new array:
+      // the walker keeps pushing into `into`, so swapping it out here would
+      // silently send the rest of the document to the previous page.
+      if (breaks) onPageBreak?.(into.length)
+    } else if (name === "w:tbl") {
+      into.push(buildTable(child, context))
+    } else if (name !== "w:sectPr" && name !== "w:pPr") {
+      collectBlocks(child, context, into, onPageBreak)
+    }
+  }
+  return into
+}
+
+/** Maps a part path onto the region it represents. */
+export function regionOfPart(part: string): DocxRegion {
+  if (/^word\/header\d*\.xml$/.test(part)) return "header"
+  if (/^word\/footer\d*\.xml$/.test(part)) return "footer"
+  if (part === "word/footnotes.xml") return "footnote"
+  if (part === "word/endnotes.xml") return "endnote"
+  if (part === "word/comments.xml") return "comment"
+  return "body"
 }
 
 /** Default Word page geometry (US Letter at 72dpi), used by the renderer. */
@@ -276,51 +351,100 @@ export type DocxExtraction = {
   document: NormalizedDocument
 }
 
+/**
+ * Order the regions appear in on page one. Headers and footers apply to the
+ * whole document, so they are attached to the first page rather than repeated
+ * on every one — repeating them would produce a duplicate suggestion per page
+ * for the same underlying run.
+ */
+const REGION_ORDER: DocxRegion[] = [
+  "header",
+  "body",
+  "footnote",
+  "endnote",
+  "comment",
+  "footer",
+]
+
 export function extractDocx(
   documentId: string,
   bytes: Uint8Array
 ): DocxExtraction {
   const pkg = openPackage(bytes)
-  const xml = readPart(pkg, "word/document.xml")
-  if (!xml) {
+  const bodyXml = readPart(pkg, "word/document.xml")
+  if (!bodyXml) {
     throw new Error("word/document.xml is missing; the file is not a DOCX")
   }
 
-  const parsed = xmlParser().parse(xml) as XmlNode[]
-  const documentNode = parsed.find((node) => nodeName(node) === "w:document")
-  const body = documentNode
-    ? findChild(childrenOf(documentNode), "w:body")
-    : undefined
+  const parser = xmlParser()
 
-  const counter = new Counter()
-  const pages: NormalizedPage[] = []
-  let blocks: DocxBlock[] = []
+  const blocksOfPart = (
+    part: string,
+    onPageBreak?: (blockCount: number) => void
+  ): DocxBlock[] => {
+    const xml = readPart(pkg, part)
+    if (!xml) return []
 
-  for (const node of body ? childrenOf(body) : []) {
-    const name = nodeName(node)
-    if (name === "w:p") {
-      const breaks = hasPageBreak(node)
-      blocks.push(buildParagraph(node, counter))
-      if (breaks) {
-        pages.push(pageFrom(pages.length + 1, blocks))
-        blocks = []
-      }
-    } else if (name === "w:tbl") {
-      blocks.push(buildTable(node, counter))
+    const context: PartContext = {
+      part,
+      region: regionOfPart(part),
+      counter: new Counter(),
     }
+
+    const blocks: DocxBlock[] = []
+    for (const node of parser.parse(xml) as XmlNode[]) {
+      collectBlocks(node, context, blocks, onPageBreak)
+    }
+    return blocks
   }
 
-  // A document with no explicit breaks is a single continuous page.
-  if (blocks.length > 0 || pages.length === 0) {
-    pages.push(pageFrom(pages.length + 1, blocks))
+  // The body is the only part that paginates.
+  const boundaries: number[] = []
+  const bodyBlocks = blocksOfPart("word/document.xml", (count) =>
+    boundaries.push(count)
+  )
+
+  const bodyPages: DocxBlock[][] = []
+  let cursor = 0
+  for (const boundary of boundaries) {
+    bodyPages.push(bodyBlocks.slice(cursor, boundary))
+    cursor = boundary
   }
+  if (cursor < bodyBlocks.length || bodyPages.length === 0) {
+    bodyPages.push(bodyBlocks.slice(cursor))
+  }
+
+  // Headers, footers, footnotes and comments carry text the exporter already
+  // sweeps. Extracting them is what makes that text reviewable, so what the
+  // user sees matches what the export touches.
+  const surrounding = listParts(pkg, WORD_TEXT_PARTS)
+    .filter((part) => part !== "word/document.xml")
+    .sort()
+    .flatMap((part) => blocksOfPart(part))
+
+  const pages = bodyPages.map((blocks, index) => {
+    const combined =
+      index === 0 ? orderRegions([...surrounding, ...blocks]) : blocks
+    return pageFrom(index + 1, combined)
+  })
 
   return {
     document: {
       documentId,
       kind: "docx",
       pages,
-      metadata: { pageCount: pages.length },
+      metadata: {
+        pageCount: pages.length,
+        parts: listParts(pkg, WORD_TEXT_PARTS).sort(),
+      },
     },
   }
+}
+
+function orderRegions(blocks: DocxBlock[]): DocxBlock[] {
+  return [...blocks].sort(
+    (a, b) =>
+      REGION_ORDER.indexOf(a.region ?? "body") -
+      REGION_ORDER.indexOf(b.region ?? "body")
+  )
 }

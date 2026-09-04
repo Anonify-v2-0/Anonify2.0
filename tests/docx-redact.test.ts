@@ -154,3 +154,65 @@ describe("docx redaction", () => {
     expect(() => extractDocx("doc_1", output)).not.toThrow()
   })
 })
+
+describe("docx redaction across parts", () => {
+  it("redacts a value that appears only in the header, by address", async () => {
+    const bytes = await makeDocxFixture()
+    const { document } = extractDocx("doc_1", bytes)
+    const page = document.pages[0]
+
+    // Target the header run specifically, with no value sweep to fall back on.
+    const headerSpan = page.spans.find(
+      (span) => /header/.test(span.id) && span.text.includes(SENSITIVE.person)
+    )
+    expect(headerSpan).toBeDefined()
+
+    const index = headerSpan!.text.indexOf(SENSITIVE.person)
+    const output = redactDocx(bytes, {
+      runEdits: {
+        [headerSpan!.id]: [
+          { start: index, end: index + SENSITIVE.person.length },
+        ],
+      },
+      values: [],
+      label: null,
+      sanitizeMetadata: false,
+    })
+
+    const after = extractDocx("doc_1", output).document.pages[0]
+    const headerText = (after.blocks ?? [])
+      .filter((block) => block.region === "header")
+      .flatMap((block) => (block.type === "paragraph" ? block.runs : []))
+      .map((run) => run.text)
+      .join("")
+
+    expect(headerText).not.toContain(SENSITIVE.person)
+    // The body copy of the same name is untouched: this was an address edit,
+    // not a package-wide sweep.
+    expect(after.text).toContain(SENSITIVE.person)
+  })
+
+  it("does not let one part's numbering edit another part", async () => {
+    const bytes = await makeDocxFixture()
+    const before = extractDocx("doc_1", bytes).document.pages[0]
+
+    // p0r0 exists in the header, the footer and the body. Addressing only the
+    // header's must leave the other two alone.
+    const output = redactDocx(bytes, {
+      runEdits: { "word/header1.xml#p0r0": [{ start: 0, end: 8 }] },
+      values: [],
+      label: null,
+      sanitizeMetadata: false,
+    })
+
+    const after = extractDocx("doc_1", output).document.pages[0]
+    const bodyOf = (page: typeof before) =>
+      (page.blocks ?? [])
+        .filter((block) => block.region === "body")
+        .flatMap((block) => (block.type === "paragraph" ? block.runs : []))
+        .map((run) => run.text)
+        .join("")
+
+    expect(bodyOf(after)).toBe(bodyOf(before))
+  })
+})

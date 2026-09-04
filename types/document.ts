@@ -46,9 +46,24 @@ export type DocxRun = {
   style?: TextStyle
 }
 
+/**
+ * Which part of the Word package a block came from. A name that appears only in
+ * a header has to be reviewable, not just swept at export time.
+ */
+export type DocxRegion =
+  | "body"
+  | "header"
+  | "footer"
+  | "footnote"
+  | "endnote"
+  | "comment"
+
 export type DocxParagraph = {
   id: string
   type: "paragraph"
+  region?: DocxRegion
+  /** The OOXML part this block lives in, e.g. `word/header1.xml`. */
+  part?: string
   /** Heading level 1-6 when the paragraph uses a heading style. */
   headingLevel?: number
   listLevel?: number
@@ -62,6 +77,8 @@ export type DocxParagraph = {
 export type DocxTable = {
   id: string
   type: "table"
+  region?: DocxRegion
+  part?: string
   /** rows -> cells -> paragraphs. */
   rows: DocxParagraph[][][]
 }
