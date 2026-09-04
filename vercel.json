@@ -2,17 +2,17 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "app/api/documents/[id]/stream/route.ts": {
-      "maxDuration": 300,
+      "maxDuration": 280,
       "supportsCancellation": true
     },
     "app/api/documents/[id]/process/route.ts": {
-      "maxDuration": 300
+      "maxDuration": 280
     },
     "app/api/documents/[id]/export/route.ts": {
-      "maxDuration": 300
+      "maxDuration": 280
     },
     "app/api/cron/cleanup/route.ts": {
-      "maxDuration": 300
+      "maxDuration": 280
     }
   },
   "crons": [
