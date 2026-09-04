@@ -1,4 +1,5 @@
-import { defineConfig } from "prisma/config"
+import "dotenv/config";
+import { defineConfig, env } from "prisma/config"
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
@@ -6,7 +7,7 @@ export default defineConfig({
     // Only used by migrate/introspect. The app connects through the Neon driver
     // adapter in lib/database/prisma.ts, so `prisma generate` must keep working
     // (in CI, for example) without a database URL present.
-    url: process.env.DATABASE_URL ?? "",
+    url: env("DATABASE_URL"),
   },
   migrations: {
     path: "prisma/migrations",

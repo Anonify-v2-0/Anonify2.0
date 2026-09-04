@@ -30,6 +30,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "docx": "^9.7.1",
+    "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "fast-xml-parser": "^5.11.1",
     "fflate": "^0.8.3",
