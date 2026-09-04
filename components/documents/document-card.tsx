@@ -9,7 +9,7 @@ import {
   Trash2,
 } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { StatusPill } from "@/components/processing/status-pill"
 import { RetentionControl } from "@/components/documents/retention-control"
 import { cn } from "@/lib/utils"
@@ -146,14 +146,21 @@ export function DocumentCard({
         />
         <StatusPill status={document.status} />
 
-        <Button
-          size="sm"
-          variant="outline"
-          render={<Link href={`/workspace/${document.id}`} />}
+        {/*
+          A link that looks like a button, not a button that navigates. Base UI's
+          Button assumes it renders a real <button> and, told otherwise, swaps
+          `type="button"` for `role="button"` — which would announce the one
+          control on this card that actually goes somewhere as a button, losing
+          the link semantics a screen reader and a middle-click both rely on.
+          Styling the link directly keeps them.
+        */}
+        <Link
+          href={`/workspace/${document.id}`}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
         >
           {working ? <Loader2 className="size-3.5 animate-spin" /> : null}
           {working ? "View progress" : "Open"}
-        </Button>
+        </Link>
 
         <Button
           size="icon-sm"

@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Check, Download, Loader2, ShieldCheck } from "lucide-react"
 import { toast } from "sonner"
 
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { DocumentUsageSummary } from "@/components/documents/usage-summary"
+import { cn } from "@/lib/utils"
 import { exportDialogToggled } from "@/store/uiSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { selectCounts } from "@/store/selectors"
@@ -225,10 +226,16 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
 
         <DialogFooter>
           {result ? (
-            <Button className="btn-pill h-10" render={<a href={result.downloadUrl} download />}>
+            // Same reason as the card's Open control: this is a download link,
+            // and Base UI's Button would relabel it as a button.
+            <a
+              href={result.downloadUrl}
+              download
+              className={cn(buttonVariants(), "btn-pill h-10")}
+            >
               <Download className="size-4" />
               Download
-            </Button>
+            </a>
           ) : (
             <Button className="btn-pill h-10" disabled={busy} onClick={generate}>
               {busy ? (
