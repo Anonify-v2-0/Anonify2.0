@@ -148,10 +148,11 @@ upload (browser → Blob)
 - **PDF** — a page with accepted redactions is rendered to pixels with the boxes
   burned in and rebuilt from that raster. There is no way to paint over text in
   a PDF and have it be gone. Pages without redactions are copied through and
-  keep their selectable text.
+  keep their selectable text. Scanned pages are read with OCR so they are
+  reviewable like any other.
 - **DOCX** — the text nodes that carry the characters are edited in place, so
-  styles, numbering and relationships survive byte-identical. A package-wide
-  sweep covers headers, footers, footnotes and comments.
+  styles, numbering and relationships survive byte-identical. Headers, footers,
+  footnotes and comments are extracted and reviewable, not merely swept.
 - **XLSX** — cells are rewritten, and any formula still referencing a redacted
   address is dropped, because a cached result is a second copy of the value.
 - **Images** — pixels are replaced and the file re-encoded. EXIF and GPS go too.

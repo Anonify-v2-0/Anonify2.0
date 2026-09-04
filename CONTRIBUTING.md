@@ -111,10 +111,10 @@ a working app, which contradicts the whole point of the repo.
       **Done looks like:** adapter chosen from the connection string (or an
       explicit `DATABASE_DRIVER`), with local Postgres documented in the README.
 
-- [ ] **No migrations.** `prisma/` contains a schema and nothing else; the
-      workflow is `db push`. That is fine for one person and bad for many.
-      **Done looks like:** an initial migration, `pnpm db:migrate` documented as
-      the way to change the schema, and CI checking the migration applies.
+- [x] ~~**No migrations.**~~ An initial migration is checked in and
+      `pnpm db:migrate` is the way to change the schema. CI does not yet apply
+      it against a real database — that part is still open, and depends on the
+      test database in [3.3](#33-testing).
 
 - [ ] **A `docker compose` for the dependencies** — Postgres and a MinIO-style
       blob target — so setup is one command.
@@ -124,44 +124,33 @@ a working app, which contradicts the whole point of the repo.
 
 ### 3.2 Finish what is half-wired
 
-The audit found several paths that are built but not connected. These are good
-first issues: the hard part is already done and the shape is clear.
+Everything in this section has landed. Kept as a record of what "half-wired"
+meant, because the same shape recurs: a capability built end to end except for
+the last connection, which passes review precisely because each half looks
+finished.
 
-- [ ] **Scanned PDFs are detected and then ignored.**
-      `lib/documents/pdf/extract.ts` computes `ocrPages` for every page with no
-      extractable text — and **nothing consumes it**. `ocrImage()` already
-      exists in `lib/documents/image/extract.ts`.
-      **Done looks like:** the extract step rasterizes flagged pages, runs OCR,
-      and merges the resulting spans into the page model so a scanned document
-      is reviewable like any other. This is probably the single highest-value
-      feature gap in the project.
+- [x] ~~**Scanned PDFs are detected and then ignored.**~~ Flagged pages are
+      rasterized and read, and the words merged into the page model as spans
+      with real geometry. `lib/documents/pdf/ocr.ts`.
+- [x] ~~**Blur and pixelate are unreachable.**~~ Exposed in the export dialog,
+      defaulting to solid, with the caveat stated where the choice is made.
+- [x] ~~**AI cost is recorded and never shown.**~~ Per-document breakdown in the
+      export dialog, session aggregate on the documents page. Cost appears only
+      when rates are configured — see [§4](#4-benchmarks).
+- [x] ~~**Page thumbnails are blank rectangles.**~~ Real renders with accepted
+      redactions drawn on, so the rail doubles as a progress view.
+- [x] ~~**DOCX headers and footers are swept but not reviewable.**~~ Every
+      text-bearing part is extracted and rendered, which required addresses to
+      be part-qualified (`word/header1.xml#p0r0`).
 
-- [ ] **Blur and pixelate are unreachable.**
-      `imageStyle` is plumbed through the export API and
-      `lib/redaction/apply.ts`, but `components/redaction/export-dialog.tsx`
-      never sends it, so every image redaction is solid black.
-      **Done looks like:** a face-redaction strategy control in the export
-      dialog, defaulting to solid, with the caveat about blur being attackable
-      stated in the UI rather than buried in a doc.
+Still open here:
 
-- [ ] **AI cost is recorded and never shown.**
-      `AiUsage` rows capture model, input/output tokens, duration and chunk count
-      per task. Nothing reads them.
-      **Done looks like:** a per-document cost summary, and an aggregate view.
-      This is also the substrate the benchmarks in [§4](#4-benchmarks) need.
-
-- [ ] **Page thumbnails are blank rectangles.**
-      `components/editor/page-navigator.tsx` draws an empty white box per page.
-      **Done looks like:** real rendered thumbnails, cached, with accepted
-      redactions visible on them so the navigator shows review progress.
-
-- [ ] **DOCX headers and footers are swept but not reviewable.**
-      Extraction reads `word/document.xml` only. The export sweep removes
-      accepted values from headers, footers, footnotes and comments — so they
-      are *protected* but never *shown*, and a name that appears only in a header
-      will never be suggested.
-      **Done looks like:** those parts extracted into the page model and
-      rendered, so what the user reviews matches what the exporter touches.
+- [ ] **XLSX has no equivalent of the DOCX part sweep in the UI.** Hidden sheets
+      and rows are extracted and redacted correctly, but the grid does not make
+      it obvious that a hidden sheet is being reviewed.
+- [ ] **Image OCR text is not offered as suggestions.** `extractImage` produces
+      OCR regions, and the canvas can snap to them, but they are not fed to the
+      detectors the way PDF and DOCX text is.
 
 ### 3.3 Testing
 
@@ -188,16 +177,20 @@ Zero coverage today for: `extractImage`, `ocrImage`, `analyzeDocument`,
       across arbitrary fonts and encodings, and *nearly* right means leaking, so
       it must land behind the same verification gate and a lot of tests. High
       value, high difficulty.
-- [ ] **Accessibility.** The canvas is click-and-drag; redactions should be
-      reachable and toggleable by keyboard, and announced to a screen reader. The
-      inspector is a list and should behave like one.
+- [x] ~~**Accessibility.**~~ Canvas redactions are labelled, focusable and
+      carry `aria-pressed`; the per-word hit targets are out of the tab order
+      because a page of prose as hundreds of tab stops is worse than none; the
+      inspector is a real list whose rows are buttons; a live region reports
+      where the review stands. Still open: a screen-reader pass by someone who
+      actually uses one, and colour-contrast verification.
 - [ ] **Non-English detection.** Detectors are English-shaped (`DOB`, `Account`,
       street suffixes) and prompts are English. Locale-aware patterns and
       per-language prompt variants.
 - [ ] **Touch.** Region drawing works with a pointer; it should work with a
       finger.
-- [ ] **Rate limiting is a fixed window**, so a caller can burst across the
-      boundary. A sliding window or token bucket, still server-side.
+- [x] ~~**Rate limiting is a fixed window.**~~ Now a token bucket, refilling
+      continuously, so there is no boundary to burst across.
+      `lib/security/token-bucket.ts`.
 
 ### 3.5 New surface
 
@@ -374,11 +367,11 @@ have been caught by mocking.
 Small, self-contained, and genuinely useful:
 
 - `engines` / `packageManager` in `package.json` (§3.1)
-- Expose blur and pixelate in the export dialog (§3.2)
-- Real page thumbnails (§3.2)
-- A per-document AI cost summary from the `AiUsage` rows already being written (§3.2)
+- Make hidden sheets obvious in the spreadsheet grid (§3.2)
+- Feed image OCR text to the detectors, as PDF and DOCX text already is (§3.2)
 - A benchmark of two models on the synthetic fixtures (§4)
-- Any test from §3.3
+- Any test from §3.3 — the fake model provider is the highest-leverage one
+- Touch support for drawing a region (§3.4)
 
 And the one with the most leverage per line of code: **make a fresh clone work
 without a Vercel account** (§3.1).

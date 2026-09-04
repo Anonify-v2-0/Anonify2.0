@@ -34,9 +34,20 @@ pdf.js gives text items with a transform matrix. Each becomes a span carrying:
   forgetting one is how boxes end up mirrored,
 - font family, size, and inferred weight/style.
 
-A page whose extracted text is under 16 characters is flagged `ocr: true` rather
-than treated as empty — a scanned page is not a blank page, and conflating them
-means silently redacting nothing.
+A page whose extracted text is under 16 characters is flagged rather than
+treated as empty — a scanned page is not a blank page, and conflating them means
+silently redacting nothing. Those pages are then rasterized and read: the OCR
+words become spans with real geometry, so a scanned document is reviewable
+exactly like a born-digital one.
+
+The boxes come back in raster pixels and are divided by the render scale once.
+The raster is produced from the same top-down viewport the extractor uses, so
+there is no second flip — flipping twice is how boxes end up mirrored. The
+rasterizer itself is shared with redaction, because both need the identical
+transform and two copies would drift.
+
+A page the recognizer cannot read stays flagged rather than being presented as
+successfully read and empty.
 
 ### Export
 
@@ -83,8 +94,18 @@ leaves the value sitting in `header1.xml`.
 
 ### Extraction
 
-`word/document.xml` is walked in document order, and every paragraph and run gets
-a **positional address** — `p3r1` is the second run of the fourth paragraph.
+Every text-bearing part is walked in document order — the body, headers,
+footers, footnotes, endnotes and comments — and each paragraph and run gets a
+**positional address**: `word/header1.xml#p3r1` is the second run of the fourth
+paragraph of that header.
+
+The part prefix is load-bearing. Each part has its own paragraph numbering, so
+`p0r0` exists in the header, the footer and the body simultaneously; an
+unqualified address would edit whichever part the exporter happened to walk.
+
+Headers and footers apply document-wide, so they are attached to the first page
+rather than repeated on every one — repeating them would produce a duplicate
+suggestion per page for the same underlying run.
 
 The critical property: the exporter re-walks the identical order later, so the
 address still points at the same run. That requires both walks to agree exactly,
