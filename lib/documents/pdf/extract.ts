@@ -1,4 +1,4 @@
-import { startOcr } from "@/lib/documents/image/extract"
+import { startOcr } from "@/lib/ocr"
 import {
   mergeOcrIntoPage,
   ocrPdfPages,
@@ -193,11 +193,11 @@ export async function extractPdf(
   }
 }
 
-/** Wraps the tesseract worker in the shape ocrPdfPages expects. */
+/** Wraps the configured OCR session in the shape ocrPdfPages expects. */
 async function startOcrRecognizer() {
-  const ocr = await startOcr()
+  const session = await startOcr()
   return {
-    recognize: (png: Buffer) => ocr.recognize(png),
-    close: () => ocr.close(),
+    recognize: (png: Buffer) => session.recognize(png),
+    close: () => session.close(),
   }
 }

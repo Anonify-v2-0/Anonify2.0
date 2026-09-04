@@ -3,6 +3,7 @@ import type { DocxRedactionPlan } from "@/lib/documents/docx/redact"
 import type { ImageRedactionPlan, RedactionStyle } from "@/lib/documents/image/redact"
 import type { PdfRedactionPlan } from "@/lib/documents/pdf/redact"
 import type { XlsxRedactionPlan } from "@/lib/documents/xlsx/redact"
+import { boxesForRedaction, padBox } from "@/lib/redaction/geometry"
 import { acceptedValues, isAccepted } from "@/lib/redaction/model"
 import type { BoundingBox, NormalizedDocument, TextSpan } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
@@ -81,13 +82,11 @@ export function buildDocxPlan(
 }
 
 /**
- * PDF: collect the glyph boxes covered by each accepted redaction.
+ * PDF: collect the boxes covered by each accepted redaction.
  *
- * Boxes are padded slightly because glyph extents are tight around the ink and
- * a hairline of a letter surviving at the edge of a black box is a leak.
+ * The geometry itself lives in lib/redaction/geometry.ts, shared with the
+ * canvas — the preview and the export must agree about where a box goes.
  */
-const BOX_PADDING = 1.5
-
 export function buildPdfPlan(
   model: NormalizedDocument,
   redactions: Redaction[],
@@ -95,49 +94,19 @@ export function buildPdfPlan(
 ): PdfRedactionPlan {
   const boxesByPage = new Map<number, BoundingBox[]>()
 
-  const add = (page: number, box: BoundingBox) => {
-    const padded: BoundingBox = {
-      x: box.x - BOX_PADDING,
-      y: box.y - BOX_PADDING,
-      width: box.width + BOX_PADDING * 2,
-      height: box.height + BOX_PADDING * 2,
-    }
-    boxesByPage.set(page, [...(boxesByPage.get(page) ?? []), padded])
-  }
-
   for (const redaction of redactions) {
     if (!isAccepted(redaction)) continue
     const pageNumber = redaction.page ?? 1
-
-    // A hand-drawn or vision-detected region is already geometry.
-    if (redaction.boundingBox) {
-      add(pageNumber, redaction.boundingBox)
-      continue
-    }
-
-    if (redaction.start === undefined || redaction.end === undefined) continue
-
     const page = model.pages.find((candidate) => candidate.number === pageNumber)
-    if (!page) continue
+    if (!page && !redaction.boundingBox) continue
 
-    for (const span of page.spans) {
-      if (!span.boundingBox) continue
-      if (span.end <= redaction.start || span.start >= redaction.end) continue
+    const boxes = boxesForRedaction(page ?? { spans: [] }, redaction)
+    if (boxes.length === 0) continue
 
-      // Cover only the characters the redaction actually reaches, scaled
-      // across the span's box, so redacting one word does not black out a line.
-      const from = Math.max(span.start, redaction.start) - span.start
-      const to = Math.min(span.end, redaction.end) - span.start
-      const length = Math.max(1, span.text.length)
-      const unit = span.boundingBox.width / length
-
-      add(pageNumber, {
-        x: span.boundingBox.x + unit * from,
-        y: span.boundingBox.y,
-        width: Math.max(unit * (to - from), unit),
-        height: span.boundingBox.height,
-      })
-    }
+    boxesByPage.set(pageNumber, [
+      ...(boxesByPage.get(pageNumber) ?? []),
+      ...boxes.map((box) => padBox(box)),
+    ])
   }
 
   return {
@@ -204,15 +173,9 @@ export function buildImagePlan(
     }
 
     // A text redaction on an image resolves through its OCR span geometry.
-    if (
-      page &&
-      redaction.start !== undefined &&
-      redaction.end !== undefined
-    ) {
-      for (const span of page.spans) {
-        if (!span.boundingBox) continue
-        if (span.end <= redaction.start || span.start >= redaction.end) continue
-        regions.push({ boundingBox: span.boundingBox, style: "solid" })
+    if (page) {
+      for (const box of boxesForRedaction(page, redaction)) {
+        regions.push({ boundingBox: box, style: "solid" })
       }
     }
   }

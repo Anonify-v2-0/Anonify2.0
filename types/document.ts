@@ -24,6 +24,17 @@ export type TextStyle = {
   color?: string
 }
 
+/**
+ * How precisely a span's bounding box locates its text.
+ *
+ * `word` boxes bound the characters themselves, so a redaction can cover
+ * exactly what it matched. `block` boxes bound a whole paragraph — some OCR
+ * providers offer nothing finer — and a proportional slice of one would be a
+ * rectangle in the wrong place, so a redaction touching a block covers all of
+ * it. Over-redaction is recoverable; a box in the wrong place is a leak.
+ */
+export type SpanGeometry = "word" | "block"
+
 /** A run of text with a stable offset into the page's normalized text stream. */
 export type TextSpan = {
   id: string
@@ -34,6 +45,8 @@ export type TextSpan = {
   end: number
   boundingBox?: BoundingBox
   style?: TextStyle
+  /** Defaults to `word` when absent, which is what extracted text gives. */
+  geometry?: SpanGeometry
   /** Present for DOCX-derived spans so exports can find the originating run. */
   blockId?: string
 }

@@ -1,5 +1,6 @@
 import sharp from "sharp"
 
+import { ocrImage } from "@/lib/ocr"
 import { TextStreamBuilder } from "@/lib/documents/shared/text"
 import type {
   ImageRegion,
@@ -24,88 +25,6 @@ const MIN_WORD_CONFIDENCE = 40
 /** Above this share of the frame covered by text, it reads as a document scan. */
 const DOCUMENT_TEXT_COVERAGE = 0.04
 
-export type OcrWord = {
-  text: string
-  confidence: number
-  bbox: { x0: number; y0: number; x1: number; y1: number }
-}
-
-export type OcrResult = { words: OcrWord[]; text: string }
-
-/** Reads text from one image using an already-started worker. */
-type Recognizer = {
-  recognize: (
-    image: Buffer,
-    options?: unknown,
-    output?: unknown
-  ) => Promise<{ data: { text?: string; blocks?: unknown } }>
-}
-
-type TesseractBlock = {
-  paragraphs?: {
-    lines?: { words?: OcrWord[] }[]
-  }[]
-}
-
-function wordsOf(data: { blocks?: unknown }): OcrWord[] {
-  const words: OcrWord[] = []
-  for (const block of (data.blocks ?? []) as TesseractBlock[]) {
-    for (const paragraph of block.paragraphs ?? []) {
-      for (const line of paragraph.lines ?? []) {
-        for (const word of line.words ?? []) {
-          words.push({
-            text: word.text,
-            confidence: word.confidence,
-            bbox: word.bbox,
-          })
-        }
-      }
-    }
-  }
-  return words
-}
-
-/**
- * Starts an OCR worker.
- *
- * Starting one costs far more than recognizing a page, so a caller with several
- * pages starts one worker and reuses it rather than paying that price per page.
- * Serverless filesystems are read-only apart from /tmp, which is where the
- * language data has to land.
- */
-export async function startOcr(): Promise<{
-  recognize: (bytes: Uint8Array) => Promise<OcrResult>
-  close: () => Promise<void>
-}> {
-  const { createWorker } = await import("tesseract.js")
-  const worker = (await createWorker("eng", undefined, {
-    cachePath: process.env.VERCEL ? "/tmp" : undefined,
-  })) as unknown as Recognizer & { terminate: () => Promise<unknown> }
-
-  return {
-    async recognize(bytes: Uint8Array): Promise<OcrResult> {
-      const { data } = await worker.recognize(
-        Buffer.from(bytes),
-        {},
-        { blocks: true }
-      )
-      return { words: wordsOf(data), text: data.text ?? "" }
-    },
-    async close() {
-      await worker.terminate()
-    },
-  }
-}
-
-export async function ocrImage(bytes: Uint8Array): Promise<OcrResult> {
-  const ocr = await startOcr()
-  try {
-    return await ocr.recognize(bytes)
-  } finally {
-    await ocr.close()
-  }
-}
-
 export type ImageExtraction = {
   document: NormalizedDocument
   imageClass: ImageClass
@@ -123,7 +42,7 @@ export async function extractImage(
     throw new Error("Image has no readable dimensions")
   }
 
-  const { words } = await ocrImage(bytes)
+  const { words, granularity } = await ocrImage(bytes)
   const usable = words.filter(
     (word) =>
       word.confidence >= MIN_WORD_CONFIDENCE && word.text.trim().length > 0
@@ -141,7 +60,7 @@ export async function extractImage(
     }
 
     const id = `ocr${index}`
-    builder.append(id, word.text, { boundingBox: box })
+    builder.append(id, word.text, { boundingBox: box, geometry: granularity })
     builder.pad(" ")
 
     regions.push({

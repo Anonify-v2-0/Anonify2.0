@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { extractPdf } from "@/lib/documents/pdf/extract"
 import { spansFromWords } from "@/lib/documents/pdf/ocr"
-import type { OcrResult, OcrWord } from "@/lib/documents/image/extract"
+import type { OcrResult, OcrWord } from "@/lib/ocr"
 import {
   makePdfFixture,
   makeScannedPdfFixture,
@@ -27,10 +27,14 @@ function word(
   }
 }
 
-function recognizerReturning(words: OcrWord[]) {
+function recognizerReturning(
+  words: OcrWord[],
+  granularity: OcrResult["granularity"] = "word"
+) {
   return async (): Promise<OcrResult> => ({
     words,
     text: words.map((w) => w.text).join(" "),
+    granularity,
   })
 }
 

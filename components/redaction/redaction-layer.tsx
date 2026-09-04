@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { boxesForRedaction } from "@/lib/redaction/geometry"
 import { cn } from "@/lib/utils"
 import type { BoundingBox, NormalizedPage } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
@@ -45,32 +46,8 @@ function draftToBox(draft: Draft): BoundingBox {
   }
 }
 
-/** The boxes a text redaction covers, derived from the page's span geometry. */
-export function boxesForRedaction(
-  page: NormalizedPage,
-  redaction: Redaction
-): BoundingBox[] {
-  if (redaction.boundingBox) return [redaction.boundingBox]
-  if (redaction.start === undefined || redaction.end === undefined) return []
-
-  const boxes: BoundingBox[] = []
-  for (const span of page.spans) {
-    if (!span.boundingBox) continue
-    if (span.end <= redaction.start || span.start >= redaction.end) continue
-
-    const from = Math.max(span.start, redaction.start) - span.start
-    const to = Math.min(span.end, redaction.end) - span.start
-    const unit = span.boundingBox.width / Math.max(1, span.text.length)
-
-    boxes.push({
-      x: span.boundingBox.x + unit * from,
-      y: span.boundingBox.y,
-      width: Math.max(unit * (to - from), unit),
-      height: span.boundingBox.height,
-    })
-  }
-  return boxes
-}
+// Re-exported so callers that render redactions keep importing from one place.
+export { boxesForRedaction }
 
 export type RedactionLayerProps = {
   page: NormalizedPage

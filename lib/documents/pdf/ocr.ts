@@ -2,7 +2,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist"
 
 import { renderPage, RENDER_SCALE } from "@/lib/documents/pdf/render"
 import { TextStreamBuilder } from "@/lib/documents/shared/text"
-import type { OcrResult, OcrWord } from "@/lib/documents/image/extract"
+import type { OcrGranularity, OcrResult, OcrWord } from "@/lib/ocr"
 import type { NormalizedPage } from "@/types/document"
 
 /**
@@ -38,7 +38,8 @@ export type OcrPageResult = {
 export function spansFromWords(
   pageNumber: number,
   words: OcrWord[],
-  scale: number
+  scale: number,
+  granularity: OcrGranularity = "word"
 ): OcrPageResult {
   const builder = new TextStreamBuilder()
   let index = 0
@@ -55,6 +56,7 @@ export function spansFromWords(
         width: (word.bbox.x1 - word.bbox.x0) / scale,
         height: (word.bbox.y1 - word.bbox.y0) / scale,
       },
+      geometry: granularity,
     })
     builder.pad(" ")
   }
@@ -85,9 +87,9 @@ export async function ocrPdfPages(
     try {
       const rendered = await renderPage(page, scale)
       const png = rendered.canvas.toBuffer("image/png")
-      const { words } = await options.recognize(png)
+      const { words, granularity } = await options.recognize(png)
 
-      const result = spansFromWords(pageNumber, words, scale)
+      const result = spansFromWords(pageNumber, words, scale, granularity)
       if (result.words > 0) results.set(pageNumber, result)
     } finally {
       page.cleanup()
