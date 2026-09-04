@@ -9,6 +9,7 @@ import { PageNavigator } from "@/components/editor/page-navigator"
 import { WorkspaceHeader } from "@/components/editor/workspace-header"
 import { ProcessingScreen } from "@/components/processing/processing-screen"
 import { ExportDialog } from "@/components/redaction/export-dialog"
+import { MobileInspector } from "@/components/redaction/mobile-inspector"
 import { RedactionInspector } from "@/components/redaction/redaction-inspector"
 import { useProcessingStream } from "@/hooks/use-processing-stream"
 import { useRedactions } from "@/hooks/use-redactions"
@@ -104,6 +105,7 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
             <DocumentCanvas summary={current} actions={canvasActions} />
             <RedactionInspector actions={inspectorActions} />
           </div>
+          <MobileInspector actions={inspectorActions} />
           <EditorToolbar onUndo={undo} onRedo={redo} onExport={onExport} />
         </div>
       ) : (

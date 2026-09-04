@@ -43,7 +43,16 @@ export type InspectorActions = {
   applyGlobalRule: (pattern: string, category: string) => void
 }
 
+/** Desktop rail. The same body is reused by the mobile sheet below. */
 export function RedactionInspector({ actions }: { actions?: InspectorActions }) {
+  return (
+    <aside className="hidden w-[320px] shrink-0 flex-col border-l border-border bg-surface-2 xl:flex">
+      <InspectorBody actions={actions} />
+    </aside>
+  )
+}
+
+export function InspectorBody({ actions }: { actions?: InspectorActions }) {
   const dispatch = useAppDispatch()
   const groups = useAppSelector(selectOccurrenceGroups)
   const counts = useAppSelector(selectCounts)
@@ -57,7 +66,7 @@ export function RedactionInspector({ actions }: { actions?: InspectorActions }) 
   )
 
   return (
-    <aside className="hidden w-[320px] shrink-0 flex-col border-l border-border bg-surface-2 xl:flex">
+    <>
       <div className="flex items-baseline justify-between px-4 pt-4">
         <p className="label-micro">Redactions</p>
         <span className="text-xs text-text-muted">
@@ -161,7 +170,7 @@ export function RedactionInspector({ actions }: { actions?: InspectorActions }) 
                 onClick={() => dispatch(redactionSelected(first.id))}
                 className={cn(
                   "-mx-2 cursor-pointer rounded-md border-b border-border/60 px-2 py-3 transition-colors last:border-b-0",
-                  isSelected ? "bg-red-soft" : "hover:bg-white/[0.03]"
+                  isSelected ? "bg-red-soft" : "hover:bg-white/3"
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -260,6 +269,6 @@ export function RedactionInspector({ actions }: { actions?: InspectorActions }) 
           })}
         </div>
       </ScrollArea>
-    </aside>
+    </>
   )
 }
