@@ -1,51 +1,99 @@
 "use client"
 
-import { useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { FileWarning } from "lucide-react"
 
 import { DocxViewer } from "@/components/document-viewer/docx-viewer"
 import { PdfViewer } from "@/components/document-viewer/pdf-viewer"
 import { ImageCanvas } from "@/components/image-editor/image-canvas"
+import { RedactionLayer } from "@/components/redaction/redaction-layer"
 import { SpreadsheetGrid } from "@/components/spreadsheet/spreadsheet-grid"
 import { useNormalizedDocument } from "@/hooks/use-normalized-document"
-import { randomClientId } from "@/lib/documents/client-ids"
 import { fitModeChanged, zoomChanged } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
-import { redactionAdded, redactionSelected } from "@/store/redactionSlice"
-import type { DocumentSummary } from "@/types/document"
+import { redactionSelected } from "@/store/redactionSlice"
+import { selectRedactions } from "@/store/selectors"
+import { cn } from "@/lib/utils"
+import type { BoundingBox, DocumentSummary } from "@/types/document"
+import type { Redaction } from "@/types/redaction"
 
 /** Horizontal breathing room kept around the page when fitting to width. */
 const CANVAS_PADDING = 64
 
-export function DocumentCanvas({ summary }: { summary: DocumentSummary }) {
+/** True when a redaction's offsets cover the run identified by `spanId`. */
+function coversSpan(
+  redaction: Redaction,
+  page: { spans: { id: string; start: number; end: number }[] },
+  spanId: string
+): boolean {
+  if (redaction.start === undefined || redaction.end === undefined) return false
+  const span = page.spans.find((candidate) => candidate.id === spanId)
+  if (!span) return false
+  return span.start < redaction.end && span.end > redaction.start
+}
+
+export type CanvasActions = {
+  create: (input: Omit<Redaction, "id" | "documentId">) => void
+}
+
+export function DocumentCanvas({
+  summary,
+  actions,
+}: {
+  summary: DocumentSummary
+  actions?: CanvasActions
+}) {
   const dispatch = useAppDispatch()
   const containerRef = useRef<HTMLDivElement>(null)
   const normalized = useNormalizedDocument(summary.id, summary.status)
-  const { currentPage, zoom, fitMode } = useAppSelector((state) => state.editor)
-  const redactionEntities = useAppSelector((state) => state.redactions.entities)
-  const selectedId = useAppSelector((state) => state.redactions.selectedId)
-  const redactions = useMemo(
-    () => Object.values(redactionEntities),
-    [redactionEntities]
+  const { currentPage, zoom, fitMode, tool } = useAppSelector(
+    (state) => state.editor
   )
+  const redactions = useAppSelector(selectRedactions)
+  const selectedId = useAppSelector((state) => state.redactions.selectedId)
 
   const page =
     normalized?.pages.find((candidate) => candidate.number === currentPage) ??
     normalized?.pages[0]
 
-  const acceptedRegions = redactions
-    .filter(
-      (redaction) =>
-        redaction.status === "accepted" && redaction.boundingBox !== undefined
-    )
-    .map((redaction) => redaction.boundingBox!)
+  const pageRedactions = useMemo(
+    () =>
+      redactions.filter(
+        (redaction) =>
+          (redaction.page ?? 1) === (page?.number ?? 1) &&
+          redaction.status !== "rejected"
+      ),
+    [page?.number, redactions]
+  )
 
-  const suggestedRegions = (normalized?.regions ?? []).filter(
-    (region) =>
-      !acceptedRegions.some(
-        (box) =>
-          box.x === region.boundingBox.x && box.y === region.boundingBox.y
-      )
+  const createRegion = useCallback(
+    (boundingBox: BoundingBox) => {
+      actions?.create({
+        type: "region",
+        source: "user",
+        category: "other",
+        status: "accepted",
+        page: page?.number ?? 1,
+        boundingBox,
+      })
+    },
+    [actions, page?.number]
+  )
+
+  const redactSpan = useCallback(
+    (span: { start: number; end: number; text: string }) => {
+      actions?.create({
+        type: "text",
+        source: "user",
+        category: "other",
+        status: "accepted",
+        page: page?.number ?? 1,
+        text: span.text,
+        start: span.start,
+        end: span.end,
+      })
+    },
+    [actions, page?.number]
   )
 
   // Fit-to-width/page recomputes on resize; explicit zooming switches the mode
@@ -85,24 +133,15 @@ export function DocumentCanvas({ summary }: { summary: DocumentSummary }) {
         documentId={summary.id}
         normalized={normalized}
         zoom={zoom}
-        accepted={acceptedRegions}
-        suggested={suggestedRegions}
+        accepted={pageRedactions
+          .filter((redaction) => redaction.status === "accepted")
+          .flatMap((redaction) =>
+            redaction.boundingBox ? [redaction.boundingBox] : []
+          )}
+        suggested={normalized.regions ?? []}
         selectedRegionId={selectedId}
         onSelectRegion={(regionId) => dispatch(redactionSelected(regionId))}
-        onCreateRegion={(boundingBox) =>
-          dispatch(
-            redactionAdded({
-              id: randomClientId("red"),
-              documentId: summary.id,
-              type: "region",
-              source: "user",
-              category: "other",
-              status: "accepted",
-              page: 1,
-              boundingBox,
-            })
-          )
-        }
+        onCreateRegion={createRegion}
       />
     ) : (
       <section className="flex min-w-0 flex-1 items-center justify-center bg-surface-1">
@@ -122,6 +161,19 @@ export function DocumentCanvas({ summary }: { summary: DocumentSummary }) {
     )
   }
 
+  const layer = page ? (
+    <RedactionLayer
+      page={page}
+      redactions={pageRedactions}
+      selectedId={selectedId}
+      zoom={zoom}
+      tool={tool}
+      onSelect={(id) => dispatch(redactionSelected(id))}
+      onCreateRegion={createRegion}
+      onRedactSpan={redactSpan}
+    />
+  ) : null
+
   return (
     <section
       ref={containerRef}
@@ -133,9 +185,62 @@ export function DocumentCanvas({ summary }: { summary: DocumentSummary }) {
           page={page}
           pageNumber={page.number}
           zoom={zoom}
-        />
+        >
+          {layer}
+        </PdfViewer>
       ) : summary.kind === "docx" && page ? (
-        <DocxViewer page={page} zoom={zoom} />
+        <DocxViewer
+          page={page}
+          zoom={zoom}
+          renderSpan={(spanId, children) => {
+            const covering = pageRedactions.find((redaction) =>
+              coversSpan(redaction, page, spanId)
+            )
+            const span = page.spans.find((candidate) => candidate.id === spanId)
+
+            return (
+              <span
+                key={spanId}
+                role="button"
+                tabIndex={0}
+                title={covering ? covering.category : "Redact this text"}
+                onClick={() => {
+                  if (covering) {
+                    dispatch(redactionSelected(covering.id))
+                  } else if (span) {
+                    redactSpan({
+                      start: span.start,
+                      end: span.end,
+                      text: span.text,
+                    })
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return
+                  event.preventDefault()
+                  if (!covering && span) {
+                    redactSpan({
+                      start: span.start,
+                      end: span.end,
+                      text: span.text,
+                    })
+                  }
+                }}
+                className={cn(
+                  "cursor-pointer rounded-[2px] transition-colors",
+                  covering?.status === "accepted"
+                    ? "bg-black text-black selection:bg-black"
+                    : covering
+                      ? "bg-red-soft outline-1 outline-dashed outline-red-border"
+                      : "hover:bg-primary/15",
+                  covering?.id === selectedId && "outline-1 outline-primary"
+                )}
+              >
+                {children}
+              </span>
+            )
+          }}
+        />
       ) : (
         <Placeholder summary={summary} />
       )}
@@ -152,7 +257,7 @@ function Placeholder({ summary }: { summary: DocumentSummary }) {
       </p>
       <p className="max-w-xs text-xs text-neutral-500">
         {summary.status === "ready"
-          ? `Rendering for ${summary.kind.toUpperCase()} documents arrives with its format pipeline.`
+          ? "This document could not be rendered."
           : "Preparing this document…"}
       </p>
     </div>

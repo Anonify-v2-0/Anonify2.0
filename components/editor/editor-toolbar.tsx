@@ -19,6 +19,7 @@ import {
   type EditorTool,
 } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import { selectCanRedo, selectCanUndo } from "@/store/selectors"
 import { cn } from "@/lib/utils"
 
 const TOOLS: { tool: EditorTool; label: string; icon: typeof MousePointer2 }[] = [
@@ -26,9 +27,18 @@ const TOOLS: { tool: EditorTool; label: string; icon: typeof MousePointer2 }[] =
   { tool: "redact", label: "Redact (R)", icon: SquareDashed },
 ]
 
-export function EditorToolbar() {
+export function EditorToolbar({
+  onUndo,
+  onRedo,
+}: {
+  onUndo: () => void
+  onRedo: () => void
+  onExport?: () => void
+}) {
   const dispatch = useAppDispatch()
   const { tool, zoom } = useAppSelector((state) => state.editor)
+  const canUndo = useAppSelector(selectCanUndo)
+  const canRedo = useAppSelector(selectCanRedo)
 
   return (
     <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-2 px-3">
@@ -87,14 +97,38 @@ export function EditorToolbar() {
       </div>
 
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon-sm" disabled>
-          <Undo2 className="size-4" />
-          <span className="sr-only">Undo</span>
-        </Button>
-        <Button variant="ghost" size="icon-sm" disabled>
-          <Redo2 className="size-4" />
-          <span className="sr-only">Redo</span>
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canUndo}
+                onClick={onUndo}
+              >
+                <Undo2 className="size-4" />
+                <span className="sr-only">Undo</span>
+              </Button>
+            }
+          />
+          <TooltipContent>Undo (Cmd/Ctrl + Z)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canRedo}
+                onClick={onRedo}
+              >
+                <Redo2 className="size-4" />
+                <span className="sr-only">Redo</span>
+              </Button>
+            }
+          />
+          <TooltipContent>Redo (Cmd/Ctrl + Shift + Z)</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   )
