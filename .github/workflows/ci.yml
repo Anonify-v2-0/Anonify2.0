@@ -124,6 +124,8 @@ jobs:
     env:
       DATABASE_URL: postgresql://anonify:anonify@localhost:5432/anonify
       DATABASE_DRIVER: postgres
+      # Replayed into and dropped by the drift check below; never the real one.
+      SHADOW_DATABASE_URL: postgresql://anonify:anonify@localhost:5432/shadow
 
     steps:
       - uses: actions/checkout@v5
@@ -132,14 +134,16 @@ jobs:
       - name: Apply migrations to an empty database
         run: pnpm db:migrate:deploy
 
-      - name: Fail if the schema and the migrations disagree
-        # Catches a schema.prisma edited without a matching migration, which
-        # would work locally via `db push` and break every fresh install.
-        run: pnpm exec prisma migrate diff
-          --from-migrations prisma/migrations
-          --to-schema-datamodel prisma/schema.prisma
-          --shadow-database-url "$DATABASE_URL"
-          --exit-code
+      - name: Create the shadow database
+        run: psql "$DATABASE_URL" -c 'create database shadow'
+
+      - name: Fail if the schema and migrations disagree
+        # Catches a schema.prisma edit without a matching migration.
+        run: |
+          pnpm exec prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema prisma/schema.prisma \
+            --exit-code
 
   # A single check to require in branch protection, so adding a job above does
   # not mean editing the protected-branch settings.
