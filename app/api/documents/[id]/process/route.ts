@@ -6,6 +6,7 @@ import {
   handleRouteError,
   jsonResponse,
   readJson,
+  rateLimitResponse,
 } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
@@ -54,9 +55,7 @@ export async function POST(
       identity?.networkKey ?? "anonymous"
     )
     if (!limit.allowed) {
-      return errorResponse("Too many processing requests", 429, {
-        resetAt: limit.resetAt.toISOString(),
-      })
+      return rateLimitResponse(limit, "processing requests")
     }
 
     const document = await requireDocument(id, identity?.ownerKey)

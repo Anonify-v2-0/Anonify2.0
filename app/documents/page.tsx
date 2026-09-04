@@ -3,6 +3,7 @@ import Link from "next/link"
 import { UploadCloud } from "lucide-react"
 
 import { DocumentList } from "@/components/documents/document-list"
+import { LimitsCard } from "@/components/documents/limits-card"
 import { AggregateUsageSummary } from "@/components/documents/usage-summary"
 import { Brand } from "@/components/layout/brand"
 import { aggregateUsage } from "@/lib/ai/usage-report"
@@ -65,11 +66,12 @@ export default async function DocumentsPage() {
 
         <DocumentList initialDocuments={documents} />
 
-        {usage.totals.calls > 0 ? (
-          <div className="mt-8">
+        <div className="mt-8 grid gap-4">
+          {usage.totals.calls > 0 ? (
             <AggregateUsageSummary usage={usage} />
-          </div>
-        ) : null}
+          ) : null}
+          <LimitsCard />
+        </div>
       </main>
     </div>
   )

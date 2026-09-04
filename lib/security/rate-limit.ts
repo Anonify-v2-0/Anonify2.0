@@ -7,6 +7,7 @@ import {
   bucketFor,
   consume,
   freshState,
+  refill,
   type BucketState,
 } from "@/lib/security/token-bucket"
 
@@ -68,6 +69,45 @@ export async function consumeRateLimit(
     allowed: decision.allowed,
     remaining: decision.remaining,
     resetAt: new Date(now.getTime() + decision.retryAfterMs),
+  }
+}
+
+/**
+ * The state of a bucket without spending from it.
+ *
+ * Reading has to be free, or the panel that reports how much allowance is left
+ * would consume the allowance it is reporting on — and refresh it away.
+ */
+export async function peekRateLimit(
+  name: RateLimitName,
+  identifier: string
+): Promise<RateLimitResult & { limit: number; windowSeconds: number }> {
+  const { limits } = await effectiveLimits()
+  const { limit, windowSeconds } = limits[name]
+  const config = bucketFor(limit, windowSeconds)
+  const now = new Date()
+
+  const existing = await prisma.rateLimit.findUnique({
+    where: { key: `${name}:${identifier}` },
+  })
+
+  const state: BucketState = existing
+    ? { tokens: existing.tokens, updatedAt: existing.updatedAt }
+    : freshState(config, now)
+
+  // `refill` rather than `consume`: the balance a caller has right now, not the
+  // one they would have after spending a token they have not spent.
+  const available = refill(state, config, now)
+  const shortfall = Math.max(0, 1 - available)
+
+  return {
+    allowed: available >= 1,
+    remaining: Math.floor(available),
+    resetAt: new Date(
+      now.getTime() + Math.ceil((shortfall / config.refillPerSecond) * 1000)
+    ),
+    limit,
+    windowSeconds,
   }
 }
 

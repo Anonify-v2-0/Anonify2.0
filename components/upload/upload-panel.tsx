@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { toastFailure } from "@/lib/api/errors"
 import { cn } from "@/lib/utils"
 import {
   DEFAULT_TTL_SECONDS,
@@ -138,6 +139,8 @@ export function UploadPanel() {
         }
 
         if (!reserve.ok || !reserved.id || !reserved.pathname) {
+          // The server says which allowance was hit and how long the wait is;
+          // "could not start the upload" throws all of that away.
           toast.error(reserved.error ?? "Could not start the upload")
           setPhase("idle")
           return
@@ -163,8 +166,7 @@ export function UploadPanel() {
         })
 
         if (!started.ok) {
-          const payload = (await started.json()) as { error?: string }
-          toast.error(payload.error ?? "Could not start processing")
+          await toastFailure(toast, started, "Could not start processing")
           setPhase("idle")
           return
         }

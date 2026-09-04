@@ -6,6 +6,7 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  RotateCcw,
   Trash2,
 } from "lucide-react"
 
@@ -58,13 +59,17 @@ function formatCreated(iso: string): string {
 export function DocumentCard({
   document,
   onDelete,
+  onRetry,
   onExtended,
   deleting,
+  retrying,
 }: {
   document: DocumentListItem
   onDelete: (id: string) => void
+  onRetry: (id: string) => void
   onExtended: (id: string, expiresAt: string) => void
   deleting: boolean
+  retrying: boolean
 }) {
   const Icon = KIND_ICONS[document.kind] ?? FileText
   const working = IN_PROGRESS.has(document.status)
@@ -109,8 +114,12 @@ export function DocumentCard({
 
           {document.status === "failed" ? (
             <p className="mt-1.5 text-[11px] text-primary">
-              Analysis failed. Your file is safe and can still be redacted by
-              hand.
+              {document.error?.trim()
+                ? document.error
+                : "Analysis failed."}{" "}
+              <span className="text-text-muted">
+                Your file is safe and was not modified.
+              </span>
             </p>
           ) : document.counts.total > 0 ? (
             <div className="mt-2 flex items-center gap-2">
@@ -154,6 +163,22 @@ export function DocumentCard({
           the link semantics a screen reader and a middle-click both rely on.
           Styling the link directly keeps them.
         */}
+        {document.status === "failed" ? (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={retrying}
+            onClick={() => onRetry(document.id)}
+          >
+            {retrying ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <RotateCcw className="size-3.5" />
+            )}
+            Retry
+          </Button>
+        ) : null}
+
         <Link
           href={`/workspace/${document.id}`}
           className={cn(buttonVariants({ variant: "outline", size: "sm" }))}

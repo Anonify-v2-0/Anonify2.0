@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { DocumentUsageSummary } from "@/components/documents/usage-summary"
+import { toastFailure } from "@/lib/api/errors"
 import { cn } from "@/lib/utils"
 import { exportDialogToggled } from "@/store/uiSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
@@ -99,7 +100,7 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
       }
 
       if (!response.ok) {
-        toast.error(payload.error ?? "The export could not be generated.")
+        await toastFailure(toast, response.clone(), "The export could not be generated.")
         return
       }
 

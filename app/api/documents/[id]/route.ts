@@ -4,6 +4,7 @@ import {
   errorResponse,
   handleRouteError,
   jsonResponse,
+  rateLimitResponse,
   readJson,
 } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
@@ -73,9 +74,7 @@ export async function PATCH(
       "processing",
       identity?.networkKey ?? "anonymous"
     )
-    if (!limit.allowed) {
-      return errorResponse("Too many requests. Try again shortly.", 429)
-    }
+    if (!limit.allowed) return rateLimitResponse(limit, "requests")
 
     const document = await requireDocument(id, identity?.ownerKey)
 

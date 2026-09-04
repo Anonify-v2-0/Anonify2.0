@@ -3,6 +3,7 @@ import { newUsageId } from "@/lib/documents/ids"
 import {
   effectiveQuotas,
   isUnlimited,
+  USAGE_KINDS,
   type UsageKind,
 } from "@/lib/security/quota-config"
 import type { DocumentKind } from "@/types/document"
@@ -123,6 +124,32 @@ export async function recordUsage(input: {
     limit,
     remaining: Math.max(0, limit - used),
   }
+}
+
+/**
+ * Everything charged today against one identity, for the panel that reports it.
+ *
+ * Reads rather than upserts: asking how much you have used should not create a
+ * row saying you have used nothing. And it reports the real counts even where
+ * the limit is unlimited — turning a limit off is a reason to stop refusing
+ * work, not a reason to stop counting it.
+ */
+export async function usageSnapshot(
+  fingerprint: string | undefined
+): Promise<{ kind: UsageKind; used: number; limit: number }[]> {
+  const quotas = effectiveQuotas()
+
+  const record = fingerprint
+    ? await prisma.usageRecord.findUnique({
+        where: { fingerprint_date: { fingerprint, date: today() } },
+      })
+    : null
+
+  return USAGE_KINDS.map((kind) => ({
+    kind,
+    used: record?.[kind] ?? 0,
+    limit: quotas[kind],
+  }))
 }
 
 export function quotaMessage(check: QuotaCheck): string {

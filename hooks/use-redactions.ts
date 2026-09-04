@@ -3,6 +3,7 @@
 import { useCallback, useEffect } from "react"
 import { toast } from "sonner"
 
+import { toastFailure } from "@/lib/api/errors"
 import { randomClientId } from "@/lib/documents/client-ids"
 import { useAppDispatch, useAppSelector, useAppStore } from "@/store/hooks"
 import {
@@ -63,7 +64,11 @@ export function useRedactions(documentId: string, status: string) {
             body: JSON.stringify({ ids, status: next }),
           }
         )
-        if (!response.ok) throw new Error("save failed")
+        if (!response.ok) {
+          await toastFailure(toast, response, "That change could not be saved.")
+          dispatch(undone())
+          void reload()
+        }
       } catch {
         toast.error("That change could not be saved.")
         dispatch(undone())
@@ -91,7 +96,11 @@ export function useRedactions(documentId: string, status: string) {
             body: JSON.stringify(input),
           }
         )
-        if (!response.ok) throw new Error("save failed")
+        if (!response.ok) {
+          await toastFailure(toast, response, "That redaction could not be saved.")
+          dispatch(redactionRemoved(optimistic.id))
+          return null
+        }
 
         // Adopt the server's id so later edits address the same row.
         const payload = (await response.json()) as { redaction: Redaction }
@@ -135,7 +144,10 @@ export function useRedactions(documentId: string, status: string) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ pattern, category }),
         })
-        if (!response.ok) throw new Error("rule failed")
+        if (!response.ok) {
+          await toastFailure(toast, response, "That rule could not be applied.")
+          return
+        }
 
         const payload = (await response.json()) as {
           rule: { id: string; pattern: string; category: string; enabled: boolean }

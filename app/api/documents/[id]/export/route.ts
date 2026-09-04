@@ -1,6 +1,11 @@
 import { z } from "zod"
 
-import { errorResponse, handleRouteError, jsonResponse } from "@/lib/api/http"
+import {
+  errorResponse,
+  handleRouteError,
+  jsonResponse,
+  rateLimitResponse,
+} from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import { randomId } from "@/lib/documents/ids"
 import { loadNormalized } from "@/lib/documents/normalized-store"
@@ -47,9 +52,7 @@ export async function POST(
       identity?.networkKey ?? "anonymous"
     )
     if (!limit.allowed) {
-      return errorResponse("Too many exports. Try again shortly.", 429, {
-        resetAt: limit.resetAt.toISOString(),
-      })
+      return rateLimitResponse(limit, "exports")
     }
 
     const document = await requireDocument(id, identity?.ownerKey)

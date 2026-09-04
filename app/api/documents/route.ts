@@ -5,6 +5,7 @@ import {
   handleRouteError,
   jsonResponse,
   readJson,
+  rateLimitResponse,
 } from "@/lib/api/http"
 import { ALLOWED_TTL_SECONDS, MAX_UPLOAD_BYTES } from "@/lib/config"
 import { prisma } from "@/lib/database/prisma"
@@ -76,9 +77,7 @@ export async function POST(request: Request) {
 
     const limit = await consumeRateLimit("upload", identity.networkKey)
     if (!limit.allowed) {
-      return errorResponse("Too many uploads. Try again shortly.", 429, {
-        resetAt: limit.resetAt.toISOString(),
-      })
+      return rateLimitResponse(limit, "uploads")
     }
 
     const parsed = createSchema.safeParse(await readJson(request))

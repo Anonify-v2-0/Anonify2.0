@@ -2,6 +2,7 @@ import {
   errorResponse,
   handleRouteError,
   jsonResponse,
+  rateLimitResponse,
   readFormData,
 } from "@/lib/api/http"
 import { MAX_UPLOAD_BYTES } from "@/lib/config"
@@ -34,9 +35,7 @@ export async function POST(request: Request) {
       identity?.networkKey ?? "anonymous"
     )
     if (!limit.allowed) {
-      return errorResponse("Too many uploads. Try again shortly.", 429, {
-        resetAt: limit.resetAt.toISOString(),
-      })
+      return rateLimitResponse(limit, "uploads")
     }
 
     const form = await readFormData(request)
