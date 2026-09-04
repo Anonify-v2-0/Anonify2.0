@@ -1,5 +1,6 @@
 import { handleRouteError, jsonResponse } from "@/lib/api/http"
 import { aggregateUsage } from "@/lib/ai/usage-report"
+import { EMPTY_TOTALS } from "@/lib/ai/usage-types"
 import { peekIdentity } from "@/lib/security/fingerprint"
 
 export const runtime = "nodejs"
@@ -14,13 +15,7 @@ export async function GET() {
     if (!identity) {
       return jsonResponse({
         documents: 0,
-        totals: {
-          calls: 0,
-          inputTokens: 0,
-          outputTokens: 0,
-          durationMs: 0,
-          chunks: 0,
-        },
+        totals: EMPTY_TOTALS,
         byModel: [],
         estimatedCostUsd: null,
       })

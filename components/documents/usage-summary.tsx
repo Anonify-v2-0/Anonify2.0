@@ -3,8 +3,13 @@
 import { useEffect, useState } from "react"
 import { Cpu } from "lucide-react"
 
-import { formatTokens } from "@/lib/ai/usage-report"
-import type { AggregateUsage, DocumentUsage } from "@/lib/ai/usage-report"
+import {
+  formatCost,
+  formatDuration,
+  formatTokens,
+  type AggregateUsage,
+  type DocumentUsage,
+} from "@/lib/ai/usage-types"
 import { cn } from "@/lib/utils"
 
 /**
@@ -15,19 +20,6 @@ import { cn } from "@/lib/utils"
  * invented price is worse than no price, particularly on the page people would
  * use to compare models.
  */
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`
-}
-
-function formatCost(usd: number | null): string | null {
-  if (usd === null) return null
-  if (usd === 0) return "$0.00"
-  if (usd < 0.01) return `<$0.01`
-  return `$${usd.toFixed(2)}`
-}
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
