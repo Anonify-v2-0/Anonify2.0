@@ -6,8 +6,9 @@ import { ArrowLeft, Download } from "lucide-react"
 import { Brand } from "@/components/layout/brand"
 import { Button } from "@/components/ui/button"
 import { StatusPill } from "@/components/processing/status-pill"
-import { ExpiryCountdown } from "@/components/editor/expiry-countdown"
+import { RetentionControl } from "@/components/documents/retention-control"
 import { useAppDispatch } from "@/store/hooks"
+import { documentLoaded } from "@/store/documentSlice"
 import { exportDialogToggled } from "@/store/uiSlice"
 import type { DocumentSummary } from "@/types/document"
 
@@ -35,7 +36,15 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
         <p className="text-[11px] text-text-muted uppercase">{summary.kind}</p>
       </div>
 
-      <ExpiryCountdown expiresAt={summary.expiresAt} />
+      <RetentionControl
+        documentId={summary.id}
+        createdAt={summary.createdAt}
+        expiresAt={summary.expiresAt}
+        onExtended={(expiresAt) =>
+          dispatch(documentLoaded({ ...summary, expiresAt }))
+        }
+        className="hidden lg:inline-flex"
+      />
       <StatusPill status={summary.status} />
 
       <Button

@@ -11,7 +11,7 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { StatusPill } from "@/components/processing/status-pill"
-import { ExpiryCountdown } from "@/components/editor/expiry-countdown"
+import { RetentionControl } from "@/components/documents/retention-control"
 import { cn } from "@/lib/utils"
 import type { DocumentListItem } from "@/lib/documents/listing"
 import type { DocumentKind } from "@/types/document"
@@ -58,10 +58,12 @@ function formatCreated(iso: string): string {
 export function DocumentCard({
   document,
   onDelete,
+  onExtended,
   deleting,
 }: {
   document: DocumentListItem
   onDelete: (id: string) => void
+  onExtended: (id: string, expiresAt: string) => void
   deleting: boolean
 }) {
   const Icon = KIND_ICONS[document.kind] ?? FileText
@@ -136,7 +138,12 @@ export function DocumentCard({
       </div>
 
       <div className="flex shrink-0 items-center gap-2 self-start sm:self-center">
-        <ExpiryCountdown expiresAt={document.expiresAt} />
+        <RetentionControl
+          documentId={document.id}
+          createdAt={document.createdAt}
+          expiresAt={document.expiresAt}
+          onExtended={(expiresAt) => onExtended(document.id, expiresAt)}
+        />
         <StatusPill status={document.status} />
 
         <Button

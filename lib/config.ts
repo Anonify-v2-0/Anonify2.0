@@ -24,6 +24,13 @@ export const ACCEPTED_EXTENSIONS = [
 
 export const ALLOWED_TTL_SECONDS: TtlOption[] = [3600, 21600, 86400, 259200]
 
+/**
+ * The hard ceiling on an anonymous demo document's life, measured from when it
+ * was created. Extending raises the window towards this limit; it never resets
+ * the clock, so a document cannot be kept alive by renewing it repeatedly.
+ */
+export const MAX_RETENTION_SECONDS = 72 * 60 * 60
+
 /** Anonymous demo quotas, enforced server-side per fingerprint per day. */
 export const DAILY_QUOTA = {
   pdfPages: 10,

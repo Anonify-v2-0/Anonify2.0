@@ -146,3 +146,46 @@ export const TTL_OPTIONS: { value: TtlOption; label: string }[] = [
 ]
 
 export const DEFAULT_TTL_SECONDS: TtlOption = 86400
+
+/**
+ * The ceiling on how long an anonymous demo document may live, measured from
+ * when it was created — not from when it was last extended. Extending resets
+ * nothing: it can only raise the window towards this limit, so a document
+ * cannot be kept alive indefinitely by repeatedly renewing it.
+ */
+export const MAX_RETENTION_SECONDS = 72 * 60 * 60
+
+/** Human label for a retention window, e.g. 86400 -> "24 hours". */
+export function ttlLabel(seconds: number): string {
+  const option = TTL_OPTIONS.find((candidate) => candidate.value === seconds)
+  if (option) return option.label
+
+  const hours = Math.round(seconds / 3600)
+  if (hours >= 48) return `${Math.round(hours / 24)} days`
+  return hours === 1 ? "1 hour" : `${hours} hours`
+}
+
+/** The windows still available to a document created `createdAt`. */
+export function extendableOptions(
+  createdAt: string | Date,
+  currentExpiresAt: string | Date,
+  now: Date = new Date()
+): { value: TtlOption; label: string; expiresAt: Date }[] {
+  const created = new Date(createdAt).getTime()
+  const currentExpiry = new Date(currentExpiresAt).getTime()
+
+  return TTL_OPTIONS.filter((option) => {
+    const expiresAt = created + option.value * 1000
+    // Only windows that actually push the expiry out, and only ones that have
+    // not already elapsed — offering "1 hour" to a two-hour-old document would
+    // be offering to delete it.
+    return (
+      option.value * 1000 <= MAX_RETENTION_SECONDS * 1000 &&
+      expiresAt > currentExpiry &&
+      expiresAt > now.getTime()
+    )
+  }).map((option) => ({
+    ...option,
+    expiresAt: new Date(created + option.value * 1000),
+  }))
+}

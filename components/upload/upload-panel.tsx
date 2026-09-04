@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils"
 import {
   DEFAULT_TTL_SECONDS,
   TTL_OPTIONS,
+  ttlLabel,
   type TtlOption,
 } from "@/types/document"
 
@@ -189,8 +190,11 @@ export function UploadPanel() {
           onValueChange={(value) => setTtl(Number(value) as TtlOption)}
           disabled={busy}
         >
-          <SelectTrigger size="sm" className="w-[130px]">
-            <SelectValue />
+          <SelectTrigger size="sm" className="w-[150px]">
+            {/* The value is a count of seconds; the user reads a duration. */}
+            <SelectValue>
+              {(value) => `Expires in ${ttlLabel(Number(value))}`}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {TTL_OPTIONS.map((option) => (

@@ -68,6 +68,14 @@ export function DocumentList({
     }
   }, [anyWorking])
 
+  const onExtended = useCallback((id: string, expiresAt: string) => {
+    setDocuments((current) =>
+      current.map((document) =>
+        document.id === id ? { ...document, expiresAt } : document
+      )
+    )
+  }, [])
+
   const remove = useCallback(async (id: string) => {
     setDeleting(id)
     try {
@@ -111,6 +119,7 @@ export function DocumentList({
           key={document.id}
           document={document}
           onDelete={remove}
+          onExtended={onExtended}
           deleting={deleting === document.id}
         />
       ))}
