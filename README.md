@@ -358,10 +358,15 @@ with `CLEANUP_INTERVAL_SECONDS` (default 900) and `ANONIFY_URL` (default
 `http://app:3000` — point it at `http://host.docker.internal:3000` if you run
 the app on the host).
 
-`CRON_SECRET` is required for this. The container image runs as production,
-where the cleanup endpoint refuses any request that does not carry it; compose
-fails to start the scheduler without one rather than letting the sweep quietly
-401 while documents outlive their retention window. `pnpm setup` generates it.
+Set `CRON_SECRET` before you do. The container image runs as production, where
+the cleanup endpoint refuses any request that does not carry it, so without one
+the scheduler starts, 401s every cycle, and documents outlive their retention
+window. It says so — once at startup and again on every refusal — rather than
+logging a status code nobody reads. `pnpm setup` generates it.
+
+It is a warning rather than a hard failure because pointing `ANONIFY_URL` at a
+development server on the host is legitimate: that server has no secret of its
+own, and the endpoint accepts an unauthenticated sweep outside production.
 
 Whichever you choose, the sweep deletes the source, the normalized model, every
 export and the database row — and is idempotent, so a failed run is retried

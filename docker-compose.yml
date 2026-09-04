@@ -171,10 +171,16 @@ services:
       # The app on the compose network. Override with host.docker.internal:3000
       # if you run the app on the host instead.
       ANONIFY_URL: ${ANONIFY_URL:-http://app:3000}
-      # The image runs as production, where the cleanup endpoint requires this.
-      # Required here rather than defaulted, because the alternative is a sweep
-      # that quietly 401s and a "temporary" document that is never deleted.
-      CRON_SECRET: ${CRON_SECRET:?set it in .env, or run `pnpm setup` to generate one}
+      # Needed whenever the app has one of its own, which the container image
+      # always does — it runs as production, where the endpoint refuses any
+      # request without a matching bearer.
+      #
+      # NOT declared required here, and that is the point: compose interpolates
+      # the entire file before it runs anything, profiles included, so a `${VAR:?}`
+      # on this opt-in service failed `up`, `down`, `logs` and `ps` for everyone
+      # who had never asked for a scheduler. The check moved into the container
+      # below, where it fires when you actually opt in.
+      CRON_SECRET: ${CRON_SECRET:-}
       CLEANUP_INTERVAL_SECONDS: ${CLEANUP_INTERVAL_SECONDS:-900}
     extra_hosts:
       # Docker Desktop provides this name already; Linux needs it spelled out.
@@ -182,7 +188,15 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        echo "expiry sweep every ${CLEANUP_INTERVAL_SECONDS:-900}s against $$ANONIFY_URL"
+        echo "expiry sweep every $${CLEANUP_INTERVAL_SECONDS}s against $$ANONIFY_URL"
+        if [ -z "$$CRON_SECRET" ]; then
+          # Not fatal: pointed at a development server on the host, which has no
+          # secret of its own, the endpoint accepts an unauthenticated sweep.
+          # Against this compose stack it will not, so say so now rather than
+          # letting the first 401 arrive 15 minutes from now.
+          echo "warning: CRON_SECRET is unset. The app container runs as production" >&2
+          echo "warning: and will reject every sweep. Set it in .env, or run \`pnpm setup\`." >&2
+        fi
         while true; do
           # Sleep first: on a cold `up`, the app is usually not listening yet.
           sleep "$$CLEANUP_INTERVAL_SECONDS"
@@ -193,6 +207,13 @@ services:
           fi
           code=$$(curl -sS -m 120 -o /tmp/out -w '%{http_code}' -H "$$AUTH" "$$ANONIFY_URL/api/cron/cleanup" || echo 000)
           echo "$$(date -Iseconds) cleanup -> $$code $$(head -c 200 /tmp/out)"
+          # A sweep that 401s forever is a "temporary" document that is never
+          # deleted, and a status code in a log nobody reads is how that goes
+          # unnoticed. Name the cause every time it happens.
+          if [ "$$code" = "401" ]; then
+            echo "  refused: the app requires a bearer token this scheduler does not have." >&2
+            echo "  Set CRON_SECRET to the same value the app container was given." >&2
+          fi
         done
 
 volumes:
