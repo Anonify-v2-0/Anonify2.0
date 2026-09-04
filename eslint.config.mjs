@@ -7,6 +7,10 @@ const eslintConfig = defineConfig([
   ...nextTs,
   // Override default ignores of eslint-config-next.
   globalIgnores([
+    // Generated Prisma client — not authored by us.
+    "lib/database/generated/**",
+    // Vendored build artifacts copied into the static directory.
+    "public/**",
     // Default ignores of eslint-config-next:
     ".next/**",
     "out/**",

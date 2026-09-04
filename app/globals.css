@@ -4,9 +4,31 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+  Anonify design system.
+
+  RED      = action / sensitive / attention
+  CHARCOAL = workspace / chrome
+  WHITE    = document / primary content
+  GRAY     = secondary information
+*/
+
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
+
+    --color-surface-1: var(--surface-1);
+    --color-surface-2: var(--surface-2);
+    --color-surface-3: var(--surface-3);
+    --color-document: var(--document);
+    --color-document-foreground: var(--document-foreground);
+    --color-red-soft: var(--red-soft);
+    --color-red-border: var(--red-border);
+    --color-red-hover: var(--red-hover);
+    --color-text-secondary: var(--text-secondary);
+    --color-text-muted: var(--text-muted);
+    --color-border-strong: var(--border-strong);
+
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -38,6 +60,10 @@
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
+
+    --shadow-document: 0 8px 30px rgba(0, 0, 0, 0.3);
+    --shadow-panel: -8px 8px 20px rgba(0, 0, 0, 0.28);
+
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -47,73 +73,62 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-:root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
-}
-
+/*
+  The product is dark-first: :root carries the charcoal workspace palette so the
+  interface never flashes a light theme before next-themes applies `.dark`.
+*/
+:root,
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --surface-1: #212429;
+    --surface-2: #181a1d;
+    --surface-3: #111214;
+    --document: #ffffff;
+    --document-foreground: #111214;
+
+    --red: #ff0000;
+    --red-hover: #e60000;
+    --red-soft: rgba(255, 0, 0, 0.12);
+    --red-border: rgba(255, 0, 0, 0.55);
+
+    --text-secondary: #d1d5db;
+    --text-muted: #a3a0a7;
+
+    --background: #212429;
+    --foreground: #ffffff;
+    --card: #181a1d;
+    --card-foreground: #ffffff;
+    --popover: #181a1d;
+    --popover-foreground: #ffffff;
+    --primary: #ff0000;
+    --primary-foreground: #ffffff;
+    --secondary: #2a2d33;
+    --secondary-foreground: #ffffff;
+    --muted: #2a2d33;
+    --muted-foreground: #a3a0a7;
+    --accent: #2a2d33;
+    --accent-foreground: #ffffff;
+    --destructive: #ff3b30;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --input: rgba(255, 255, 255, 0.12);
+    --ring: rgba(255, 0, 0, 0.55);
+
+    --chart-1: #ff0000;
+    --chart-2: #ff6b6b;
+    --chart-3: #d1d5db;
+    --chart-4: #a3a0a7;
+    --chart-5: #4b4f57;
+
+    --radius: 0.625rem;
+
+    --sidebar: #181a1d;
+    --sidebar-foreground: #ffffff;
+    --sidebar-primary: #ff0000;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #2a2d33;
+    --sidebar-accent-foreground: #ffffff;
+    --sidebar-border: rgba(255, 255, 255, 0.08);
+    --sidebar-ring: rgba(255, 0, 0, 0.55);
 }
 
 @layer base {
@@ -125,5 +140,18 @@
     }
   html {
     @apply font-sans;
+    }
+}
+
+@layer components {
+  /* Pill primary action with the red/white inversion used across the product. */
+  .btn-pill {
+    @apply rounded-full bg-primary px-6 text-primary-foreground transition-colors duration-200 hover:bg-white hover:text-primary;
+    }
+  .label-micro {
+    @apply text-[11px] font-medium tracking-[0.14em] text-text-muted uppercase;
+    }
+  .panel {
+    @apply rounded-[10px] border border-border bg-card;
     }
 }

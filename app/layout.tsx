@@ -1,15 +1,21 @@
-import { Geist, Geist_Mono, Inter } from "next/font/google"
+import type { Metadata } from "next"
+import { Poppins } from "next/font/google"
 
 import "./globals.css"
-import { ThemeProvider } from "@/components/theme-provider"
-import { cn } from "@/lib/utils";
+import { Providers } from "@/components/providers"
 
-const inter = Inter({subsets:['latin'],variable:'--font-sans'})
-
-const fontMono = Geist_Mono({
+const poppins = Poppins({
   subsets: ["latin"],
-  variable: "--font-mono",
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-sans",
+  display: "swap",
 })
+
+export const metadata: Metadata = {
+  title: "Anonify — AI-assisted document redaction",
+  description:
+    "Redact sensitive information from PDF, DOCX, XLSX and image files without destroying the document. AI proposes, you decide, the export is permanent.",
+}
 
 export default function RootLayout({
   children,
@@ -20,10 +26,10 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", inter.variable)}
+      className={`antialiased font-sans ${poppins.variable}`}
     >
-      <body>
-        <ThemeProvider>{children}</ThemeProvider>
+      <body className="min-h-svh bg-background text-foreground">
+        <Providers>{children}</Providers>
       </body>
     </html>
   )

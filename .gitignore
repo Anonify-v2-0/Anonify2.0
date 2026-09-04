@@ -34,3 +34,12 @@ pnpm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# prisma generated client
+/lib/database/generated
+
+# local blob fallback (development only)
+/.anonify-storage
+
+# copied build artifact
+/public/pdf.worker.min.mjs

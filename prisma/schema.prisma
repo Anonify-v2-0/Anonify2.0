@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/database/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// An uploaded source document. The stored source bytes are AES-256-GCM
+/// encrypted; `checksum` is a SHA-256 integrity hash, never a key.
+model Document {
+  id               String   @id
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  expiresAt        DateTime
+  ttlSeconds       Int      @default(86400)
+
+  originalName     String
+  kind             String
+  mimeType         String
+  size             Int
+  pageCount        Int?
+
+  status           String   @default("queued")
+  error            String?
+
+  sourceBlobKey    String
+  processedBlobKey String?
+  /// Wrapped per-document data key (base64), unwrapped server-side only.
+  encryptionKey    String
+  checksum         String
+  processedChecksum String?
+
+  userFingerprint  String
+  /// Encrypted normalized-model artifact. Extracted text never sits in the
+  /// database in the clear.
+  normalizedBlobKey String?
+  metadata         Json?
+
+  redactions       Redaction[]
+  rules            GlobalRule[]
+  events           ProcessingEvent[]
+
+  @@index([userFingerprint])
+  @@index([expiresAt])
+}
+
+model Redaction {
+  id          String   @id
+  documentId  String
+  createdAt   DateTime @default(now())
+
+  source      String
+  type        String
+  category    String
+  confidence  Float?
+  status      String   @default("suggested")
+
+  page        Int?
+  text        String?
+  startOffset Int?
+  endOffset   Int?
+
+  worksheet   String?
+  row         Int?
+  column      Int?
+
+  reason      String?
+  ruleId      String?
+  metadata    Json?
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([documentId, status])
+}
+
+model GlobalRule {
+  id                String   @id
+  documentId        String
+  createdAt         DateTime @default(now())
+
+  pattern           String
+  normalizedPattern String
+  category          String
+  enabled           Boolean  @default(true)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+model ProcessingEvent {
+  id         String   @id
+  documentId String
+  at         DateTime @default(now())
+  type       String
+  payload    Json?
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, at])
+}
+
+/// Per-fingerprint daily quota accounting. Enforced server-side only.
+model UsageRecord {
+  id          String   @id
+  fingerprint String
+  date        DateTime @db.Date
+  pdfPages    Int      @default(0)
+  xlsxCells   Int      @default(0)
+  images      Int      @default(0)
+  docxPages   Int      @default(0)
+  uploads     Int      @default(0)
+
+  @@unique([fingerprint, date])
+}
+
+/// AI cost/telemetry per processing job. Never stores document content.
+model AiUsage {
+  id           String   @id
+  documentId   String
+  createdAt    DateTime @default(now())
+  task         String
+  model        String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  durationMs   Int      @default(0)
+  chunks       Int      @default(1)
+
+  @@index([documentId])
+}
+
+/// Fixed-window rate limiting, keyed by hashed network/session identifiers.
+model RateLimit {
+  key         String   @id
+  windowStart DateTime
+  count       Int      @default(0)
+
+  @@index([windowStart])
+}
