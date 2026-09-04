@@ -1,5 +1,8 @@
-import { RATE_LIMITS, type RateLimitName } from "@/lib/config"
 import { prisma } from "@/lib/database/prisma"
+import {
+  effectiveLimits,
+  type RateLimitName,
+} from "@/lib/security/rate-limit-config"
 import {
   bucketFor,
   consume,
@@ -28,7 +31,8 @@ export async function consumeRateLimit(
   name: RateLimitName,
   identifier: string
 ): Promise<RateLimitResult> {
-  const { limit, windowSeconds } = RATE_LIMITS[name]
+  const { limits } = await effectiveLimits()
+  const { limit, windowSeconds } = limits[name]
   const config = bucketFor(limit, windowSeconds)
   const key = `${name}:${identifier}`
   const now = new Date()

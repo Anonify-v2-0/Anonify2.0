@@ -162,6 +162,14 @@ model AiUsage {
   @@index([documentId])
 }
 
+/// Runtime settings that survive a restart and can be changed without editing
+/// source or redeploying — the rate-limit CLI writes here.
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
 /// Token-bucket rate limiting, keyed by hashed network/session identifiers.
 /// A bucket refills continuously, so there is no window boundary to burst
 /// across the way a fixed window allows.

@@ -40,14 +40,9 @@ export const DAILY_QUOTA = {
   uploads: 20,
 }
 
-export const RATE_LIMITS = {
-  upload: { limit: 10, windowSeconds: 60 },
-  processing: { limit: 30, windowSeconds: 60 },
-  export: { limit: 10, windowSeconds: 60 },
-  read: { limit: 240, windowSeconds: 60 },
-} as const
-
-export type RateLimitName = keyof typeof RATE_LIMITS
+// Rate limits live in lib/security/rate-limit-config.ts: they differ by
+// deployment profile and can be changed at runtime, so they are not constants.
+export type { RateLimitName } from "@/lib/security/rate-limit-config"
 
 export function requiredEnv(name: string): string {
   const value = process.env[name]
