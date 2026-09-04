@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { extractDocx } from "@/lib/documents/docx/extract"
-import { makeDocxFixture, SENSITIVE } from "./fixtures"
+import { makeDocxFixture, makeLongDocxFixture, SENSITIVE } from "./fixtures"
 
 describe("docx extraction", () => {
   it("reads paragraphs, headings and runs", async () => {
@@ -149,5 +149,61 @@ describe("docx headers, footers and notes", () => {
 
     expect(lastHeader).toBeLessThan(firstBody)
     expect(firstFooter).toBeGreaterThan(firstBody)
+  })
+})
+
+describe("docx pagination", () => {
+  it("splits a long document into pages without an explicit break", async () => {
+    // A DOCX does not record where its pages end — Word decides that at layout
+    // time — so a document nobody typed a page break into used to arrive as one
+    // page holding everything, with a page rail of one.
+    const bytes = await makeLongDocxFixture(120)
+    const { document } = extractDocx("doc_1", bytes)
+
+    expect(document.pages.length).toBeGreaterThan(1)
+    expect(document.metadata?.pageCount).toBe(document.pages.length)
+  })
+
+  it("puts a short document on one page", async () => {
+    const bytes = await makeLongDocxFixture(3)
+    const { document } = extractDocx("doc_1", bytes)
+
+    expect(document.pages).toHaveLength(1)
+  })
+
+  it("keeps every paragraph, and keeps them in order", async () => {
+    const bytes = await makeLongDocxFixture(120)
+    const { document } = extractDocx("doc_1", bytes)
+
+    const text = document.pages.map((page) => page.text).join("")
+    for (const index of [1, 40, 120]) {
+      expect(text).toContain(`Paragraph ${index}.`)
+    }
+    expect(text.indexOf("Paragraph 1.")).toBeLessThan(
+      text.indexOf("Paragraph 120.")
+    )
+  })
+
+  it("still honours a break the author typed", async () => {
+    const bytes = await makeLongDocxFixture(4, 1)
+    const { document } = extractDocx("doc_1", bytes)
+
+    // Four short paragraphs would otherwise fit on one page.
+    expect(document.pages.length).toBeGreaterThan(1)
+    expect(document.pages[1].text).toContain("After the break.")
+  })
+
+  it("keeps offsets addressed within their own page", async () => {
+    // Offsets index into the page's text, and the exporter re-derives runs from
+    // them. A span pointing past the end of its page would redact nothing.
+    const bytes = await makeLongDocxFixture(120)
+    const { document } = extractDocx("doc_1", bytes)
+
+    for (const page of document.pages) {
+      for (const span of page.spans) {
+        expect(span.end).toBeLessThanOrEqual(page.text.length)
+        expect(page.text.slice(span.start, span.end)).toBe(span.text)
+      }
+    }
   })
 })

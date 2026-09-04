@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 
 import { extractPdf } from "@/lib/documents/pdf/extract"
-import { makePdfFixture, makeScannedPdfFixture, SENSITIVE } from "./fixtures"
+import {
+  makeImagePdfFixture,
+  makePdfFixture,
+  makeScannedPdfFixture,
+  SENSITIVE,
+} from "./fixtures"
 
 describe("pdf extraction", () => {
   it("produces a normalized page per PDF page", async () => {
@@ -72,5 +77,26 @@ describe("pdf extraction", () => {
 
     expect(ocrPages).toEqual([1])
     expect(document.pages[0].ocr).toBe(true)
+  })
+})
+
+describe("pages that paint images", () => {
+  it("flags only the pages that actually carry one", async () => {
+    // This flag is what decides which pages get a vision pass. Marking a page
+    // of pure text costs tokens for nothing; missing a page with a signature on
+    // it means the signature is never proposed for redaction at all.
+    const bytes = await makeImagePdfFixture()
+    const { document } = await extractPdf("doc_1", bytes)
+
+    expect(document.pages).toHaveLength(2)
+    expect(document.pages[0].images).toBeUndefined()
+    expect(document.pages[1].images).toBe(true)
+  })
+
+  it("does not mistake drawn vector shapes for an image", async () => {
+    const bytes = await makeScannedPdfFixture()
+    const { document } = await extractPdf("doc_1", bytes)
+
+    expect(document.pages[0].images).toBeUndefined()
   })
 })

@@ -45,6 +45,41 @@ export async function makePdfFixture(
   return pdf.save()
 }
 
+/**
+ * A PDF with a real embedded raster image on page two.
+ *
+ * Not a drawn rectangle: a vector fill is not an image, and the point of this
+ * fixture is the distinction the extractor has to make — which pages are worth
+ * showing to a vision model, because a face or a signature lives in pixels that
+ * no text detector can see.
+ */
+export async function makeImagePdfFixture(): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create()
+  const font = await pdf.embedFont(StandardFonts.Helvetica)
+
+  const textPage = pdf.addPage([612, 792])
+  textPage.drawText("Page one carries only text.", {
+    x: 72,
+    y: 700,
+    size: 12,
+    font,
+    color: rgb(0, 0, 0),
+  })
+
+  const png = await pdf.embedPng(await makeImageFixture())
+  const imagePage = pdf.addPage([612, 792])
+  imagePage.drawText("Page two carries a photograph.", {
+    x: 72,
+    y: 700,
+    size: 12,
+    font,
+    color: rgb(0, 0, 0),
+  })
+  imagePage.drawImage(png, { x: 72, y: 400, width: 200, height: 150 })
+
+  return pdf.save()
+}
+
 /** A PDF with no extractable text, standing in for a scanned document. */
 export async function makeScannedPdfFixture(): Promise<Uint8Array> {
   const pdf = await PDFDocument.create()
@@ -161,6 +196,45 @@ export async function makeXlsxFixture(): Promise<Uint8Array> {
 
   const output = await workbook.xlsx.writeBuffer()
   return new Uint8Array(output)
+}
+
+/**
+ * A long document with no explicit page breaks — which is what almost every
+ * real DOCX is, and the case that used to collapse into a single endless page.
+ * `breakAfter` inserts a hard break after that paragraph index when given.
+ */
+export async function makeLongDocxFixture(
+  paragraphs = 120,
+  breakAfter?: number
+): Promise<Uint8Array> {
+  const { Document, Packer, Paragraph, TextRun } = await import("docx")
+
+  const body = Array.from({ length: paragraphs }, (_, index) => {
+    const runs = [
+      new TextRun(
+        `Paragraph ${index + 1}. ` +
+          "This sentence exists to take up a predictable amount of space on the " +
+          "page so pagination has something to measure. "
+      ),
+    ]
+    return new Paragraph({
+      children: runs,
+      ...(breakAfter !== undefined && index === breakAfter
+        ? { pageBreakBefore: false }
+        : {}),
+    })
+  })
+
+  if (breakAfter !== undefined) {
+    body.splice(
+      breakAfter + 1,
+      0,
+      new Paragraph({ children: [new TextRun("After the break.")], pageBreakBefore: true })
+    )
+  }
+
+  const doc = new Document({ sections: [{ children: body }] })
+  return new Uint8Array(await Packer.toBuffer(doc))
 }
 
 /** Where the fixture's coloured band sits, and the fine detail inside it. */

@@ -332,13 +332,23 @@ async function analyzeSheets(
   return sensitive
 }
 
-/** Vision pass: faces and sensitive regions, in normalized coordinates. */
+/**
+ * Vision pass: faces and sensitive regions, in normalized coordinates.
+ *
+ * Takes a page number because this is not only for uploaded images. A PDF page
+ * that paints an image gets rasterized and sent here too — a signature or a
+ * face on page seven is invisible to every text detector in the pipeline, and
+ * was going unflagged.
+ */
 export async function analyzeImageRegions(
   documentId: string,
   model: NormalizedDocument,
-  image: { data: Uint8Array; mediaType: string }
+  image: { data: Uint8Array; mediaType: string },
+  pageNumber = 1
 ): Promise<Detection[]> {
-  const page = model.pages[0]
+  const page =
+    model.pages.find((candidate) => candidate.number === pageNumber) ??
+    model.pages[0]
   if (!page) return []
 
   const { output } = await runStructured({
@@ -361,7 +371,7 @@ export async function analyzeImageRegions(
     category: region.kind === "face" ? "face" : region.category,
     confidence: region.confidence,
     reason: region.reason,
-    page: 1,
+    page: page.number,
     boundingBox: {
       x: region.x * page.width,
       y: region.y * page.height,

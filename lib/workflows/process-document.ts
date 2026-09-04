@@ -7,6 +7,10 @@ import { MAX_UPLOAD_BYTES } from "@/lib/config"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { extractPdf } from "@/lib/documents/pdf/extract"
 import { extractImage } from "@/lib/documents/image/extract"
+import {
+  MAX_VISION_PAGES,
+  renderPagesForVision,
+} from "@/lib/documents/pdf/page-images"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { newEventId } from "@/lib/documents/ids"
@@ -303,8 +307,9 @@ async function analyze(documentId: string): Promise<{ suggestions: number }> {
     }
   )
 
-  // Images get a vision pass over the actual pixels.
-  if (document.kind === "image" && document.sourceBlobKey) {
+  // Pixels get a vision pass, because no amount of text analysis can see a
+  // face, a signature or a photographed ID card.
+  if (document.sourceBlobKey && document.kind === "image") {
     const sealed = await getObject(document.sourceBlobKey)
     const bytes = decryptDocument(sealed, document.encryptionKey)
     detections.push(
@@ -313,6 +318,44 @@ async function analyze(documentId: string): Promise<{ suggestions: number }> {
         mediaType: document.mimeType,
       }))
     )
+  }
+
+  // The same pass for a PDF, over the pages that actually paint something.
+  // Those pages were being extracted for their text and then never looked at,
+  // so a scanned signature block or a photograph inside an otherwise ordinary
+  // document produced no suggestion at all — the one failure mode this tool
+  // exists to prevent, arriving silently.
+  if (document.sourceBlobKey && document.kind === "pdf") {
+    const imagePages = model.pages
+      .filter((page) => page.images)
+      .map((page) => page.number)
+      .slice(0, MAX_VISION_PAGES)
+
+    if (imagePages.length > 0) {
+      const sealed = await getObject(document.sourceBlobKey)
+      const bytes = decryptDocument(sealed, document.encryptionKey)
+      const rendered = await renderPagesForVision(bytes, imagePages)
+
+      for (const [index, { page, png }] of rendered.entries()) {
+        detections.push(
+          ...(await analyzeImageRegions(
+            documentId,
+            model,
+            { data: png, mediaType: "image/png" },
+            page
+          ))
+        )
+        await emit(documentId, "document.ai.progress", {
+          status: "analyzing",
+          payload: {
+            stage: "image",
+            completed: index + 1,
+            total: rendered.length,
+            suggestions: detections.length,
+          },
+        })
+      }
+    }
   }
 
   const redactions = detections.map((detection) =>

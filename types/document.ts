@@ -108,6 +108,13 @@ export type NormalizedPage = {
   spans: TextSpan[]
   /** True when the page text came from OCR rather than embedded text. */
   ocr?: boolean
+  /**
+   * True when the page paints an image. Text detection cannot see a face, a
+   * signature or a photographed ID card, so these are the pages worth showing
+   * to a vision model — and the only ones, because rendering the rest would be
+   * paid for in tokens and return nothing.
+   */
+  images?: boolean
   /** Flow content for DOCX documents, used by the editorial renderer. */
   blocks?: DocxBlock[]
 }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { PDFDocumentProxy } from "pdfjs-dist"
 
+import { DocxViewer } from "@/components/document-viewer/docx-viewer"
 import { boxesForRedaction } from "@/components/redaction/redaction-layer"
 import { cn } from "@/lib/utils"
 import type { NormalizedPage } from "@/types/document"
@@ -15,6 +16,12 @@ import type { Redaction } from "@/types/redaction"
  * the rail doubles as a progress view: a glance tells you which pages you have
  * worked through and which are still untouched. Renders are cached per document
  * and page, because scrolling the rail should not re-rasterize.
+ *
+ * A PDF page is rasterized by pdf.js. A DOCX page has no raster to ask for —
+ * there is no PDF behind it — so it is drawn by the same viewer the canvas
+ * uses, scaled down. Without this the rail showed a column of blank rectangles
+ * for every DOCX, which reads as a broken panel rather than as a document with
+ * nothing on its pages.
  */
 
 const THUMBNAIL_WIDTH = 120
@@ -47,6 +54,25 @@ async function renderThumbnail(
   page.cleanup()
 
   return canvas.toDataURL("image/png")
+}
+
+/** True when an accepted redaction covers any of the run's characters. */
+function coveredByAccepted(
+  page: NormalizedPage,
+  spanId: string,
+  redactions: Redaction[]
+): boolean {
+  const span = page.spans.find((candidate) => candidate.id === spanId)
+  if (!span) return false
+
+  return redactions.some(
+    (redaction) =>
+      redaction.status === "accepted" &&
+      redaction.start !== undefined &&
+      redaction.end !== undefined &&
+      span.start < redaction.end &&
+      span.end > redaction.start
+  )
 }
 
 export type PageThumbnailProps = {
@@ -126,6 +152,25 @@ export function PageThumbnail({
         {source ? (
           // eslint-disable-next-line @next/next/no-img-element -- a client-rendered data URL
           <img src={source} alt="" className="block h-full w-full object-contain" />
+        ) : page?.blocks ? (
+          // Inert: the whole tile is one button, so the miniature must not be
+          // reachable or announced separately.
+          <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+            <DocxViewer
+              page={page}
+              zoom={THUMBNAIL_WIDTH / page.width}
+              renderSpan={(spanId, children) =>
+                // DOCX spans carry no geometry, so the boxes drawn below this
+                // find nothing to place. Blacking the run out here is what
+                // keeps the rail a progress view for a Word document too.
+                coveredByAccepted(page, spanId, redactions) ? (
+                  <span className="bg-black text-black">{children}</span>
+                ) : (
+                  children
+                )
+              }
+            />
+          </span>
         ) : null}
 
         {/* Redactions in page units, scaled to the thumbnail by percentage. */}

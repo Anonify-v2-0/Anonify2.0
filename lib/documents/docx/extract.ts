@@ -141,17 +141,37 @@ function paragraphProps(paragraphNode: XmlNode): ParagraphProps {
   return props
 }
 
-/** True when the paragraph contains an explicit page break. */
-function hasPageBreak(paragraphNode: XmlNode): boolean {
+/**
+ * Explicit page breaks, of which Word has two and they mean opposite things.
+ *
+ * `<w:br w:type="page"/>` is a run inside a paragraph: everything up to it
+ * belongs to the page that is ending. `<w:pageBreakBefore/>` is a paragraph
+ * property: the paragraph carrying it starts the next page. Reading only the
+ * first — which is what this did — silently ignored every break made with
+ * Word's "Page break before" formatting.
+ */
+type PageBreak = "after" | "before" | null
+
+function pageBreakOf(paragraphNode: XmlNode): PageBreak {
+  const properties = findChild(childrenOf(paragraphNode), "w:pPr")
+  if (properties) {
+    for (const child of childrenOf(properties)) {
+      if (nodeName(child) !== "w:pageBreakBefore") continue
+      // Present means on unless it says otherwise.
+      const value = attr(child, "w:val")
+      if (value !== "0" && value !== "false") return "before"
+    }
+  }
+
   for (const run of childrenOf(paragraphNode)) {
     if (nodeName(run) !== "w:r") continue
     for (const child of childrenOf(run)) {
       if (nodeName(child) === "w:br" && attr(child, "w:type") === "page") {
-        return true
+        return "after"
       }
     }
   }
-  return false
+  return null
 }
 
 /**
@@ -281,17 +301,17 @@ function collectBlocks(
   node: XmlNode,
   context: PartContext,
   into: DocxBlock[] = [],
-  onPageBreak?: (blockCount: number) => void
+  onPageBreak?: (blockCount: number, kind: PageBreak) => void
 ): DocxBlock[] {
   for (const child of childrenOf(node)) {
     const name = nodeName(child)
     if (name === "w:p") {
-      const breaks = hasPageBreak(child)
+      const breaks = pageBreakOf(child)
       into.push(buildParagraph(child, context))
       // Reported as a position rather than by handing the caller a new array:
       // the walker keeps pushing into `into`, so swapping it out here would
       // silently send the rest of the document to the previous page.
-      if (breaks) onPageBreak?.(into.length)
+      if (breaks) onPageBreak?.(into.length, breaks)
     } else if (name === "w:tbl") {
       into.push(buildTable(child, context))
     } else if (name !== "w:sectPr" && name !== "w:pPr") {
@@ -314,6 +334,140 @@ export function regionOfPart(part: string): DocxRegion {
 /** Default Word page geometry (US Letter at 72dpi), used by the renderer. */
 const PAGE_WIDTH = 612
 const PAGE_HEIGHT = 792
+
+/**
+ * Pagination.
+ *
+ * A DOCX does not record where its pages end. Word decides that while laying
+ * the document out, and the file only ever contains the breaks an author typed
+ * by hand — which most documents do not have at all. Splitting on those alone
+ * produced a single page holding the entire document, and the workspace showed
+ * one endless sheet with a page rail of one.
+ *
+ * So the height is estimated instead, from the same numbers the viewer renders
+ * with (see components/document-viewer/docx-viewer.tsx — 11pt Calibri at
+ * line-height 1.5 inside a 72pt margin). It is an estimate and it will not
+ * agree with Word to the line: proportional glyph widths vary by font, and
+ * nothing here does kerning or widow control. It does not need to. Pages are a
+ * unit of *review* — somewhere to be in a long document, and something for a
+ * redaction to be filed under — and the export addresses runs by id, so where
+ * a boundary falls cannot move a redaction or change a byte of the output.
+ *
+ * Being wrong is therefore visible and harmless: a page that runs slightly long
+ * grows, because the viewer's box has a minimum height and no maximum.
+ */
+const PAGE_MARGIN = 72
+const CONTENT_WIDTH = PAGE_WIDTH - PAGE_MARGIN * 2
+const CONTENT_HEIGHT = PAGE_HEIGHT - PAGE_MARGIN * 2
+
+const BASE_FONT_PT = 11
+const LINE_HEIGHT = 1.5
+/** Heading sizes as a multiple of the base, matching the viewer's scale. */
+const HEADING_SCALE = [1.6, 1.35, 1.18, 1.08, 1, 0.95]
+/** Average glyph advance as a fraction of the font size, for proportional text. */
+const GLYPH_ADVANCE = 0.5
+/** Paragraph spacing the viewer applies when the document specifies none. */
+const PARAGRAPH_GAP = BASE_FONT_PT * 0.6
+/** Vertical padding a table row costs beyond its text. */
+const ROW_PADDING = 8
+/** The viewer's `my-3` around a table. */
+const TABLE_MARGIN = 12
+
+function paragraphHeight(paragraph: DocxParagraph): number {
+  const scale = paragraph.headingLevel
+    ? (HEADING_SCALE[paragraph.headingLevel - 1] ?? 1)
+    : 1
+  const fontSize =
+    paragraph.runs.reduce(
+      (largest, run) => Math.max(largest, run.style?.fontSize ?? 0),
+      0
+    ) || BASE_FONT_PT * scale
+
+  const indent =
+    (paragraph.indent ?? 0) +
+    (paragraph.listLevel !== undefined ? (paragraph.listLevel + 1) * 24 : 0)
+  const width = Math.max(72, CONTENT_WIDTH - indent)
+
+  const characters = paragraph.runs.reduce(
+    (total, run) => total + run.text.length,
+    0
+  )
+  const perLine = Math.max(1, Math.floor(width / (fontSize * GLYPH_ADVANCE)))
+  // An empty paragraph is a blank line the author put there on purpose, and it
+  // occupies one.
+  const lines = Math.max(1, Math.ceil(characters / perLine))
+
+  const before =
+    paragraph.spacingBefore ?? (paragraph.headingLevel ? BASE_FONT_PT : 0)
+  const after =
+    paragraph.spacingAfter ??
+    (paragraph.headingLevel ? BASE_FONT_PT * 0.4 : PARAGRAPH_GAP)
+
+  return lines * fontSize * LINE_HEIGHT + before + after
+}
+
+function tableHeight(table: DocxTable): number {
+  const rows = table.rows.reduce((total, row) => {
+    const tallest = row.reduce(
+      (highest, cell) =>
+        Math.max(
+          highest,
+          cell.reduce((sum, paragraph) => sum + paragraphHeight(paragraph), 0)
+        ),
+      0
+    )
+    return total + tallest + ROW_PADDING
+  }, 0)
+
+  return rows + TABLE_MARGIN * 2
+}
+
+function blockHeight(block: DocxBlock): number {
+  return block.type === "paragraph" ? paragraphHeight(block) : tableHeight(block)
+}
+
+/**
+ * Splits blocks into pages, honouring every explicit break and estimating the
+ * rest. `forcedAfter` holds block counts, so a value of 3 ends a page after the
+ * third block — the shape the walker reports breaks in.
+ *
+ * A block is never split across pages. One taller than a whole page gets a page
+ * to itself and overflows it, which is the honest rendering of a table that
+ * genuinely does not fit.
+ */
+function paginate(
+  blocks: DocxBlock[],
+  forcedAfter: Set<number>,
+  forcedBefore: Set<number>,
+  firstPageReserved = 0
+): DocxBlock[][] {
+  const pages: DocxBlock[][] = []
+  let current: DocxBlock[] = []
+  let height = 0
+  let budget = CONTENT_HEIGHT - firstPageReserved
+
+  const flush = () => {
+    pages.push(current)
+    current = []
+    height = 0
+    budget = CONTENT_HEIGHT
+  }
+
+  blocks.forEach((block, index) => {
+    const blockSize = blockHeight(block)
+    if (current.length > 0 && (forcedBefore.has(index) || height + blockSize > budget)) {
+      flush()
+    }
+
+    current.push(block)
+    height += blockSize
+
+    if (forcedAfter.has(index + 1)) flush()
+  })
+
+  if (current.length > 0 || pages.length === 0) pages.push(current)
+  return pages
+}
 
 function pageFrom(number: number, blocks: DocxBlock[]): NormalizedPage {
   const builder = new TextStreamBuilder()
@@ -380,7 +534,7 @@ export function extractDocx(
 
   const blocksOfPart = (
     part: string,
-    onPageBreak?: (blockCount: number) => void
+    onPageBreak?: (blockCount: number, kind: PageBreak) => void
   ): DocxBlock[] => {
     const xml = readPart(pkg, part)
     if (!xml) return []
@@ -399,20 +553,12 @@ export function extractDocx(
   }
 
   // The body is the only part that paginates.
-  const boundaries: number[] = []
-  const bodyBlocks = blocksOfPart("word/document.xml", (count) =>
-    boundaries.push(count)
-  )
-
-  const bodyPages: DocxBlock[][] = []
-  let cursor = 0
-  for (const boundary of boundaries) {
-    bodyPages.push(bodyBlocks.slice(cursor, boundary))
-    cursor = boundary
-  }
-  if (cursor < bodyBlocks.length || bodyPages.length === 0) {
-    bodyPages.push(bodyBlocks.slice(cursor))
-  }
+  const breakAfter = new Set<number>()
+  const breakBefore = new Set<number>()
+  const bodyBlocks = blocksOfPart("word/document.xml", (count, kind) => {
+    if (kind === "before") breakBefore.add(count - 1)
+    else breakAfter.add(count)
+  })
 
   // Headers, footers, footnotes and comments carry text the exporter already
   // sweeps. Extracting them is what makes that text reviewable, so what the
@@ -421,6 +567,15 @@ export function extractDocx(
     .filter((part) => part !== "word/document.xml")
     .sort()
     .flatMap((part) => blocksOfPart(part))
+
+  // Those bands are rendered above the body on page one, so page one has less
+  // room for body text than the others.
+  const bodyPages = paginate(
+    bodyBlocks,
+    breakAfter,
+    breakBefore,
+    surrounding.reduce((total, block) => total + blockHeight(block), 0)
+  )
 
   const pages = bodyPages.map((blocks, index) => {
     const combined =

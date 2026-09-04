@@ -132,6 +132,9 @@ export async function extractPdf(
         }
       }
 
+      // Asked before cleanup(), which discards the page's operator list.
+      const images = await pageHasImages(pdfjs, page)
+
       page.cleanup()
 
       const text = builder.text
@@ -148,6 +151,7 @@ export async function extractPdf(
         text,
         spans: builder.spans,
         ocr: needsOcr ? true : undefined,
+        images: images ? true : undefined,
       })
     }
     // Scanned pages are read here, while the document is still open, rather
@@ -190,6 +194,42 @@ export async function extractPdf(
       },
     },
     ocrPages: remaining,
+  }
+}
+
+/**
+ * Whether the page paints any image.
+ *
+ * A scanned page is one big image and a letterhead is a small one, and neither
+ * is visible to a text detector: a signature, a face or a photographed ID card
+ * is pixels. This is what decides which pages are worth the cost of a vision
+ * pass, so it errs towards yes — an inline image, a mask and an XObject all
+ * count.
+ */
+async function pageHasImages(
+  pdfjs: { OPS: Record<string, number> },
+  page: { getOperatorList: () => Promise<{ fnArray: number[] }> }
+): Promise<boolean> {
+  const painters = new Set(
+    [
+      pdfjs.OPS.paintImageXObject,
+      pdfjs.OPS.paintImageXObjectRepeat,
+      pdfjs.OPS.paintInlineImageXObject,
+      pdfjs.OPS.paintInlineImageXObjectGroup,
+      pdfjs.OPS.paintImageMaskXObject,
+      pdfjs.OPS.paintImageMaskXObjectRepeat,
+      pdfjs.OPS.paintImageMaskXObjectGroup,
+      pdfjs.OPS.paintJpegXObject,
+    ].filter((op): op is number => typeof op === "number")
+  )
+
+  try {
+    const list = await page.getOperatorList()
+    return list.fnArray.some((fn) => painters.has(fn))
+  } catch {
+    // A page whose operators cannot be read is not worth failing extraction
+    // over; it simply does not get a vision pass.
+    return false
   }
 }
 
