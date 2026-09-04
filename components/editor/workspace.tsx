@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 
 import { DocumentCanvas } from "@/components/document-viewer/document-canvas"
 import { EditorToolbar } from "@/components/editor/editor-toolbar"
+import { LiveAnnouncer } from "@/components/editor/live-announcer"
 import { PageNavigator } from "@/components/editor/page-navigator"
 import { WorkspaceHeader } from "@/components/editor/workspace-header"
 import { ProcessingScreen } from "@/components/processing/processing-screen"
@@ -101,7 +102,7 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
       {ready || failed ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1">
-            <PageNavigator />
+            <PageNavigator documentId={summary.id} />
             <DocumentCanvas summary={current} actions={canvasActions} />
             <RedactionInspector actions={inspectorActions} />
           </div>
@@ -113,6 +114,7 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
       )}
 
       <ExportDialog summary={current} />
+      <LiveAnnouncer />
     </div>
   )
 }

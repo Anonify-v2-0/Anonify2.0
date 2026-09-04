@@ -13,9 +13,26 @@ import type { Redaction } from "@/types/redaction"
  * which is what the export will actually produce — the canvas shows the outcome
  * rather than a decoration standing in for it. Words are clickable and a drag
  * creates a region, so anything the detectors missed is one gesture away.
+ *
+ * Accessibility: the per-word hit targets are a pointer affordance and are kept
+ * out of the tab order deliberately — a page of prose would otherwise be several
+ * hundred tab stops, which is worse than having none. Redactions themselves are
+ * focusable and toggle from the keyboard, and the inspector list is the complete
+ * keyboard path to every suggestion on the page.
  */
 
 const MIN_DRAG_PX = 6
+
+/** A label a screen reader can act on, rather than a bare category. */
+function describe(redaction: Redaction): string {
+  const confidence = redaction.confidence
+    ? `, ${Math.round(redaction.confidence * 100)} percent confidence`
+    : ""
+  const state =
+    redaction.status === "accepted" ? "redacted" : "suggested, not yet accepted"
+  const value = redaction.text ? `: ${redaction.text}` : ""
+  return `${redaction.category}${value}${confidence}. ${state}. Press to select.`
+}
 
 type Draft = { startX: number; startY: number; x: number; y: number }
 
@@ -133,13 +150,16 @@ export function RedactionLayer({
     >
       {/*
         Word boxes. Transparent until hovered, so the document reads normally
-        while every word remains one click from being redacted.
+        while every word remains one click from being redacted. Hidden from
+        assistive technology and from the tab order — see the note above.
       */}
       {page.spans.map((span) =>
         span.boundingBox ? (
           <button
             key={span.id}
             type="button"
+            tabIndex={-1}
+            aria-hidden
             title={span.text}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={() =>
@@ -165,15 +185,14 @@ export function RedactionLayer({
             <button
               key={`${redaction.id}-${index}`}
               type="button"
-              title={`${redaction.category}${
-                redaction.confidence
-                  ? ` · ${Math.round(redaction.confidence * 100)}%`
-                  : ""
-              }`}
+              aria-pressed={accepted}
+              aria-label={describe(redaction)}
+              title={describe(redaction)}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={() => onSelect(redaction.id)}
               className={cn(
                 "absolute transition-colors",
+                "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                 accepted
                   ? "bg-black"
                   : "border border-dashed border-red-border bg-red-soft hover:bg-primary/25",

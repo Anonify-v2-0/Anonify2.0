@@ -146,12 +146,15 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
       ) : null}
 
       <ScrollArea className="flex-1">
-        <div className="flex flex-col gap-px px-4 pb-6">
+        <ul
+          aria-label="Redaction suggestions"
+          className="flex flex-col gap-px px-4 pb-6"
+        >
           {groups.length === 0 ? (
-            <p className="pt-4 text-xs leading-relaxed text-text-muted">
+            <li className="pt-4 text-xs leading-relaxed text-text-muted">
               No suggestions match this filter. Select text in the document, or
               drag a region, to redact something by hand.
-            </p>
+            </li>
           ) : null}
 
           {groups.map((group) => {
@@ -164,29 +167,52 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
               (member) => member.id === selectedId
             )
 
+            const accessibleName = `${group.category}: ${group.text}. ${
+              group.members.length
+            } ${group.members.length === 1 ? "occurrence" : "occurrences"}${
+              first.confidence !== undefined
+                ? `, ${Math.round(first.confidence * 100)} percent confidence`
+                : ""
+            }${accepted > 0 ? `, ${accepted} accepted` : ""}.`
+
             return (
-              <div
+              <li
                 key={group.key}
-                onClick={() => dispatch(redactionSelected(first.id))}
                 className={cn(
-                  "-mx-2 cursor-pointer rounded-md border-b border-border/60 px-2 py-3 transition-colors last:border-b-0",
+                  "-mx-2 rounded-md border-b border-border/60 px-2 py-3 transition-colors last:border-b-0",
                   isSelected ? "bg-red-soft" : "hover:bg-white/3"
                 )}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="label-micro">{group.category}</span>
-                  <span className={cn("text-[11px]", BAND_STYLES[band])}>
-                    {first.confidence !== undefined
-                      ? `${Math.round(first.confidence * 100)}%`
-                      : "manual"}
+                {/*
+                  The row itself is the button, so the whole suggestion is one
+                  tab stop and one announcement rather than a div a pointer can
+                  click and a keyboard cannot reach.
+                */}
+                <button
+                  type="button"
+                  aria-label={accessibleName}
+                  aria-current={isSelected ? "true" : undefined}
+                  onClick={() => dispatch(redactionSelected(first.id))}
+                  className="block w-full text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="label-micro">{group.category}</span>
+                    <span className={cn("text-[11px]", BAND_STYLES[band])}>
+                      {first.confidence !== undefined
+                        ? `${Math.round(first.confidence * 100)}%`
+                        : "manual"}
+                    </span>
                   </span>
-                </div>
 
-                <p className="mt-1 truncate text-sm text-white" title={group.text}>
-                  {group.text}
-                </p>
+                  <span
+                    className="mt-1 block truncate text-sm text-white"
+                    title={group.text}
+                  >
+                    {group.text}
+                  </span>
+                </button>
 
-                <div className="mt-1 flex items-center gap-2 text-[11px] text-text-muted">
+                <div aria-hidden className="mt-1 flex items-center gap-2 text-[11px] text-text-muted">
                   {first.source === "ai" ? (
                     <Sparkles className="size-3" />
                   ) : first.source === "rule" ? (
@@ -217,6 +243,7 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
                     <Button
                       size="xs"
                       variant="outline"
+                      aria-label={`Redact ${group.text}`}
                       onClick={(event) => {
                         event.stopPropagation()
                         actions.accept([first.id])
@@ -254,6 +281,7 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
                     <Button
                       size="xs"
                       variant="ghost"
+                      aria-label={`Ignore ${group.text}`}
                       onClick={(event) => {
                         event.stopPropagation()
                         actions.reject(group.members.map((member) => member.id))
@@ -264,10 +292,10 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
                     </Button>
                   </div>
                 ) : null}
-              </div>
+              </li>
             )
           })}
-        </div>
+        </ul>
       </ScrollArea>
     </>
   )
