@@ -30,6 +30,8 @@ pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...but the template has to ship, or a fresh clone has nothing to copy.
+!.env.example
 
 # typescript
 *.tsbuildinfo
