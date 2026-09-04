@@ -12,7 +12,7 @@ import {
   statusChanged,
   suggestionCountChanged,
 } from "@/store/processingSlice"
-import { newEventId } from "@/lib/documents/ids"
+import { randomClientId } from "@/lib/documents/client-ids"
 import type { ProcessingStatus } from "@/types/processing"
 
 const TERMINAL = new Set<ProcessingStatus>(["ready", "failed", "expired"])
@@ -119,7 +119,7 @@ export function useProcessingStream(documentId: string, initialStatus: string) {
 
       dispatch(
         eventReceived({
-          id: newEventId(),
+          id: randomClientId("evt"),
           documentId: event.documentId,
           type: event.type,
           at: event.at,

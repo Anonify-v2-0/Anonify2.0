@@ -5,6 +5,7 @@ import { prisma } from "@/lib/database/prisma"
 import { MAX_UPLOAD_BYTES } from "@/lib/config"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { extractPdf } from "@/lib/documents/pdf/extract"
+import { extractImage } from "@/lib/documents/image/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { newEventId } from "@/lib/documents/ids"
@@ -209,8 +210,11 @@ async function extractByKind(
       const { document } = await extractXlsx(documentId, bytes)
       return document
     }
+    case "image": {
+      const { document } = await extractImage(documentId, bytes)
+      return document
+    }
     default:
-      // The image pipeline attaches in milestone 6.
       throw new FatalError(`No extractor registered for ${kind}`)
   }
 }

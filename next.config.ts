@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
       "./node_modules/pdfjs-dist/cmaps/**",
     ],
   },
-  serverExternalPackages: ["pdfjs-dist"],
+  serverExternalPackages: ["pdfjs-dist", "sharp", "tesseract.js"],
 }
 
 export default withWorkflow(nextConfig)

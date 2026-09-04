@@ -10,3 +10,4 @@ allowBuilds:
   prisma: true
   "@swc/core": true
   cbor-extract: true
+  "tesseract.js": true

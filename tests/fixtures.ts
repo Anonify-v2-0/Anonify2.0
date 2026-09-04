@@ -146,3 +146,79 @@ export async function makeXlsxFixture(): Promise<Uint8Array> {
   const output = await workbook.xlsx.writeBuffer()
   return new Uint8Array(output)
 }
+
+/** Where the fixture's coloured band sits, and the fine detail inside it. */
+export const IMAGE_BAND = { x: 40, y: 60, width: 120, height: 40 }
+export const IMAGE_DETAIL = { x: 48, y: 68, width: 8, height: 8 }
+
+/**
+ * A synthetic image: a white field, a coloured band in a known place, and a
+ * small white square of fine detail inside the band. Redaction can then be
+ * verified by reading the pixels back rather than by trusting the pipeline.
+ */
+export async function makeImageFixture(): Promise<Uint8Array> {
+  const sharp = (await import("sharp")).default
+
+  const base = await sharp({
+    create: {
+      width: 400,
+      height: 300,
+      channels: 3,
+      background: { r: 255, g: 255, b: 255 },
+    },
+  })
+    .composite([
+      {
+        input: {
+          create: {
+            width: IMAGE_BAND.width,
+            height: IMAGE_BAND.height,
+            channels: 3,
+            background: { r: 20, g: 40, b: 200 },
+          },
+        },
+        left: IMAGE_BAND.x,
+        top: IMAGE_BAND.y,
+      },
+      {
+        input: {
+          create: {
+            width: IMAGE_DETAIL.width,
+            height: IMAGE_DETAIL.height,
+            channels: 3,
+            background: { r: 255, g: 255, b: 255 },
+          },
+        },
+        left: IMAGE_DETAIL.x,
+        top: IMAGE_DETAIL.y,
+      },
+    ])
+    .png()
+    .toBuffer()
+
+  return new Uint8Array(base)
+}
+
+/** A JPEG carrying EXIF, including a GPS tag. */
+export async function makeExifImageFixture(): Promise<Uint8Array> {
+  const sharp = (await import("sharp")).default
+
+  const output = await sharp({
+    create: {
+      width: 200,
+      height: 200,
+      channels: 3,
+      background: { r: 200, g: 120, b: 60 },
+    },
+  })
+    // sharp's Exif typing exposes the numbered IFDs; IFD3 is where it writes
+    // the GPS record, so this fixture carries location data too.
+    .withExif({
+      IFD0: { Copyright: "Test Author", Software: "Anonify Fixture" },
+      IFD3: { GPSLatitudeRef: "N", GPSLongitudeRef: "W" },
+    })
+    .jpeg()
+    .toBuffer()
+
+  return new Uint8Array(output)
+}

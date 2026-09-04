@@ -1,14 +1,17 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { FileWarning } from "lucide-react"
 
 import { DocxViewer } from "@/components/document-viewer/docx-viewer"
 import { PdfViewer } from "@/components/document-viewer/pdf-viewer"
+import { ImageCanvas } from "@/components/image-editor/image-canvas"
 import { SpreadsheetGrid } from "@/components/spreadsheet/spreadsheet-grid"
 import { useNormalizedDocument } from "@/hooks/use-normalized-document"
+import { randomClientId } from "@/lib/documents/client-ids"
 import { fitModeChanged, zoomChanged } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
+import { redactionAdded, redactionSelected } from "@/store/redactionSlice"
 import type { DocumentSummary } from "@/types/document"
 
 /** Horizontal breathing room kept around the page when fitting to width. */
@@ -19,10 +22,31 @@ export function DocumentCanvas({ summary }: { summary: DocumentSummary }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const normalized = useNormalizedDocument(summary.id, summary.status)
   const { currentPage, zoom, fitMode } = useAppSelector((state) => state.editor)
+  const redactionEntities = useAppSelector((state) => state.redactions.entities)
+  const selectedId = useAppSelector((state) => state.redactions.selectedId)
+  const redactions = useMemo(
+    () => Object.values(redactionEntities),
+    [redactionEntities]
+  )
 
   const page =
     normalized?.pages.find((candidate) => candidate.number === currentPage) ??
     normalized?.pages[0]
+
+  const acceptedRegions = redactions
+    .filter(
+      (redaction) =>
+        redaction.status === "accepted" && redaction.boundingBox !== undefined
+    )
+    .map((redaction) => redaction.boundingBox!)
+
+  const suggestedRegions = (normalized?.regions ?? []).filter(
+    (region) =>
+      !acceptedRegions.some(
+        (box) =>
+          box.x === region.boundingBox.x && box.y === region.boundingBox.y
+      )
+  )
 
   // Fit-to-width/page recomputes on resize; explicit zooming switches the mode
   // to "custom" so the user's choice is not overwritten.
@@ -54,6 +78,38 @@ export function DocumentCanvas({ summary }: { summary: DocumentSummary }) {
     observer.observe(container)
     return () => observer.disconnect()
   }, [dispatch, fitMode, page])
+
+  if (summary.kind === "image") {
+    return normalized ? (
+      <ImageCanvas
+        documentId={summary.id}
+        normalized={normalized}
+        zoom={zoom}
+        accepted={acceptedRegions}
+        suggested={suggestedRegions}
+        selectedRegionId={selectedId}
+        onSelectRegion={(regionId) => dispatch(redactionSelected(regionId))}
+        onCreateRegion={(boundingBox) =>
+          dispatch(
+            redactionAdded({
+              id: randomClientId("red"),
+              documentId: summary.id,
+              type: "region",
+              source: "user",
+              category: "other",
+              status: "accepted",
+              page: 1,
+              boundingBox,
+            })
+          )
+        }
+      />
+    ) : (
+      <section className="flex min-w-0 flex-1 items-center justify-center bg-surface-1">
+        <Placeholder summary={summary} />
+      </section>
+    )
+  }
 
   // Workbooks bring their own scrolling surface and ignore page zoom.
   if (summary.kind === "xlsx") {
