@@ -18,7 +18,8 @@
     "postinstall": "prisma generate && node scripts/copy-pdf-worker.mjs",
     "rate-limit": "tsx scripts/rate-limit.ts",
     "setup": "tsx scripts/setup.ts",
-    "db:migrate:deploy": "prisma migrate deploy"
+    "db:migrate:deploy": "prisma migrate deploy",
+    "ocr:warm": "tsx scripts/warm-ocr.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1125.0",

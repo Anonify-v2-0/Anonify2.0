@@ -199,6 +199,7 @@ const NEXT_STEPS: Record<Mode, string[]> = {
   local: [
     "docker compose up -d      # Postgres + MinIO, with the bucket created",
     "pnpm db:migrate           # apply the schema",
+    "pnpm ocr:warm             # fetch the ~5 MB OCR model now, not mid-redaction",
     "pnpm dev                  # http://localhost:3000",
   ],
   demo: [

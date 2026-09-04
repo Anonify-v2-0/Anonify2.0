@@ -194,8 +194,15 @@ pnpm install
 pnpm setup              # choose 1 (fully local)
 docker compose up -d    # Postgres + MinIO, bucket created automatically
 pnpm db:migrate         # apply the schema
+pnpm ocr:warm           # optional: fetch the OCR model now rather than later
 pnpm dev                # http://localhost:3000
 ```
+
+Tesseract downloads a ~5 MB English model the first time it reads a scanned
+document, cached in `.cache/tesseract` (gitignored). `pnpm ocr:warm` fetches it
+during setup instead, so the wait lands at a moment when waiting is expected.
+Set `TESSERACT_CACHE_PATH` to a mounted volume if you run the app in a
+container.
 
 What `docker compose up -d` starts:
 
@@ -316,6 +323,7 @@ pnpm lint              # eslint
 pnpm db:migrate        # create and apply a migration
 pnpm db:migrate:deploy # apply existing migrations
 pnpm rate-limit show   # inspect the limits in force
+pnpm ocr:warm          # pre-download the Tesseract model
 ```
 
 Node 22+ and pnpm 11+ are required and enforced — `engines` plus

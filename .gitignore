@@ -49,3 +49,7 @@ next-env.d.ts
 
 # workflow sdk generated routes
 /app/.well-known/
+
+# tesseract language data, downloaded on first OCR use (~5 MB)
+/.cache/
+*.traineddata
