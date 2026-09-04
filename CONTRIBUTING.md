@@ -90,37 +90,30 @@ Ordered by how much they unblock. Each item says where the code is and what
 
 ### 3.1 Make it actually clone-and-run
 
-**This is the priority.** Right now `pnpm dev` on a fresh clone does not get you
-a working app, which contradicts the whole point of the repo.
+Done. A fresh clone now runs with `pnpm setup && docker compose up -d &&
+pnpm db:migrate && pnpm dev`, against local Postgres and MinIO, with no account
+anywhere.
 
-- [ ] **Browser uploads require a real Blob store.**
-      `components/upload/upload-panel.tsx` calls `upload()` from
-      `@vercel/blob/client`, which always talks to Vercel Blob.
-      `lib/storage/blob.ts` already has a local filesystem driver for
-      server-side reads and writes, but there is no local equivalent for the
-      *browser* upload path — so without `BLOB_READ_WRITE_TOKEN` you cannot get
-      a file into the system at all.
-      **Done looks like:** a local upload route the panel falls back to when no
-      blob token is configured, writing to the same `.anonify-storage` the local
-      driver reads from. The pipeline downstream should not know the difference.
+- [x] ~~**Browser uploads require a real Blob store.**~~ The server reports which
+      upload mode is configured and the client follows; `/api/upload/local`
+      handles everything that is not Vercel Blob, writing through the same
+      storage abstraction.
+- [x] ~~**The database adapter is hardcoded to Neon.**~~ `postgres` or `neon`,
+      inferred from the connection string, overridable with `DATABASE_DRIVER`.
+      PGlite was investigated and dropped: there is no Prisma 7 adapter for it.
+- [x] ~~**No migrations.**~~ Migrations are canonical, and CI applies them to an
+      empty database and fails if the schema and the migrations disagree.
+- [x] ~~**A `docker compose` for the dependencies.**~~ Postgres and MinIO, with
+      health checks, named volumes and automatic bucket creation.
+- [x] ~~**`engines` and `packageManager`.**~~ Node 22+, pnpm 11+, enforced by
+      `engine-strict`.
 
-- [ ] **The database adapter is hardcoded to Neon.**
-      `lib/database/prisma.ts` constructs `PrismaNeon` unconditionally. A plain
-      local Postgres works with a different adapter, and PGlite would remove the
-      need for a database at all.
-      **Done looks like:** adapter chosen from the connection string (or an
-      explicit `DATABASE_DRIVER`), with local Postgres documented in the README.
+Still open:
 
-- [x] ~~**No migrations.**~~ An initial migration is checked in and
-      `pnpm db:migrate` is the way to change the schema. CI does not yet apply
-      it against a real database — that part is still open, and depends on the
-      test database in [3.3](#33-testing).
-
-- [ ] **A `docker compose` for the dependencies** — Postgres and a MinIO-style
-      blob target — so setup is one command.
-
-- [ ] **`engines` and `packageManager` in `package.json`** (Node 22, pnpm 11).
-      Currently unset, so contributors discover version requirements by failing.
+- [ ] **A container image for the app itself**, so `docker compose up` runs
+      Anonify too rather than only its dependencies.
+- [ ] **Verify the compose stack in CI.** The services are exercised by hand and
+      by the migration job, but nothing yet boots the whole stack end to end.
 
 ### 3.2 Finish what is half-wired
 
