@@ -7,6 +7,15 @@ The governing rule: **AI proposes, the application applies, and only what a
 person accepted is removed.** A beautiful editor that leaves the original text
 under a black rectangle is not a redaction system.
 
+## Documentation
+
+| Document | What it covers |
+| --- | --- |
+| [docs/architecture.md](docs/architecture.md) | The four layers, request paths, identity, encryption, deliberate limits |
+| [docs/workflow.md](docs/workflow.md) | The durable pipeline, its steps, streaming, expiry, failure modes |
+| [docs/ai-engine.md](docs/ai-engine.md) | Detection order, cost discipline, prompts, suggestion → decision → removal |
+| [docs/pipelines.md](docs/pipelines.md) | Why each format's pipeline is built the way it is |
+
 ## How it works
 
 Four layers, kept deliberately separate:
@@ -40,6 +49,8 @@ upload (browser → Blob)
 - **XLSX** — cells are rewritten, and any formula still referencing a redacted
   address is dropped, because a cached result is a second copy of the value.
 - **Images** — pixels are replaced and the file re-encoded. EXIF and GPS go too.
+
+Each of these is argued through in [docs/pipelines.md](docs/pipelines.md).
 
 Every export is then re-opened and read the way an adversary would. A surviving
 value fails the export rather than shipping (`lib/redaction/validation.ts`).
@@ -114,6 +125,8 @@ pnpm db:push     # apply the Prisma schema
 - Blob URLs are never handed to the client. Downloads go through a signed,
   short-lived, ownership-checked route.
 - Documents expire (1h / 6h / 24h / 3 days) and a scheduled sweep deletes the
-  source, the normalized model, every export and every row.
+  source, the normalized model, every export and every row. Retention can be
+  extended, but the new expiry is computed from creation and capped at 72 hours,
+  so renewing repeatedly converges on the ceiling rather than moving it.
 - Logs carry ids, stages, durations and error categories. Never document
   content, never prompts, never keys.
