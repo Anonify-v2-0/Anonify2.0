@@ -1,7 +1,4 @@
-import { createRequire } from "node:module"
-import path from "node:path"
-import { pathToFileURL } from "node:url"
-
+import { copyBytes, loadPdfjsForRender } from "@/lib/documents/pdf/render"
 import { TextStreamBuilder } from "@/lib/documents/shared/text"
 import type {
   NormalizedDocument,
@@ -39,28 +36,6 @@ type PdfTextStyle = {
 /** Below this many characters a page is treated as scanned rather than empty. */
 const OCR_TEXT_THRESHOLD = 16
 
-const require = createRequire(import.meta.url)
-
-/** Resolves a file shipped inside pdfjs-dist, wherever the package is linked. */
-function pdfjsAsset(...segments: string[]): string {
-  const root = path.dirname(require.resolve("pdfjs-dist/package.json"))
-  return path.join(root, ...segments)
-}
-
-function assetUrl(...segments: string[]): string {
-  return `${pathToFileURL(pdfjsAsset(...segments)).href}/`
-}
-
-async function loadPdfjs() {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs")
-  // Node has no DOM worker, so pdf.js runs its worker module in-process. It
-  // still needs to know where that module lives.
-  pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(
-    pdfjsAsset("legacy", "build", "pdf.worker.mjs")
-  ).href
-  return pdfjs
-}
-
 function styleFrom(
   fontName: string | undefined,
   styles: Record<string, PdfTextStyle>,
@@ -85,15 +60,15 @@ export async function extractPdf(
   documentId: string,
   bytes: Uint8Array
 ): Promise<PdfExtraction> {
-  const pdfjs = await loadPdfjs()
+  const pdfjs = await loadPdfjsForRender()
 
   const task = pdfjs.getDocument({
-    data: bytes,
+    data: copyBytes(bytes),
     // Untrusted input: no font-face injection, no network font fetches.
     disableFontFace: true,
     useSystemFonts: false,
-    standardFontDataUrl: assetUrl("standard_fonts"),
-    cMapUrl: assetUrl("cmaps"),
+    standardFontDataUrl: pdfjs.standardFontDataUrl,
+    cMapUrl: pdfjs.cMapUrl,
     cMapPacked: true,
   })
 

@@ -47,6 +47,7 @@ model Document {
   redactions       Redaction[]
   rules            GlobalRule[]
   events           ProcessingEvent[]
+  exports          ExportArtifact[]
 
   @@index([userFingerprint])
   @@index([expiresAt])
@@ -107,6 +108,25 @@ model ProcessingEvent {
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@index([documentId, at])
+}
+
+/// A generated export. Kept encrypted, addressed only by signed token.
+model ExportArtifact {
+  id                String   @id
+  documentId        String
+  createdAt         DateTime @default(now())
+  blobKey           String
+  checksum          String
+  mimeType          String
+  extension         String
+  size              Int
+  appliedRedactions Int      @default(0)
+  metadataSanitized Boolean  @default(false)
+  labelsAdded       Boolean  @default(false)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
 }
 
 /// Per-fingerprint daily quota accounting. Enforced server-side only.

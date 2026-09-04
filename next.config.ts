@@ -11,7 +11,13 @@ const nextConfig: NextConfig = {
       "./node_modules/pdfjs-dist/cmaps/**",
     ],
   },
-  serverExternalPackages: ["pdfjs-dist", "sharp", "tesseract.js"],
+  // Native and worker-bearing packages must stay outside the bundler.
+  serverExternalPackages: [
+    "pdfjs-dist",
+    "sharp",
+    "tesseract.js",
+    "@napi-rs/canvas",
+  ],
 }
 
 export default withWorkflow(nextConfig)
