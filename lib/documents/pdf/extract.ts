@@ -1,3 +1,9 @@
+import { startOcr } from "@/lib/documents/image/extract"
+import {
+  mergeOcrIntoPage,
+  ocrPdfPages,
+  type PageRecognizer,
+} from "@/lib/documents/pdf/ocr"
 import { copyBytes, loadPdfjsForRender } from "@/lib/documents/pdf/render"
 import { TextStreamBuilder } from "@/lib/documents/shared/text"
 import type {
@@ -52,13 +58,24 @@ function styleFrom(
 
 export type PdfExtraction = {
   document: NormalizedDocument
-  /** Pages with no usable embedded text; the OCR stage handles these. */
+  /** Pages that had no embedded text. Empty once OCR has read them. */
   ocrPages: number[]
+}
+
+export type PdfExtractOptions = {
+  /**
+   * Read text-free pages with OCR. Off by default because it is slow and pulls
+   * in language data; the pipeline turns it on, tests can inject a recognizer.
+   */
+  ocr?: boolean
+  /** Overrides the recognizer, so the mapping can be tested without tesseract. */
+  recognize?: PageRecognizer
 }
 
 export async function extractPdf(
   documentId: string,
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  options: PdfExtractOptions = {}
 ): Promise<PdfExtraction> {
   const pdfjs = await loadPdfjsForRender()
 
@@ -75,6 +92,7 @@ export async function extractPdf(
   const pdf = await task.promise
   const pages: NormalizedPage[] = []
   const ocrPages: number[] = []
+  let remaining: number[] = []
 
   try {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
@@ -118,7 +136,10 @@ export async function extractPdf(
 
       const text = builder.text
       const needsOcr = text.trim().length < OCR_TEXT_THRESHOLD
-      if (needsOcr) ocrPages.push(pageNumber)
+      if (needsOcr) {
+        ocrPages.push(pageNumber)
+        remaining.push(pageNumber)
+      }
 
       pages.push({
         number: pageNumber,
@@ -129,6 +150,31 @@ export async function extractPdf(
         ocr: needsOcr ? true : undefined,
       })
     }
+    // Scanned pages are read here, while the document is still open, rather
+    // than reparsing the file. A page that OCR could not read stays flagged
+    // instead of being presented as successfully read and empty.
+    if (options.ocr && ocrPages.length > 0) {
+      const recognizer = options.recognize
+        ? { recognize: options.recognize, close: async () => {} }
+        : await startOcrRecognizer()
+
+      try {
+        const read = await ocrPdfPages(pdf, ocrPages, {
+          recognize: recognizer.recognize,
+        })
+
+        for (const [pageNumber, result] of read) {
+          const index = pages.findIndex((page) => page.number === pageNumber)
+          if (index !== -1) {
+            pages[index] = mergeOcrIntoPage(pages[index], result)
+          }
+        }
+
+        remaining = ocrPages.filter((pageNumber) => !read.has(pageNumber))
+      } finally {
+        await recognizer.close()
+      }
+    }
   } finally {
     await task.destroy()
   }
@@ -138,8 +184,20 @@ export async function extractPdf(
       documentId,
       kind: "pdf",
       pages,
-      metadata: { pageCount: pages.length },
+      metadata: {
+        pageCount: pages.length,
+        ocrPages: pages.filter((page) => page.ocr).map((page) => page.number),
+      },
     },
-    ocrPages,
+    ocrPages: remaining,
+  }
+}
+
+/** Wraps the tesseract worker in the shape ocrPdfPages expects. */
+async function startOcrRecognizer() {
+  const ocr = await startOcr()
+  return {
+    recognize: (png: Buffer) => ocr.recognize(png),
+    close: () => ocr.close(),
   }
 }

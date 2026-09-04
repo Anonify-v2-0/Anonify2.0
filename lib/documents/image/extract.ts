@@ -24,47 +24,85 @@ const MIN_WORD_CONFIDENCE = 40
 /** Above this share of the frame covered by text, it reads as a document scan. */
 const DOCUMENT_TEXT_COVERAGE = 0.04
 
-type OcrWord = {
+export type OcrWord = {
   text: string
   confidence: number
   bbox: { x0: number; y0: number; x1: number; y1: number }
 }
 
-export async function ocrImage(
-  bytes: Uint8Array
-): Promise<{ words: OcrWord[]; text: string }> {
-  const { createWorker } = await import("tesseract.js")
+export type OcrResult = { words: OcrWord[]; text: string }
 
-  // Serverless filesystems are read-only apart from /tmp.
-  const worker = await createWorker("eng", undefined, {
-    cachePath: process.env.VERCEL ? "/tmp" : undefined,
-  })
+/** Reads text from one image using an already-started worker. */
+type Recognizer = {
+  recognize: (
+    image: Buffer,
+    options?: unknown,
+    output?: unknown
+  ) => Promise<{ data: { text?: string; blocks?: unknown } }>
+}
 
-  try {
-    const { data } = await worker.recognize(
-      Buffer.from(bytes),
-      {},
-      { blocks: true }
-    )
+type TesseractBlock = {
+  paragraphs?: {
+    lines?: { words?: OcrWord[] }[]
+  }[]
+}
 
-    const words: OcrWord[] = []
-    for (const block of data.blocks ?? []) {
-      for (const paragraph of block.paragraphs ?? []) {
-        for (const line of paragraph.lines ?? []) {
-          for (const word of line.words ?? []) {
-            words.push({
-              text: word.text,
-              confidence: word.confidence,
-              bbox: word.bbox,
-            })
-          }
+function wordsOf(data: { blocks?: unknown }): OcrWord[] {
+  const words: OcrWord[] = []
+  for (const block of (data.blocks ?? []) as TesseractBlock[]) {
+    for (const paragraph of block.paragraphs ?? []) {
+      for (const line of paragraph.lines ?? []) {
+        for (const word of line.words ?? []) {
+          words.push({
+            text: word.text,
+            confidence: word.confidence,
+            bbox: word.bbox,
+          })
         }
       }
     }
+  }
+  return words
+}
 
-    return { words, text: data.text ?? "" }
+/**
+ * Starts an OCR worker.
+ *
+ * Starting one costs far more than recognizing a page, so a caller with several
+ * pages starts one worker and reuses it rather than paying that price per page.
+ * Serverless filesystems are read-only apart from /tmp, which is where the
+ * language data has to land.
+ */
+export async function startOcr(): Promise<{
+  recognize: (bytes: Uint8Array) => Promise<OcrResult>
+  close: () => Promise<void>
+}> {
+  const { createWorker } = await import("tesseract.js")
+  const worker = (await createWorker("eng", undefined, {
+    cachePath: process.env.VERCEL ? "/tmp" : undefined,
+  })) as unknown as Recognizer & { terminate: () => Promise<unknown> }
+
+  return {
+    async recognize(bytes: Uint8Array): Promise<OcrResult> {
+      const { data } = await worker.recognize(
+        Buffer.from(bytes),
+        {},
+        { blocks: true }
+      )
+      return { words: wordsOf(data), text: data.text ?? "" }
+    },
+    async close() {
+      await worker.terminate()
+    },
+  }
+}
+
+export async function ocrImage(bytes: Uint8Array): Promise<OcrResult> {
+  const ocr = await startOcr()
+  try {
+    return await ocr.recognize(bytes)
   } finally {
-    await worker.terminate()
+    await ocr.close()
   }
 }
 

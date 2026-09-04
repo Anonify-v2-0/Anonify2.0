@@ -230,7 +230,9 @@ async function extractByKind(
 ) {
   switch (kind) {
     case "pdf": {
-      const { document } = await extractPdf(documentId, bytes)
+      // Scanned pages are read here rather than arriving empty with no
+      // explanation; see lib/documents/pdf/ocr.ts.
+      const { document } = await extractPdf(documentId, bytes, { ocr: true })
       return document
     }
     case "docx": {

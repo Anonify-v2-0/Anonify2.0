@@ -1,8 +1,12 @@
-import { createCanvas } from "@napi-rs/canvas"
 import type { PDFDocumentProxy } from "pdfjs-dist"
 import { PDFDocument } from "pdf-lib"
 
-import { copyBytes, loadPdfjsForRender } from "@/lib/documents/pdf/render"
+import {
+  copyBytes,
+  loadPdfjsForRender,
+  renderPage,
+  RENDER_SCALE,
+} from "@/lib/documents/pdf/render"
 import type { BoundingBox } from "@/types/document"
 
 /**
@@ -28,7 +32,6 @@ export type PdfRedactionPlan = {
   scale?: number
 }
 
-const DEFAULT_SCALE = 2
 const LABEL_FONT_RATIO = 0.6
 const MIN_LABEL_HEIGHT = 8
 
@@ -41,23 +44,9 @@ async function renderRedactedPage(
   scale: number
 ): Promise<{ png: Buffer; width: number; height: number }> {
   const page = await pdf.getPage(pageNumber)
-  const viewport = page.getViewport({ scale })
-
-  const canvas = createCanvas(
-    Math.ceil(viewport.width),
-    Math.ceil(viewport.height)
-  )
+  const rendered = await renderPage(page, scale)
+  const canvas = rendered.canvas
   const context = canvas.getContext("2d")
-
-  context.fillStyle = "#ffffff"
-  context.fillRect(0, 0, canvas.width, canvas.height)
-
-  await page.render({
-    // The napi canvas is API-compatible with the DOM one pdf.js expects.
-    canvas: canvas as unknown as HTMLCanvasElement,
-    canvasContext: context as unknown as CanvasRenderingContext2D,
-    viewport,
-  }).promise
 
   for (const box of boxes) {
     const x = box.x * scale
@@ -83,8 +72,8 @@ async function renderRedactedPage(
 
   return {
     png: canvas.toBuffer("image/png"),
-    width: viewport.width / scale,
-    height: viewport.height / scale,
+    width: rendered.width,
+    height: rendered.height,
   }
 }
 
@@ -92,7 +81,7 @@ export async function redactPdf(
   bytes: Uint8Array,
   plan: PdfRedactionPlan
 ): Promise<Uint8Array> {
-  const scale = plan.scale ?? DEFAULT_SCALE
+  const scale = plan.scale ?? RENDER_SCALE
   const pdfjs = await loadPdfjsForRender()
 
   const task = pdfjs.getDocument({

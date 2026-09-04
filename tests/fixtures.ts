@@ -238,3 +238,30 @@ export async function makeExifImageFixture(): Promise<Uint8Array> {
 
   return new Uint8Array(output)
 }
+
+/** The text drawn into the scanned-page fixture, for OCR assertions. */
+export const SCANNED_TEXT = "Patient John Smith"
+
+/**
+ * A PDF whose only content is a picture of text — a scan, as far as any text
+ * extractor is concerned. Built by drawing to a canvas and embedding the raster,
+ * so nothing in the file carries a text object.
+ */
+export async function makeScannedTextPdfFixture(): Promise<Uint8Array> {
+  const { createCanvas } = await import("@napi-rs/canvas")
+
+  const canvas = createCanvas(1224, 400)
+  const context = canvas.getContext("2d")
+  context.fillStyle = "#ffffff"
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.fillStyle = "#000000"
+  context.font = "64px sans-serif"
+  context.fillText(SCANNED_TEXT, 60, 200)
+
+  const pdf = await PDFDocument.create()
+  const page = pdf.addPage([612, 200])
+  const image = await pdf.embedPng(canvas.toBuffer("image/png"))
+  page.drawImage(image, { x: 0, y: 0, width: 612, height: 200 })
+
+  return pdf.save()
+}
