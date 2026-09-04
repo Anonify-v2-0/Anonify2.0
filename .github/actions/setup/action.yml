@@ -12,10 +12,13 @@ inputs:
 runs:
   using: composite
   steps:
+    # No `version` here on purpose: package.json's `packageManager` field is the
+    # single source of truth, and it pins an exact version so CI installs with
+    # the same pnpm as a developer's machine. Specifying both makes the action
+    # refuse outright ("Multiple versions of pnpm specified").
     - name: Install pnpm
       uses: pnpm/action-setup@v6
       with:
-        version: 11
         run_install: false
 
     # Caches the pnpm content-addressable store, keyed on the lockfile. Every
