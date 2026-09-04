@@ -1,0 +1,59 @@
+name: Setup workspace
+description: >-
+  Installs Node and pnpm, restores the dependency caches, and makes sure the
+  generated Prisma client and the pdf.js worker are present.
+
+inputs:
+  node-version:
+    description: Node.js version
+    required: false
+    default: "22"
+
+runs:
+  using: composite
+  steps:
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 11
+        run_install: false
+
+    # Caches the pnpm content-addressable store, keyed on the lockfile. Every
+    # job restores the same store, so only the first run of a given lockfile
+    # pays download cost.
+    - name: Install Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+        cache-dependency-path: pnpm-lock.yaml
+
+    # node_modules is cached separately from the store: restoring it skips
+    # linking entirely, which is the slower half of a warm install. The key
+    # includes the schema because postinstall generates the Prisma client into
+    # the tree, and allowBuilds because it decides which native packages built.
+    - name: Restore node_modules
+      id: modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          node_modules
+          public/pdf.worker.min.mjs
+        key: >-
+          modules-${{ runner.os }}-node${{ inputs.node-version }}-${{
+          hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml',
+          'prisma/schema.prisma') }}
+
+    - name: Install dependencies
+      if: steps.modules.outputs.cache-hit != 'true'
+      shell: bash
+      run: pnpm install --frozen-lockfile --prefer-offline
+
+    # postinstall produces both of these, so they exist after a real install.
+    # On a cache hit they come back with node_modules; this is the guard for
+    # the case where the cache was written by an older layout.
+    - name: Ensure generated artifacts
+      shell: bash
+      run: |
+        test -d lib/database/generated || pnpm exec prisma generate
+        test -f public/pdf.worker.min.mjs || node scripts/copy-pdf-worker.mjs

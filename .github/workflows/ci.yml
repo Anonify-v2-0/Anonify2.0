@@ -5,41 +5,115 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to the same ref makes the running checks irrelevant.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+permissions:
+  contents: read
 
+env:
+  # Placeholders, not secrets. Nothing here reaches a real service:
+  #
+  #  - DATABASE_URL is only parsed. Every route is dynamic and the Prisma client
+  #    connects lazily, so the build never opens a connection.
+  #  - ENCRYPTION_KEY and FINGERPRINT_SECRET have to decode to 32 bytes or the
+  #    modules that read them throw on import. The suites that exercise crypto
+  #    generate their own random keys and ignore these.
+  #
+  # Deliberately NOT set, and the reason matters:
+  #
+  #  - BLOB_READ_WRITE_TOKEN — its presence switches lib/storage/blob.ts from
+  #    the local filesystem driver to Vercel Blob, which would send the storage
+  #    tests at a real bucket they have no credentials for.
+  #  - AI_GATEWAY_API_KEY — absent, aiConfigured() is false and the analysis
+  #    layer short-circuits, so CI can never make a billable model call.
+  DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
+  ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+  FINGERPRINT_SECRET: 1111111111111111111111111111111111111111111111111111111111111111
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  # The four checks are independent and run as four concurrent jobs rather than
+  # four sequential steps: the slowest is the build, so the wall clock is the
+  # build alone instead of the sum. None of them gates on an install job, which
+  # would serialize the graph for a cache the four already share.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm run lint
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm run typecheck
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Generate Prisma client
-        run: pnpm exec prisma generate
-
-      - name: Lint
-        run: pnpm run lint
-
-      - name: Typecheck
-        run: pnpm run typecheck
-
+      # The suites cover real files end to end — PDF extraction and
+      # rasterization, OOXML surgery, workbook rewriting, pixel redaction — plus
+      # the adversarial pass that tries to recover redacted values from each
+      # exported artifact.
       - name: Test
         run: pnpm run test
 
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      # Turbopack's build cache. Keyed on the lockfile plus the sources, with a
+      # prefix restore so an unrelated source change still starts from the
+      # previous build's cache instead of from nothing.
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: >-
+            next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{
+            hashFiles('app/**', 'components/**', 'lib/**', 'store/**',
+            'types/**', 'hooks/**') }}
+          restore-keys: |
+            next-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            next-${{ runner.os }}-
+
       - name: Build
         run: pnpm run build
+
+  # A single check to require in branch protection, so adding a job above does
+  # not mean editing the protected-branch settings.
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test, build]
+    if: always()
+    steps:
+      - name: Report
+        run: |
+          echo "lint:      ${{ needs.lint.result }}"
+          echo "typecheck: ${{ needs.typecheck.result }}"
+          echo "test:      ${{ needs.test.result }}"
+          echo "build:     ${{ needs.build.result }}"
+
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "::error::One or more checks failed."
+            exit 1
+          fi
