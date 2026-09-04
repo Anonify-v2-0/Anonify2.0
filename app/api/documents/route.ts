@@ -1,6 +1,11 @@
 import { z } from "zod"
 
-import { errorResponse, handleRouteError, jsonResponse } from "@/lib/api/http"
+import {
+  errorResponse,
+  handleRouteError,
+  jsonResponse,
+  readJson,
+} from "@/lib/api/http"
 import {
   ACCEPTED_MIME_TYPES,
   ALLOWED_TTL_SECONDS,
@@ -13,7 +18,7 @@ import { listDocuments } from "@/lib/documents/listing"
 import { getIdentity, peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { checkQuota, quotaMessage, recordUsage } from "@/lib/security/usage"
-import { uploadKey } from "@/lib/storage/blob"
+import { clientUploadMode, uploadKey } from "@/lib/storage/blob"
 import { DEFAULT_TTL_SECONDS } from "@/types/document"
 
 export const runtime = "nodejs"
@@ -80,7 +85,7 @@ export async function POST(request: Request) {
       })
     }
 
-    const parsed = createSchema.safeParse(await request.json())
+    const parsed = createSchema.safeParse(await readJson(request))
     if (!parsed.success) {
       return errorResponse("Invalid upload request", 400)
     }
@@ -136,6 +141,9 @@ export async function POST(request: Request) {
         pathname: uploadKey(documentId, filename),
         expiresAt: expiresAt.toISOString(),
         quota: { used: quota.used + 1, limit: quota.limit },
+        // The server knows which storage backend is configured; the browser
+        // should not have to be told separately through a public env var.
+        uploadMode: clientUploadMode(),
       },
       201
     )

@@ -1,6 +1,6 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
 
-import { handleRouteError, jsonResponse } from "@/lib/api/http"
+import { errorResponse, handleRouteError, jsonResponse } from "@/lib/api/http"
 import { ACCEPTED_MIME_TYPES, MAX_UPLOAD_BYTES } from "@/lib/config"
 import { prisma } from "@/lib/database/prisma"
 import { peekIdentity } from "@/lib/security/fingerprint"
@@ -17,6 +17,15 @@ export const runtime = "nodejs"
  */
 export async function POST(request: Request) {
   try {
+    // Only reachable when Vercel Blob is the configured backend; say so plainly
+    // rather than failing inside the SDK with something less legible.
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return errorResponse(
+        "Vercel Blob is not configured; this deployment uploads through /api/upload/local.",
+        409
+      )
+    }
+
     const body = (await request.json()) as HandleUploadBody
     const identity = await peekIdentity()
 

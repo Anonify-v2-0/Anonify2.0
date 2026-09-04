@@ -1,7 +1,12 @@
 import { z } from "zod"
 import { start } from "workflow/api"
 
-import { errorResponse, handleRouteError, jsonResponse } from "@/lib/api/http"
+import {
+  errorResponse,
+  handleRouteError,
+  jsonResponse,
+  readJson,
+} from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
@@ -11,8 +16,22 @@ import { processDocument } from "@/lib/workflows/process-document"
 export const runtime = "nodejs"
 export const maxDuration = 900
 
+/**
+ * A stored handle is either an absolute URL (Vercel Blob) or a `driver:path`
+ * key (S3, local filesystem). Both shapes are accepted explicitly rather than
+ * relying on `.url()` happening to allow custom schemes.
+ */
+const storedHandle = z
+  .string()
+  .min(1)
+  .max(2000)
+  .refine(
+    (value) => /^https?:\/\//.test(value) || /^(local|s3):/.test(value),
+    "Not a recognised storage handle"
+  )
+
 const bodySchema = z.object({
-  blobUrl: z.string().url().max(2000),
+  blobUrl: storedHandle,
 })
 
 /**
@@ -51,7 +70,7 @@ export async function POST(
       return jsonResponse({ runId: record.workflowRunId, resumed: true })
     }
 
-    const parsed = bodySchema.safeParse(await request.json())
+    const parsed = bodySchema.safeParse(await readJson(request))
     if (!parsed.success) {
       return errorResponse("Invalid process request", 400)
     }

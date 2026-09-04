@@ -31,13 +31,76 @@ const MULTIPART_THRESHOLD = 5 * 1024 * 1024
 type Phase = "idle" | "reserving" | "uploading" | "starting"
 
 /**
- * Uploads go from the browser straight to Blob storage.
+ * Getting the file in.
  *
- * The server reserves the document and signs a token scoped to that one path,
- * so the file never travels through a serverless function: large documents are
- * not bound by a request body limit, and the progress bar reflects the real
- * transfer.
+ * With Vercel Blob the server signs a token scoped to one path and the browser
+ * uploads straight to storage, so the file never travels through a serverless
+ * function. With S3 or the local filesystem there is no equivalent the browser
+ * can safely use, so the bytes go through our own route instead.
+ *
+ * The server decides which, because it is the thing that knows what is
+ * configured. Both paths report real transfer progress and both end with the
+ * same call to start processing — everything downstream is identical.
  */
+
+type UploadMode = "vercel-blob" | "server-route"
+
+type Reserved = {
+  id: string
+  pathname: string
+  uploadMode: UploadMode
+}
+
+/**
+ * Posts through our own route, reporting progress.
+ *
+ * XMLHttpRequest rather than fetch: fetch still cannot report upload progress
+ * in browsers, and a 25 MB upload with no feedback looks like a hang.
+ */
+function uploadThroughServer(
+  documentId: string,
+  file: File,
+  onProgress: (percentage: number) => void
+): Promise<{ url: string }> {
+  return new Promise((resolve, reject) => {
+    const body = new FormData()
+    body.append("documentId", documentId)
+    body.append("file", file)
+
+    const request = new XMLHttpRequest()
+    request.open("POST", "/api/upload/local")
+
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) {
+        onProgress((event.loaded / event.total) * 100)
+      }
+    })
+
+    request.addEventListener("load", () => {
+      if (request.status >= 200 && request.status < 300) {
+        try {
+          resolve(JSON.parse(request.responseText) as { url: string })
+        } catch {
+          reject(new Error("Malformed upload response"))
+        }
+        return
+      }
+
+      let message = "Upload failed"
+      try {
+        message = (JSON.parse(request.responseText) as { error?: string }).error ?? message
+      } catch {
+        // Keep the generic message.
+      }
+      reject(new Error(message))
+    })
+
+    request.addEventListener("error", () => reject(new Error("Upload failed")))
+    request.addEventListener("abort", () => reject(new Error("Upload cancelled")))
+
+    request.send(body)
+  })
+}
 export function UploadPanel() {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -70,9 +133,7 @@ export function UploadPanel() {
           }),
         })
 
-        const reserved = (await reserve.json()) as {
-          id?: string
-          pathname?: string
+        const reserved = (await reserve.json()) as Partial<Reserved> & {
           error?: string
         }
 
@@ -83,19 +144,22 @@ export function UploadPanel() {
         }
 
         setPhase("uploading")
-        const blob = await upload(reserved.pathname, file, {
-          access: "public",
-          handleUploadUrl: "/api/upload/token",
-          clientPayload: reserved.id,
-          multipart: file.size > MULTIPART_THRESHOLD,
-          onUploadProgress: ({ percentage }) => setProgress(percentage),
-        })
+        const uploaded =
+          reserved.uploadMode === "vercel-blob"
+            ? await upload(reserved.pathname, file, {
+                access: "public",
+                handleUploadUrl: "/api/upload/token",
+                clientPayload: reserved.id,
+                multipart: file.size > MULTIPART_THRESHOLD,
+                onUploadProgress: ({ percentage }) => setProgress(percentage),
+              })
+            : await uploadThroughServer(reserved.id, file, setProgress)
 
         setPhase("starting")
         const started = await fetch(`/api/documents/${reserved.id}/process`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ blobUrl: blob.url }),
+          body: JSON.stringify({ blobUrl: uploaded.url }),
         })
 
         if (!started.ok) {
@@ -106,8 +170,12 @@ export function UploadPanel() {
         }
 
         router.push(`/workspace/${reserved.id}`)
-      } catch {
-        toast.error("Upload failed. Check your connection and try again.")
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message !== "Upload failed"
+            ? error.message
+            : "Upload failed. Check your connection and try again."
+        toast.error(message)
         setPhase("idle")
       }
     },
