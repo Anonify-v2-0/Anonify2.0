@@ -19,7 +19,8 @@
     "rate-limit": "tsx scripts/rate-limit.ts",
     "setup": "tsx scripts/setup.ts",
     "db:migrate:deploy": "prisma migrate deploy",
-    "ocr:warm": "tsx scripts/warm-ocr.ts"
+    "ocr:warm": "tsx scripts/warm-ocr.ts",
+    "cleanup": "tsx scripts/cleanup.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1125.0",

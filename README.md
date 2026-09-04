@@ -300,6 +300,39 @@ Three layers, later winning: profile defaults →
 `ANONIFY_RATE_LIMIT_<NAME>=100/60` → the CLI, which writes to the database and
 takes effect without a restart.
 
+### Expiring documents when you self-host
+
+Documents are temporary, which is only true if something is actually deleting
+them. On Vercel that is the cron entry in `vercel.json`. **Nothing outside
+Vercel reads that file**, so a self-hosted install needs its own schedule.
+
+Either run the sweep directly — no server and no secret needed, so this suits
+cron, a systemd timer or Task Scheduler:
+
+```bash
+pnpm cleanup     # one pass: mark expired, delete documents, prune rate limits
+```
+
+```cron
+*/15 * * * *  cd /srv/anonify && pnpm cleanup
+```
+
+Or let Compose call the endpoint for you:
+
+```bash
+docker compose --profile scheduler up -d
+```
+
+It is opt-in because the app runs on the host in this compose file, so there is
+nothing to call until you have started it. Tune with `CLEANUP_INTERVAL_SECONDS`
+(default 900) and `ANONIFY_URL` (default `http://host.docker.internal:3000`),
+and set `CRON_SECRET` on both the app and the scheduler for any deployment
+reachable from the internet.
+
+Whichever you choose, the sweep deletes the source, the normalized model, every
+export and the database row — and is idempotent, so a failed run is retried
+rather than leaving bytes nothing is tracking.
+
 ### Database changes
 
 Migrations are the canonical workflow, and CI applies them to an empty database
@@ -324,6 +357,7 @@ pnpm db:migrate        # create and apply a migration
 pnpm db:migrate:deploy # apply existing migrations
 pnpm rate-limit show   # inspect the limits in force
 pnpm ocr:warm          # pre-download the Tesseract model
+pnpm cleanup           # run the expiry sweep once
 ```
 
 Node 22+ and pnpm 11+ are required and enforced — `engines` plus

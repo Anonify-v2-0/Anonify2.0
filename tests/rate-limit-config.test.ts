@@ -4,6 +4,7 @@ import {
   activeProfile,
   defaultsFor,
   envOverrides,
+  limitsSchema,
   RATE_LIMIT_NAMES,
   resolveLimits,
 } from "@/lib/security/rate-limit-config"
@@ -115,5 +116,55 @@ describe("layering", () => {
     expect(selfHosted.limits.upload.limit).toBeGreaterThan(
       demo.limits.upload.limit
     )
+  })
+})
+
+describe("the stored override format", () => {
+  it("accepts an override for a single limit", () => {
+    // `z.record` with enum keys demands every key, so a partial value failed to
+    // parse and was swallowed: the CLI reported saving a limit that was never in
+    // force. Setting one limit must not mean restating the other three.
+    const parsed = limitsSchema.safeParse({
+      upload: { limit: 42, windowSeconds: 90 },
+    })
+
+    expect(parsed.success).toBe(true)
+    if (parsed.success) {
+      expect(parsed.data.upload).toEqual({ limit: 42, windowSeconds: 90 })
+    }
+  })
+
+  it("accepts every limit at once", () => {
+    const all = Object.fromEntries(
+      RATE_LIMIT_NAMES.map((name) => [name, { limit: 5, windowSeconds: 60 }])
+    )
+
+    expect(limitsSchema.safeParse(all).success).toBe(true)
+  })
+
+  it("accepts an empty override set", () => {
+    expect(limitsSchema.safeParse({}).success).toBe(true)
+  })
+
+  it("rejects a value that is not a usable limit", () => {
+    expect(
+      limitsSchema.safeParse({ upload: { limit: 0, windowSeconds: 60 } }).success
+    ).toBe(false)
+    expect(
+      limitsSchema.safeParse({ upload: { limit: 10 } }).success
+    ).toBe(false)
+    expect(limitsSchema.safeParse({ nonsense: { limit: 1 } }).success).toBe(false)
+  })
+
+  it("round-trips what the CLI writes", () => {
+    const written = { upload: { limit: 42, windowSeconds: 90 } }
+    const read = limitsSchema.safeParse(JSON.parse(JSON.stringify(written)))
+
+    expect(read.success).toBe(true)
+    if (read.success) {
+      const resolved = resolveLimits("self-hosted", {}, read.data)
+      expect(resolved.sources.upload).toBe("database")
+      expect(resolved.limits.upload).toEqual(written.upload)
+    }
   })
 })

@@ -154,7 +154,10 @@ document.queued → document.extracting → document.normalizing
 
 ## 5. Expiry
 
-A second workflow (`lib/workflows/cleanup.ts`) runs every 15 minutes:
+A second workflow (`lib/workflows/cleanup.ts`) runs every 15 minutes. On Vercel
+that schedule comes from `vercel.json`; nothing outside Vercel reads that file,
+so a self-hosted install drives it with `pnpm cleanup` from cron or with the
+opt-in `scheduler` service in `docker-compose.yml`. Either way:
 
 1. Mark documents past `expiresAt` as expired, so the workspace stops serving
    them mid-window.

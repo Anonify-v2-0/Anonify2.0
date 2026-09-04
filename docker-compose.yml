@@ -72,6 +72,51 @@ services:
       "
     restart: "no"
 
+  # Expiry sweep.
+  #
+  # vercel.json's cron entry is read by Vercel and by nothing else, so a
+  # self-hosted install has no scheduler at all — and "temporary by default"
+  # stops being true the moment nothing is deleting anything.
+  #
+  # Opt in, because the app runs on the host in this compose file and there is
+  # nothing to call until it is up:
+  #
+  #   docker compose --profile scheduler up -d
+  #
+  # If you would rather not run a container for this, `pnpm cleanup` does the
+  # same work directly against the database — point cron or a systemd timer at
+  # it instead.
+  scheduler:
+    image: curlimages/curl:latest
+    profiles: ["scheduler"]
+    restart: unless-stopped
+    environment:
+      # Where the app is listening. host.docker.internal reaches the host from
+      # inside the container; override if the app runs elsewhere.
+      ANONIFY_URL: ${ANONIFY_URL:-http://host.docker.internal:3000}
+      # Must match the app's CRON_SECRET when one is set. Empty is fine in
+      # development, where the endpoint does not require it.
+      CRON_SECRET: ${CRON_SECRET:-}
+      CLEANUP_INTERVAL_SECONDS: ${CLEANUP_INTERVAL_SECONDS:-900}
+    extra_hosts:
+      # Docker Desktop provides this name already; Linux needs it spelled out.
+      - "host.docker.internal:host-gateway"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "expiry sweep every ${CLEANUP_INTERVAL_SECONDS:-900}s against $$ANONIFY_URL"
+        while true; do
+          # Sleep first: on a cold `up`, the app is usually not listening yet.
+          sleep "$$CLEANUP_INTERVAL_SECONDS"
+          if [ -n "$$CRON_SECRET" ]; then
+            AUTH="Authorization: Bearer $$CRON_SECRET"
+          else
+            AUTH="X-Anonify-Cron: local"
+          fi
+          code=$$(curl -sS -m 120 -o /tmp/out -w '%{http_code}' -H "$$AUTH" "$$ANONIFY_URL/api/cron/cleanup" || echo 000)
+          echo "$$(date -Iseconds) cleanup -> $$code $$(head -c 200 /tmp/out)"
+        done
+
 volumes:
   postgres-data:
   minio-data:

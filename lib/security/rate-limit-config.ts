@@ -72,7 +72,18 @@ const limitSchema = z.object({
   windowSeconds: z.number().int().positive().max(86_400),
 })
 
-export const limitsSchema = z.record(z.enum(RATE_LIMIT_NAMES), limitSchema)
+/**
+ * Overrides are partial by design — setting `upload` alone must not require
+ * restating the other three.
+ *
+ * `z.record` with enum keys demands every key be present, so a partial value
+ * fails to parse. That failure used to be swallowed, and the effect was a limit
+ * the CLI reported saving and which was never in force.
+ */
+export const limitsSchema = z.partialRecord(
+  z.enum(RATE_LIMIT_NAMES),
+  limitSchema
+)
 
 export type PartialLimits = Partial<Record<RateLimitName, RateLimit>>
 
@@ -153,18 +164,41 @@ export function resolveLimits(
   return { profile, limits, sources }
 }
 
-/** Reads overrides written by the CLI. Absent or unreadable means none. */
+/**
+ * Reads overrides written by the CLI.
+ *
+ * An unreachable database is tolerated quietly: the limiter has to work before
+ * migrations have been applied. A *malformed* stored value is different — the
+ * setting exists and is not being honoured — so that one is reported rather
+ * than silently becoming "no overrides".
+ */
 export async function storedOverrides(): Promise<PartialLimits> {
-  try {
-    const row = await prisma.setting.findUnique({ where: { key: SETTING_KEY } })
-    if (!row) return {}
+  let row: { value: unknown } | null
 
-    const parsed = limitsSchema.safeParse(row.value)
-    return parsed.success ? (parsed.data as PartialLimits) : {}
+  try {
+    row = await prisma.setting.findUnique({ where: { key: SETTING_KEY } })
   } catch {
-    // The limiter must still work before migrations have been applied.
     return {}
   }
+
+  if (!row) return {}
+
+  const parsed = limitsSchema.safeParse(row.value)
+  if (!parsed.success) {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        context: "rate-limit.stored",
+        errorCategory: "malformed-setting",
+        message:
+          "Stored rate limits could not be read and are not in force. " +
+          "Run `pnpm rate-limit reset` to clear them.",
+      })
+    )
+    return {}
+  }
+
+  return parsed.data as PartialLimits
 }
 
 export async function saveOverrides(overrides: PartialLimits): Promise<void> {

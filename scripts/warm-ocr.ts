@@ -11,6 +11,11 @@
  * Safe to run repeatedly: an already-cached model is not fetched again.
  */
 
+// Loaded first, so every module below sees the configured environment. A CLI
+// gets no .env for free the way the Next server does, and without this the
+// database simply appears to be unset.
+import "dotenv/config"
+
 import { existsSync } from "node:fs"
 import path from "node:path"
 
