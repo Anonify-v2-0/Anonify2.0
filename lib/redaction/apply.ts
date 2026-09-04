@@ -166,16 +166,19 @@ export function buildImagePlan(
 
     if (redaction.boundingBox) {
       regions.push({
-        boundingBox: redaction.boundingBox,
+        boundingBox: padBox(redaction.boundingBox),
         style: redaction.type === "face" ? options.imageStyle : "solid",
       })
       continue
     }
 
-    // A text redaction on an image resolves through its OCR span geometry.
+    // A text redaction on an image resolves through its OCR span geometry, and
+    // is padded for the same reason the PDF plan pads: an OCR word box is drawn
+    // tight around the glyphs, and a fill exactly that size can leave a legible
+    // hairline of ascender or descender behind.
     if (page) {
       for (const box of boxesForRedaction(page, redaction)) {
-        regions.push({ boundingBox: box, style: "solid" })
+        regions.push({ boundingBox: padBox(box), style: "solid" })
       }
     }
   }

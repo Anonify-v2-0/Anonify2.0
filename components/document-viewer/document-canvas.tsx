@@ -133,15 +133,12 @@ export function DocumentCanvas({
         documentId={summary.id}
         normalized={normalized}
         zoom={zoom}
-        accepted={pageRedactions
-          .filter((redaction) => redaction.status === "accepted")
-          .flatMap((redaction) =>
-            redaction.boundingBox ? [redaction.boundingBox] : []
-          )}
-        suggested={normalized.regions ?? []}
-        selectedRegionId={selectedId}
-        onSelectRegion={(regionId) => dispatch(redactionSelected(regionId))}
+        redactions={pageRedactions}
+        regions={normalized.regions ?? []}
+        selectedId={selectedId}
+        onSelect={(redactionId) => dispatch(redactionSelected(redactionId))}
         onCreateRegion={createRegion}
+        onRedactWord={redactSpan}
       />
     ) : (
       <section className="flex min-w-0 flex-1 items-center justify-center bg-surface-1">
