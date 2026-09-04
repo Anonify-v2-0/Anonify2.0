@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { createRequire } from "node:module"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
@@ -15,9 +16,48 @@ import type { PDFPageProxy } from "pdfjs-dist"
 
 const require = createRequire(import.meta.url)
 
+/** A file that must exist under the package root, used to validate a candidate. */
+const MARKER = path.join("legacy", "build", "pdf.worker.mjs")
+
+let cachedRoot: string | null = null
+
+/**
+ * Locates the installed pdfjs-dist.
+ *
+ * `require.resolve` is the obvious way and it is not enough: inside a bundled
+ * server build the specifier is rewritten to a synthetic `[externals]` path, so
+ * the result points nowhere and pdf.js fails to start its worker — which is how
+ * PDF processing can pass every direct test and still fail in the pipeline.
+ *
+ * Each candidate is therefore checked against a file that has to be there.
+ */
+function pdfjsRoot(): string {
+  if (cachedRoot) return cachedRoot
+
+  const candidates: string[] = []
+
+  try {
+    candidates.push(path.dirname(require.resolve("pdfjs-dist/package.json")))
+  } catch {
+    // Bundled builds may not resolve it at all; the paths below still can.
+  }
+
+  candidates.push(path.join(process.cwd(), "node_modules", "pdfjs-dist"))
+
+  for (const candidate of candidates) {
+    if (existsSync(path.join(candidate, MARKER))) {
+      cachedRoot = candidate
+      return candidate
+    }
+  }
+
+  throw new Error(
+    `Could not locate pdfjs-dist. Looked in: ${candidates.join(", ")}`
+  )
+}
+
 function pdfjsAsset(...segments: string[]): string {
-  const root = path.dirname(require.resolve("pdfjs-dist/package.json"))
-  return path.join(root, ...segments)
+  return path.join(pdfjsRoot(), ...segments)
 }
 
 function assetUrl(...segments: string[]): string {
