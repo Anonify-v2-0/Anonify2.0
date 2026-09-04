@@ -21,6 +21,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "ocr:warm": "tsx scripts/warm-ocr.ts",
     "cleanup": "tsx scripts/cleanup.ts",
+    "smoke": "tsx scripts/smoke.ts",
     "workflow:bootstrap": "node node_modules/@workflow/world-postgres/bin/setup.js"
   },
   "dependencies": {

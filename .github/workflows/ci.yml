@@ -145,12 +145,57 @@ jobs:
             --to-schema prisma/schema.prisma \
             --exit-code
 
+  # Boots the whole self-hosted stack and redacts a real document through it.
+  #
+  # This runs on every pull request rather than only on Dockerfile changes,
+  # because the bugs it catches are not Docker bugs. Every failure this has
+  # found so far came from ordinary application code meeting the container:
+  # file tracing shipping sharp's binding without the libvips it dlopens, the
+  # workflow world resolved by a runtime `require` no bundler follows, an
+  # environment variable that silently defaults to a database nobody runs.
+  # Unit tests pass through all of them.
+  compose:
+    name: Compose stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # The compose file refuses to start without these, deliberately — see the
+      # comment on the `app` service. The values are the workflow placeholders
+      # above; this stack is destroyed at the end of the job.
+      ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      FINGERPRINT_SECRET: 1111111111111111111111111111111111111111111111111111111111111111
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # The smoke test is TypeScript and builds its own PDF fixture, so it needs
+      # the workspace. It does not need the app — that is running in a container.
+      - uses: ./.github/actions/setup
+
+      - name: Build and start the stack
+        # --wait blocks until postgres and minio report healthy, the bucket and
+        # migration jobs have exited successfully, and the app's own healthcheck
+        # passes. Reaching the next step at all is most of the assertion.
+        run: docker compose up -d --build --wait
+
+      - name: Upload, process, export, download
+        run: pnpm smoke http://127.0.0.1:3000
+
+      - name: Show what the containers said
+        if: failure()
+        run: docker compose logs --no-color --timestamps
+
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+
   # A single check to require in branch protection, so adding a job above does
   # not mean editing the protected-branch settings.
   ci:
     name: CI
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, build, migrations]
+    needs: [lint, typecheck, test, build, migrations, compose]
     if: always()
     steps:
       - name: Report
@@ -160,6 +205,7 @@ jobs:
           echo "test:      ${{ needs.test.result }}"
           echo "build:     ${{ needs.build.result }}"
           echo "migrations: ${{ needs.migrations.result }}"
+          echo "compose:   ${{ needs.compose.result }}"
 
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
             echo "::error::One or more checks failed."
