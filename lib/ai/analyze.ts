@@ -315,16 +315,25 @@ async function analyzeSheets(
 
     for (const column of output.columns) {
       if (!column.sensitive) continue
+
+      // The same rule the text pass follows: a model points at what is there,
+      // it does not introduce it. Asked about a four-column sheet, one model
+      // answered about columns 1-8, and those four phantoms became four
+      // suggestions naming columns that do not exist.
       const sample = columns.find((candidate) => candidate.index === column.index)
+      if (!sample) continue
+
       sensitive.push({
         worksheet: sheet.name,
-        column: column.index,
-        header: column.header,
+        column: sample.index,
+        // The sheet's header, not the reported one, so a misremembered name
+        // cannot end up labelling the redaction a person reviews.
+        header: sample.header,
         category: column.category,
         confidence: column.confidence,
         reason: column.reason,
-        filledRows: sample?.filled ?? 0,
-        totalRows: sample?.total ?? 0,
+        filledRows: sample.filled,
+        totalRows: sample.total,
       })
     }
   }

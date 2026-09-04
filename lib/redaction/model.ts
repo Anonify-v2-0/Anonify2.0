@@ -124,10 +124,33 @@ export function isAccepted(redaction: Redaction): boolean {
 }
 
 /** Values a redaction contributes to the package-wide safety sweep. */
+/**
+ * Redactions that name a position rather than carry content.
+ *
+ * A column redaction's `text` is the column's *header* — "Email", "Account" —
+ * because that is what a reviewer needs to see to decide about it. It is a
+ * label for the target, not a value to be erased, and the exporter removes such
+ * a column by position while deliberately keeping its name.
+ */
+const POSITIONAL_TYPES = new Set<Redaction["type"]>(["row", "column"])
+
+/**
+ * Values to sweep for wherever they appear, which is how a name hiding in a
+ * hidden sheet or a cached formula result gets removed along with the cell a
+ * reviewer actually looked at.
+ *
+ * Positional redactions are excluded, and the reason is worth stating: their
+ * text is a header the exporter keeps on purpose, so including it asked the
+ * export to remove a string it had just been told to preserve. Verification
+ * then found that string still present and refused to deliver the file — every
+ * spreadsheet export failed the moment a column suggestion was accepted, which
+ * is to say every spreadsheet the model looked at.
+ */
 export function acceptedValues(redactions: Redaction[]): string[] {
   const values = new Set<string>()
   for (const redaction of redactions) {
     if (!isAccepted(redaction)) continue
+    if (POSITIONAL_TYPES.has(redaction.type)) continue
     const text = redaction.text?.trim()
     if (text && text.length >= 2) values.add(text)
   }

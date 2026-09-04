@@ -150,7 +150,7 @@ export function DocumentCanvas({
   // Workbooks bring their own scrolling surface and ignore page zoom.
   if (summary.kind === "xlsx") {
     return normalized ? (
-      <SpreadsheetGrid normalized={normalized} />
+      <SpreadsheetGrid normalized={normalized} actions={actions} />
     ) : (
       <section className="flex min-w-0 flex-1 items-center justify-center bg-surface-1">
         <Placeholder summary={summary} />

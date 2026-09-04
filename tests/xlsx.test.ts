@@ -1,8 +1,12 @@
 import { unzipSync } from "fflate"
 import { describe, expect, it } from "vitest"
 
+import { newRedactionId } from "@/lib/documents/ids"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { redactXlsx } from "@/lib/documents/xlsx/redact"
+import { buildXlsxPlan } from "@/lib/redaction/apply"
+import { verifyExport } from "@/lib/redaction/validation"
+import type { Redaction } from "@/types/redaction"
 import { makeXlsxFixture, SENSITIVE } from "./fixtures"
 
 /** Everything a reader could pull out of the workbook's parts. */
@@ -177,5 +181,94 @@ describe("xlsx redaction", () => {
     })
 
     expect(allXml(output)).not.toContain("Test Author")
+  })
+})
+
+describe("xlsx export verification", () => {
+  /**
+   * A column suggestion carries the column's *header* as its text, because that
+   * is what a reviewer reads when deciding about it. Treating that header as a
+   * value to sweep asked the exporter to remove a string it deliberately keeps,
+   * and verification then found it still present and refused to deliver the
+   * file. Every spreadsheet export failed the moment a column was accepted.
+   */
+  const columnRedaction = (
+    sheet: string,
+    column: number,
+    header: string
+  ): Redaction => ({
+    id: newRedactionId(),
+    documentId: "doc_1",
+    type: "column",
+    source: "ai",
+    category: "other",
+    status: "accepted",
+    worksheet: sheet,
+    column,
+    text: header,
+  })
+
+  it("does not ask the export to remove a header it keeps on purpose", () => {
+    const plan = buildXlsxPlan(
+      [columnRedaction("Customers", 2, "Email")],
+      { addLabels: false, sanitizeMetadata: false }
+    )
+
+    expect(plan.columns).toEqual([{ sheet: "Customers", column: 2 }])
+    expect(plan.values).not.toContain("Email")
+  })
+
+  it("still sweeps the value a cell redaction carries", () => {
+    const plan = buildXlsxPlan(
+      [
+        {
+          id: newRedactionId(),
+          documentId: "doc_1",
+          type: "cell",
+          source: "ai",
+          category: "email",
+          status: "accepted",
+          worksheet: "Customers",
+          row: 2,
+          column: 2,
+          text: SENSITIVE.email,
+        },
+      ],
+      { addLabels: false, sanitizeMetadata: false }
+    )
+
+    expect(plan.values).toContain(SENSITIVE.email)
+  })
+
+  it("survives verification with a column accepted, end to end", async () => {
+    const bytes = await makeXlsxFixture()
+    const { document } = await extractXlsx("doc_1", bytes)
+    const redactions = [
+      columnRedaction("Customers", 2, "Email"),
+      columnRedaction("Customers", 1, "Name"),
+    ]
+
+    const output = await redactXlsx(
+      bytes,
+      buildXlsxPlan(redactions, { addLabels: false, sanitizeMetadata: false })
+    )
+
+    const report = await verifyExport("xlsx", output, redactions)
+    expect(report.leaked).toEqual([])
+    expect(report.passed).toBe(true)
+
+    // The column's data is gone and its name is not, which is the whole point.
+    const [customers] = (await extractXlsx("doc_1", output)).document.sheets ?? []
+    expect(customers.headers.slice(0, 2)).toEqual(["Name", "Email"])
+    expect(
+      customers.cells.filter((cell) => cell.column <= 2 && cell.row > 1)
+    ).toEqual([])
+
+    // The same email still exists on the hidden Archive sheet, because nothing
+    // redacted it there. A column redaction removes a column, not a value —
+    // reaching every copy is what a cell or text redaction is for, and this is
+    // the distinction the export has to keep straight.
+    expect(document.sheets?.[1].name).toBe("Archive")
+    expect(allXml(output)).toContain(SENSITIVE.email)
   })
 })
