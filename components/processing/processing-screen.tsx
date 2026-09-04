@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import { Check, Loader2, RotateCcw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -35,6 +36,13 @@ export function ProcessingScreen({ summary }: { summary: DocumentSummary }) {
   if (failed) {
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+        <Image
+          src="/Anonify.png"
+          alt=""
+          width={48}
+          height={48}
+          className="rounded-[10px] opacity-60 grayscale"
+        />
         <p className="label-micro text-primary">Processing failed</p>
         <h1 className="text-2xl font-semibold text-white">
           We couldn&apos;t analyze this document
@@ -54,6 +62,14 @@ export function ProcessingScreen({ summary }: { summary: DocumentSummary }) {
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6">
       <div className="w-full max-w-sm">
+        <Image
+          src="/Anonify.png"
+          alt=""
+          width={56}
+          height={56}
+          priority
+          className="brand-float mb-6 rounded-[10px]"
+        />
         <p className="label-micro mb-6 text-primary">Analyzing document</p>
 
         <ol className="space-y-3">

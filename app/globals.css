@@ -143,6 +143,23 @@
     }
 }
 
+/*
+  Extremely subtle vertical drift for the mark while a document is processing.
+  Motion is decoration here, so it is removed entirely when the viewer has asked
+  for reduced motion rather than merely slowed down.
+*/
+@keyframes brand-float {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+
 @layer components {
   /* Pill primary action with the red/white inversion used across the product. */
   .btn-pill {
@@ -154,4 +171,13 @@
   .panel {
     @apply rounded-[10px] border border-border bg-card;
     }
+  .brand-float {
+    animation: brand-float 3.5s ease-in-out infinite;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-float {
+    animation: none;
+  }
 }

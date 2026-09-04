@@ -16,7 +16,9 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-4 border-b border-border bg-surface-2 px-4 lg:h-[68px] lg:px-6">
-      <Brand className="hidden sm:block" />
+      {/* The mark carries the brand once the wordmark no longer fits. */}
+      <Brand showWordmark={false} size={26} className="sm:hidden" />
+      <Brand size={26} className="hidden sm:flex" />
 
       <Link
         href="/"
