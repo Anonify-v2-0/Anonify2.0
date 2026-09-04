@@ -69,9 +69,10 @@ Usage counters are local rows in your own database. Nothing phones home.
 ### No vendor lock-in that breaks local dev
 
 Vercel Blob, Neon and the AI Gateway are the *deployed* defaults, not
-requirements. Where we currently fail this test, it is a bug — see
-[3.1](#31-make-it-actually-clone-and-run) — and fixing it is the highest
-priority work in the project.
+requirements. A clone runs against local Postgres, local MinIO and local
+Tesseract with no account anywhere, and CI proves it on every pull request by
+booting that stack and redacting a document through it. If you find a code path
+that only works on Vercel, that is a bug — report it as one.
 
 ---
 
@@ -80,13 +81,17 @@ priority work in the project.
 Ordered by how much they unblock. Each item says where the code is and what
 "done" looks like.
 
-### 3.0 Needs a maintainer decision
+### 3.0 Project files
 
-- [ ] **Add a `LICENSE`.** There isn't one. Without it nobody can legally use or
-      contribute to this, which makes every other item below moot. This is the
-      owner's call to make, not a contributor's.
-- [ ] `CODE_OF_CONDUCT.md`, `SECURITY.md` (how to report a redaction bypass
-      privately), and issue/PR templates.
+Done.
+
+- [x] ~~**Add a `LICENSE`.**~~ [Apache-2.0](LICENSE), chosen for the explicit
+      patent grant: a redaction tool gets deployed inside organisations whose
+      legal teams read the licence before anyone is allowed to contribute back.
+- [x] ~~`CODE_OF_CONDUCT.md`, `SECURITY.md`, issue/PR templates.~~
+      [SECURITY.md](SECURITY.md) is the one worth reading — it says what counts
+      as a vulnerability here, which is a narrower and stranger set than usual,
+      and it asks you not to publish a bypass before there is a fix.
 
 ### 3.1 Make it actually clone-and-run
 
@@ -111,11 +116,13 @@ anywhere.
       Vercel's world.
 - [x] ~~**`engines` and `packageManager`.**~~ Node 22+, pnpm 11+, enforced by
       `engine-strict`.
-
-Still open:
-
-- [ ] **Verify the compose stack in CI.** The services are exercised by hand and
-      by the migration job, but nothing yet boots the whole stack end to end.
+- [x] ~~**Verify the compose stack in CI.**~~ A `Compose stack` job builds the
+      images, waits for every health check, and then runs `pnpm smoke` — a real
+      upload, process, accept, export and download over HTTP, ending by reading
+      the downloaded bytes and failing if an accepted value is still in them.
+      It runs on every pull request, not only on Dockerfile changes, because
+      every failure it has caught so far came from application code meeting the
+      container rather than from Docker.
 
 ### 3.2 Finish what is half-wired
 
@@ -137,15 +144,19 @@ finished.
 - [x] ~~**DOCX headers and footers are swept but not reviewable.**~~ Every
       text-bearing part is extracted and rendered, which required addresses to
       be part-qualified (`word/header1.xml#p0r0`).
-
-Still open here:
-
-- [ ] **XLSX has no equivalent of the DOCX part sweep in the UI.** Hidden sheets
-      and rows are extracted and redacted correctly, but the grid does not make
-      it obvious that a hidden sheet is being reviewed.
-- [ ] **Image OCR text is not offered as suggestions.** `extractImage` produces
-      OCR regions, and the canvas can snap to them, but they are not fed to the
-      detectors the way PDF and DOCX text is.
+- [x] ~~**XLSX has no equivalent of the DOCX part sweep in the UI.**~~ Sheet
+      visibility is extracted (`hidden` and `veryHidden` are different problems
+      — the second cannot be undone from Excel's own menu) and the grid says so:
+      a banner above the sheet, a marker on its tab, and a count of the hidden
+      rows and columns within it.
+- [x] ~~**Image OCR text is not offered as suggestions.**~~ It was being
+      detected all along — `analyzeDocument` runs the detectors over every
+      page's text, and an image's page text *is* its OCR. What was missing was
+      placement: a text detection carries offsets, not a rectangle, so the
+      suggestions existed in the database and appeared nowhere on the image. The
+      canvas now resolves them through the OCR span geometry with the same
+      `boxesForRedaction` the exporter uses, and OCR words became what they
+      always should have been — hit targets, not a hundred dashed proposals.
 
 ### 3.3 Testing
 
@@ -160,7 +171,10 @@ Zero coverage today for: `extractImage`, `ocrImage`, `analyzeDocument`,
 - [ ] **OCR tests** with a committed fixture image and pinned language data, so
       they do not depend on a download.
 - [ ] **End-to-end tests** (Playwright): upload → review → export → download,
-      per format. CI runs unit and integration only.
+      per format, through the browser. `pnpm smoke` now does this over HTTP for
+      a PDF and runs in CI against the compose stack, which covers the wiring
+      but not the editor — nothing yet drives the canvas, the inspector or the
+      export dialog.
 - [ ] **Adversarial tests for formats we do not yet handle** — see 3.5.
 
 ### 3.4 Depth on what exists
@@ -291,16 +305,19 @@ opinion.
 ### Setup
 
 ```bash
-pnpm install          # postinstall generates the Prisma client and copies the pdf.js worker
-cp .env.example .env  # then fill it in
-pnpm db:push
+pnpm setup                                  # writes .env and generates the two required secrets
+docker compose up -d postgres minio minio-init
+pnpm db:migrate
 pnpm dev
 ```
 
-Until [3.1](#31-make-it-actually-clone-and-run) lands you need a Neon database
-and a Vercel Blob token. `AI_GATEWAY_API_KEY` is genuinely optional — without it
-the contextual pass is skipped and everything else still works, which is a
-reasonable way to develop the UI.
+`pnpm setup` asks whether you want the demo-compatible services or a fully local
+install; the commands above are the local path. To run the whole thing in
+containers instead, `docker compose up -d` and skip the rest.
+
+`AI_GATEWAY_API_KEY` is genuinely optional — without it the contextual pass is
+skipped and the deterministic detectors, manual redaction and export all still
+work, which is a reasonable way to develop the UI and the only way CI runs.
 
 ### Before you push
 
@@ -308,7 +325,23 @@ reasonable way to develop the UI.
 pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```
 
-CI runs these four in parallel. They must pass.
+CI runs these four in parallel, plus a migration check and a `Compose stack` job
+that builds the images and runs `pnpm smoke` against them. They must pass.
+
+If you have touched anything the container has to assemble — a native
+dependency, the workflow runtime, storage, the Dockerfile — run that last one
+yourself before pushing, because it is the slow one to find out about:
+
+```bash
+docker compose up -d --build --wait
+pnpm smoke
+docker compose down -v
+```
+
+`pnpm smoke` uploads a synthetic PDF, waits for the pipeline, accepts every
+suggestion, exports, downloads the result and fails if an accepted value is
+still in the bytes. It works against any running instance: `pnpm smoke
+https://your-deployment`.
 
 `pnpm typecheck` runs `next typegen` first. `RouteContext` and `PageProps` are
 globals Next generates into `.next/types/`, so type checking a fresh clone
@@ -361,12 +394,14 @@ have been caught by mocking.
 
 Small, self-contained, and genuinely useful:
 
-- `engines` / `packageManager` in `package.json` (§3.1)
-- Make hidden sheets obvious in the spreadsheet grid (§3.2)
-- Feed image OCR text to the detectors, as PDF and DOCX text already is (§3.2)
-- A benchmark of two models on the synthetic fixtures (§4)
+- A benchmark of two models on the synthetic fixtures (§4) — no need to
+  understand the codebase, and it tests a claim nobody has checked
 - Any test from §3.3 — the fake model provider is the highest-leverage one
 - Touch support for drawing a region (§3.4)
+- Locale-aware detectors for one language you actually speak (§3.4)
+- Extend `pnpm smoke` to DOCX, XLSX and images: it only covers PDF today, and
+  each format is a few lines and a fixture (`scripts/smoke.ts`)
 
-And the one with the most leverage per line of code: **make a fresh clone work
-without a Vercel account** (§3.1).
+And the one with the most leverage per line of code: **preserve the PDF text
+layer** (§3.4) — hard, valuable, and the last place where removal costs the
+user something real.

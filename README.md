@@ -392,6 +392,7 @@ pnpm db:migrate:deploy # apply existing migrations
 pnpm rate-limit show   # inspect the limits in force
 pnpm ocr:warm          # pre-download the Tesseract model
 pnpm cleanup           # run the expiry sweep once
+pnpm smoke             # upload, process, export and download against a running instance
 ```
 
 Node 22+ and pnpm 11+ are required and enforced — `engines` plus
@@ -408,6 +409,12 @@ rather than somewhere confusing later.
   *suggestion* the user never accepted is still present in the output.
 - `tests/detectors.test.ts` — that an order number is not reported as a card,
   and a date is only a birth date when it is labelled as one.
+- `scripts/smoke.ts` — not a unit test: it drives a *running* instance over
+  HTTP, uploading a synthetic PDF and reading the downloaded export back to
+  check that no accepted value survived. CI runs it against the compose stack on
+  every pull request, which is how the container's assembly gets checked at all
+  — a missing native library or an unreachable workflow world passes every test
+  above and fails here.
 
 ## Contributing
 
@@ -423,6 +430,10 @@ wrong. CONTRIBUTING specifies what to measure and what to submit.
 There are no accounts and no auth, deliberately: you run this against your own
 database and your own storage. The hosted demo is anonymous so people can try
 the tool without setting it up.
+
+Found a way to get a redacted value back out of an exported file? That is the
+one thing here worth reporting privately first — [SECURITY.md](SECURITY.md) says
+how, and what does and does not count.
 
 ## Security notes
 
@@ -441,3 +452,15 @@ the tool without setting it up.
   so renewing repeatedly converges on the ceiling rather than moving it.
 - Logs carry ids, stages, durations and error categories. Never document
   content, never prompts, never keys.
+
+## License
+
+[Apache-2.0](LICENSE). Use it, fork it, run it commercially, deploy it inside a
+company — the patent grant is there so nobody's legal team has to think about it.
+
+Section 7 is worth reading rather than skimming, though: this software comes with
+no warranty, including no warranty that any particular value was removed from any
+particular file. That is not boilerplate here. Anonify verifies every export
+against the values you accepted and refuses to deliver one that fails — but
+verification can only look for what it was told to look for, and the decision
+about what to accept was yours. Check the file before you send it.
