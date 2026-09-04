@@ -1,5 +1,6 @@
 import { FatalError, getWritable } from "workflow"
 
+import { analyzeDocument, analyzeImageRegions } from "@/lib/ai/analyze"
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
 import { MAX_UPLOAD_BYTES } from "@/lib/config"
@@ -10,6 +11,8 @@ import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { newEventId } from "@/lib/documents/ids"
 import { saveNormalized } from "@/lib/documents/normalized-store"
+import { loadNormalized } from "@/lib/documents/normalized-store"
+import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
 import { deleteObject, getObject, putObject, sourceKey } from "@/lib/storage/blob"
 import { decryptDocument, encryptDocument } from "@/lib/storage/encryption"
 import { checksumMatches, sha256 } from "@/lib/storage/integrity"
@@ -219,6 +222,109 @@ async function extractByKind(
   }
 }
 
+/**
+ * Analysis.
+ *
+ * Deterministic detectors run first and the model only answers what they cannot
+ * — see lib/ai/analyze.ts. Everything produced here is persisted as a
+ * *suggestion*: the pipeline never marks its own findings accepted.
+ */
+async function analyze(documentId: string): Promise<{ suggestions: number }> {
+  "use step"
+
+  const document = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: {
+      id: true,
+      kind: true,
+      mimeType: true,
+      encryptionKey: true,
+      normalizedBlobKey: true,
+      sourceBlobKey: true,
+    },
+  })
+
+  if (!document?.normalizedBlobKey || !document.encryptionKey) {
+    throw new FatalError("Document has not been normalized")
+  }
+
+  const model = await loadNormalized(
+    document.normalizedBlobKey,
+    document.encryptionKey
+  )
+
+  const { detections, sensitiveColumns } = await analyzeDocument(
+    documentId,
+    model,
+    async (update) => {
+      await emit(documentId, "document.ai.progress", {
+        status: "analyzing",
+        payload: {
+          stage: update.stage,
+          completed: update.completed,
+          total: update.total,
+          suggestions: update.detections,
+        },
+      })
+    }
+  )
+
+  // Images get a vision pass over the actual pixels.
+  if (document.kind === "image" && document.sourceBlobKey) {
+    const sealed = await getObject(document.sourceBlobKey)
+    const bytes = decryptDocument(sealed, document.encryptionKey)
+    detections.push(
+      ...(await analyzeImageRegions(documentId, model, {
+        data: bytes,
+        mediaType: document.mimeType,
+      }))
+    )
+  }
+
+  const redactions = detections.map((detection) =>
+    detectionToRedaction(documentId, detection)
+  )
+
+  // A sensitive column is proposed as one column-level redaction rather than
+  // one per cell: that is the decision the reviewer wants to make.
+  for (const column of sensitiveColumns) {
+    redactions.push({
+      id: detectionToRedaction(documentId, {
+        text: column.header,
+        category: column.category,
+        confidence: column.confidence,
+      }).id,
+      documentId,
+      type: "column",
+      source: "ai",
+      category: column.category,
+      confidence: column.confidence,
+      status: "suggested",
+      text: column.header,
+      worksheet: column.worksheet,
+      column: column.column,
+      reason: column.reason,
+      metadata: {
+        filledRows: column.filledRows,
+        totalRows: column.totalRows,
+      },
+    })
+  }
+
+  if (redactions.length > 0) {
+    await prisma.redaction.createMany({
+      data: redactions.map((redaction) => toDatabaseRow(redaction)),
+    })
+  }
+
+  await emit(documentId, "document.redaction.created", {
+    status: "analyzing",
+    payload: { suggestions: redactions.length },
+  })
+
+  return { suggestions: redactions.length }
+}
+
 async function publishStatus(
   documentId: string,
   status: ProcessingStatus,
@@ -231,14 +337,18 @@ async function publishStatus(
   await emit(documentId, type, { status, ...extra })
 }
 
-async function finish(documentId: string, pageCount: number): Promise<void> {
+async function finish(
+  documentId: string,
+  pageCount: number,
+  suggestions: number
+): Promise<void> {
   "use step"
 
   await setStatus(documentId, "ready", { error: null, pageCount })
   await emit(documentId, "document.ready", {
     status: "ready",
     progress: 100,
-    payload: { pageCount },
+    payload: { pageCount, suggestions },
   })
   await getWritable().close()
 }
@@ -283,9 +393,12 @@ export async function processDocument(documentId: string): Promise<{
     })
     const { pageCount } = await extractAndNormalize(documentId)
 
-    // Deterministic detection and AI analysis attach in milestones 7-8.
+    await publishStatus(documentId, "analyzing", "document.ai.started", {
+      progress: 70,
+    })
+    const { suggestions } = await analyze(documentId)
 
-    await finish(documentId, pageCount)
+    await finish(documentId, pageCount, suggestions)
     return { documentId, status: "ready" }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
