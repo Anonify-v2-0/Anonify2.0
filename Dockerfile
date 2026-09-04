@@ -80,6 +80,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
+# Apache-2.0 section 4(a): a copy of the licence travels with the Work, and
+# publishing an image is distributing it.
+COPY --chown=nextjs:nodejs LICENSE NOTICE ./
+
 # Deliberately outside /app. Node walks up from /app/node_modules to
 # /node_modules, so the world resolves while nothing here can shadow a package
 # the traced build already ships — merging the two trees would quietly swap
