@@ -322,6 +322,11 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 CI runs these four in parallel. They must pass.
 
+`pnpm typecheck` runs `next typegen` first. `RouteContext` and `PageProps` are
+globals Next generates into `.next/types/`, so type checking a fresh clone
+without generating them fails with "Cannot find name 'RouteContext'" — the
+script generates them itself rather than depending on a build having happened.
+
 ### Where things live
 
 `docs/architecture.md` explains the four-layer separation, `docs/workflow.md` the
