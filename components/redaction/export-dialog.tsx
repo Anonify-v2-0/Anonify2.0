@@ -15,6 +15,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { DocumentUsageSummary } from "@/components/documents/usage-summary"
 import { exportDialogToggled } from "@/store/uiSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { selectCounts } from "@/store/selectors"
@@ -27,6 +35,32 @@ import type { DocumentSummary } from "@/types/document"
  * and the result reports what was actually verified, because the export is
  * refused rather than delivered if an accepted value survived into the file.
  */
+
+/**
+ * How a redacted image region is obscured. Solid is the default because it is
+ * the only one that is unarguably irreversible — the others are offered because
+ * they read better on photographs, with the trade stated in the UI rather than
+ * left in a doc nobody opens.
+ */
+const IMAGE_STYLES = [
+  {
+    value: "solid",
+    label: "Solid black",
+    note: "Irreversible. Recommended.",
+  },
+  {
+    value: "pixelate",
+    label: "Pixelate",
+    note: "Detail is averaged away within each block.",
+  },
+  {
+    value: "blur",
+    label: "Blur",
+    note: "Reads best on photographs, but heavy blur can in principle be attacked.",
+  },
+] as const
+
+type ImageStyle = (typeof IMAGE_STYLES)[number]["value"]
 
 type ExportResponse = {
   downloadUrl: string
@@ -44,6 +78,7 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
 
   const [sanitizeMetadata, setSanitizeMetadata] = useState(true)
   const [addLabels, setAddLabels] = useState(false)
+  const [imageStyle, setImageStyle] = useState<ImageStyle>("solid")
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<ExportResponse | null>(null)
 
@@ -55,7 +90,7 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
       const response = await fetch(`/api/documents/${summary.id}/export`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sanitizeMetadata, addLabels }),
+        body: JSON.stringify({ sanitizeMetadata, addLabels, imageStyle }),
       })
 
       const payload = (await response.json()) as ExportResponse & {
@@ -117,6 +152,7 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
             <p className="font-mono text-[11px] break-all text-text-muted">
               sha256 {result.checksum}
             </p>
+            <DocumentUsageSummary documentId={summary.id} />
           </div>
         ) : (
           <div className="space-y-3 py-2">
@@ -148,6 +184,42 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
                 Add [REDACTED] labels where content was removed
               </Label>
             </div>
+
+            {summary.kind === "image" ? (
+              <div className="space-y-1.5 pt-1">
+                <Label htmlFor="image-style" className="text-sm font-normal">
+                  Redaction appearance
+                </Label>
+                <Select
+                  value={imageStyle}
+                  onValueChange={(value) => setImageStyle(value as ImageStyle)}
+                >
+                  <SelectTrigger id="image-style" size="sm" className="w-full">
+                    <SelectValue>
+                      {(value) =>
+                        IMAGE_STYLES.find((style) => style.value === value)
+                          ?.label ?? "Solid black"
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {IMAGE_STYLES.map((style) => (
+                      <SelectItem key={style.value} value={style.value}>
+                        {style.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] leading-relaxed text-text-muted">
+                  {
+                    IMAGE_STYLES.find((style) => style.value === imageStyle)
+                      ?.note
+                  }{" "}
+                  Every option replaces the pixels and re-encodes the file — the
+                  original region is not in the export either way.
+                </p>
+              </div>
+            ) : null}
           </div>
         )}
 

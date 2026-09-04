@@ -3,7 +3,9 @@ import Link from "next/link"
 import { UploadCloud } from "lucide-react"
 
 import { DocumentList } from "@/components/documents/document-list"
+import { AggregateUsageSummary } from "@/components/documents/usage-summary"
 import { Brand } from "@/components/layout/brand"
+import { aggregateUsage } from "@/lib/ai/usage-report"
 import { listDocuments } from "@/lib/documents/listing"
 import { peekIdentity } from "@/lib/security/fingerprint"
 
@@ -25,7 +27,10 @@ export const metadata: Metadata = {
  */
 export default async function DocumentsPage() {
   const identity = await peekIdentity()
-  const documents = await listDocuments(identity?.ownerKey)
+  const [documents, usage] = await Promise.all([
+    listDocuments(identity?.ownerKey),
+    aggregateUsage(identity?.ownerKey),
+  ])
 
   return (
     <div className="flex min-h-svh flex-col">
@@ -59,6 +64,12 @@ export default async function DocumentsPage() {
         </div>
 
         <DocumentList initialDocuments={documents} />
+
+        {usage.totals.calls > 0 ? (
+          <div className="mt-8">
+            <AggregateUsageSummary usage={usage} />
+          </div>
+        ) : null}
       </main>
     </div>
   )
