@@ -375,9 +375,23 @@ pnpm db:migrate
 pnpm dev
 ```
 
-`pnpm setup` asks whether you want the demo-compatible services or a fully local
-install; the commands above are the local path. To run the whole thing in
-containers instead, `docker compose up -d` and skip the rest.
+`pnpm setup` asks five things — how to run it, who can reach it, which
+services, what the limits should be, and whether to keep the secrets already in
+your `.env` — and the commands above are the local path. To run the whole thing
+in containers instead, `docker compose up -d` and skip the rest.
+`pnpm setup --local --defaults --yes` answers all of it with defaults, which is
+what a scripted install or a Dockerfile wants.
+
+Two things about it are worth knowing if you touch it. Every default it prints
+comes from the code that enforces it — `defaultsFor`, `DEFAULT_EML_LIMITS`,
+`DEFAULT_EXPANSION_LIMITS` — rather than being copied into the script, so a
+number shown during setup and a number in force cannot disagree. **If you add a
+limit, export its defaults and its `envName` and the script picks it up**; a
+setup script that lies about the defaults is worse than none. And re-running it
+offers to reuse the existing secrets, because `ENCRYPTION_KEY` is not a
+password to be rotated casually: documents are sealed with per-document keys
+wrapped by it, so a new one makes everything already stored permanently
+unreadable.
 
 `AI_GATEWAY_API_KEY` is genuinely optional — without it the contextual pass is
 skipped and the deterministic detectors, manual redaction and export all still

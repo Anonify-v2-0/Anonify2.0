@@ -248,6 +248,35 @@ pnpm install
 pnpm setup
 ```
 
+It asks five things: how to run it, **who can reach it**, which services, what
+the limits should be, and whether to keep the secrets already in your `.env`.
+The middle two are the ones worth slowing down for.
+
+*Who can reach it* is a separate question from which services you use, because
+they are separate facts — a self-hosted instance on Neon is still your instance
+and gets your allowances. Answer "just me" and there are no daily quotas at
+all; answer "public and shared" and one visitor's workbook stops being
+everyone's budget.
+
+*Limits* covers the four groups that decide what this instance will accept:
+daily quotas, rate limits, email parser limits, and how far an email's
+attachments are expanded into documents of their own. Every default it prints
+is read from the code that enforces it, so what you see is what is in force,
+and everything you leave alone is written into `.env` as a commented line — so
+the file says what the default is rather than leaving it to be discovered.
+
+```bash
+pnpm setup --local --defaults --yes   # no questions: local, profile defaults
+pnpm setup --public                   # a shared instance: strict limits
+pnpm setup --help                     # every flag
+```
+
+Re-running it is safe. It backs up the previous `.env`, and it offers to reuse
+the secrets and keys already in it — which matters more than it sounds:
+documents are sealed with per-document keys wrapped by `ENCRYPTION_KEY`, so a
+new one does not reset anything, it makes everything already stored permanently
+unreadable.
+
 ### Fully local — no accounts, nothing leaves your machine
 
 Postgres and MinIO run in Docker, OCR runs through Tesseract, and no external
@@ -258,7 +287,7 @@ service is involved at any point.
 ```bash
 git clone <this repo> && cd Anonify2.0
 pnpm install
-pnpm setup              # choose 1 (fully local); generates the secrets
+pnpm setup --local      # or just `pnpm setup` and choose; generates the secrets
 docker compose up -d    # Postgres, MinIO, migrations, then Anonify itself
                         # http://localhost:3000
 ```
@@ -343,7 +372,7 @@ pass is skipped.
 
 ```bash
 pnpm install
-pnpm setup              # choose 2 (demo-compatible)
+pnpm setup --demo       # or just `pnpm setup` and choose
 # fill in the three keys it lists
 pnpm db:migrate
 pnpm dev
@@ -500,7 +529,8 @@ pnpm db:push            # schema straight to the database, for scratch work only
 ## Commands
 
 ```bash
-pnpm setup             # choose a setup and write .env
+pnpm setup             # choose a setup, set the limits, write .env
+pnpm setup --help      # its flags, for a scripted install
 pnpm dev               # development server
 pnpm build             # production build
 pnpm test              # unit and adversarial suites
