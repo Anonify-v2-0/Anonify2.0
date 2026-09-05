@@ -19,6 +19,42 @@ const nextConfig: NextConfig = {
       // pnpm's store place the package differently.
       "./node_modules/@img/sharp-libvips-*/lib/*",
       "./node_modules/.pnpm/@img+sharp-libvips-*/node_modules/@img/*/lib/*",
+
+      // pnpm keeps the real package behind a symlink into the store, and the
+      // standalone copy does not always follow that symlink for a `**` glob, so
+      // the store path is listed alongside the hoisted one. The pdfjs font/CMap
+      // warnings ("Unable to load font data") traced to the standalone copy
+      // shipping the symlink and not the files it points at.
+      "./node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/standard_fonts/**",
+      "./node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/cmaps/**",
+      "./node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs",
+
+      // tesseract.js runs its recognizer in a Node Worker whose entry file is a
+      // runtime-computed path (path.join(__dirname, '..', '..', 'worker-script',
+      // 'node', 'index.js')) handed to `new Worker(workerPath)`. File tracing
+      // follows static require/import edges but cannot follow that, so the whole
+      // src/worker-script/** tree — and the packages only it requires — is dropped
+      // from the standalone build. The worker then does `require('..')` from
+      // src/worker-script/node/index.js, its target is absent, and the process
+      // dies with `uncaughtException: Cannot find module '..'`. Both layouts are
+      // listed because pnpm places the package in the store and hoists a symlink.
+      "./node_modules/tesseract.js/**",
+      "./node_modules/.pnpm/tesseract.js@*/node_modules/tesseract.js/**",
+      "./node_modules/tesseract.js-core/**",
+      "./node_modules/.pnpm/tesseract.js-core@*/node_modules/tesseract.js-core/**",
+
+      // Required only from the worker script, so tracing from the package entry
+      // never reaches them. Small enough to ship wholesale.
+      "./node_modules/is-url/**",
+      "./node_modules/.pnpm/is-url@*/node_modules/is-url/**",
+      "./node_modules/bmp-js/**",
+      "./node_modules/.pnpm/bmp-js@*/node_modules/bmp-js/**",
+      "./node_modules/wasm-feature-detect/**",
+      "./node_modules/.pnpm/wasm-feature-detect@*/node_modules/wasm-feature-detect/**",
+      "./node_modules/node-fetch/**",
+      "./node_modules/.pnpm/node-fetch@*/node_modules/node-fetch/**",
+      "./node_modules/regenerator-runtime/**",
+      "./node_modules/.pnpm/regenerator-runtime@*/node_modules/regenerator-runtime/**",
     ],
   },
   // Native and worker-bearing packages must stay outside the bundler.
