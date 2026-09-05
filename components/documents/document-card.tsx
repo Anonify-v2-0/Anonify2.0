@@ -1,26 +1,15 @@
 "use client"
 
 import Link from "next/link"
-import {
-  FileSpreadsheet,
-  FileText,
-  FileType,
-  Image as ImageIcon,
-  Layers,
-  Presentation,
-  Mail,
-  Loader2,
-  RotateCcw,
-  Trash2,
-} from "lucide-react"
+import { Layers, Loader2, RotateCcw, Trash2 } from "lucide-react"
 
 import { Button, buttonVariants } from "@/components/ui/button"
+import { KIND_ICONS } from "@/components/documents/kind-icon"
 import { StatusPill } from "@/components/processing/status-pill"
 import { RetentionControl } from "@/components/documents/retention-control"
 import { isRetryable } from "@/lib/workflows/failure"
 import { cn } from "@/lib/utils"
 import type { DocumentListItem } from "@/lib/documents/listing"
-import type { DocumentKind } from "@/types/document"
 
 /**
  * One document in the session list.
@@ -29,20 +18,6 @@ import type { DocumentKind } from "@/types/document"
  * and how long is left before the document disappears, so both are on the card
  * rather than a click away.
  */
-
-const KIND_ICONS: Record<DocumentKind, typeof FileText> = {
-  pdf: FileText,
-  docx: FileText,
-  xlsx: FileSpreadsheet,
-  image: ImageIcon,
-  // A delimited file is a grid, and reads as one in the workspace.
-  csv: FileSpreadsheet,
-  tsv: FileSpreadsheet,
-  txt: FileType,
-  rtf: FileType,
-  eml: Mail,
-  pptx: Presentation,
-}
 
 const IN_PROGRESS = new Set([
   "uploading",
@@ -86,7 +61,7 @@ export function DocumentCard({
   /** Off inside a batch group, where the card is already under its heading. */
   showBatchLink?: boolean
 }) {
-  const Icon = KIND_ICONS[document.kind] ?? FileText
+  const Icon = KIND_ICONS[document.kind]
   const working = IN_PROGRESS.has(document.status)
   const reviewed = document.counts.total - document.counts.suggested
   const progress =

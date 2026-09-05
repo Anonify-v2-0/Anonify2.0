@@ -1,9 +1,11 @@
 import Link from "next/link"
-import { FileSpreadsheet, FileText, Image as ImageIcon, ShieldCheck } from "lucide-react"
+import { ShieldCheck } from "lucide-react"
 
 import { Brand } from "@/components/layout/brand"
 import { Footer } from "@/components/layout/footer"
 import { UploadPanel } from "@/components/upload/upload-panel"
+import { KIND_ICONS } from "@/components/documents/kind-icon"
+import { FORMAT_LIST } from "@/lib/documents/formats"
 
 const BENEFITS = [
   {
@@ -32,6 +34,12 @@ export default function Page() {
           >
             Your documents
           </Link>
+          <Link
+            href="/about"
+            className="text-xs text-text-secondary transition-colors hover:text-white"
+          >
+            About
+          </Link>
           <span className="hidden items-center gap-2 text-xs text-text-muted sm:flex">
             <ShieldCheck className="size-4 text-primary" />
             Temporary by default
@@ -52,22 +60,16 @@ export default function Page() {
               sensitive parts, and lets you review every one before it writes a
               new file. The original is never modified.
             </p>
-            <ul className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs tracking-[0.14em] text-text-muted uppercase">
-              <li className="flex items-center gap-1.5">
-                <FileText className="size-3.5 text-primary" /> PDF
-              </li>
-              <li aria-hidden>·</li>
-              <li className="flex items-center gap-1.5">
-                <FileText className="size-3.5 text-primary" /> DOCX
-              </li>
-              <li aria-hidden>·</li>
-              <li className="flex items-center gap-1.5">
-                <FileSpreadsheet className="size-3.5 text-primary" /> XLSX
-              </li>
-              <li aria-hidden>·</li>
-              <li className="flex items-center gap-1.5">
-                <ImageIcon className="size-3.5 text-primary" /> Image
-              </li>
+            <ul className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs tracking-[0.14em] text-text-muted uppercase">
+              {FORMAT_LIST.map((format) => {
+                const Icon = KIND_ICONS[format.kind]
+                return (
+                  <li key={format.kind} className="flex items-center gap-1.5">
+                    <Icon aria-hidden className="size-3.5 text-primary" />
+                    {format.label}
+                  </li>
+                )
+              })}
             </ul>
           </div>
 
@@ -83,6 +85,20 @@ export default function Page() {
               </p>
             </div>
           ))}
+        </section>
+
+        <section className="flex flex-col gap-3 rounded-[10px] border border-border bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm leading-relaxed text-text-muted">
+            Want to know how it works? Every export is re-opened and read
+            adversarially — a surviving value fails the export. That and the rest
+            of the heavy lifting is in the About page.
+          </p>
+          <Link
+            href="/about"
+            className="btn-pill inline-flex h-9 shrink-0 items-center text-sm"
+          >
+            How it works
+          </Link>
         </section>
       </main>
 
