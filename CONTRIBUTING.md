@@ -180,7 +180,16 @@ Zero coverage today for: `extractImage`, `ocrImage`, `analyzeDocument`,
       every supported format and runs in CI against the compose stack, which
       covers the wiring but not the editor — nothing yet drives the canvas, the
       inspector or the export dialog.
-- [ ] **Adversarial tests for formats we do not yet handle** — see 3.5.
+- [x] ~~**Adversarial tests for formats we do not yet handle** — see 3.5.~~
+      `tests/adversarial.test.ts` runs one pass over every exportable format
+      through the real export path and asserts three things each: the accepted
+      value is gone read in that format's own terms (PPTX notes/layout/master,
+      EML headers/nested parts/filenames, RTF formatting-group splits and
+      escapes), a *rejected* value is still there, and the artifact still
+      opens. A guard test keeps the register honest — a new format cannot be
+      added without an adversarial case. Per-format suites live in
+      `tests/pptx.test.ts`, `tests/eml.test.ts`, and `tests/rtf.test.ts`.
+      Closed by `23967060` (#37).
 
 ### 3.4 Depth on what exists
 
