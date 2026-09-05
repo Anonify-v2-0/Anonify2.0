@@ -187,13 +187,14 @@ is minutes, which is longer than a request may live and much longer than a
 person will sit in front of a modal, so it is a run rather than a response.
 
 ```
-POST /api/batches/:id/export   → creates a BatchExport row, starts the run, 202
-GET  /api/batches/:id/export   → where the run has got to
-DELETE /api/batches/:id/export → stop it
+POST   /api/batches/:id/export        → creates a BatchExport row, starts the run, 202
+GET    /api/batches/:id/export        → where the run has got to
+DELETE /api/batches/:id/export        → stop it
+GET    /api/batches/:id/export/stream → follow it, as server-sent events
 ```
 
-The row is the progress. Each document is one `"use step"`, so a step that dies
-is retried on its own and the run resumes at the document it was on rather than
+The row is the record. Each document is one `"use step"`, so a step that dies is
+retried on its own and the run resumes at the document it was on rather than
 re-redacting the ones already done; each step writes its outcome to
 `BatchExport.documents`, and the totals are recomputed from those states rather
 than incremented, because a retried step would otherwise count twice.
@@ -201,6 +202,24 @@ than incremented, because a retried step would otherwise count twice.
 Nothing about the browser is load-bearing. Closing the modal, reloading, or
 opening the batch on another device reads the same row, which is why the button
 can show `Exporting 3 of 8` while the window that started it is gone.
+
+**Progress is pushed, not asked for.** After writing the row, each step writes a
+snapshot to the run's own stream, and `/export/stream` relays it exactly the way
+the processing stream does — same SSE shape, same indexed resume, so a client
+that drops picks up at the event after the last one it saw. A watcher therefore
+costs one read to find out whether there is anything to watch, one connection
+while there is, and one read at the end for the archive link, which is minted
+per read and short-lived. It used to be a query every 1.5 seconds per watcher,
+for a run that spends most of its time inside a single document with nothing new
+to say.
+
+Events are whole snapshots rather than deltas: a batch is a couple of dozen
+entries at most, and the saving from sending differences is nothing next to a
+client that missed one and is now quietly wrong. The stream carries filenames,
+states and counts — never a category, a pattern or anything else from inside a
+document. If the stream cannot be held open at all, the client falls back to
+reading the row every five seconds rather than showing a count that has stopped
+moving.
 
 **Stopping** sets `cancelRequested` and then cancels the run. The flag is what
 a step between documents reads, so the document being redacted right now

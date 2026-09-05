@@ -228,32 +228,38 @@ export async function patchDocumentState(
   exportId: string,
   documentId: string,
   next: Omit<BatchExportDocument, "id" | "name">
-): Promise<void> {
+): Promise<BatchExportProgress | null> {
   const record = await prisma.batchExport.findUnique({
     where: { id: exportId },
     select: { documents: true },
   })
-  if (!record) return
+  if (!record) return null
 
-  await writeProgress(
-    exportId,
-    applyDocumentState(readDocuments(record.documents), documentId, next)
+  const progress = applyDocumentState(
+    readDocuments(record.documents),
+    documentId,
+    next
   )
+  await writeProgress(exportId, progress)
+
+  // Returned so the caller can report it without reading the row back: this is
+  // what the run writes to its stream, and a second query for what we just
+  // computed would be the polling this exists to replace.
+  return progress
 }
 
 /** Names every document the run never reached, in one write. */
 export async function settlePending(
   exportId: string,
   reason: SkipReason
-): Promise<void> {
+): Promise<BatchExportProgress | null> {
   const record = await prisma.batchExport.findUnique({
     where: { id: exportId },
     select: { documents: true },
   })
-  if (!record) return
+  if (!record) return null
 
-  await writeProgress(
-    exportId,
-    settleUnreached(readDocuments(record.documents), reason)
-  )
+  const progress = settleUnreached(readDocuments(record.documents), reason)
+  await writeProgress(exportId, progress)
+  return progress
 }

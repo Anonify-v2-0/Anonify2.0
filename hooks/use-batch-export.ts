@@ -1,25 +1,40 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { readFailure } from "@/lib/api/errors"
 import type { BatchExportView } from "@/lib/documents/batch-exports"
+import { decodeBatchExportEvent } from "@/lib/workflows/batch-export-events"
 
 /**
  * One batch export, watched from anywhere.
  *
  * The run is durable and lives on the server, so this is a reader rather than
- * an owner: it starts one, asks it to stop, and polls the record while it is
- * going. That is what lets the reviewer close the modal, reload the page or
- * come back later and still see the same run — and what lets the button behind
- * the modal show the progress rather than a shrug.
+ * an owner: it starts one, asks it to stop, and follows it while it works. That
+ * is what lets the reviewer close the modal, reload the page or come back later
+ * and still see the same run — and what lets the button behind the modal show
+ * the progress rather than a shrug.
  *
- * It is used once per batch, above the button and the dialog both, so there is
- * one poller and one truth rather than two that disagree by a tick.
+ * It reads the record once, to find out whether there is anything to watch, and
+ * then watches the run's own event stream. It used to ask the database every
+ * second and a half instead, which is a query per watcher per tick for a run
+ * that spends minutes inside a single document and has nothing new to say for
+ * most of them.
+ *
+ * The record stays the truth. The stream is a progress channel: every event is
+ * a whole snapshot, so a missed one is corrected by the next, and when the run
+ * ends the record is read once more for the archive link — which is minted per
+ * read and deliberately short-lived.
+ *
+ * One instance per batch, above the button and the dialog both, so there is one
+ * connection and one truth rather than two that disagree by a tick.
  */
 
-const POLL_INTERVAL_MS = 1500
+const RECONNECT_DELAY_MS = 1500
+const MAX_RECONNECTS = 6
+/** Only after the stream has given up: slow, and just enough to stay honest. */
+const FALLBACK_POLL_MS = 5000
 
 const ACTIVE = new Set(["queued", "running"])
 
@@ -43,62 +58,186 @@ export function useBatchExport(batchId: string): BatchExportControls {
   const [starting, setStarting] = useState(false)
   const [cancelling, setCancelling] = useState(false)
 
-  // Bumped whenever a request of ours changes the run, which is what restarts
+  // Bumped whenever a request of ours changes the run, which is what reconnects
   // the watch below after a start or a stop.
   const [generation, setGeneration] = useState(0)
-  const latest = useRef<BatchExportView | null>(null)
 
   const read = useCallback(async (): Promise<BatchExportView | null> => {
     const response = await fetch(`/api/batches/${batchId}/export`, {
       cache: "no-store",
     })
     if (!response.ok) throw new Error("unreadable")
-    const payload = (await response.json()) as {
-      export: BatchExportView | null
-    }
+    const payload = (await response.json()) as { export: BatchExportView | null }
     return payload.export
   }, [batchId])
 
   /**
-   * Reads the record, then keeps reading while the run is still moving.
+   * Read once, then follow the run.
    *
-   * The record is the durable one, so a missed tick costs nothing: the next
-   * read still reports exactly where the run got to.
+   * The stream carries snapshots of the run's own progress; the record is read
+   * again only at the end, because that is where the archive link comes from.
    */
   useEffect(() => {
     let cancelled = false
+    let attempts = 0
+    let controller: AbortController | null = null
     let timer: ReturnType<typeof setTimeout> | undefined
 
-    async function tick() {
+    /** The last event index actually seen, so a reconnect resumes rather than replays. */
+    let lastIndex = -1
+    /** Whether the run was still moving the last time anything said so. */
+    let running = false
+
+    function schedule(fn: () => void, delay: number) {
+      timer = setTimeout(fn, delay)
+    }
+
+    async function settle() {
+      // The archive link is minted per read and is not on the stream, so the
+      // end of a run is the one place a second read earns its keep.
       try {
-        const next = await read()
+        const final = await read()
         if (cancelled) return
-
-        latest.current = next
-        setState(next)
-        setLoading(false)
-
-        if (ACTIVE.has(next?.status ?? "")) {
-          timer = setTimeout(tick, POLL_INTERVAL_MS)
-        }
+        running = isActiveExport(final)
+        setState(final)
       } catch {
-        if (cancelled) return
-        setLoading(false)
-        // A transient failure only earns another try while there was something
-        // to watch; otherwise the next action asks again.
-        if (isActiveExport(latest.current)) {
-          timer = setTimeout(tick, POLL_INTERVAL_MS)
-        }
+        // The record is durable; the next thing the reviewer does will find it.
       }
     }
 
-    void tick()
+    /** Applies one snapshot without waiting for the server to be asked again. */
+    function apply(event: ReturnType<typeof decodeBatchExportEvent>) {
+      if (!event || cancelled) return
+
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              status: event.status,
+              total: event.total,
+              completed: event.completed,
+              exported: event.exported,
+              documents: event.documents,
+              error: event.error ?? current.error,
+            }
+          : current
+      )
+    }
+
+    async function watch() {
+      controller = new AbortController()
+
+      try {
+        const response = await fetch(
+          `/api/batches/${batchId}/export/stream?startIndex=${lastIndex + 1}`,
+          {
+            cache: "no-store",
+            signal: controller.signal,
+            headers: { accept: "text/event-stream" },
+          }
+        )
+
+        // 409 means the run is not running any more — it finished between the
+        // read and the connection, which is a settle rather than a failure.
+        if (response.status === 409) {
+          await settle()
+          return
+        }
+        if (!response.ok || !response.body) {
+          throw new Error(`stream-failed-${response.status}`)
+        }
+
+        attempts = 0
+        const reader = response.body
+          .pipeThrough(new TextDecoderStream())
+          .getReader()
+
+        let buffer = ""
+        let ended = false
+
+        while (!ended) {
+          const result = await reader.read()
+          if (result.done) break
+          buffer += result.value
+
+          // SSE frames are separated by a blank line.
+          let boundary = buffer.indexOf("\n\n")
+          while (boundary !== -1) {
+            ended = handleFrame(buffer.slice(0, boundary)) || ended
+            buffer = buffer.slice(boundary + 2)
+            boundary = buffer.indexOf("\n\n")
+          }
+        }
+
+        // No end frame means the connection dropped rather than the run
+        // finishing: reconnect and resume from the last event seen.
+        if (!cancelled && !ended) throw new Error("stream-closed")
+        if (cancelled) return
+        await settle()
+      } catch (error) {
+        if (cancelled || (error as Error).name === "AbortError") return
+
+        attempts += 1
+        if (attempts > MAX_RECONNECTS) {
+          // The stream is the fast path, not the only one. Falling back to the
+          // record keeps a run honest on a connection that will not hold a
+          // stream open, rather than leaving a stale count on screen.
+          await settle()
+          if (!cancelled && running) {
+            schedule(() => void watch(), FALLBACK_POLL_MS)
+          }
+          return
+        }
+
+        schedule(() => void watch(), RECONNECT_DELAY_MS * attempts)
+      }
+    }
+
+    /** Returns true when the stream said it is finished. */
+    function handleFrame(frame: string): boolean {
+      let id: number | null = null
+      let data = ""
+      let name = "message"
+
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("id:")) id = Number(line.slice(3).trim())
+        else if (line.startsWith("data:")) data += line.slice(5).trim()
+        else if (line.startsWith("event:")) name = line.slice(6).trim()
+      }
+
+      if (id !== null && Number.isFinite(id)) lastIndex = id
+      if (name === "end") return true
+
+      const event = decodeBatchExportEvent(data)
+      apply(event)
+      if (event) running = ACTIVE.has(event.status)
+      return event?.type === "export.finished"
+    }
+
+    async function begin() {
+      try {
+        const current = await read()
+        if (cancelled) return
+
+        running = isActiveExport(current)
+        setState(current)
+        setLoading(false)
+
+        if (running) await watch()
+      } catch {
+        if (cancelled) return
+        setLoading(false)
+      }
+    }
+
+    void begin()
 
     return () => {
       cancelled = true
+      controller?.abort()
       if (timer) clearTimeout(timer)
     }
-  }, [read, generation])
+  }, [read, batchId, generation])
 
   const start = useCallback(async () => {
     setStarting(true)
@@ -121,8 +260,8 @@ export function useBatchExport(batchId: string): BatchExportControls {
       const payload = (await response.json()) as {
         export: BatchExportView | null
       }
-      latest.current = payload.export
       setState(payload.export)
+      // Which reconnects the watch onto the run that was just started.
       setGeneration((value) => value + 1)
     } catch {
       toast.error("This batch could not be exported.")
@@ -139,12 +278,11 @@ export function useBatchExport(batchId: string): BatchExportControls {
       })
 
       // A run that finished a moment ago is not an error worth a toast: the
-      // reread below shows what actually happened.
+      // reconnect below reads what actually happened.
       if (response.ok) {
         const payload = (await response.json()) as {
           export: BatchExportView | null
         }
-        latest.current = payload.export
         setState(payload.export)
       }
       setGeneration((value) => value + 1)

@@ -1,4 +1,9 @@
-import { FatalError, getStepMetadata, RetryableError } from "workflow"
+import {
+  FatalError,
+  getStepMetadata,
+  getWritable,
+  RetryableError,
+} from "workflow"
 
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
@@ -8,6 +13,8 @@ import {
   settlePending,
   type BatchExportDocument,
   type BatchExportOptions,
+  type BatchExportProgress,
+  type BatchExportStatus,
 } from "@/lib/documents/batch-exports"
 import { listBatchDocuments } from "@/lib/documents/listing"
 import type { SkipReason } from "@/lib/redaction/archive"
@@ -15,6 +22,10 @@ import { exportAndStore } from "@/lib/redaction/deliver"
 import { ExportVerificationError } from "@/lib/redaction/export"
 import { ReportLeakError } from "@/lib/redaction/report"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
+import {
+  encodeBatchExportEvent,
+  type BatchExportStreamEvent,
+} from "@/lib/workflows/batch-export-events"
 
 /**
  * Durable batch export.
@@ -52,6 +63,42 @@ function paced(error: unknown): never {
 }
 
 /**
+ * Says where the run has got to.
+ *
+ * The row is written first and this is written second, in that order on
+ * purpose: the stream is a courtesy to whoever is watching right now, and the
+ * record is what anyone else reads. A client that misses this — because it was
+ * closed, or reconnecting — loses nothing but the animation.
+ *
+ * A whole snapshot each time, so a client that missed one event is corrected by
+ * the next rather than drifting.
+ */
+async function report(
+  progress: BatchExportProgress,
+  status: BatchExportStatus,
+  extra: { type?: BatchExportStreamEvent["type"]; error?: string | null } = {}
+): Promise<void> {
+  const event: BatchExportStreamEvent = {
+    type: extra.type ?? "export.progress",
+    at: new Date().toISOString(),
+    status,
+    total: progress.documents.length,
+    completed: progress.completed,
+    exported: progress.exported,
+    documents: progress.documents,
+    error: extra.error ?? null,
+  }
+
+  const writer = getWritable<string>().getWriter()
+  try {
+    await writer.write(encodeBatchExportEvent(event))
+  } finally {
+    // An unreleased lock keeps the step's request alive until it times out.
+    writer.releaseLock()
+  }
+}
+
+/**
  * The plan: which documents, in which order, recorded before any work.
  *
  * Written to the row so the modal has something to render on its first read —
@@ -80,6 +127,7 @@ async function runPlan(exportId: string): Promise<{ documentIds: string[] }> {
       where: { id: exportId },
       data: { status: "running" },
     })
+    await report(progressOf(planned), "running")
     return { documentIds: planned.map((document) => document.id) }
   }
 
@@ -105,7 +153,21 @@ async function runPlan(exportId: string): Promise<{ documentIds: string[] }> {
     },
   })
 
+  await report(progressOf(rows), "running")
   return { documentIds: rows.map((row) => row.id) }
+}
+
+/** The totals a list of documents already implies. */
+function progressOf(documents: BatchExportDocument[]): BatchExportProgress {
+  return {
+    documents,
+    completed: documents.filter(
+      (document) =>
+        document.state === "exported" || document.state === "skipped"
+    ).length,
+    exported: documents.filter((document) => document.state === "exported")
+      .length,
+  }
 }
 
 /**
@@ -130,6 +192,16 @@ exportDocument.maxRetries = 4
 
 /** Continue, or stop with the reason everything after this one inherits. */
 type StepOutcome = { stop: false } | { stop: true; reason: SkipReason }
+
+/** Writes one document's outcome, then says so on the run's stream. */
+async function patched(
+  exportId: string,
+  documentId: string,
+  next: Omit<BatchExportDocument, "id" | "name">
+): Promise<void> {
+  const progress = await patchDocumentState(exportId, documentId, next)
+  if (progress) await report(progress, "running")
+}
 
 async function runExportDocument(
   exportId: string,
@@ -172,7 +244,7 @@ async function runExportDocument(
   })
 
   const skip = async (reason: SkipReason): Promise<StepOutcome> => {
-    await patchDocumentState(exportId, documentId, { state: "skipped", reason })
+    await patched(exportId, documentId, { state: "skipped", reason })
     return { stop: false }
   }
 
@@ -182,7 +254,7 @@ async function runExportDocument(
   }
   if (document.status !== "ready") return skip("not-ready")
 
-  await patchDocumentState(exportId, documentId, { state: "exporting" })
+  await patched(exportId, documentId, { state: "exporting" })
 
   // Charged per document, because that is what the work is. A batch is not a
   // discount, and pricing it as one would make the limit meaningless to anyone
@@ -195,7 +267,7 @@ async function runExportDocument(
     // The allowance is gone for everything that follows too, so the run stops
     // here and the rest are named as rate-limited rather than each spending a
     // step to discover the same thing.
-    await patchDocumentState(exportId, documentId, {
+    await patched(exportId, documentId, {
       state: "skipped",
       reason: "rate-limited",
     })
@@ -213,7 +285,7 @@ async function runExportDocument(
 
     if (!outcome.ok) return skip("not-ready")
 
-    await patchDocumentState(exportId, documentId, {
+    await patched(exportId, documentId, {
       state: "exported",
       removed: outcome.delivered.appliedRedactions,
     })
@@ -254,7 +326,9 @@ async function settleRemaining(
   reason: SkipReason
 ): Promise<void> {
   "use step"
-  await settlePending(exportId, reason)
+
+  const progress = await settlePending(exportId, reason)
+  if (progress) await report(progress, "running")
 }
 
 /**
@@ -279,20 +353,28 @@ async function finishExport(exportId: string): Promise<void> {
     (document) => document.state === "exported"
   ).length
 
+  const status: BatchExportStatus = record.cancelRequested
+    ? "cancelled"
+    : exported > 0
+      ? "ready"
+      : "failed"
+  const error =
+    !record.cancelRequested && exported === 0
+      ? "Nothing in this batch could be exported."
+      : null
+
   await prisma.batchExport.updateMany({
     where: { id: exportId, status: { in: ["queued", "running"] } },
-    data: {
-      status: record.cancelRequested
-        ? "cancelled"
-        : exported > 0
-          ? "ready"
-          : "failed",
-      error:
-        !record.cancelRequested && exported === 0
-          ? "Nothing in this batch could be exported."
-          : null,
-    },
+    data: { status, error },
   })
+
+  await report(progressOf(documents), status, {
+    type: "export.finished",
+    error,
+  })
+  // Nothing follows, so the stream is closed rather than left for a reader to
+  // wait out. A watcher sees the end frame and stops.
+  await getWritable().close()
 }
 
 /**
@@ -314,15 +396,25 @@ async function failExport(exportId: string, raw: string): Promise<void> {
     })
   )
 
+  const error = /no documents left/i.test(raw)
+    ? "This batch has no documents left to export."
+    : "The batch export could not be completed."
+
   await prisma.batchExport.updateMany({
     where: { id: exportId, status: { in: ["queued", "running"] } },
-    data: {
-      status: "failed",
-      error: /no documents left/i.test(raw)
-        ? "This batch has no documents left to export."
-        : "The batch export could not be completed.",
-    },
+    data: { status: "failed", error },
   })
+
+  const record = await prisma.batchExport.findUnique({
+    where: { id: exportId },
+    select: { documents: true },
+  })
+
+  await report(progressOf(readDocuments(record?.documents ?? null)), "failed", {
+    type: "export.finished",
+    error,
+  })
+  await getWritable().close()
 }
 
 export async function exportBatch(
