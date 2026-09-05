@@ -29,12 +29,7 @@ import { loadNormalized } from "@/lib/documents/normalized-store"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
 import { categoryAllowed, presetById } from "@/lib/redaction/presets"
 import { carryBatchRules } from "@/lib/redaction/rules"
-import {
-  quotaMessage,
-  recordUsage,
-  usageKindFor,
-  usageQuantity,
-} from "@/lib/security/usage"
+import { chargeDocumentUsage, quotaMessage } from "@/lib/security/usage"
 import { deleteObject, getObject, putObject, sourceKey } from "@/lib/storage/blob"
 import { decryptDocument, encryptDocument } from "@/lib/storage/encryption"
 import { checksumMatches, sha256 } from "@/lib/storage/integrity"
@@ -248,6 +243,7 @@ async function runExtractAndNormalize(
       encryptionKey: true,
       checksum: true,
       quotaKey: true,
+      metadata: true,
     },
   })
 
@@ -275,18 +271,18 @@ async function runExtractAndNormalize(
   })
 
   // The real cost is only knowable now, so this is where the demo allowance is
-  // charged. Going over stops the pipeline; it never deletes what was uploaded.
-  if (document.quotaKey) {
-    const kind = usageKindFor(document.kind as DocumentKind)
-    const quantity = usageQuantity(kind, model)
+  // charged. Going over stops the pipeline; it never deletes what was
+  // uploaded. Charging is idempotent — see chargeDocumentUsage — because this
+  // step is retried and re-extracts from scratch each time.
+  const { quota } = await chargeDocumentUsage({
+    documentId,
+    kind: document.kind as DocumentKind,
+    quotaKey: document.quotaKey,
+    metadata: document.metadata,
+    model,
+  })
 
-    const quota = await recordUsage({
-      fingerprint: document.quotaKey,
-      kind,
-      quantity,
-    })
-    if (!quota.allowed) throw new FatalError(quotaMessage(quota))
-  }
+  if (quota && !quota.allowed) throw new FatalError(quotaMessage(quota))
 
   return { pageCount: model.pages.length }
 }

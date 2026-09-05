@@ -38,12 +38,39 @@ export type RateLimits = Record<RateLimitName, RateLimit>
 export const PROFILES = ["demo", "self-hosted"] as const
 export type Profile = (typeof PROFILES)[number]
 
-/** A shared anonymous demo: strict, because anyone can reach it. */
+/**
+ * A shared anonymous demo: strict, because anyone can reach it.
+ *
+ * The numbers moved when the format list grew, and the reasoning is worth
+ * keeping next to them.
+ *
+ * `upload` went from 10 to 15. A batch is several uploads in a row, and the
+ * formats added since — a CSV, a text file, an email — are the ones people
+ * naturally have a handful of rather than one of. Ten was refusing an ordinary
+ * batch of a dozen small files partway through, which reads as breakage rather
+ * than as rationing.
+ *
+ * `processing` stays at 30. It is deliberately *not* raised to match: the
+ * larger formats are the expensive ones, and a per-minute allowance is the
+ * only thing standing between a shared demo and someone handing it fifty decks.
+ * Processing being the tightest ratio here is the point.
+ *
+ * `export` went from 10 to 15, in step with upload: an export follows a review,
+ * so refusing more exports than uploads would strand documents that were
+ * accepted.
+ *
+ * `read` went from 240 to 300. The workspace polls status while a document
+ * processes, and a batch of documents polls concurrently; at 240 a reviewer
+ * with several files open was being rate-limited by the interface itself.
+ *
+ * Windows stay at 60 seconds throughout. The bucket refills continuously, so a
+ * window is a rate rather than a boundary to burst across.
+ */
 const DEMO_DEFAULTS: RateLimits = {
-  upload: { limit: 10, windowSeconds: 60 },
+  upload: { limit: 15, windowSeconds: 60 },
   processing: { limit: 30, windowSeconds: 60 },
-  export: { limit: 10, windowSeconds: 60 },
-  read: { limit: 240, windowSeconds: 60 },
+  export: { limit: 15, windowSeconds: 60 },
+  read: { limit: 300, windowSeconds: 60 },
 }
 
 /** Your own machine: generous, because the only caller is you. */

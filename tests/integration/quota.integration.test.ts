@@ -14,16 +14,26 @@ import { hasDatabase, testFingerprint } from "./support"
 const { prisma } = await import("@/lib/database/prisma")
 const { extractXlsx } = await import("@/lib/documents/xlsx/extract")
 const { reserveDocument } = await import("@/lib/documents/reserve")
-const { checkQuota, recordUsage, usageQuantity, usageSnapshot } = await import(
-  "@/lib/security/usage"
-)
+const {
+  chargeDocumentUsage,
+  checkQuota,
+  recordUsage,
+  usageQuantity,
+  usageSnapshot,
+} = await import("@/lib/security/usage")
+const { extractEml } = await import("@/lib/documents/eml/extract")
+const { extractPptx } = await import("@/lib/documents/pptx/extract")
+const { extractText } = await import("@/lib/documents/text/extract")
 const { makeSparseXlsxFixture, makeXlsxFixture } = await import("../fixtures")
+const { makePptxFixture } = await import("../pptx-fixtures")
+const { bytesOf, mixedEml } = await import("../eml-fixtures")
 
 const QUOTA_ENV = [
   "ANONIFY_PROFILE",
   "ANONIFY_QUOTA_UPLOADS",
   "ANONIFY_QUOTA_XLSX_CELLS",
   "ANONIFY_QUOTA_PDF_PAGES",
+  "ANONIFY_QUOTA_PPTX_SLIDES",
 ]
 
 const seen: string[] = []
@@ -219,6 +229,195 @@ describe.skipIf(!hasDatabase)("quota accounting against Postgres", () => {
       expect(usageQuantity("xlsxCells", document)).toBe(
         perSheet.reduce((total, count) => total + count, 0)
       )
+    })
+  })
+
+  describe("the formats added with the wider format set", () => {
+    async function seedDocument(
+      key: string,
+      kind: string
+    ): Promise<string> {
+      const id = `doc_quota_${Math.random().toString(16).slice(2)}`
+      seen.push(key)
+
+      await prisma.document.create({
+        data: {
+          id,
+          originalName: `fixture.${kind}`,
+          kind,
+          mimeType: "application/octet-stream",
+          size: 1,
+          status: "normalizing",
+          userFingerprint: key,
+          quotaKey: key,
+          ttlSeconds: 3600,
+          expiresAt: new Date(Date.now() + 3600_000),
+        },
+      })
+
+      return id
+    }
+
+    it("charges a deck by its slides, not by its pages", async () => {
+      const key = fingerprint("slides")
+      const { document } = extractPptx("quota", makePptxFixture())
+
+      // Layouts and masters get their own review pages; they are processed
+      // with the slides rather than charged separately.
+      expect(document.pages.length).toBeGreaterThan(2)
+      expect(usageQuantity("pptxSlides", document)).toBe(2)
+
+      const id = await seedDocument(key, "pptx")
+      const { charged } = await chargeDocumentUsage({
+        documentId: id,
+        kind: "pptx",
+        quotaKey: key,
+        metadata: null,
+        model: document,
+      })
+
+      expect(charged).toBe(true)
+      expect((await usageRow(key))?.pptxSlides).toBe(2)
+      expect((await usageRow(key))?.pdfPages).toBe(0)
+    })
+
+    it("charges an email by the text it actually decoded", async () => {
+      const key = fingerprint("email")
+      const { document } = extractEml("quota", bytesOf(mixedEml()))
+
+      const kilobytes = usageQuantity("emailKilobytes", document)
+      expect(kilobytes).toBeGreaterThanOrEqual(1)
+
+      const id = await seedDocument(key, "eml")
+      await chargeDocumentUsage({
+        documentId: id,
+        kind: "eml",
+        quotaKey: key,
+        metadata: null,
+        model: document,
+      })
+
+      expect((await usageRow(key))?.emailKilobytes).toBe(kilobytes)
+      // Not counted as pages, which is the point of it having its own unit.
+      expect((await usageRow(key))?.pdfPages).toBe(0)
+      expect((await usageRow(key))?.textPages).toBe(0)
+    })
+
+    it("charges plain text by its pages of extracted text", async () => {
+      const key = fingerprint("text")
+      const { document } = extractText(
+        "quota",
+        new TextEncoder().encode("line\n".repeat(2000))
+      )
+
+      const pages = usageQuantity("textPages", document)
+      expect(pages).toBe(document.pages.length)
+      expect(pages).toBeGreaterThan(1)
+
+      const id = await seedDocument(key, "txt")
+      await chargeDocumentUsage({
+        documentId: id,
+        kind: "txt",
+        quotaKey: key,
+        metadata: null,
+        model: document,
+      })
+
+      expect((await usageRow(key))?.textPages).toBe(pages)
+    })
+
+    it("counts a CSV against the same cells a workbook uses", async () => {
+      const key = fingerprint("csvcells")
+      const { extractDelimited } = await import(
+        "@/lib/documents/delimited/extract"
+      )
+      const { document } = extractDelimited(
+        "quota",
+        "csv",
+        new TextEncoder().encode("a,b\n1,2\n3,4\n")
+      )
+
+      const id = await seedDocument(key, "csv")
+      await chargeDocumentUsage({
+        documentId: id,
+        kind: "csv",
+        quotaKey: key,
+        metadata: null,
+        model: document,
+      })
+
+      expect((await usageRow(key))?.xlsxCells).toBe(6)
+    })
+  })
+
+  describe("retries", () => {
+    it("charges a document once however many times the step runs", async () => {
+      const key = fingerprint("retry")
+      const { document } = extractPptx("quota", makePptxFixture())
+
+      const id = `doc_retry_${Math.random().toString(16).slice(2)}`
+      seen.push(key)
+      await prisma.document.create({
+        data: {
+          id,
+          originalName: "fixture.pptx",
+          kind: "pptx",
+          mimeType: "application/octet-stream",
+          size: 1,
+          status: "normalizing",
+          userFingerprint: key,
+          quotaKey: key,
+          ttlSeconds: 3600,
+          expiresAt: new Date(Date.now() + 3600_000),
+        },
+      })
+
+      const first = await chargeDocumentUsage({
+        documentId: id,
+        kind: "pptx",
+        quotaKey: key,
+        metadata: null,
+        model: document,
+      })
+      expect(first.charged).toBe(true)
+
+      // What a retry does: re-read the row, re-extract, charge again. The
+      // extraction step is retried on a storage blip and re-extracts from
+      // scratch, so without the guard one upload was billed twice.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const row = await prisma.document.findUnique({ where: { id } })
+        const again = await chargeDocumentUsage({
+          documentId: id,
+          kind: "pptx",
+          quotaKey: key,
+          metadata: row?.metadata,
+          model: document,
+        })
+        expect(again.charged).toBe(false)
+      }
+
+      expect((await usageRow(key))?.pptxSlides).toBe(2)
+
+      // And the row says what it was charged, which is what a retry reads.
+      const row = await prisma.document.findUnique({ where: { id } })
+      const metadata = row?.metadata as { quotaCharged?: { kind: string } }
+      expect(metadata.quotaCharged?.kind).toBe("pptxSlides")
+    })
+
+    it("does not charge a document with no quota key", async () => {
+      const key = fingerprint("nokey")
+      const { document } = extractPptx("quota", makePptxFixture())
+
+      const result = await chargeDocumentUsage({
+        documentId: "unused",
+        kind: "pptx",
+        quotaKey: null,
+        metadata: null,
+        model: document,
+      })
+
+      expect(result.charged).toBe(false)
+      expect(await usageRow(key)).toBeNull()
     })
   })
 })

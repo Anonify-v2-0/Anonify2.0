@@ -202,3 +202,62 @@ export function quotaMessage(check: QuotaCheck): string {
 
   return `Daily demo limit reached for ${labels[check.kind]} (${check.limit}). It resets at midnight UTC.`
 }
+
+/**
+ * Charges a document's allowance, at most once.
+ *
+ * The record of having charged lives in the document's own metadata. The
+ * extraction step is retried — a storage blip, a cold worker — and it
+ * re-extracts from scratch each time, so without this a document that failed
+ * after charging and succeeded on the next attempt was billed twice for one
+ * upload. Nothing in the workflow runtime prevents that: a step's result is
+ * persisted when it succeeds, and the charge happens before it returns.
+ *
+ * The mark is written after the charge rather than before, deliberately. The
+ * two orders fail differently: marking first and then failing means a document
+ * that was never charged and never will be, and marking second means a charge
+ * that could in principle be repeated. The second failure needs two database
+ * writes on one connection to disagree, and the first is a quota that quietly
+ * stops counting — which is the one that matters, because a quota nobody is
+ * charged against is not a quota.
+ */
+export async function chargeDocumentUsage(input: {
+  documentId: string
+  kind: DocumentKind
+  quotaKey: string | null
+  /** The document's current metadata column. */
+  metadata: unknown
+  model: NormalizedDocument
+}): Promise<{ charged: boolean; quota: QuotaCheck | null }> {
+  if (!input.quotaKey) return { charged: false, quota: null }
+  if (asRecord(input.metadata)?.quotaCharged !== undefined) {
+    return { charged: false, quota: null }
+  }
+
+  const kind = usageKindFor(input.kind)
+  const quantity = usageQuantity(kind, input.model)
+
+  const quota = await recordUsage({
+    fingerprint: input.quotaKey,
+    kind,
+    quantity,
+  })
+
+  await prisma.document.update({
+    where: { id: input.documentId },
+    data: {
+      metadata: {
+        ...(asRecord(input.metadata) ?? {}),
+        quotaCharged: { kind, quantity, at: new Date().toISOString() },
+      },
+    },
+  })
+
+  return { charged: true, quota }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
