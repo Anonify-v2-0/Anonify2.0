@@ -77,6 +77,46 @@ Two details are easy to get wrong and both fail quietly:
   than failing. `instrumentation.ts` therefore defaults it from `DATABASE_URL`,
   so one connection string configures both.
 
+### Startup sequence
+
+`instrumentation.ts` runs `register()` once, before the server accepts traffic.
+The order inside it is load-bearing in three ways the comments explain but the
+docs did not:
+
+- **Fail on the way up, not on the first document.** `ENCRYPTION_KEY` is read
+  lazily, deep inside the pipeline, so a malformed one used to present as a
+  workflow step exhausting its retries — by which point the upload had been
+  accepted and the cause was several layers away from the message. `register()`
+  calls `assertMasterKey()` from `lib/storage/encryption` to parse and length-
+  check the key at boot and refuse to start if it is wrong. The reason it is
+  there at all is an incident: a YAML config turned a 64-zero key into the
+  integer `0`, which silently broke encryption, and the crypto test suite never
+  caught it because every test mints its own key. The assertion exists to catch
+  that class of misconfiguration at boot, in production, where no test runs.
+
+- **The dynamic `import("@workflow/world-postgres")` is what makes the build
+  trace it.** The world is chosen at runtime by `WORKFLOW_TARGET_WORLD` and
+  loaded with a dynamic `require(targetWorld)` that no bundler can follow.
+  Naming the package here, as a literal `import()` inside `register()`, is what
+  puts it — and its Postgres driver — into the Next.js standalone build's
+  traced dependencies. A contributor who moves this import into a helper file,
+  wraps it behind a conditional, or "tidies it up" breaks the container build
+  silently: the build succeeds, the package is not traced, and the worker
+  starts and then cannot load its own world. The import is not there to be
+  called; it is there to be seen by the bundler.
+
+- **The startup log is a single structured line.** Once the world has started,
+  `register()` emits exactly one record:
+
+  ```json
+  {"level":"info","context":"workflow.world","world":"@workflow/world-postgres","message":"workflow worker started"}
+  ```
+
+  The shape — `level`, `context`, `world`, `message` — is the one log consumers
+  should expect from this process. It is the only place the chosen world is
+  announced at startup, and a deployment that never emits it has not started
+  the worker.
+
 ---
 
 ## 3. The steps
@@ -97,6 +137,27 @@ server sees the file.
 
 The step is idempotent: on replay it sees `sourceBlobKey` already set and returns
 early rather than re-encrypting under a second key and orphaning the first.
+
+### `expandAttachments` — a message with attachments becomes a batch
+
+Between ingest and extraction: a message (`eml`) is parsed for its attachments,
+and each one becomes a first-class document with its own run, its own
+extraction and its own review. Every other kind falls straight through, and a
+message with nothing expandable in it costs one parse.
+
+Expansion runs here rather than at reservation — reservation happens before
+the browser has uploaded anything, so there are no bytes to parse and the
+declared MIME type is a guess — and before extraction, so the children are
+already queued while the message itself is still being read: a reviewer
+opening the batch sees the enclosures arriving rather than appearing at the
+end.
+
+A limit — the parser's or expansion's — is a verdict about this message, not
+weather. Retrying reads the same bytes and reaches the same number, so it is
+refused whole as `too-complex` (a partly expanded message would look complete
+and would not be). Each child's run is started at most once, guarded on the
+`workflowRunId` column rather than on the step replaying, so a retried step
+cannot race the first run through the same rows.
 
 ### `extractAndNormalize` — one vocabulary from every format
 
@@ -175,6 +236,65 @@ document.queued → document.extracting → document.normalizing
   → document.redaction.created → document.ready | document.failed
 ```
 
+### Event shapes
+
+Each line on the stream is one JSON object (newline-delimited, then framed as
+SSE by the route). Both shapes are deliberately small and serializable: never
+document text, never extracted content, only what the UI needs to show
+progress.
+
+**`ProcessingStreamEvent`** (`lib/workflows/events.ts`) — what the processing
+run writes:
+
+```json
+{
+  "type": "document.ai.progress",
+  "documentId": "doc_…",
+  "at": "2026-09-05T12:00:00.000Z",
+  "status": "analyzing",
+  "progress": 70,
+  "message": "Analyzing…",
+  "payload": { "stage": "text", "completed": 3, "total": 8, "suggestions": 12 }
+}
+```
+
+Only `type`, `documentId` and `at` are required; `status`, `progress`,
+`message` and `payload` are optional and present only when the event has
+something to say in them. `payload` is the only field that varies by `type`
+— it carries the counts and stages the UI renders, and nothing else.
+
+**`BatchExportStreamEvent`** (`lib/workflows/batch-export-events.ts`) — what
+the batch export run writes. Each event is a whole snapshot rather than a
+delta; a batch is a couple of dozen entries at most, and the saving from
+sending differences is nothing next to a client that missed one and is now
+quietly wrong:
+
+```json
+{
+  "type": "export.progress",
+  "at": "2026-09-05T12:00:00.000Z",
+  "status": "running",
+  "total": 8,
+  "completed": 3,
+  "exported": 2,
+  "documents": [
+    { "id": "doc_…", "name": "invoice.pdf", "state": "exported", "removed": 4 },
+    { "id": "doc_…", "name": "notes.docx", "state": "skipped", "reason": "not-ready" }
+  ],
+  "error": null
+}
+```
+
+`type` is `"export.progress"` while the run is moving and `"export.finished"`
+on the last frame. Filenames are the only thing from the documents that
+appears here, and the reviewer already knows them: never a redaction, a
+category, or a count of what was found in any file.
+
+`encodeStreamEvent` / `decodeStreamEvent` (and the batch equivalents) are the
+pair that frame and parse these lines. `decode*` returns `null` on a blank or
+unparseable line rather than throwing, so a malformed frame drops quietly
+instead of tearing down a live stream.
+
 ---
 
 ## 5. Batch export
@@ -198,6 +318,25 @@ retried on its own and the run resumes at the document it was on rather than
 re-redacting the ones already done; each step writes its outcome to
 `BatchExport.documents`, and the totals are recomputed from those states rather
 than incremented, because a retried step would otherwise count twice.
+
+**Retry pacing.** The SDK enqueues each retry immediately, which is close to no
+retry at all against the failures that are actually transient — a provider
+rate limit, a cold worker, a storage blip sees the same weather three times
+inside a few hundred milliseconds. So a throwing step is rethrown through
+`paced`, which delays the next attempt with exponential backoff:
+
+```ts
+const MAX_BACKOFF_MS = 30_000
+function backoffMs(attempt: number): number {
+  return Math.min(MAX_BACKOFF_MS, 1_000 * 2 ** Math.max(0, attempt - 1))
+}
+```
+
+Doubling from a second, capped at 30 seconds so a stuck dependency cannot
+park a run for half an hour. `FatalError` passes through `paced` untouched —
+it exists to say retrying cannot help, and wrapping it would throw that away.
+The processing pipeline uses the same pacing (see §3 and
+`lib/workflows/process-document.ts`).
 
 Nothing about the browser is load-bearing. Closing the modal, reloading, or
 opening the batch on another device reads the same row, which is why the button
@@ -248,12 +387,32 @@ opt-in `scheduler` service in `docker-compose.yml`. Either way:
 2. For each expired document, delete every artifact it owns — source, the
    plaintext upload if ingest never got to it, the normalized model, every export
    — then the row.
-3. Prune stale rate-limit windows.
+3. Prune empty batches and stale rate-limit windows.
+
+A single run is **bounded to `BATCH_SIZE = 50` documents** (`take: BATCH_SIZE`
+on the expiry query), so the sweep cannot exceed its function's time budget. A
+backlog is worked down over successive runs rather than in one.
 
 **Order matters.** The row is the only thing that knows where the bytes are, so
 it is deleted last and only if storage cleared. A document whose storage failed
 keeps its record and is retried next run. A blob that is already gone counts as
 deleted, which is what makes the job idempotent.
+
+A message and the attachments it was expanded into share an expiry, so a page
+of this sweep routinely holds both. Purging the message takes its attachments
+with it — their rows cascade from its — so the ones already gone are skipped
+rather than purged into a row that is no longer there.
+
+**Pruning side-effects.** After the document sweep, two more tables are
+tidied on the same run, both swallowing errors to `0` so a prune failure cannot
+abort the expiry pass that does the load-bearing work:
+
+- `pruneEmptyBatches` — a batch holds the decisions taken across its documents
+  (patterns a person typed, which is document content in the plainest sense).
+  Once its documents are gone nothing points at them, so the batch row goes on
+  the same sweep. The count pruned is returned in `CleanupResult.batchesPruned`.
+- `pruneRateLimits` — drops rate-limit windows that have aged out. The count
+  pruned is returned in `CleanupResult.rateLimitsPruned`.
 
 Both this sweep and the explicit "delete now" go through the same
 `purgeDocument`, so there is one list of what a document owns. An earlier version
@@ -284,3 +443,6 @@ Every failure mode ends somewhere honest:
 The recurring sentence in the error copy — *your original file is safe and was
 not modified* — is not reassurance. It is the architecture: the source is never
 mutated, so it is simply true.
+
+The full list of failure codes, their meanings, retryability, and how a thrown
+error is classified into one is in [failure-codes.md](./failure-codes.md).
