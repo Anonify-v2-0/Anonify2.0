@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toastFailure } from "@/lib/api/errors"
+import { ACCEPTED_EXTENSIONS, MAX_UPLOAD_BYTES } from "@/lib/config"
 import {
   DEFAULT_PRESET_ID,
   PRESET_DISCLAIMER,
@@ -31,8 +32,21 @@ import {
   type TtlOption,
 } from "@/types/document"
 
-const ACCEPT = ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp"
-const MAX_BYTES = 25 * 1024 * 1024
+/** What the file picker offers, derived from the register of formats. */
+const ACCEPT = ACCEPTED_EXTENSIONS.join(",")
+const MAX_BYTES = MAX_UPLOAD_BYTES
+
+/**
+ * The formats, as a short line under the drop zone.
+ *
+ * Ten of them written out is a wall rather than a sentence, so this is the
+ * extensions — which is what someone looking at their own file cares about —
+ * and it comes from the register, so it cannot fall behind what the server
+ * accepts. The full names are in the docs and in the refusal message.
+ */
+const SUPPORTED_LABEL = ACCEPTED_EXTENSIONS.map((extension) =>
+  extension.replace(".", "").toUpperCase()
+).join(", ")
 /** Above this size the browser splits the upload into parallel parts. */
 const MULTIPART_THRESHOLD = 5 * 1024 * 1024
 /** Matches the server's own ceiling on one batch request. */
@@ -392,8 +406,8 @@ export function UploadPanel() {
         <div className="w-full space-y-1">
           <p className="text-base font-medium text-white">{label}</p>
           <p className="text-sm text-text-muted">
-            PDF, DOCX, XLSX or image · up to 25 MB · several at once become a
-            batch
+            {SUPPORTED_LABEL} · up to {Math.round(MAX_BYTES / (1024 * 1024))} MB
+            · several at once become a batch
           </p>
         </div>
 

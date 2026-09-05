@@ -166,15 +166,20 @@ Zero coverage today for: `extractImage`, `ocrImage`, `analyzeDocument`,
 - [ ] **A fake model provider** so the analysis orchestration can be tested
       without a network or a bill — chunking, concurrency, dedupe, the
       locate-or-discard rule, and the "provider failed, keep going" path.
-- [ ] **Cleanup and quota tests**, which need a database. Either a test Postgres
-      in CI or PGlite; the latter also serves [3.1](#31-make-it-actually-clone-and-run).
+- [x] ~~**Cleanup and quota tests**, which need a database.~~
+      `tests/integration/`, run by `pnpm test:db` against `TEST_DATABASE_URL`
+      and by a Postgres service in CI. They skip when that variable is unset, so
+      a clone with no database still runs `pnpm test` to completion. What they
+      cover is what a fake cannot tell you: cleanup deletes storage *before* the
+      row and keeps the row when storage fails, and a quota charge is atomic
+      under concurrency and lands exactly once even when the step is retried.
 - [ ] **OCR tests** with a committed fixture image and pinned language data, so
       they do not depend on a download.
 - [ ] **End-to-end tests** (Playwright): upload → review → export → download,
       per format, through the browser. `pnpm smoke` now does this over HTTP for
-      a PDF and runs in CI against the compose stack, which covers the wiring
-      but not the editor — nothing yet drives the canvas, the inspector or the
-      export dialog.
+      every supported format and runs in CI against the compose stack, which
+      covers the wiring but not the editor — nothing yet drives the canvas, the
+      inspector or the export dialog.
 - [ ] **Adversarial tests for formats we do not yet handle** — see 3.5.
 
 ### 3.4 Depth on what exists
@@ -205,8 +210,21 @@ Zero coverage today for: `extractImage`, `ocrImage`, `analyzeDocument`,
 
 Only after the invariants hold for it, including an adversarial test suite.
 
-- [ ] **More formats:** PPTX (the same OOXML approach as DOCX — speaker notes are
-      a lovely hiding place), CSV/TSV, plain text, RTF, EML.
+- [x] ~~**More formats:** PPTX, CSV/TSV, plain text, RTF, EML.~~ All shipped.
+      PPTX reuses the DOCX OOXML machinery (`lib/documents/ooxml/`) and does
+      read the speaker notes, which were indeed a lovely hiding place — along
+      with the layouts and the master. CSV and TSV normalize to the same
+      worksheet model a workbook does. RTF and the HTML inside an email share
+      one atom map, because "the visible text is not contiguous in the source"
+      is the same problem twice. EML is a MIME tree with addressable headers,
+      bodies, quoted replies, filenames and nested messages, bounded by parser
+      limits that fail closed.
+- [ ] **Attachment formats inside an email.** An EML export redacts the
+      message: its headers, its bodies and its attachment *filenames*.
+      Attachment bytes are carried through unchanged. Recursing into a PDF or a
+      DOCX inside a message is the obvious next step and is deliberately not
+      claimed yet — it needs its own quota accounting, its own resource limits
+      and its own adversarial suite before anybody should believe it.
 - [x] ~~**An export report** — what was removed, by category and count, with the
       checksum — as a separate artifact.~~ `lib/redaction/report.ts`, served by
       the download route as `?part=report`. Counts by category, the style each
@@ -347,8 +365,21 @@ work, which is a reasonable way to develop the UI and the only way CI runs.
 pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```
 
-CI runs these four in parallel, plus a migration check and a `Compose stack` job
-that builds the images and runs `pnpm smoke` against them. They must pass.
+CI runs these four in parallel, plus a migration check, a `Database tests` job
+with a real Postgres, and a `Compose stack` job that builds the images and runs
+`pnpm smoke` against them. They must pass.
+
+If you have touched cleanup, quotas or anything that writes to the database,
+run the database suites too. They need a throwaway Postgres — never your
+working one, because they create and delete rows:
+
+```bash
+export TEST_DATABASE_URL=postgresql://anonify:anonify@localhost:5432/anonify_test
+
+# The migration CLI reads DATABASE_URL, so point it at the same database once.
+DATABASE_URL="$TEST_DATABASE_URL" pnpm db:migrate:deploy
+pnpm test:db
+```
 
 If you have touched anything the container has to assemble — a native
 dependency, the workflow runtime, storage, the Dockerfile — run that last one
@@ -360,10 +391,29 @@ pnpm smoke
 docker compose down -v
 ```
 
-`pnpm smoke` uploads a synthetic PDF, waits for the pipeline, accepts every
-suggestion, exports, downloads the result and fails if an accepted value is
-still in the bytes. It works against any running instance: `pnpm smoke
-https://your-deployment`.
+`pnpm smoke` uploads a synthetic document of each supported format, waits for
+the pipeline, accepts every suggestion, exports, downloads the result and opens
+it the way an adversary would — reparsing a CSV as a grid, reparsing a message
+with an independent MIME library, unzipping a deck and reading its notes and
+its master, sampling an image's pixels. It works against any running instance:
+`pnpm smoke https://your-deployment`, and `--only=eml,pptx` narrows it while you
+are working on one.
+
+Adding a format means adding a case to `CASES` in that file, and adding an entry
+to `lib/documents/formats.ts` — the register everything else derives from. The
+table there is typed against `DocumentKind`, so a kind added without an entry
+does not compile, which is the property worth having: the next format cannot be
+half-added.
+
+`pnpm bench` times extraction and export over deliberately large documents —
+twenty thousand CSV rows each with a different address, a four-megabyte text
+file, a two-thousand-reply email thread, a two-hundred-slide deck. It is not a
+comparison against anything; it exists to catch the shape of the curve. Every
+pipeline here does two things that are easy to write quadratically — mapping
+accepted ranges onto source positions, and applying edits to a string — and
+neither shows up in a unit test, because unit fixtures are small. Run it after
+touching a parser or an exporter. A row that suddenly takes ten times longer is
+the signal.
 
 `pnpm typecheck` runs `next typegen` first. `RouteContext` and `PageProps` are
 globals Next generates into `.next/types/`, so type checking a fresh clone
@@ -421,8 +471,9 @@ Small, self-contained, and genuinely useful:
 - Any test from §3.3 — the fake model provider is the highest-leverage one
 - Touch support for drawing a region (§3.4)
 - Locale-aware detectors for one language you actually speak (§3.4)
-- Extend `pnpm smoke` to DOCX, XLSX and images: it only covers PDF today, and
-  each format is a few lines and a fixture (`scripts/smoke.ts`)
+- A fixture from a format's messier corners — a deck written by Keynote, a
+  message from a mailing-list digest, a CSV a bank exported. Every parser bug
+  worth fixing came from a real file shaped in a way nobody predicted
 
 And the one with the most leverage per line of code: **preserve the PDF text
 layer** (§3.4) — hard, valuable, and the last place where removal costs the

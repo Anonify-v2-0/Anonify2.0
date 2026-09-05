@@ -1,7 +1,8 @@
 # Anonify
 
-AI-assisted document redaction. Upload a PDF, DOCX, XLSX or image; the system
-proposes what looks sensitive; you decide; the export removes it.
+AI-assisted document redaction. Upload a PDF, Word document, spreadsheet,
+deck, email, CSV, text file or image; the system proposes what looks sensitive;
+you decide; the export removes it.
 
 The governing rule: **AI proposes, the application applies, and only what a
 person accepted is removed.** A beautiful editor that leaves the original text
@@ -97,7 +98,7 @@ and cannot come back with a different answer the second time.
 
 | | v1 | v2 |
 | --- | --- | --- |
-| **Formats** | PDF | PDF, DOCX, XLSX, images |
+| **Formats** | PDF | PDF, DOCX, XLSX, PPTX, EML, CSV, TSV, TXT, RTF, images |
 | **Fidelity** | Document rebuilt as plain text | Format-native: DOCX edited in place byte-identically, XLSX cells rewritten, only redacted PDF pages rasterized |
 | **Who decides** | High / Med / Low, applied globally | Every suggestion accepted or rejected individually; nothing is removed that a person did not accept |
 | **Manual control** | None | Click a word, drag a region, redact a cell/row/column, apply a rule everywhere |
@@ -156,9 +157,25 @@ upload (browser → Blob)
   footnotes and comments are extracted and reviewable, not merely swept.
 - **XLSX** — cells are rewritten, and any formula still referencing a redacted
   address is dropped, because a cached result is a second copy of the value.
+- **PPTX** — the same OOXML surgery, across the slides, the speaker notes, the
+  layouts and the master. Three of those four are never on screen, and a deck
+  that redacts only its slides ships the other three.
+- **EML** — a message is a tree, not a body with a header on it. Every header,
+  every text part, the visible text of every HTML part, quoted replies,
+  attachment filenames and nested messages are all reviewable, and the export
+  replaces byte ranges in the original so untouched parts come out identical.
+  Attachment *bytes* are carried through unchanged — their filenames are
+  redacted, their contents are not.
+- **CSV / TSV** — parsed into a grid and rewritten cell by cell, so a value
+  next to a comma inside a quoted field cannot shift every row after it.
+- **TXT / RTF** — addressed by offsets into the source. RTF is parsed rather
+  than searched, because a word processor splits a value across formatting
+  groups and the string is often not in the file at all.
 - **Images** — pixels are replaced and the file re-encoded. EXIF and GPS go too.
 
-Each of these is argued through in [docs/pipelines.md](docs/pipelines.md).
+Each of these is argued through in [docs/pipelines.md](docs/pipelines.md),
+which also carries the table of what each format's redaction model is and how
+each is verified.
 
 Every export is then re-opened and read the way an adversary would. A surviving
 value fails the export rather than shipping (`lib/redaction/validation.ts`).
@@ -395,9 +412,33 @@ running something shared, set them explicitly:
 ANONIFY_QUOTA_XLSX_CELLS=500000   # 0, or unset on self-hosted, means unlimited
 ANONIFY_QUOTA_PDF_PAGES=200
 ANONIFY_QUOTA_DOCX_PAGES=200
+ANONIFY_QUOTA_TEXT_PAGES=400
+ANONIFY_QUOTA_PPTX_SLIDES=200
+ANONIFY_QUOTA_EMAIL_KILOBYTES=4096
 ANONIFY_QUOTA_IMAGES=100
 ANONIFY_QUOTA_UPLOADS=200
 ```
+
+The units are not all the same shape, because the work is not:
+
+| Quota | Unit | Formats |
+| --- | --- | --- |
+| `PDF_PAGES` / `DOCX_PAGES` | pages | PDF, DOCX |
+| `XLSX_CELLS` | filled cells | XLSX, CSV, TSV |
+| `TEXT_PAGES` | pages of extracted text | TXT, RTF |
+| `PPTX_SLIDES` | slides | PPTX |
+| `EMAIL_KILOBYTES` | KiB of decoded text: headers, every body, every nested message | EML |
+| `IMAGES` / `UPLOADS` | one each | all |
+
+An email is charged by the text it actually decoded rather than as a page,
+because counting it as a page would charge a one-line reply the same as a
+forwarded thread. A deck is charged by its slides; its notes, layouts and
+masters are processed with the slide they belong to.
+
+A message additionally has parser limits of its own — MIME depth, part count,
+decoded text, header size, attachment count, nesting — which are independent of
+the upload ceiling on purpose. Raising the size a file may be must never be the
+same decision as allowing unlimited complexity. See `.env.example`.
 
 Spreadsheet cells are counted as cells that hold something, not as the area of
 the used range — a sheet with three filled columns and one stray value out in
@@ -462,7 +503,8 @@ pnpm db:push            # schema straight to the database, for scratch work only
 pnpm setup             # choose a setup and write .env
 pnpm dev               # development server
 pnpm build             # production build
-pnpm test              # unit, integration and adversarial suites
+pnpm test              # unit and adversarial suites
+pnpm test:db           # the Postgres-backed suites (needs TEST_DATABASE_URL)
 pnpm typecheck         # next typegen && tsc --noEmit
 pnpm lint              # eslint
 pnpm db:migrate        # create and apply a migration
@@ -470,7 +512,9 @@ pnpm db:migrate:deploy # apply existing migrations
 pnpm rate-limit show   # inspect the limits in force
 pnpm ocr:warm          # pre-download the Tesseract model
 pnpm cleanup           # run the expiry sweep once
-pnpm smoke             # upload, process, export and download against a running instance
+pnpm smoke             # every format, against a running instance
+pnpm smoke --only=eml  # or one of them
+pnpm bench             # extraction and export, timed over large documents
 ```
 
 Node 22+ and pnpm 11+ are required and enforced — `engines` plus
@@ -483,13 +527,25 @@ rather than somewhere confusing later.
   sensitive value back out: PDF text extraction, raw byte scans with glyph
   spacing stripped, annotation objects, every OOXML part, hidden sheets and
   rows, cached formula results, the shared string table, sampled pixels, EXIF.
+- `tests/adversarial.test.ts` — one pass over every format through the real
+  export path, asserting three things each: the accepted value is gone read in
+  that format's own terms, a *rejected* value is still there (a redactor that
+  empties the file passes the first test and is useless), and the artifact
+  still opens as what it claims to be.
 - `tests/export.test.ts` — end-to-end redaction per format, including that a
   *suggestion* the user never accepted is still present in the output.
+- `tests/integration/` — the database-backed suites. Expiry cleanup's ordering
+  guarantee (storage first, the row second, and only if the storage actually
+  went) and quota accounting's atomicity and charge-once behaviour are
+  properties of the row rather than of the function, and a fake would agree
+  with whatever the code did.
 - `tests/detectors.test.ts` — that an order number is not reported as a card,
   and a date is only a birth date when it is labelled as one.
 - `scripts/smoke.ts` — not a unit test: it drives a *running* instance over
-  HTTP, uploading a synthetic PDF and reading the downloaded export back to
-  check that no accepted value survived. CI runs it against the compose stack on
+  HTTP, uploading a synthetic document of each supported format and opening the
+  downloaded export the way an adversary would — reparsing a CSV as a grid,
+  reparsing a message with an independent MIME library, unzipping a deck and
+  reading the notes and the master, sampling an image's pixels. CI runs it against the compose stack on
   every pull request, which is how the container's assembly gets checked at all
   — a missing native library or an unreachable workflow world passes every test
   above and fails here.

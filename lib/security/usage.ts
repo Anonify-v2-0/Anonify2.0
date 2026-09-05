@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/database/prisma"
+import { quotaKindFor } from "@/lib/documents/formats"
 import { newUsageId } from "@/lib/documents/ids"
 import {
   effectiveQuotas,
@@ -6,7 +7,7 @@ import {
   USAGE_KINDS,
   type UsageKind,
 } from "@/lib/security/quota-config"
-import type { DocumentKind } from "@/types/document"
+import type { DocumentKind, NormalizedDocument } from "@/types/document"
 
 /**
  * Quota accounting.
@@ -39,16 +40,51 @@ function today(): Date {
 }
 
 export function usageKindFor(kind: DocumentKind): UsageKind {
+  return quotaKindFor(kind)
+}
+
+/**
+ * What one normalized document costs against its allowance.
+ *
+ * Cells that hold something, not the area of the used range. A sheet with
+ * three filled columns and one stray value out in column AN has a used range
+ * forty columns wide, and charging for that bounding box bills the blanks —
+ * which are neither work to process nor anything to leak.
+ */
+export function usageQuantity(
+  kind: UsageKind,
+  model: NormalizedDocument
+): number {
   switch (kind) {
-    case "pdf":
-      return "pdfPages"
-    case "docx":
-      return "docxPages"
-    case "xlsx":
-      return "xlsxCells"
-    case "image":
-      return "images"
+    case "xlsxCells":
+      return (model.sheets ?? []).reduce(
+        (total, sheet) => total + sheet.cells.length,
+        0
+      )
+    case "images":
+    case "uploads":
+      return 1
+    case "emailKilobytes":
+      // What was actually decoded and searched: every header, every text part,
+      // every nested message. Rounded up, so a short email still costs one.
+      return Math.max(1, Math.ceil(textBytes(model) / 1024))
+    case "pptxSlides":
+      // Notes, layouts and masters are processed with the slide they belong to
+      // rather than charged separately; the deck's slide count is the cost.
+      return slideCount(model) ?? model.pages.length
+    default:
+      return model.pages.length
   }
+}
+
+function textBytes(model: NormalizedDocument): number {
+  const text = model.pages.map((page) => page.text).join("\n")
+  return Buffer.byteLength(text, "utf8")
+}
+
+function slideCount(model: NormalizedDocument): number | null {
+  const value = model.metadata?.slideCount
+  return typeof value === "number" && Number.isFinite(value) ? value : null
 }
 
 async function currentUsage(fingerprint: string) {
@@ -156,10 +192,72 @@ export function quotaMessage(check: QuotaCheck): string {
   const labels: Record<UsageKind, string> = {
     pdfPages: "PDF pages",
     docxPages: "document pages",
-    xlsxCells: "spreadsheet cells",
+    xlsxCells: "table cells",
     images: "images",
+    textPages: "text pages",
+    emailKilobytes: "kibibytes of email content",
+    pptxSlides: "slides",
     uploads: "uploads",
   }
 
   return `Daily demo limit reached for ${labels[check.kind]} (${check.limit}). It resets at midnight UTC.`
+}
+
+/**
+ * Charges a document's allowance, at most once.
+ *
+ * The record of having charged lives in the document's own metadata. The
+ * extraction step is retried — a storage blip, a cold worker — and it
+ * re-extracts from scratch each time, so without this a document that failed
+ * after charging and succeeded on the next attempt was billed twice for one
+ * upload. Nothing in the workflow runtime prevents that: a step's result is
+ * persisted when it succeeds, and the charge happens before it returns.
+ *
+ * The mark is written after the charge rather than before, deliberately. The
+ * two orders fail differently: marking first and then failing means a document
+ * that was never charged and never will be, and marking second means a charge
+ * that could in principle be repeated. The second failure needs two database
+ * writes on one connection to disagree, and the first is a quota that quietly
+ * stops counting — which is the one that matters, because a quota nobody is
+ * charged against is not a quota.
+ */
+export async function chargeDocumentUsage(input: {
+  documentId: string
+  kind: DocumentKind
+  quotaKey: string | null
+  /** The document's current metadata column. */
+  metadata: unknown
+  model: NormalizedDocument
+}): Promise<{ charged: boolean; quota: QuotaCheck | null }> {
+  if (!input.quotaKey) return { charged: false, quota: null }
+  if (asRecord(input.metadata)?.quotaCharged !== undefined) {
+    return { charged: false, quota: null }
+  }
+
+  const kind = usageKindFor(input.kind)
+  const quantity = usageQuantity(kind, input.model)
+
+  const quota = await recordUsage({
+    fingerprint: input.quotaKey,
+    kind,
+    quantity,
+  })
+
+  await prisma.document.update({
+    where: { id: input.documentId },
+    data: {
+      metadata: {
+        ...(asRecord(input.metadata) ?? {}),
+        quotaCharged: { kind, quantity, at: new Date().toISOString() },
+      },
+    },
+  })
+
+  return { charged: true, quota }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
 }

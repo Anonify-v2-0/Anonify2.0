@@ -1,3 +1,5 @@
+import { supportedFormatsSentence } from "@/lib/documents/formats"
+
 /**
  * Turning a thrown error into something a person can act on.
  *
@@ -56,8 +58,11 @@ export type DocumentFailure = {
 
 const FAILURES: Record<FailureCode, Omit<DocumentFailure, "code">> = {
   "unsupported-type": {
+    // Generated from the register rather than written out, so adding a format
+    // cannot leave the refusal message naming the old list.
     message:
-      "This file is not in a format Anonify can read. It supports PDF, Word (.docx), Excel (.xlsx), and PNG, JPEG or WebP images.",
+      "This file is not in a format Anonify can read. It supports " +
+      `${supportedFormatsSentence()}.`,
     retryable: false,
   },
   "extension-mismatch": {

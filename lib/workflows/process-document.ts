@@ -9,13 +9,18 @@ import { analyzeDocument, analyzeImageRegions } from "@/lib/ai/analyze"
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
 import { MAX_UPLOAD_BYTES } from "@/lib/config"
+import { extractDelimited } from "@/lib/documents/delimited/extract"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { extractPdf } from "@/lib/documents/pdf/extract"
+import { extractPptx } from "@/lib/documents/pptx/extract"
 import { extractImage } from "@/lib/documents/image/extract"
 import {
   MAX_VISION_PAGES,
   renderPagesForVision,
 } from "@/lib/documents/pdf/page-images"
+import { extractEml } from "@/lib/documents/eml/extract"
+import { extractRtf } from "@/lib/documents/rtf/extract"
+import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { newEventId } from "@/lib/documents/ids"
@@ -24,11 +29,7 @@ import { loadNormalized } from "@/lib/documents/normalized-store"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
 import { categoryAllowed, presetById } from "@/lib/redaction/presets"
 import { carryBatchRules } from "@/lib/redaction/rules"
-import {
-  quotaMessage,
-  recordUsage,
-  usageKindFor,
-} from "@/lib/security/usage"
+import { chargeDocumentUsage, quotaMessage } from "@/lib/security/usage"
 import { deleteObject, getObject, putObject, sourceKey } from "@/lib/storage/blob"
 import { decryptDocument, encryptDocument } from "@/lib/storage/encryption"
 import { checksumMatches, sha256 } from "@/lib/storage/integrity"
@@ -184,7 +185,9 @@ async function runIngest(documentId: string): Promise<{ kind: DocumentKind }> {
     throw new FatalError("Uploaded file is too large")
   }
 
-  const detected = detectDocumentType(bytes)
+  // The filename is passed as a hint, not as an authority: it can only choose
+  // between text formats whose bytes already decode as text.
+  const detected = detectDocumentType(bytes, document.originalName)
   if (!detected) throw new FatalError("Unsupported file type")
   if (!extensionMatchesKind(document.originalName, detected.kind)) {
     throw new FatalError("File contents do not match its extension")
@@ -240,6 +243,7 @@ async function runExtractAndNormalize(
       encryptionKey: true,
       checksum: true,
       quotaKey: true,
+      metadata: true,
     },
   })
 
@@ -267,30 +271,18 @@ async function runExtractAndNormalize(
   })
 
   // The real cost is only knowable now, so this is where the demo allowance is
-  // charged. Going over stops the pipeline; it never deletes what was uploaded.
-  if (document.quotaKey) {
-    const kind = usageKindFor(document.kind as DocumentKind)
-    // Cells that hold something, not the area of the used range. A sheet with
-    // three filled columns and one stray value out in column AN has a used
-    // range forty columns wide, and charging for that bounding box bills the
-    // blanks — which are neither work to process nor anything to leak.
-    const quantity =
-      kind === "xlsxCells"
-        ? (model.sheets ?? []).reduce(
-            (total, sheet) => total + sheet.cells.length,
-            0
-          )
-        : kind === "images"
-          ? 1
-          : model.pages.length
+  // charged. Going over stops the pipeline; it never deletes what was
+  // uploaded. Charging is idempotent — see chargeDocumentUsage — because this
+  // step is retried and re-extracts from scratch each time.
+  const { quota } = await chargeDocumentUsage({
+    documentId,
+    kind: document.kind as DocumentKind,
+    quotaKey: document.quotaKey,
+    metadata: document.metadata,
+    model,
+  })
 
-    const quota = await recordUsage({
-      fingerprint: document.quotaKey,
-      kind,
-      quantity,
-    })
-    if (!quota.allowed) throw new FatalError(quotaMessage(quota))
-  }
+  if (quota && !quota.allowed) throw new FatalError(quotaMessage(quota))
 
   return { pageCount: model.pages.length }
 }
@@ -317,6 +309,27 @@ async function extractByKind(
     }
     case "image": {
       const { document } = await extractImage(documentId, bytes)
+      return document
+    }
+    case "csv":
+    case "tsv": {
+      const { document } = extractDelimited(documentId, kind, bytes)
+      return document
+    }
+    case "txt": {
+      const { document } = extractText(documentId, bytes)
+      return document
+    }
+    case "rtf": {
+      const { document } = extractRtf(documentId, bytes)
+      return document
+    }
+    case "eml": {
+      const { document } = extractEml(documentId, bytes)
+      return document
+    }
+    case "pptx": {
+      const { document } = extractPptx(documentId, bytes)
       return document
     }
     default:

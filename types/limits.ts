@@ -44,8 +44,12 @@ export const RATE_LIMIT_LABELS: Record<RateLimitName, string> = {
 export const QUOTA_LABELS: Record<UsageKind, string> = {
   pdfPages: "PDF pages",
   docxPages: "Document pages",
-  xlsxCells: "Spreadsheet cells",
+  // Workbooks, CSV and TSV all count cells, so the label cannot say Excel.
+  xlsxCells: "Table cells",
   images: "Images",
+  textPages: "Text pages",
+  emailKilobytes: "Email content (KiB)",
+  pptxSlides: "Slides",
   uploads: "Uploads",
 }
 

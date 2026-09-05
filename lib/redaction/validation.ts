@@ -1,6 +1,10 @@
+import { extractDelimited } from "@/lib/documents/delimited/extract"
 import { extractDocx } from "@/lib/documents/docx/extract"
-import { openPackage, readPart } from "@/lib/documents/docx/ooxml"
+import { openPackage, readPart } from "@/lib/documents/ooxml/package"
 import { extractPdfText } from "@/lib/documents/pdf/redact"
+import { emlHaystack } from "@/lib/documents/eml/validate"
+import { extractRtf } from "@/lib/documents/rtf/extract"
+import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { acceptedValues } from "@/lib/redaction/model"
 import type { DocumentKind } from "@/types/document"
@@ -55,6 +59,37 @@ async function haystackFor(
     case "image":
       // Pixels carry no strings; the image suite verifies these by sampling.
       return ""
+    case "csv":
+    case "tsv": {
+      // Re-parsed rather than searched as a string: if the export produced
+      // something that no longer parses as a grid, that is a failure in its own
+      // right, and a value hiding in a field the parser cannot reach would not
+      // be found by reading the file as one blob.
+      const { document } = extractDelimited("verify", kind, bytes)
+      const cells = (document.sheets ?? [])
+        .flatMap((sheet) => sheet.cells.map((cell) => cell.value ?? ""))
+        .join("\n")
+      return cells
+    }
+    case "txt": {
+      const { text } = extractText("verify", bytes)
+      return text
+    }
+    case "pptx":
+      // Every part, not the slides: a value surviving in the speaker notes, on
+      // a layout or on the master is still in the file somebody opens.
+      return textOfXmlParts(bytes)
+    case "eml":
+      // Reparsed twice: once by this pipeline's own parser, and once by an
+      // independent MIME library. A message that only our parser can read is
+      // not a message anybody received.
+      return emlHaystack(bytes)
+    case "rtf": {
+      // Re-parsed, which also proves the export is still RTF: a file that no
+      // longer opens would throw here rather than pass for want of a match.
+      const { text } = extractRtf("verify", bytes)
+      return text
+    }
   }
 }
 

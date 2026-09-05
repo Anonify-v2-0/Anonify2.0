@@ -13,6 +13,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:db": "vitest run --config vitest.integration.config.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
@@ -23,6 +24,7 @@
     "ocr:warm": "tsx scripts/warm-ocr.ts",
     "cleanup": "tsx scripts/cleanup.ts",
     "smoke": "tsx scripts/smoke.ts",
+    "bench": "tsx scripts/bench-formats.ts",
     "workflow:bootstrap": "node node_modules/@workflow/world-postgres/bin/setup.js"
   },
   "dependencies": {
@@ -52,6 +54,7 @@
     "next-themes": "^0.4.6",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.3.289",
+    "postal-mime": "^3.0.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-redux": "^9.3.0",

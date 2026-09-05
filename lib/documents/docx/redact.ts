@@ -1,24 +1,19 @@
-import { parseSpanAddress } from "@/lib/documents/docx/extract"
 import {
   listParts,
   openPackage,
   packPackage,
   readPart,
+  sanitizeOoxmlMetadata,
   writePart,
   WORD_TEXT_PARTS,
-  type OoxmlPackage,
-} from "@/lib/documents/docx/ooxml"
+} from "@/lib/documents/ooxml/package"
 import {
-  applyTextEdits,
-  cutRanges,
-  findOccurrences,
-  mergeRanges,
-  scanElements,
-  scanTextNodes,
-  type CharRange,
-  type TextEdit,
-  type TextNode,
-} from "@/lib/documents/docx/xml-text"
+  applyRunEdits,
+  groupEditsByPart,
+  sweepValues,
+  WORD_SCHEMA,
+  type OoxmlRunPlan,
+} from "@/lib/documents/ooxml/runs"
 
 /**
  * DOCX redaction.
@@ -27,219 +22,20 @@ import {
  * covered up, hidden, or recoloured: after this runs the string is not in
  * document.xml, and the sweep below makes sure it is not in a header, footer,
  * footnote or comment either.
+ *
+ * The run walking and the text-node surgery are shared with the PowerPoint
+ * pipeline — `w:p/w:r/w:t` and `a:p/a:r/a:t` are the same structure under two
+ * namespaces — and live in lib/documents/ooxml/runs.ts. What is Word-specific
+ * is the list of parts that can hold text, which is the part of this that has
+ * actually caused bugs.
  */
 
-export type DocxRedactionPlan = {
-  /**
-   * Precise edits, addressed by the run ids extraction assigned — part
-   * qualified, e.g. `word/header1.xml#p3r1`, because each part has its own
-   * paragraph numbering.
-   */
-  runEdits: Record<string, CharRange[]>
-  /** Accepted values, removed wherever else they appear in the package. */
-  values: string[]
-  /** Visible marker left behind, or null to close the gap silently. */
-  label: string | null
-  sanitizeMetadata: boolean
-}
+export type DocxRedactionPlan = OoxmlRunPlan
 
 const REDACTION_LABEL = "[REDACTED]"
 
-function replacementFor(label: string | null): (length: number) => string {
-  return () => (label ?? "")
-}
-
-/** One piece of a run: either a real text node or synthesized whitespace. */
-type RunSegment = {
-  node: TextNode | null
-  text: string
-}
-
-function segmentsOfRun(xml: string, start: number, end: number): RunSegment[] {
-  const segments: RunSegment[] = []
-  const region = { start, end }
-
-  const textNodes = scanTextNodes(xml, "w:t", region)
-  const tabs = scanElements(xml, "w:tab").filter(
-    (range) => range.start >= start && range.end <= end
-  )
-  const breaks = scanElements(xml, "w:br").filter(
-    (range) => range.start >= start && range.end <= end
-  )
-  const hyphens = scanElements(xml, "w:noBreakHyphen").filter(
-    (range) => range.start >= start && range.end <= end
-  )
-
-  const ordered = [
-    ...textNodes.map((node) => ({ at: node.tagStart, segment: { node, text: node.text } })),
-    ...tabs.map((range) => ({ at: range.start, segment: { node: null, text: "\t" } })),
-    ...breaks.map((range) => ({ at: range.start, segment: { node: null, text: "\n" } })),
-    ...hyphens.map((range) => ({ at: range.start, segment: { node: null, text: "-" } })),
-  ].sort((a, b) => a.at - b.at)
-
-  for (const entry of ordered) segments.push(entry.segment)
-  return segments
-}
-
-/** Maps ranges expressed over concatenated segment text back onto text nodes. */
-function editsForSegments(
-  segments: RunSegment[],
-  ranges: CharRange[],
-  label: string | null
-): TextEdit[] {
-  const merged = mergeRanges(ranges)
-  if (merged.length === 0) return []
-
-  const edits: TextEdit[] = []
-  let offset = 0
-  let labelPlaced = false
-
-  for (const segment of segments) {
-    const segmentStart = offset
-    const segmentEnd = offset + segment.text.length
-    offset = segmentEnd
-
-    if (!segment.node) continue
-
-    const local = merged
-      .filter((range) => range.start < segmentEnd && range.end > segmentStart)
-      .map((range) => ({
-        start: Math.max(0, range.start - segmentStart),
-        end: Math.min(segment.text.length, range.end - segmentStart),
-      }))
-
-    if (local.length === 0) continue
-
-    // The marker is written once per redaction, not once per run it spans.
-    const marker = label && !labelPlaced ? label : null
-    if (marker) labelPlaced = true
-
-    edits.push({
-      node: segment.node,
-      text: cutRanges(segment.text, local, replacementFor(marker)),
-    })
-  }
-
-  return edits
-}
-
-/**
- * Applies one part's edits. The paragraph and run indices are re-derived by
- * walking this part in document order — the same walk extraction used, which is
- * what makes an address captured then still point at the same run now.
- */
-function applyRunEdits(
-  xml: string,
-  localEdits: Record<string, CharRange[]>,
-  label: string | null
-): string {
-  const paragraphs = scanElements(xml, "w:p")
-  const edits: TextEdit[] = []
-
-  paragraphs.forEach((paragraph, paragraphIndex) => {
-    const runs = scanElements(xml, "w:r").filter(
-      (run) => run.start >= paragraph.start && run.end <= paragraph.end
-    )
-
-    runs.forEach((run, runIndex) => {
-      const ranges = localEdits[`p${paragraphIndex}r${runIndex}`]
-      if (!ranges || ranges.length === 0) return
-      edits.push(
-        ...editsForSegments(segmentsOfRun(xml, run.start, run.end), ranges, label)
-      )
-    })
-  })
-
-  return applyTextEdits(xml, edits)
-}
-
-/** Splits part-qualified addresses into per-part edit maps. */
-export function groupEditsByPart(
-  runEdits: Record<string, CharRange[]>
-): Map<string, Record<string, CharRange[]>> {
-  const grouped = new Map<string, Record<string, CharRange[]>>()
-
-  for (const [address, ranges] of Object.entries(runEdits)) {
-    const parsed = parseSpanAddress(address)
-    // An address with no part is from an older normalized model; document.xml
-    // is where those addresses were always relative to.
-    const part = parsed?.part ?? "word/document.xml"
-    const local = parsed?.local ?? address
-
-    const existing = grouped.get(part) ?? {}
-    existing[local] = ranges
-    grouped.set(part, existing)
-  }
-
-  return grouped
-}
-
-/**
- * Removes accepted values wherever they survive in a part, including text split
- * across runs and text in parts the editor never displayed.
- */
-function sweepValues(xml: string, values: string[], label: string | null): string {
-  if (values.length === 0) return xml
-
-  const containers = scanElements(xml, "w:p")
-  const regions =
-    containers.length > 0 ? containers : [{ start: 0, end: xml.length }]
-  const edits: TextEdit[] = []
-
-  for (const region of regions) {
-    const nodes = scanTextNodes(xml, "w:t", region)
-    if (nodes.length === 0) continue
-
-    const combined = nodes.map((node) => node.text).join("")
-    const ranges = values.flatMap((value) => findOccurrences(combined, value))
-    if (ranges.length === 0) continue
-
-    const segments: RunSegment[] = nodes.map((node) => ({ node, text: node.text }))
-    edits.push(...editsForSegments(segments, ranges, label))
-  }
-
-  return applyTextEdits(xml, edits)
-}
-
-const CORE_PROPERTY_TAGS = [
-  "dc:creator",
-  "cp:lastModifiedBy",
-  "cp:lastPrinted",
-  "dc:description",
-  "dc:subject",
-  "cp:keywords",
-  "cp:category",
-  "cp:contentStatus",
-  "dc:title",
-]
-
-const APP_PROPERTY_TAGS = ["Company", "Manager", "Application", "Template"]
-
-/** Empties an element's content while keeping the element and its attributes. */
-function blankTags(xml: string, tags: string[]): string {
-  let result = xml
-  for (const tag of tags) {
-    result = result.replace(
-      new RegExp(`<${tag}(\\s[^>]*)?>[\\s\\S]*?</${tag}>`, "g"),
-      (_match, attributes: string | undefined) =>
-        `<${tag}${attributes ?? ""}></${tag}>`
-    )
-  }
-  return result
-}
-
-/** Strips authorship and other identifying document properties. */
-export function sanitizeDocxMetadata(pkg: OoxmlPackage): void {
-  const core = readPart(pkg, "docProps/core.xml")
-  if (core) writePart(pkg, "docProps/core.xml", blankTags(core, CORE_PROPERTY_TAGS))
-
-  const app = readPart(pkg, "docProps/app.xml")
-  if (app) writePart(pkg, "docProps/app.xml", blankTags(app, APP_PROPERTY_TAGS))
-
-  for (const part of listParts(pkg, /^docProps\/thumbnail\./)) {
-    delete pkg.files[part]
-  }
-}
+/** Addresses with no part prefix predate part qualification and mean the body. */
+const DEFAULT_PART = "word/document.xml"
 
 export function redactDocx(
   bytes: Uint8Array,
@@ -253,22 +49,22 @@ export function redactDocx(
   }
 
   // Precise edits, applied to whichever part each address names.
-  for (const [part, localEdits] of groupEditsByPart(plan.runEdits)) {
+  for (const [part, localEdits] of groupEditsByPart(plan.runEdits, DEFAULT_PART)) {
     const xml = readPart(pkg, part)
     if (!xml) continue
-    writePart(pkg, part, applyRunEdits(xml, localEdits, label))
+    writePart(pkg, part, applyRunEdits(xml, localEdits, label, WORD_SCHEMA))
   }
 
   // Safety net: the same values, everywhere else Word can keep text.
   for (const part of listParts(pkg, WORD_TEXT_PARTS)) {
     const xml = readPart(pkg, part)
     if (!xml) continue
-    writePart(pkg, part, sweepValues(xml, plan.values, label))
+    writePart(pkg, part, sweepValues(xml, plan.values, label, WORD_SCHEMA))
   }
 
-  if (plan.sanitizeMetadata) sanitizeDocxMetadata(pkg)
+  if (plan.sanitizeMetadata) sanitizeOoxmlMetadata(pkg)
 
   return packPackage(pkg)
 }
 
-export { REDACTION_LABEL }
+export { REDACTION_LABEL, groupEditsByPart, sanitizeOoxmlMetadata }

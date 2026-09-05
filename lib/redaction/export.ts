@@ -1,14 +1,23 @@
+import { redactDelimited } from "@/lib/documents/delimited/redact"
 import { redactDocx } from "@/lib/documents/docx/redact"
 import { redactImage } from "@/lib/documents/image/redact"
 import { redactPdf } from "@/lib/documents/pdf/redact"
+import { redactEml } from "@/lib/documents/eml/redact"
+import { redactPptx } from "@/lib/documents/pptx/redact"
+import { redactRtf } from "@/lib/documents/rtf/redact"
+import { redactText } from "@/lib/documents/text/redact"
 import { redactXlsx } from "@/lib/documents/xlsx/redact"
 import {
+  buildDelimitedPlan,
   buildDocxPlan,
+  buildEmlPlan,
   buildImagePlan,
   buildPdfPlan,
+  buildTextPlan,
   buildXlsxPlan,
   type ExportOptions,
 } from "@/lib/redaction/apply"
+import { outputTypeFor } from "@/lib/documents/formats"
 import { verifyExport, type VerificationReport } from "@/lib/redaction/validation"
 import { sha256 } from "@/lib/storage/integrity"
 import type { DocumentKind, NormalizedDocument } from "@/types/document"
@@ -29,24 +38,6 @@ export type ExportResult = {
   mimeType: string
   verification: VerificationReport
   appliedRedactions: number
-}
-
-const OUTPUT_TYPES: Record<
-  DocumentKind,
-  { extension: string; mimeType: string }
-> = {
-  pdf: { extension: "pdf", mimeType: "application/pdf" },
-  docx: {
-    extension: "docx",
-    mimeType:
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  },
-  xlsx: {
-    extension: "xlsx",
-    mimeType:
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  },
-  image: { extension: "png", mimeType: "image/png" },
 }
 
 export class ExportVerificationError extends Error {
@@ -84,6 +75,32 @@ export async function exportRedacted(input: {
     case "image":
       bytes = await redactImage(source, buildImagePlan(model, accepted, options))
       break
+    case "csv":
+    case "tsv":
+      bytes = redactDelimited(
+        kind,
+        source,
+        buildDelimitedPlan(accepted, options)
+      )
+      break
+    case "txt":
+      bytes = redactText(source, buildTextPlan(model, accepted, options))
+      break
+    case "pptx":
+      // The same plan a DOCX takes: runs addressed by part, paragraph and
+      // index. `w:p/w:r/w:t` and `a:p/a:r/a:t` are one structure under two
+      // namespaces, so there is one plan builder and one exporter shape.
+      bytes = redactPptx(source, buildDocxPlan(model, accepted, options))
+      break
+    case "eml":
+      bytes = redactEml(source, buildEmlPlan(model, accepted, options))
+      break
+    case "rtf":
+      // The same plan the plain-text exporter takes: RTF spans are addressed
+      // by their offset in the decoded text, and translating that back to
+      // bytes is the redactor's business rather than the reviewer's.
+      bytes = redactRtf(source, buildTextPlan(model, accepted, options))
+      break
   }
 
   // Verify against the artifact itself, not against the intent.
@@ -92,7 +109,7 @@ export async function exportRedacted(input: {
     throw new ExportVerificationError(verification)
   }
 
-  const output = OUTPUT_TYPES[kind]
+  const output = outputTypeFor(kind)
 
   return {
     bytes,

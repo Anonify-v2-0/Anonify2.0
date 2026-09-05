@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest"
 
 import { extractDocx } from "@/lib/documents/docx/extract"
-import { openPackage, readPart } from "@/lib/documents/docx/ooxml"
+import { openPackage, readPart } from "@/lib/documents/ooxml/package"
 import { redactDocx } from "@/lib/documents/docx/redact"
+import { buildDocxPlan } from "@/lib/redaction/apply"
 import { makeDocxFixture, SENSITIVE } from "./fixtures"
 
 /** Every text-bearing part, concatenated, as a hostile reader would see it. */
@@ -99,6 +100,48 @@ describe("docx redaction", () => {
     const text = extractDocx("doc_1", output).document.pages[0].text
     expect(text).toContain("[REDACTED]")
     expect(text).not.toContain(SENSITIVE.email)
+  })
+
+  it("writes one marker for a value split across runs", async () => {
+    // Word breaks text at every formatting change, so the bolded name and the
+    // sentence after it are two runs carrying one phrase. Each run used to
+    // believe it was the first to place a marker, and the export came back
+    // reading "[REDACTED][REDACTED]" where one value had been.
+    const bytes = await makeDocxFixture()
+    const { document } = extractDocx("doc_1", bytes)
+    const value = `${SENSITIVE.person} works at`
+
+    const page = document.pages[0]
+    const start = page.text.indexOf(value)
+    expect(start).toBeGreaterThanOrEqual(0)
+
+    // Two runs really do carry it: no single span holds the whole phrase.
+    expect(page.spans.some((span) => span.text.includes(value))).toBe(false)
+
+    const plan = buildDocxPlan(
+      document,
+      [
+        {
+          id: "split",
+          documentId: "doc_1",
+          type: "text",
+          source: "user",
+          category: "person",
+          status: "accepted",
+          page: page.number,
+          text: value,
+          start,
+          end: start + value.length,
+        },
+      ],
+      { addLabels: true, sanitizeMetadata: false }
+    )
+
+    const output = redactDocx(bytes, plan)
+
+    const text = extractDocx("doc_1", output).document.pages[0].text
+    expect(text).not.toContain(value)
+    expect(text.match(/\[REDACTED\]/g)).toHaveLength(1)
   })
 
   it("preserves formatting on surviving runs", async () => {

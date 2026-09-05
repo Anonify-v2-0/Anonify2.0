@@ -4,8 +4,11 @@ import Link from "next/link"
 import {
   FileSpreadsheet,
   FileText,
+  FileType,
   Image as ImageIcon,
   Layers,
+  Presentation,
+  Mail,
   Loader2,
   RotateCcw,
   Trash2,
@@ -32,6 +35,13 @@ const KIND_ICONS: Record<DocumentKind, typeof FileText> = {
   docx: FileText,
   xlsx: FileSpreadsheet,
   image: ImageIcon,
+  // A delimited file is a grid, and reads as one in the workspace.
+  csv: FileSpreadsheet,
+  tsv: FileSpreadsheet,
+  txt: FileType,
+  rtf: FileType,
+  eml: Mail,
+  pptx: Presentation,
 }
 
 const IN_PROGRESS = new Set([
