@@ -28,6 +28,7 @@ import {
   quotaMessage,
   recordUsage,
   usageKindFor,
+  usageQuantity,
 } from "@/lib/security/usage"
 import { deleteObject, getObject, putObject, sourceKey } from "@/lib/storage/blob"
 import { decryptDocument, encryptDocument } from "@/lib/storage/encryption"
@@ -270,19 +271,7 @@ async function runExtractAndNormalize(
   // charged. Going over stops the pipeline; it never deletes what was uploaded.
   if (document.quotaKey) {
     const kind = usageKindFor(document.kind as DocumentKind)
-    // Cells that hold something, not the area of the used range. A sheet with
-    // three filled columns and one stray value out in column AN has a used
-    // range forty columns wide, and charging for that bounding box bills the
-    // blanks — which are neither work to process nor anything to leak.
-    const quantity =
-      kind === "xlsxCells"
-        ? (model.sheets ?? []).reduce(
-            (total, sheet) => total + sheet.cells.length,
-            0
-          )
-        : kind === "images"
-          ? 1
-          : model.pages.length
+    const quantity = usageQuantity(kind, model)
 
     const quota = await recordUsage({
       fingerprint: document.quotaKey,

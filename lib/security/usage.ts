@@ -6,7 +6,7 @@ import {
   USAGE_KINDS,
   type UsageKind,
 } from "@/lib/security/quota-config"
-import type { DocumentKind } from "@/types/document"
+import type { DocumentKind, NormalizedDocument } from "@/types/document"
 
 /**
  * Quota accounting.
@@ -48,6 +48,32 @@ export function usageKindFor(kind: DocumentKind): UsageKind {
       return "xlsxCells"
     case "image":
       return "images"
+  }
+}
+
+/**
+ * What one normalized document costs against its allowance.
+ *
+ * Cells that hold something, not the area of the used range. A sheet with
+ * three filled columns and one stray value out in column AN has a used range
+ * forty columns wide, and charging for that bounding box bills the blanks —
+ * which are neither work to process nor anything to leak.
+ */
+export function usageQuantity(
+  kind: UsageKind,
+  model: NormalizedDocument
+): number {
+  switch (kind) {
+    case "xlsxCells":
+      return (model.sheets ?? []).reduce(
+        (total, sheet) => total + sheet.cells.length,
+        0
+      )
+    case "images":
+    case "uploads":
+      return 1
+    default:
+      return model.pages.length
   }
 }
 

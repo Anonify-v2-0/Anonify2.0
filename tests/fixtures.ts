@@ -199,6 +199,31 @@ export async function makeXlsxFixture(): Promise<Uint8Array> {
 }
 
 /**
+ * A workbook whose used range is mostly empty.
+ *
+ * One value out at the far edge is enough to make ExcelJS report a used range
+ * of hundreds of cells, almost all of them blank. Quota accounting has to
+ * charge for what is actually there — the blanks are neither work to process
+ * nor anything that could leak.
+ */
+export async function makeSparseXlsxFixture(): Promise<Uint8Array> {
+  const ExcelJS = (await import("exceljs")).default
+  const workbook = new ExcelJS.Workbook()
+
+  const sheet = workbook.addWorksheet("Sparse")
+  sheet.getCell("A1").value = "Name"
+  sheet.getCell("B1").value = "Email"
+  sheet.getCell("A2").value = SENSITIVE.person
+  sheet.getCell("B2").value = SENSITIVE.email
+  // Far out to the right and a long way down, which is what stretches the
+  // used range without adding any content worth charging for.
+  sheet.getCell("Z40").value = "stray"
+
+  const output = await workbook.xlsx.writeBuffer()
+  return new Uint8Array(output)
+}
+
+/**
  * A long document with no explicit page breaks — which is what almost every
  * real DOCX is, and the case that used to collapse into a single endless page.
  * `breakAfter` inserts a hard break after that paragraph index when given.

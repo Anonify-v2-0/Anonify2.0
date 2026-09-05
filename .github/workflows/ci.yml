@@ -269,6 +269,56 @@ jobs:
             --to-schema prisma/schema.prisma \
             --exit-code
 
+  # The database-backed suites: expiry cleanup and quota accounting.
+  #
+  # These are integration tests in the honest sense — they assert on what is
+  # durable at each moment, which is exactly what a fake cannot tell you.
+  # Deletion ordering, a unique constraint standing in for a mutex, an
+  # increment that has to be atomic under concurrency: every one of those
+  # passes against a mock and fails against Postgres if the code is wrong.
+  #
+  # The schema is replayed from the migrations into an empty database, so this
+  # also proves a fresh clone can stand the schema up and then use it.
+  database:
+    name: Database tests
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: anonify
+          POSTGRES_PASSWORD: anonify
+          POSTGRES_DB: anonify_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U anonify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://anonify:anonify@localhost:5432/anonify_test
+      TEST_DATABASE_URL: postgresql://anonify:anonify@localhost:5432/anonify_test
+      DATABASE_DRIVER: postgres
+      # The suites write objects; the local filesystem driver keeps that on the
+      # runner rather than pointed at anything real.
+      STORAGE_DRIVER: local
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+
+      - name: Apply migrations to an empty database
+        run: pnpm db:migrate:deploy
+
+      - name: Cleanup and quota suites
+        run: pnpm test:db
+
   # Boots the whole self-hosted stack and redacts a real document through it.
   #
   # This runs on every pull request rather than only on Dockerfile changes,
@@ -325,7 +375,7 @@ jobs:
   ci:
     name: CI
     runs-on: ubuntu-latest
-    needs: [decide, lint, typecheck, test, build, migrations, compose]
+    needs: [decide, lint, typecheck, test, build, migrations, database, compose]
     if: always()
     steps:
       - name: Report
@@ -336,6 +386,7 @@ jobs:
           echo "test:       ${{ needs.test.result }}"
           echo "build:      ${{ needs.build.result }}"
           echo "migrations: ${{ needs.migrations.result }}"
+          echo "database:   ${{ needs.database.result }}"
           echo "compose:    ${{ needs.compose.result }}"
 
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
