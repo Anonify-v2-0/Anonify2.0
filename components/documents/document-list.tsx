@@ -6,6 +6,7 @@ import { UploadCloud } from "lucide-react"
 import { toast } from "sonner"
 
 import { DocumentCard } from "@/components/documents/document-card"
+import { useRetryDocument } from "@/hooks/use-retry-document"
 import { toastFailure } from "@/lib/api/errors"
 import type { DocumentListItem } from "@/lib/documents/listing"
 
@@ -35,7 +36,7 @@ export function DocumentList({
 }) {
   const [documents, setDocuments] = useState(initialDocuments)
   const [deleting, setDeleting] = useState<string | null>(null)
-  const [retrying, setRetrying] = useState<string | null>(null)
+  const { retry: startRetry, retryingId } = useRetryDocument()
 
   const anyWorking = documents.some((document) =>
     IN_PROGRESS.has(document.status)
@@ -104,31 +105,23 @@ export function DocumentList({
    * The status is moved to "queued" locally rather than waiting for the next
    * poll, because that is what restarts the polling that will report the rest.
    */
-  const retry = useCallback(async (id: string) => {
-    setRetrying(id)
-    try {
-      const response = await fetch(`/api/documents/${id}/retry`, {
-        method: "POST",
-      })
-      if (!response.ok) {
-        await toastFailure(toast, response, "That document could not be retried.")
-        return
-      }
+  const retry = useCallback(
+    async (id: string) => {
+      if (!(await startRetry(id))) return
 
+      // Patching the row rather than waiting for the next poll is what restarts
+      // the polling that will report the rest.
       setDocuments((current) =>
         current.map((document) =>
           document.id === id
-            ? { ...document, status: "queued", error: null }
+            ? { ...document, status: "queued", error: null, errorCode: null }
             : document
         )
       )
       toast.success("Analyzing again.")
-    } catch {
-      toast.error("That document could not be retried.")
-    } finally {
-      setRetrying(null)
-    }
-  }, [])
+    },
+    [startRetry]
+  )
 
   if (documents.length === 0) {
     return (
@@ -159,7 +152,7 @@ export function DocumentList({
           onRetry={retry}
           onExtended={onExtended}
           deleting={deleting === document.id}
-          retrying={retrying === document.id}
+          retrying={retryingId === document.id}
         />
       ))}
     </ul>

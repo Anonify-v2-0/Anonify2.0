@@ -13,6 +13,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button"
 import { StatusPill } from "@/components/processing/status-pill"
 import { RetentionControl } from "@/components/documents/retention-control"
+import { isRetryable } from "@/lib/workflows/failure"
 import { cn } from "@/lib/utils"
 import type { DocumentListItem } from "@/lib/documents/listing"
 import type { DocumentKind } from "@/types/document"
@@ -163,7 +164,12 @@ export function DocumentCard({
           the link semantics a screen reader and a middle-click both rely on.
           Styling the link directly keeps them.
         */}
-        {document.status === "failed" ? (
+        {/*
+          Retry is offered only where it could change the outcome. A file this
+          instance cannot read does not become readable on the second attempt,
+          and the button would spend a rate-limit token to say so again.
+        */}
+        {document.status === "failed" && isRetryable(document.errorCode) ? (
           <Button
             size="sm"
             variant="outline"

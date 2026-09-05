@@ -10,6 +10,7 @@ import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
+import { failureForCode, isRetryable } from "@/lib/workflows/failure"
 import { processDocument } from "@/lib/workflows/process-document"
 
 export const runtime = "nodejs"
@@ -47,7 +48,12 @@ export async function POST(
 
     const record = await prisma.document.findUnique({
       where: { id: document.id },
-      select: { status: true, sourceBlobKey: true, uploadBlobKey: true },
+      select: {
+        status: true,
+        errorCode: true,
+        sourceBlobKey: true,
+        uploadBlobKey: true,
+      },
     })
     if (!record) return errorResponse("Document not found", 404)
 
@@ -67,6 +73,19 @@ export async function POST(
       )
     }
 
+    // Some failures are verdicts, not weather. An unsupported file type does
+    // not become supported on the second attempt, and running the pipeline
+    // again to reach the same conclusion spends a processing token to tell the
+    // user nothing new. The interface hides the button in these cases; this is
+    // the check that holds when something calls the endpoint anyway.
+    if (!isRetryable(record.errorCode)) {
+      const failure = failureForCode(record.errorCode)
+      return errorResponse(failure.message, 409, {
+        errorCode: failure.code,
+        retryable: false,
+      })
+    }
+
     // Suggestions from the failed attempt are discarded so a partial run cannot
     // leave duplicates behind. Anything a person touched is kept: an accepted
     // or rejected redaction is a decision, and a retry is not permission to
@@ -77,7 +96,12 @@ export async function POST(
 
     await prisma.document.update({
       where: { id: document.id },
-      data: { status: "queued", error: null, workflowRunId: null },
+      data: {
+        status: "queued",
+        error: null,
+        errorCode: null,
+        workflowRunId: null,
+      },
     })
 
     const run = await start(processDocument, [document.id])

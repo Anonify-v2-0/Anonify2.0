@@ -1,4 +1,9 @@
-import { FatalError, getWritable } from "workflow"
+import {
+  FatalError,
+  getStepMetadata,
+  getWritable,
+  RetryableError,
+} from "workflow"
 
 import { analyzeDocument, analyzeImageRegions } from "@/lib/ai/analyze"
 import type { Prisma } from "@/lib/database/generated/client"
@@ -48,6 +53,41 @@ import type {
  * Every stage writes a small progress event to the run's stream so the
  * workspace can show suggestions arriving instead of a spinner.
  */
+
+/**
+ * How long to wait before a step's next attempt.
+ *
+ * The SDK retries a throwing step three times by default and enqueues each
+ * attempt immediately, which is close to no retry at all against the failures
+ * that are actually transient: a provider rate limit, a cold worker, a storage
+ * blip. Three tries inside a few hundred milliseconds sees the same weather all
+ * three times, and against a rate limit it makes things worse.
+ *
+ * Doubling from a second, capped so a stuck dependency cannot park a run for
+ * half an hour.
+ */
+const MAX_BACKOFF_MS = 30_000
+
+function backoffMs(attempt: number): number {
+  return Math.min(MAX_BACKOFF_MS, 1_000 * 2 ** Math.max(0, attempt - 1))
+}
+
+/**
+ * Rethrows a step's error with a delay before the next attempt.
+ *
+ * `FatalError` passes through untouched — it exists to say retrying cannot
+ * help, and wrapping it would throw that away. The original message is carried
+ * across so the orchestrator can still classify the failure; it is never stored
+ * or logged raw.
+ */
+function paced(error: unknown): never {
+  if (FatalError.is(error)) throw error
+
+  const message = error instanceof Error ? error.message : String(error)
+  const { attempt } = getStepMetadata()
+
+  throw new RetryableError(message, { retryAfter: backoffMs(attempt) })
+}
 
 async function emit(
   documentId: string,
@@ -105,7 +145,15 @@ async function setStatus(
  */
 async function ingestUpload(documentId: string): Promise<{ kind: DocumentKind }> {
   "use step"
+  return runIngest(documentId).catch(paced)
+}
 
+// Storage reads, a write back and the plaintext delete all live in here, so a
+// failure is usually weather rather than a verdict. The verdicts throw
+// FatalError, which `paced` lets through untouched.
+ingestUpload.maxRetries = 4
+
+async function runIngest(documentId: string): Promise<{ kind: DocumentKind }> {
   const document = await prisma.document.findUnique({
     where: { id: documentId },
     select: {
@@ -166,9 +214,21 @@ async function ingestUpload(documentId: string): Promise<{ kind: DocumentKind }>
 }
 
 /** Reads the sealed source back, verifies its checksum and normalizes it. */
-async function extractAndNormalize(documentId: string): Promise<{ pageCount: number }> {
+async function extractAndNormalize(
+  documentId: string
+): Promise<{ pageCount: number }> {
   "use step"
+  return runExtractAndNormalize(documentId).catch(paced)
+}
 
+// The most expensive step to lose: it re-reads the sealed source, runs the
+// format pipeline and may run OCR over every page. Worth waiting out a blip
+// rather than failing the document and making the user ask for it again.
+extractAndNormalize.maxRetries = 4
+
+async function runExtractAndNormalize(
+  documentId: string
+): Promise<{ pageCount: number }> {
   const document = await prisma.document.findUnique({
     where: { id: documentId },
     select: {
@@ -271,7 +331,16 @@ async function extractByKind(
  */
 async function analyze(documentId: string): Promise<{ suggestions: number }> {
   "use step"
+  return runAnalyze(documentId).catch(paced)
+}
 
+// Provider errors never reach this: `runStructured` catches them and returns
+// null, because detection is an assist and losing it must not cost the user
+// their document. What retries here is everything around it — storage, the
+// database, rasterizing pages for the vision pass.
+analyze.maxRetries = 4
+
+async function runAnalyze(documentId: string): Promise<{ suggestions: number }> {
   const document = await prisma.document.findUnique({
     where: { id: documentId },
     select: {
