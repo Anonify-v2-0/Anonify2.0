@@ -1,26 +1,17 @@
-import type { DocumentKind, TtlOption } from "@/types/document"
+import type { TtlOption } from "@/types/document"
 
 /** Hard upload ceiling. Anything larger is rejected before it is buffered. */
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
-export const ACCEPTED_MIME_TYPES: Record<string, DocumentKind> = {
-  "application/pdf": "pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-  "image/png": "image",
-  "image/jpeg": "image",
-  "image/webp": "image",
-}
-
-export const ACCEPTED_EXTENSIONS = [
-  ".pdf",
-  ".docx",
-  ".xlsx",
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".webp",
-] as const
+// What a format is — its MIME types, its extensions, its quota, whether it is
+// a package — lives in one place, lib/documents/formats.ts. These are the
+// derived allow-lists, re-exported here because that is where callers have
+// always looked for them.
+export {
+  ACCEPTED_EXTENSIONS,
+  ACCEPTED_MIME_TYPES,
+  supportedFormatsSentence,
+} from "@/lib/documents/formats"
 
 export const ALLOWED_TTL_SECONDS: TtlOption[] = [3600, 21600, 86400, 259200]
 

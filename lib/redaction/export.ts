@@ -9,6 +9,7 @@ import {
   buildXlsxPlan,
   type ExportOptions,
 } from "@/lib/redaction/apply"
+import { outputTypeFor } from "@/lib/documents/formats"
 import { verifyExport, type VerificationReport } from "@/lib/redaction/validation"
 import { sha256 } from "@/lib/storage/integrity"
 import type { DocumentKind, NormalizedDocument } from "@/types/document"
@@ -29,24 +30,6 @@ export type ExportResult = {
   mimeType: string
   verification: VerificationReport
   appliedRedactions: number
-}
-
-const OUTPUT_TYPES: Record<
-  DocumentKind,
-  { extension: string; mimeType: string }
-> = {
-  pdf: { extension: "pdf", mimeType: "application/pdf" },
-  docx: {
-    extension: "docx",
-    mimeType:
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  },
-  xlsx: {
-    extension: "xlsx",
-    mimeType:
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  },
-  image: { extension: "png", mimeType: "image/png" },
 }
 
 export class ExportVerificationError extends Error {
@@ -92,7 +75,7 @@ export async function exportRedacted(input: {
     throw new ExportVerificationError(verification)
   }
 
-  const output = OUTPUT_TYPES[kind]
+  const output = outputTypeFor(kind)
 
   return {
     bytes,

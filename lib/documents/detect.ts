@@ -1,3 +1,4 @@
+import { kindForExtension } from "@/lib/documents/formats"
 import type { DocumentKind } from "@/types/document"
 
 /**
@@ -74,16 +75,6 @@ export function extensionOf(filename: string): string {
   return match ? match[1].toLowerCase() : ""
 }
 
-const EXTENSION_KINDS: Record<string, DocumentKind> = {
-  pdf: "pdf",
-  docx: "docx",
-  xlsx: "xlsx",
-  png: "image",
-  jpg: "image",
-  jpeg: "image",
-  webp: "image",
-}
-
 /** True when the filename's extension is consistent with the sniffed bytes. */
 export function extensionMatchesKind(
   filename: string,
@@ -91,6 +82,6 @@ export function extensionMatchesKind(
 ): boolean {
   const extension = extensionOf(filename)
   if (!extension) return true
-  const expected = EXTENSION_KINDS[extension]
+  const expected = kindForExtension(extension)
   return expected === undefined || expected === kind
 }

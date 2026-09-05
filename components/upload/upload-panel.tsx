@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toastFailure } from "@/lib/api/errors"
+import { ACCEPTED_EXTENSIONS, MAX_UPLOAD_BYTES } from "@/lib/config"
 import {
   DEFAULT_PRESET_ID,
   PRESET_DISCLAIMER,
@@ -31,8 +32,9 @@ import {
   type TtlOption,
 } from "@/types/document"
 
-const ACCEPT = ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp"
-const MAX_BYTES = 25 * 1024 * 1024
+/** What the file picker offers, derived from the register of formats. */
+const ACCEPT = ACCEPTED_EXTENSIONS.join(",")
+const MAX_BYTES = MAX_UPLOAD_BYTES
 /** Above this size the browser splits the upload into parallel parts. */
 const MULTIPART_THRESHOLD = 5 * 1024 * 1024
 /** Matches the server's own ceiling on one batch request. */

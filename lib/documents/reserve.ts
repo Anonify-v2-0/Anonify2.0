@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/database/prisma"
 import { extensionOf } from "@/lib/documents/detect"
+import { kindForExtension } from "@/lib/documents/formats"
 import { newDocumentId } from "@/lib/documents/ids"
 import { checkQuota, quotaMessage, recordUsage } from "@/lib/security/usage"
 import { uploadKey } from "@/lib/storage/blob"
@@ -16,16 +17,6 @@ import { uploadKey } from "@/lib/storage/blob"
  * charged quota differently, or accepted a file type the single upload refuses,
  * would be a second definition of what an upload is.
  */
-
-const EXTENSION_KINDS: Record<string, string> = {
-  pdf: "pdf",
-  docx: "docx",
-  xlsx: "xlsx",
-  png: "image",
-  jpg: "image",
-  jpeg: "image",
-  webp: "image",
-}
 
 export type ReservedDocument = {
   id: string
@@ -56,7 +47,7 @@ export async function reserveDocument(input: {
   /** Named detector set; absent means everything is looked for. */
   preset?: string
 }): Promise<ReserveResult> {
-  const kind = EXTENSION_KINDS[extensionOf(input.filename)]
+  const kind = kindForExtension(extensionOf(input.filename))
   if (!kind) {
     return {
       ok: false,

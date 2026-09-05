@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/database/prisma"
+import { quotaKindFor } from "@/lib/documents/formats"
 import { newUsageId } from "@/lib/documents/ids"
 import {
   effectiveQuotas,
@@ -39,16 +40,7 @@ function today(): Date {
 }
 
 export function usageKindFor(kind: DocumentKind): UsageKind {
-  switch (kind) {
-    case "pdf":
-      return "pdfPages"
-    case "docx":
-      return "docxPages"
-    case "xlsx":
-      return "xlsxCells"
-    case "image":
-      return "images"
-  }
+  return quotaKindFor(kind)
 }
 
 /**
