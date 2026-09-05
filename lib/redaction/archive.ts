@@ -66,6 +66,8 @@ export type SkipReason =
   | "rate-limited"
   | "archive-full"
   | "export-failed"
+  /** The reviewer stopped the run before this document was reached. */
+  | "cancelled"
 
 export type BatchReport = {
   version: number
@@ -95,6 +97,7 @@ export type BatchReport = {
 
 const SKIP_SENTENCES: Record<SkipReason, string> = {
   "not-ready": "had not finished processing",
+  cancelled: "was not reached before the export was stopped",
   "verification-failed": "failed its export verification and was withheld",
   "rate-limited": "was not exported because the export allowance ran out",
   "archive-full": "did not fit in this archive",

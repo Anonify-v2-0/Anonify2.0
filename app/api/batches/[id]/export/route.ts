@@ -1,16 +1,24 @@
+import { getRun, start } from "workflow/api"
 import { z } from "zod"
 
 import { errorResponse, handleRouteError, jsonResponse } from "@/lib/api/http"
-import { requireBatch } from "@/lib/documents/batches"
+import { prisma } from "@/lib/database/prisma"
 import {
-  collectBatchExport,
-  EmptyBatchError,
-  runBatchExport,
-} from "@/lib/redaction/batch-export"
+  activeBatchExport,
+  latestBatchExport,
+  settlePending,
+  toView,
+  type BatchExportRecord,
+} from "@/lib/documents/batch-exports"
+import { requireBatch, type OwnedBatch } from "@/lib/documents/batches"
+import { newBatchExportId } from "@/lib/documents/ids"
+import { listBatchDocuments } from "@/lib/documents/listing"
 import { peekIdentity } from "@/lib/security/fingerprint"
+import { consumeRateLimit } from "@/lib/security/rate-limit"
+import { createBatchToken } from "@/lib/security/signed-url"
+import { exportBatch } from "@/lib/workflows/export-batch"
 
 export const runtime = "nodejs"
-export const maxDuration = 300
 
 const optionsSchema = z.object({
   addLabels: z.boolean().default(false),
@@ -18,18 +26,62 @@ const optionsSchema = z.object({
   imageStyle: z.enum(["solid", "blur", "pixelate"]).default("solid"),
 })
 
-const NDJSON = "application/x-ndjson"
+/**
+ * Batch exports, as a resource rather than an operation.
+ *
+ * Starting one is all POST does: the work happens in a durable run, so a batch
+ * of a dozen documents does not depend on a request staying open for minutes or
+ * on the reviewer leaving a modal on screen. GET reports where that run has got
+ * to — the progress lives on the row, so it survives a closed tab, a reload and
+ * the recycling of whichever function happened to start it. DELETE asks it to
+ * stop.
+ */
 
 /**
- * Exports every document in the batch.
+ * The archive link, minted at read time rather than stored.
  *
- * The run itself lives in `lib/redaction/batch-export.ts`; this route decides
- * how to answer. A client that asks for `application/x-ndjson` is streamed one
- * JSON line per event as the work happens — a batch is minutes of work, and a
- * progress bar that can name the document it is on is the difference between
- * waiting and wondering. Anything else gets the single JSON reply this route
- * has always returned.
+ * A download token is short-lived on purpose. Writing one into the row would
+ * mean handing out a link that expired minutes after the run finished, which is
+ * exactly the case durability was supposed to fix: coming back later and still
+ * being able to fetch the result.
+ *
+ * A stopped run gets one too, when it exported anything. Those documents were
+ * redacted, verified and sealed before the reviewer said stop, and withholding
+ * them would make cancelling cost more than it saved.
  */
+function withDownloadUrl(record: BatchExportRecord, batch: OwnedBatch) {
+  const deliverable =
+    record.status === "ready" ||
+    (record.status === "cancelled" && record.exported > 0)
+
+  const url = deliverable
+    ? `/api/batches/${batch.id}/download?token=${createBatchToken({
+        batchId: batch.id,
+        ownerKey: batch.userFingerprint,
+      })}`
+    : null
+
+  return toView(record, url)
+}
+
+export async function GET(
+  _request: Request,
+  context: RouteContext<"/api/batches/[id]/export">
+) {
+  try {
+    const { id } = await context.params
+    const identity = await peekIdentity()
+    const batch = await requireBatch(id, identity?.ownerKey)
+
+    const record = await latestBatchExport(batch.id)
+    return jsonResponse({
+      export: record ? withDownloadUrl(record, batch) : null,
+    })
+  } catch (error) {
+    return handleRouteError(error, "batches.export.status")
+  }
+}
+
 export async function POST(
   request: Request,
   context: RouteContext<"/api/batches/[id]/export">
@@ -37,97 +89,133 @@ export async function POST(
   try {
     const { id } = await context.params
     const identity = await peekIdentity()
-
     const batch = await requireBatch(id, identity?.ownerKey)
-    const options = optionsSchema.parse(await request.json().catch(() => ({})))
-    const networkKey = identity?.networkKey ?? "anonymous"
 
-    if (request.headers.get("accept")?.includes(NDJSON)) {
-      return streamed({ batch, options, networkKey })
+    // A second click while one is already going joins it rather than starting a
+    // rival run over the same documents.
+    const running = await activeBatchExport(batch.id)
+    if (running) {
+      return jsonResponse({ export: withDownloadUrl(running, batch) })
     }
 
-    const result = await collectBatchExport({ batch, options, networkKey })
-
-    // Nothing exported is not a partial success: there is no archive behind the
-    // token, so the status says so and the skip reasons explain why.
-    return jsonResponse(result, result.exported.length === 0 ? 409 : 200)
-  } catch (error) {
-    if (error instanceof EmptyBatchError) {
+    const documents = await listBatchDocuments(batch.id)
+    if (documents.length === 0) {
       return errorResponse("This batch has no documents left", 409)
     }
+
+    // One token to start a run; the per-document export allowance is charged
+    // inside it, one document at a time, exactly as a single export would be.
+    const limit = await consumeRateLimit(
+      "processing",
+      identity?.networkKey ?? "anonymous"
+    )
+    if (!limit.allowed) {
+      return errorResponse(
+        "Too many export runs. Try again in a moment.",
+        429,
+        { rateLimited: true }
+      )
+    }
+
+    const options = optionsSchema.parse(await request.json().catch(() => ({})))
+    const exportId = newBatchExportId()
+
+    await prisma.batchExport.create({
+      data: {
+        id: exportId,
+        batchId: batch.id,
+        status: "queued",
+        total: documents.length,
+        options,
+        networkKey: identity?.networkKey ?? "anonymous",
+      },
+    })
+
+    const run = await start(exportBatch, [exportId])
+    await prisma.batchExport.update({
+      where: { id: exportId },
+      data: { workflowRunId: run.runId },
+    })
+
+    console.log(
+      JSON.stringify({
+        level: "info",
+        context: "batches.export",
+        batchId: batch.id,
+        exportId,
+        workflowId: run.runId,
+        documents: documents.length,
+      })
+    )
+
+    const created = await latestBatchExport(batch.id)
+    return jsonResponse(
+      { export: created ? withDownloadUrl(created, batch) : null },
+      202
+    )
+  } catch (error) {
     return handleRouteError(error, "batches.export")
   }
 }
 
-/**
- * The same run, reported as it goes.
- *
- * The headers matter as much as the body: a proxy that buffers this delivers
- * every event at once at the end, which is exactly the spinner the stream
- * exists to replace.
- *
- * A client that goes away stops the run. Breaking out of the loop returns the
- * generator, so the batch does not spend another document's export allowance
- * producing an archive nobody is waiting for — and the documents already
- * exported keep their artifacts, which is what makes coming back cheap.
- */
-function streamed(input: Parameters<typeof runBatchExport>[0]): Response {
-  const encoder = new TextEncoder()
-  let gone = false
+/** Stops a run in progress. */
+export async function DELETE(
+  _request: Request,
+  context: RouteContext<"/api/batches/[id]/export">
+) {
+  try {
+    const { id } = await context.params
+    const identity = await peekIdentity()
+    const batch = await requireBatch(id, identity?.ownerKey)
 
-  const body = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const send = (event: unknown) => {
-        if (gone) return
-        try {
-          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
-        } catch {
-          // The consumer disconnected between the check and the write.
-          gone = true
-        }
-      }
+    const running = await activeBatchExport(batch.id)
+    if (!running) {
+      return errorResponse("There is no export running for this batch", 409)
+    }
 
+    // The flag first, so a step that is between documents stops on its own and
+    // records why. The document being redacted right now is finished and kept:
+    // it has been paid for in allowance and in time, and throwing it away is
+    // not what the reviewer asked for.
+    await prisma.batchExport.updateMany({
+      where: { id: running.id, status: { in: ["queued", "running"] } },
+      data: { cancelRequested: true },
+    })
+
+    // Then the run itself, so a step that has hung cannot keep the export alive
+    // — and so nothing carries on spending the export allowance on documents
+    // the reviewer has said they do not want.
+    if (running.workflowRunId) {
       try {
-        for await (const event of runBatchExport(input)) {
-          if (gone) break
-          send(event)
-        }
-      } catch (error) {
-        // The response has already begun, so a failure cannot become a status
-        // code. It goes down the stream as a final event the client renders.
-        console.error(
-          JSON.stringify({
-            level: "error",
-            context: "batches.export.stream",
-            errorCategory:
-              error instanceof EmptyBatchError ? "empty-batch" : "unexpected",
-          })
-        )
-        send({
-          type: "error",
-          message:
-            error instanceof EmptyBatchError
-              ? "This batch has no documents left."
-              : "The batch export could not be completed.",
-        })
-      } finally {
-        try {
-          controller.close()
-        } catch {
-          // Already closed by the cancel above; nothing to do.
-        }
+        await getRun(running.workflowRunId).cancel()
+      } catch {
+        // Already finished or already cancelled: the row below is the record
+        // either way.
       }
-    },
-    cancel() {
-      gone = true
-    },
-  })
+    }
 
-  return new Response(body, {
-    headers: {
-      "content-type": `${NDJSON}; charset=utf-8`,
-      "cache-control": "no-store, no-transform",
-      "x-accel-buffering": "no",
-    },
-  })
+    // Cancelling the run means its own closing steps will not get to run, so
+    // the final state is written here instead.
+    await settlePending(running.id, "cancelled")
+    await prisma.batchExport.updateMany({
+      where: { id: running.id, status: { in: ["queued", "running"] } },
+      data: { status: "cancelled", error: null },
+    })
+
+    console.log(
+      JSON.stringify({
+        level: "info",
+        context: "batches.export.cancel",
+        batchId: batch.id,
+        exportId: running.id,
+      })
+    )
+
+    const record = await latestBatchExport(batch.id)
+    return jsonResponse({
+      export: record ? withDownloadUrl(record, batch) : null,
+    })
+  } catch (error) {
+    return handleRouteError(error, "batches.export.cancel")
+  }
 }

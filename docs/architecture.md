@@ -114,6 +114,11 @@ and the run resumes from the last completed step rather than the beginning. A
 provider timing out costs a retry, never the upload. See
 [workflow.md](./workflow.md).
 
+Exporting a batch is a durable run for the same reason, with the same shape: one
+step per document, progress on a row rather than in the response, so the work
+survives the request that asked for it and the reviewer can close the window,
+watch the progress from a button, or stop it.
+
 ---
 
 ## 3. Identity, without accounts

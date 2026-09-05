@@ -1,9 +1,7 @@
 "use client"
 
-import { useState } from "react"
 import Link from "next/link"
 import {
-  Archive,
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
@@ -11,7 +9,7 @@ import {
   Layers,
 } from "lucide-react"
 
-import { BatchDownloadDialog } from "@/components/batch/batch-download-dialog"
+import { BatchDownloadButton } from "@/components/batch/batch-download-button"
 import { Brand } from "@/components/layout/brand"
 import { Button } from "@/components/ui/button"
 import { StatusPill } from "@/components/processing/status-pill"
@@ -88,7 +86,6 @@ function BatchNav({ batch }: { batch: NonNullable<DocumentSummary["batch"]> }) {
 
 export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
   const dispatch = useAppDispatch()
-  const [downloadingBatch, setDownloadingBatch] = useState(false)
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-4 border-b border-border bg-surface-2 px-4 lg:h-[68px] lg:px-6">
@@ -137,23 +134,17 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
         otherwise a navigation away from the thing you had just completed.
       */}
       {summary.batch ? (
-        <>
-          <Button
-            variant="outline"
-            className="h-9"
-            aria-label="Download the whole batch"
-            onClick={() => setDownloadingBatch(true)}
-          >
-            <Archive className="size-4" />
-            <span className="hidden lg:inline">Batch</span>
-          </Button>
-          <BatchDownloadDialog
-            batchId={summary.batch.batchId}
-            open={downloadingBatch}
-            onOpenChange={setDownloadingBatch}
-            documentCount={summary.batch.total}
-          />
-        </>
+        <BatchDownloadButton
+          batchId={summary.batch.batchId}
+          documentCount={summary.batch.total}
+          variant="outline"
+          size="default"
+          className="h-9"
+          label="Batch"
+          // The label folds away on a narrow header, but not while the run is
+          // reporting itself: a bare spinner is what it replaced.
+          labelClassName="hidden lg:inline"
+        />
       ) : null}
 
       <Button

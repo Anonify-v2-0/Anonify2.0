@@ -177,7 +177,47 @@ document.queued → document.extracting → document.normalizing
 
 ---
 
-## 5. Expiry
+## 5. Batch export
+
+`lib/workflows/export-batch.ts`
+
+Exporting a batch is the same work as exporting one document, a dozen times:
+each file is redacted, verified against its own exported bytes and sealed. That
+is minutes, which is longer than a request may live and much longer than a
+person will sit in front of a modal, so it is a run rather than a response.
+
+```
+POST /api/batches/:id/export   → creates a BatchExport row, starts the run, 202
+GET  /api/batches/:id/export   → where the run has got to
+DELETE /api/batches/:id/export → stop it
+```
+
+The row is the progress. Each document is one `"use step"`, so a step that dies
+is retried on its own and the run resumes at the document it was on rather than
+re-redacting the ones already done; each step writes its outcome to
+`BatchExport.documents`, and the totals are recomputed from those states rather
+than incremented, because a retried step would otherwise count twice.
+
+Nothing about the browser is load-bearing. Closing the modal, reloading, or
+opening the batch on another device reads the same row, which is why the button
+can show `Exporting 3 of 8` while the window that started it is gone.
+
+**Stopping** sets `cancelRequested` and then cancels the run. The flag is what
+a step between documents reads, so the document being redacted right now
+finishes and is kept — it has already been paid for in export allowance — and
+the run is cancelled so a hung step cannot keep spending that allowance on
+documents nobody wants. Whatever was exported before the stop is still
+downloadable: those artifacts were verified before the reviewer changed their
+mind.
+
+The archive itself is not built here. `GET /api/batches/:id/download` assembles
+it from the artifacts this run produced, re-hashing each against the checksum it
+passed verification with — that is a download, and it streams to the client that
+asked for it.
+
+---
+
+## 6. Expiry
 
 A second workflow (`lib/workflows/cleanup.ts`) runs every 15 minutes. On Vercel
 that schedule comes from `vercel.json`; nothing outside Vercel reads that file,
@@ -210,7 +250,7 @@ days to prove it).
 
 ---
 
-## 6. Failure, from the user's side
+## 7. Failure, from the user's side
 
 Every failure mode ends somewhere honest:
 

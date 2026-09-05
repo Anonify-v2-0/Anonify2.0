@@ -2,9 +2,9 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Archive, ChevronDown, Layers } from "lucide-react"
+import { ChevronDown, Layers } from "lucide-react"
 
-import { BatchDownloadDialog } from "@/components/batch/batch-download-dialog"
+import { BatchDownloadButton } from "@/components/batch/batch-download-button"
 import { DocumentCard } from "@/components/documents/document-card"
 import { Button, buttonVariants } from "@/components/ui/button"
 import type { DocumentListItem } from "@/lib/documents/listing"
@@ -47,7 +47,6 @@ export function BatchGroup({
   retryingId: string | null
 }) {
   const [expanded, setExpanded] = useState(true)
-  const [downloading, setDownloading] = useState(false)
 
   const ready = documents.filter(
     (document) => document.status === "ready"
@@ -96,19 +95,11 @@ export function BatchGroup({
           >
             Open batch
           </Link>
-          <Button
-            size="sm"
-            disabled={ready === 0}
-            title={
-              ready === 0
-                ? "Nothing in this batch has finished processing yet"
-                : undefined
-            }
-            onClick={() => setDownloading(true)}
-          >
-            <Archive className="size-3.5" />
-            Download all
-          </Button>
+          <BatchDownloadButton
+            batchId={batchId}
+            documentCount={documents.length}
+            readyCount={ready}
+          />
         </div>
       </div>
 
@@ -129,13 +120,6 @@ export function BatchGroup({
           ))}
         </ul>
       ) : null}
-
-      <BatchDownloadDialog
-        batchId={batchId}
-        open={downloading}
-        onOpenChange={setDownloading}
-        documentCount={documents.length}
-      />
     </li>
   )
 }

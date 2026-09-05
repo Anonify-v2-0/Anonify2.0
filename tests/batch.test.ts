@@ -9,6 +9,12 @@ import {
   serializeBatchReport,
   uniqueNames,
 } from "@/lib/redaction/archive"
+import {
+  applyDocumentState,
+  settleUnreached,
+  toView,
+  type BatchExportDocument,
+} from "@/lib/documents/batch-exports"
 import { groupByBatch } from "@/lib/documents/grouping"
 import type { DocumentListItem } from "@/lib/documents/listing"
 import { buildExportReport, type ExportReport } from "@/lib/redaction/report"
@@ -255,5 +261,97 @@ describe("batch grouping", () => {
     expect(
       entries.map((entry) => (entry.kind === "batch" ? entry.batchId : "—"))
     ).toEqual(["bat_a", "bat_b"])
+  })
+})
+
+/**
+ * The durable export's own bookkeeping.
+ *
+ * A batch export outlives the request that asked for it, so its progress is a
+ * row rather than a stream — and every step that writes to that row is retried,
+ * which means the totals have to be a function of the states rather than a
+ * counter something incremented twice.
+ */
+describe("batch export progress", () => {
+  function planned(...ids: string[]): BatchExportDocument[] {
+    return ids.map((id) => ({ id, name: `${id}.pdf`, state: "pending" }))
+  }
+
+  it("counts from the states, so a retried step cannot double-count", () => {
+    let progress = applyDocumentState(planned("a", "b", "c"), "a", {
+      state: "exported",
+      removed: 3,
+    })
+    expect(progress.completed).toBe(1)
+    expect(progress.exported).toBe(1)
+
+    // The same step, run again after a retry.
+    progress = applyDocumentState(progress.documents, "a", {
+      state: "exported",
+      removed: 3,
+    })
+    expect(progress.completed).toBe(1)
+    expect(progress.exported).toBe(1)
+  })
+
+  it("counts a skipped document as settled but not as exported", () => {
+    const progress = applyDocumentState(planned("a", "b"), "a", {
+      state: "skipped",
+      reason: "verification-failed",
+    })
+
+    expect(progress.completed).toBe(1)
+    expect(progress.exported).toBe(0)
+    expect(progress.documents[0].reason).toBe("verification-failed")
+  })
+
+  it("names every document a stopped run never reached", () => {
+    const started = applyDocumentState(planned("a", "b", "c", "d"), "a", {
+      state: "exported",
+      removed: 1,
+    })
+    const during = applyDocumentState(started.documents, "b", {
+      state: "exporting",
+    })
+
+    const settled = settleUnreached(during.documents, "cancelled")
+
+    // Nothing is left looking like it is still being worked on, and the one
+    // document that finished before the stop keeps its result.
+    expect(settled.documents.map((document) => document.state)).toEqual([
+      "exported",
+      "skipped",
+      "skipped",
+      "skipped",
+    ])
+    expect(settled.exported).toBe(1)
+    expect(settled.completed).toBe(4)
+    expect(
+      settled.documents
+        .slice(1)
+        .every((document) => document.reason === "cancelled")
+    ).toBe(true)
+  })
+
+  it("hands the browser no download link until there is an archive", () => {
+    const record = {
+      id: "bex_1",
+      batchId: "bat_1",
+      workflowRunId: "run_1",
+      status: "running",
+      total: 3,
+      completed: 1,
+      exported: 1,
+      documents: planned("a", "b", "c") as unknown as null,
+      cancelRequested: false,
+      error: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:01:00.000Z"),
+    }
+
+    expect(toView(record).downloadUrl).toBeNull()
+    expect(
+      toView(record, "/api/batches/bat_1/download?token=x").downloadUrl
+    ).toBe("/api/batches/bat_1/download?token=x")
   })
 })

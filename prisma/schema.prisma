@@ -87,8 +87,52 @@ model Batch {
 
   documents       Document[]
   rules           BatchRule[]
+  exports         BatchExport[]
 
   @@index([userFingerprint])
+}
+
+/// A durable run that exports every document in a batch.
+///
+/// The run is the record. A batch export is minutes of work that outlives the
+/// request that asked for it — the browser can be closed, the function that
+/// started it can be recycled — so its progress lives here rather than in the
+/// response stream, and any later reader can say exactly where it got to.
+model BatchExport {
+  id              String   @id
+  batchId         String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  /// queued | running | ready | failed | cancelled
+  status          String   @default("queued")
+  /// The durable run doing the work.
+  workflowRunId   String?
+
+  total           Int      @default(0)
+  /// Documents settled either way, so progress is honest about skips.
+  completed       Int      @default(0)
+  exported        Int      @default(0)
+
+  /// One entry per document: its name, its state and why it was skipped. Names
+  /// only — nothing about what was found in any of them.
+  documents       Json?
+
+  /// Export options the run was started with.
+  options         Json?
+  /// Hashed network bucket, so each document is charged the export allowance
+  /// it would have been charged on its own.
+  networkKey      String?
+
+  /// Set by the reviewer; the run stops at the next document boundary.
+  cancelRequested Boolean  @default(false)
+  /// User-facing sentence. Never a raw thrown message.
+  error           String?
+
+  batch Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@index([batchId, status])
 }
 
 /// A decision carried across a batch: "this value is a subject wherever it

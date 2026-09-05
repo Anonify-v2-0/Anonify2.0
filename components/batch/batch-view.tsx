@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { Archive, Globe, Loader2, RotateCcw, Trash2 } from "lucide-react"
+import { Globe, Loader2, RotateCcw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
-import { BatchDownloadDialog } from "@/components/batch/batch-download-dialog"
+import { BatchDownloadButton } from "@/components/batch/batch-download-button"
 import { StatusPill } from "@/components/processing/status-pill"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { useRetryDocument } from "@/hooks/use-retry-document"
@@ -38,7 +38,6 @@ const POLL_INTERVAL_MS = 4000
 
 export function BatchView({ initial }: { initial: BatchOverview }) {
   const [batch, setBatch] = useState(initial)
-  const [downloading, setDownloading] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const { retry: startRetry, retryingId } = useRetryDocument()
 
@@ -136,19 +135,13 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
           <p className="label-micro">
             {batch.documents.length} documents · {ready} ready
           </p>
-          <Button
+          <BatchDownloadButton
+            batchId={batch.id}
+            documentCount={batch.documents.length}
+            readyCount={ready}
+            size="default"
             className="btn-pill h-9"
-            disabled={ready === 0}
-            title={
-              ready === 0
-                ? "Nothing in this batch has finished processing yet"
-                : undefined
-            }
-            onClick={() => setDownloading(true)}
-          >
-            <Archive className="size-4" />
-            Download all
-          </Button>
+          />
         </div>
 
         <ul className="flex flex-col gap-2">
@@ -257,13 +250,6 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
           </ul>
         )}
       </section>
-
-      <BatchDownloadDialog
-        batchId={batch.id}
-        open={downloading}
-        onOpenChange={setDownloading}
-        documentCount={batch.documents.length}
-      />
     </div>
   )
 }
