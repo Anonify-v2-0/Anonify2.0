@@ -71,6 +71,11 @@ export function processedKey(documentId: string, extension: string): string {
   return `documents/${documentId}/redacted.${extension}.bin`
 }
 
+/** The export report that accompanies one generated artifact. */
+export function reportKey(documentId: string, artifactId: string): string {
+  return `documents/${documentId}/report.${artifactId}.json.bin`
+}
+
 export function renderKey(documentId: string, name: string): string {
   return `documents/${documentId}/render/${name}.bin`
 }

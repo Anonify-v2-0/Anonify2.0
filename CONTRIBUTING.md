@@ -207,8 +207,13 @@ Only after the invariants hold for it, including an adversarial test suite.
 
 - [ ] **More formats:** PPTX (the same OOXML approach as DOCX — speaker notes are
       a lovely hiding place), CSV/TSV, plain text, RTF, EML.
-- [ ] **An export report** — what was removed, by category and count, with the
-      checksum — as a separate artifact.
+- [x] ~~**An export report** — what was removed, by category and count, with the
+      checksum — as a separate artifact.~~ `lib/redaction/report.ts`, served by
+      the download route as `?part=report`. Counts by category, the style each
+      removal was applied with, what the reviewer rejected or never decided, and
+      both checksums. It contains no values, and that is checked rather than
+      asserted: the report is verified before it is stored, and a field added
+      later that carries document text fails the export instead of shipping.
 - [ ] **Batch upload**, with review carried across documents.
 - [ ] **Redaction presets** ("GDPR", "HIPAA-shaped", "engineering secrets") as
       named detector + category sets. Presets must not imply compliance; naming

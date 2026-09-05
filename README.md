@@ -141,6 +141,7 @@ upload (browser → Blob)
   → detect: regex first, model for context only
   → review: accept / reject / manual / global rules
   → export: remove, verify, checksum, signed download
+  → report: counts, styles and both checksums, as a second artifact
 ```
 
 ### Redaction is removal, not concealment
@@ -161,6 +162,19 @@ Each of these is argued through in [docs/pipelines.md](docs/pipelines.md).
 
 Every export is then re-opened and read the way an adversary would. A surviving
 value fails the export rather than shipping (`lib/redaction/validation.ts`).
+
+### The export report
+
+Every export produces a second artifact, downloadable beside the file: what was
+removed by category and count, how each removal was applied — solid removal and
+blur are not the same guarantee and the record says which — what the reviewer
+rejected or never decided, and both checksums, so a third party can tie the
+statement to a specific source and a specific output.
+
+It carries counts and never content. A report that lists what was removed,
+verbatim, is a leak with a covering letter, so the report is verified before it
+is stored the same way the document is (`lib/redaction/report.ts`), and `pnpm
+smoke` reads the delivered bytes and fails if a redacted value appears in them.
 
 ### Cost discipline
 

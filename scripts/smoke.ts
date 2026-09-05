@@ -230,6 +230,7 @@ async function main(): Promise<void> {
     appliedRedactions: number
     verifiedValues: number
     downloadUrl: string
+    reportUrl: string
   }>(
     await call(`/api/documents/${reserved.id}/export`, {
       method: "POST",
@@ -274,6 +275,39 @@ async function main(): Promise<void> {
     throw new Error(`fixture value(s) still present: ${known.join(", ")}`)
   }
   step(`downloaded ${artifact.byteLength} bytes, no accepted value present`)
+
+  // 7b. The export report, checked the same adversarial way. It is delivered to
+  //     people who were never shown the original, so "counts, not content" has
+  //     to be true of the bytes rather than of the intention.
+  const reportResponse = await expectOk(
+    await call(exported.reportUrl),
+    "report"
+  )
+  const reportText = await reportResponse.text()
+  const report = JSON.parse(reportText) as {
+    removed: { total: number }
+    artifact: { checksum: string }
+  }
+
+  if (report.removed.total !== exported.appliedRedactions) {
+    throw new Error(
+      `report says ${report.removed.total} removed, export applied ${exported.appliedRedactions}`
+    )
+  }
+
+  const quoted = [...new Set(accepted)].filter((value) =>
+    reportText.includes(value)
+  )
+  if (quoted.length > 0) {
+    throw new Error(
+      `the export report quoted ${quoted.length} redacted value(s): ${quoted
+        .map((value) => JSON.stringify(value))
+        .join(", ")}`
+    )
+  }
+  step(
+    `report accounts for ${report.removed.total} removals and quotes none of them`
+  )
 
   // 8. Clean up after ourselves, and exercise deletion while we are here.
   await expectOk(

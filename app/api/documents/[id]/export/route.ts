@@ -14,12 +14,24 @@ import {
   ExportVerificationError,
 } from "@/lib/redaction/export"
 import { fromDatabaseRow } from "@/lib/redaction/model"
+import {
+  assertReportOmitsValues,
+  buildExportReport,
+  ReportLeakError,
+  serializeExportReport,
+} from "@/lib/redaction/report"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { createDownloadToken } from "@/lib/security/signed-url"
-import { getObject, processedKey, putObject } from "@/lib/storage/blob"
+import {
+  getObject,
+  processedKey,
+  putObject,
+  reportKey,
+} from "@/lib/storage/blob"
 import { decryptDocument, encryptWithDocumentKey } from "@/lib/storage/encryption"
+import { sha256 } from "@/lib/storage/integrity"
 import type { DocumentKind } from "@/types/document"
 
 export const runtime = "nodejs"
@@ -65,7 +77,7 @@ export async function POST(
 
     const record = await prisma.document.findUnique({
       where: { id: document.id },
-      select: { normalizedBlobKey: true },
+      select: { normalizedBlobKey: true, checksum: true },
     })
     if (!record?.normalizedBlobKey) {
       return errorResponse("Document is not ready", 409)
@@ -73,11 +85,12 @@ export async function POST(
 
     const [model, rows] = await Promise.all([
       loadNormalized(record.normalizedBlobKey, document.encryptionKey),
-      prisma.redaction.findMany({
-        where: { documentId: document.id, status: "accepted" },
-      }),
+      // Every redaction, not only the accepted ones: the exporter filters for
+      // itself, and the report has to be able to say what was turned down.
+      prisma.redaction.findMany({ where: { documentId: document.id } }),
     ])
 
+    const redactions = rows.map(fromDatabaseRow)
     const sealed = await getObject(document.sourceBlobKey)
     const source = decryptDocument(sealed, document.encryptionKey)
 
@@ -85,7 +98,7 @@ export async function POST(
       kind: document.kind as DocumentKind,
       source,
       model,
-      redactions: rows.map(fromDatabaseRow),
+      redactions,
       options,
       mimeType: document.mimeType,
     })
@@ -94,6 +107,40 @@ export async function POST(
     const stored = await putObject(
       processedKey(document.id, `${artifactId}.${result.extension}`),
       encryptWithDocumentKey(result.bytes, document.encryptionKey)
+    )
+
+    const report = buildExportReport({
+      document: {
+        id: document.id,
+        kind: document.kind as DocumentKind,
+        sizeBytes: document.size,
+        pageCount: document.pageCount,
+        sourceChecksum: record.checksum ?? "",
+      },
+      artifact: {
+        checksum: result.checksum,
+        sizeBytes: result.bytes.byteLength,
+        mimeType: result.mimeType,
+        extension: result.extension,
+      },
+      options,
+      redactions,
+      verification: {
+        passed: result.verification.passed,
+        checkedValues: result.verification.checkedValues,
+      },
+    })
+    // The report is verified the way the export is, and for the same reason:
+    // it is about to be handed to someone who was not shown the original.
+    assertReportOmitsValues(
+      report,
+      redactions.filter((redaction) => redaction.status === "accepted")
+    )
+
+    const reportBytes = serializeExportReport(report)
+    const storedReport = await putObject(
+      reportKey(document.id, artifactId),
+      encryptWithDocumentKey(reportBytes, document.encryptionKey)
     )
 
     await prisma.exportArtifact.create({
@@ -108,6 +155,8 @@ export async function POST(
         appliedRedactions: result.appliedRedactions,
         metadataSanitized: options.sanitizeMetadata,
         labelsAdded: options.addLabels,
+        reportBlobKey: storedReport.key,
+        reportChecksum: sha256(reportBytes),
       },
     })
 
@@ -144,6 +193,8 @@ export async function POST(
       metadataSanitized: options.sanitizeMetadata,
       verifiedValues: result.verification.checkedValues,
       downloadUrl: `/api/documents/${document.id}/download?token=${token}`,
+      reportUrl: `/api/documents/${document.id}/download?token=${token}&part=report`,
+      report,
     })
   } catch (error) {
     if (error instanceof ExportVerificationError) {
@@ -159,6 +210,22 @@ export async function POST(
       )
       return errorResponse(
         "The generated document did not pass verification and was not saved.",
+        500
+      )
+    }
+    if (error instanceof ReportLeakError) {
+      // The report is refused for the same reason a failed export is: it was
+      // about to disclose the values it exists to account for.
+      console.error(
+        JSON.stringify({
+          level: "error",
+          context: "documents.export",
+          errorCategory: "report-leak",
+          fields: error.fields,
+        })
+      )
+      return errorResponse(
+        "The export report did not pass verification and was not saved.",
         500
       )
     }

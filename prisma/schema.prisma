@@ -133,6 +133,11 @@ model ExportArtifact {
   appliedRedactions Int      @default(0)
   metadataSanitized Boolean  @default(false)
   labelsAdded       Boolean  @default(false)
+  /// The export report generated with this artifact: counts, styles and both
+  /// checksums, stored encrypted beside the file it describes. Null for
+  /// artifacts exported before reports existed.
+  reportBlobKey     String?
+  reportChecksum    String?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
