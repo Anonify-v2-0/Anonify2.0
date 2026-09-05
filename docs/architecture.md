@@ -21,7 +21,7 @@ refusing to blur them.
                                │ extract
 ┌─ B ─ NORMALIZED ─────────────▼───────────────────────────────┐
 │  Pages, spans with geometry, runs, sheets, regions.          │
-│  One vocabulary for four formats.                            │
+│  One vocabulary for every format.                            │
 └──────────────────────────────┬───────────────────────────────┘
                                │ detect
 ┌─ C ─ REDACTIONS ─────────────▼───────────────────────────────┐
@@ -92,7 +92,7 @@ BROWSER                    SERVER                      DURABLE RUN
 
 ### Why uploads go browser → Blob
 
-A serverless function has a request body limit and a duration budget; a 25 MB
+A serverless function has a request body limit and a duration budget; a 50 MiB
 file has neither reason nor need to pass through one. The browser uploads
 directly, which means the server never buffers the file and the progress bar
 reflects the real transfer.
@@ -203,7 +203,12 @@ app/
 
 lib/
   ai/          gateway, prompts, schemas, orchestration
-  documents/   pdf | docx | xlsx | image pipelines, purge, retention
+  documents/   formats.ts — the register every other list derives from
+               pdf | docx | xlsx | image | csv/tsv | txt | rtf | eml | pptx
+               ooxml/ — package access and run surgery, shared by docx + pptx
+               shared/ — text streams, ranges, and the atom map RTF and the
+               HTML inside an email both use
+               purge, retention, detection of what a file actually is
   redaction/   detectors, entities, model, apply, validation, export
   security/    fingerprint, access-control, rate-limit, usage, signed-url
   storage/     blob, encryption, integrity

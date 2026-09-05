@@ -14,7 +14,7 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: "Anonify — AI-assisted document redaction",
   description:
-    "Redact sensitive information from PDF, DOCX, XLSX and image files without destroying the document. AI proposes, you decide, the export is permanent.",
+    "Redact sensitive information from PDF, Word, Excel, PowerPoint, email, CSV, text and image files without destroying the document. AI proposes, you decide, the export is permanent.",
   applicationName: "Anonify",
   icons: {
     icon: [{ url: "/Anonify.png", type: "image/png", sizes: "256x256" }],

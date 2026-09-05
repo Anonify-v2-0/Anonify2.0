@@ -98,7 +98,7 @@ server sees the file.
 The step is idempotent: on replay it sees `sourceBlobKey` already set and returns
 early rather than re-encrypting under a second key and orphaning the first.
 
-### `extractAndNormalize` — one vocabulary from four formats
+### `extractAndNormalize` — one vocabulary from every format
 
 Reads the sealed source back, **re-verifies the checksum** (storage that returns
 different bytes than it was given is a problem worth catching before those bytes
@@ -110,8 +110,16 @@ outside the database. It contains the document's text, and text in a database
 column is text in every backup and every query log.
 
 This is also where the demo allowance is charged, because it is the first moment
-the real cost is known: pages for a document, cells for a workbook. Going over
-stops the pipeline — it never deletes what the user uploaded.
+the real cost is known: pages for a document, cells for a grid, slides for a
+deck, kibibytes of decoded text for a message. Going over stops the pipeline —
+it never deletes what the user uploaded.
+
+The charge is **idempotent**, and it has to be. This step is retried on a
+storage blip or a cold worker and re-extracts from scratch each time, while the
+charge happens before the step returns, so a document that failed after
+charging and succeeded on the next attempt used to be billed twice for one
+upload. The fact of having charged is recorded in the document's own row, and a
+retry reads it back before deciding. See `chargeDocumentUsage`.
 
 ### `analyze` — propose, never decide
 
