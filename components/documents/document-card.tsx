@@ -75,6 +75,7 @@ export function DocumentCard({
   onExtended,
   deleting,
   retrying,
+  showBatchLink = true,
 }: {
   document: DocumentListItem
   onDelete: (id: string) => void
@@ -82,6 +83,8 @@ export function DocumentCard({
   onExtended: (id: string, expiresAt: string) => void
   deleting: boolean
   retrying: boolean
+  /** Off inside a batch group, where the card is already under its heading. */
+  showBatchLink?: boolean
 }) {
   const Icon = KIND_ICONS[document.kind] ?? FileText
   const working = IN_PROGRESS.has(document.status)
@@ -122,7 +125,7 @@ export function DocumentCard({
               </span>
             ) : null}
             <span>{formatCreated(document.createdAt)}</span>
-            {document.batchId ? (
+            {document.batchId && showBatchLink ? (
               // The batch is where the decisions carried across these documents
               // live, and from the list it is otherwise invisible.
               <Link
@@ -137,9 +140,7 @@ export function DocumentCard({
 
           {document.status === "failed" ? (
             <p className="mt-1.5 text-[11px] text-primary">
-              {document.error?.trim()
-                ? document.error
-                : "Analysis failed."}{" "}
+              {document.error?.trim() ? document.error : "Analysis failed."}{" "}
               <span className="text-text-muted">
                 Your file is safe and was not modified.
               </span>

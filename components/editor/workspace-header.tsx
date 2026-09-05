@@ -1,8 +1,17 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, ChevronLeft, ChevronRight, Download, Layers } from "lucide-react"
+import {
+  Archive,
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Layers,
+} from "lucide-react"
 
+import { BatchDownloadDialog } from "@/components/batch/batch-download-dialog"
 import { Brand } from "@/components/layout/brand"
 import { Button } from "@/components/ui/button"
 import { StatusPill } from "@/components/processing/status-pill"
@@ -13,17 +22,18 @@ import { exportDialogToggled } from "@/store/uiSlice"
 import type { DocumentSummary } from "@/types/document"
 
 /**
- * Moving through a batch without going back to the list.
+ * Moving through a batch, and back to it.
  *
  * The count of carried decisions is here rather than buried in the inspector
  * because it is the answer to "why is this already redacted?" — a question a
  * reviewer asks the moment they open the second document in a batch.
+ *
+ * The chip is a link back to the batch and stays at every width. The step
+ * arrows are the part that folds away on a narrow screen: they are a
+ * convenience, whereas losing the only route back to the batch page stranded
+ * the reviewer in a document that plainly belongs to something.
  */
-function BatchNav({
-  batch,
-}: {
-  batch: NonNullable<DocumentSummary["batch"]>
-}) {
+function BatchNav({ batch }: { batch: NonNullable<DocumentSummary["batch"]> }) {
   const step = (id: string | null, direction: "previous" | "next") =>
     id ? (
       <Link
@@ -48,27 +58,37 @@ function BatchNav({
     )
 
   return (
-    <div className="hidden items-center gap-1 md:flex">
-      {step(batch.previousId, "previous")}
+    <div className="flex shrink-0 items-center gap-1">
+      <span className="hidden md:flex">
+        {step(batch.previousId, "previous")}
+      </span>
       <Link
         href={`/batches/${batch.batchId}`}
-        className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-text-secondary transition-colors hover:text-white"
+        title="Back to this batch"
+        className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs whitespace-nowrap text-text-secondary transition-colors hover:border-border-strong hover:text-white sm:px-3"
       >
-        <Layers className="size-3.5" />
-        {batch.position} of {batch.total}
+        <Layers className="size-3.5 text-primary" />
+        <span className="hidden sm:inline">Batch</span>
+        <span className="text-text-muted">
+          {batch.position}
+          <span className="hidden sm:inline"> of </span>
+          <span className="sm:hidden">/</span>
+          {batch.total}
+        </span>
         {batch.carriedRules > 0 ? (
-          <span className="text-text-muted">
+          <span className="hidden text-text-muted lg:inline">
             · {batch.carriedRules} carried
           </span>
         ) : null}
       </Link>
-      {step(batch.nextId, "next")}
+      <span className="hidden md:flex">{step(batch.nextId, "next")}</span>
     </div>
   )
 }
 
 export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
   const dispatch = useAppDispatch()
+  const [downloadingBatch, setDownloadingBatch] = useState(false)
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-4 border-b border-border bg-surface-2 px-4 lg:h-[68px] lg:px-6">
@@ -110,6 +130,31 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
         className="hidden lg:inline-flex"
       />
       <StatusPill status={summary.status} />
+
+      {/*
+        The batch archive, offered where the reviewer finishes the last
+        document rather than only on the batch page. Getting all of them was
+        otherwise a navigation away from the thing you had just completed.
+      */}
+      {summary.batch ? (
+        <>
+          <Button
+            variant="outline"
+            className="h-9"
+            aria-label="Download the whole batch"
+            onClick={() => setDownloadingBatch(true)}
+          >
+            <Archive className="size-4" />
+            <span className="hidden lg:inline">Batch</span>
+          </Button>
+          <BatchDownloadDialog
+            batchId={summary.batch.batchId}
+            open={downloadingBatch}
+            onOpenChange={setDownloadingBatch}
+            documentCount={summary.batch.total}
+          />
+        </>
+      ) : null}
 
       <Button
         className="btn-pill h-9"

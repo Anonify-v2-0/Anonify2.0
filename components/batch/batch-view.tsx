@@ -2,22 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import {
-  Archive,
-  Download,
-  Globe,
-  Loader2,
-  RotateCcw,
-  Trash2,
-} from "lucide-react"
+import { Archive, Globe, Loader2, RotateCcw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { BatchDownloadDialog } from "@/components/batch/batch-download-dialog"
 import { StatusPill } from "@/components/processing/status-pill"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { useRetryDocument } from "@/hooks/use-retry-document"
 import { toastFailure } from "@/lib/api/errors"
 import type { BatchOverview } from "@/lib/documents/batches"
-import type { SkipReason } from "@/lib/redaction/archive"
 import { isRetryable } from "@/lib/workflows/failure"
 import { cn } from "@/lib/utils"
 
@@ -43,24 +36,9 @@ const IN_PROGRESS = new Set([
 
 const POLL_INTERVAL_MS = 4000
 
-const SKIP_LABELS: Record<SkipReason, string> = {
-  "not-ready": "had not finished processing",
-  "verification-failed": "failed verification and was withheld",
-  "rate-limited": "hit the export allowance",
-  "archive-full": "did not fit in the archive",
-  "export-failed": "could not be exported",
-}
-
-type ExportState = {
-  downloadUrl: string | null
-  exported: number
-  skipped: { documentId: string; reason: SkipReason }[]
-}
-
 export function BatchView({ initial }: { initial: BatchOverview }) {
   const [batch, setBatch] = useState(initial)
-  const [exporting, setExporting] = useState(false)
-  const [result, setResult] = useState<ExportState | null>(null)
+  const [downloading, setDownloading] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const { retry: startRetry, retryingId } = useRetryDocument()
 
@@ -102,50 +80,6 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
   const ready = batch.documents.filter(
     (document) => document.status === "ready"
   ).length
-
-  const exportAll = useCallback(async () => {
-    setExporting(true)
-    setResult(null)
-
-    try {
-      const response = await fetch(`/api/batches/${batch.id}/export`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sanitizeMetadata: true, addLabels: false }),
-      })
-
-      const payload = (await response.json()) as {
-        downloadUrl: string | null
-        exported: { documentId: string }[]
-        skipped: { documentId: string; reason: SkipReason }[]
-        error?: string
-      }
-
-      if (!response.ok && !payload.downloadUrl) {
-        await toastFailure(
-          toast,
-          response.clone(),
-          "Nothing in this batch could be exported yet."
-        )
-        setResult({
-          downloadUrl: null,
-          exported: 0,
-          skipped: payload.skipped ?? [],
-        })
-        return
-      }
-
-      setResult({
-        downloadUrl: payload.downloadUrl,
-        exported: payload.exported.length,
-        skipped: payload.skipped,
-      })
-    } catch {
-      toast.error("The batch export could not be generated.")
-    } finally {
-      setExporting(false)
-    }
-  }, [batch.id])
 
   const removeRule = useCallback(
     async (ruleId: string) => {
@@ -204,15 +138,16 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
           </p>
           <Button
             className="btn-pill h-9"
-            disabled={exporting || ready === 0}
-            onClick={exportAll}
+            disabled={ready === 0}
+            title={
+              ready === 0
+                ? "Nothing in this batch has finished processing yet"
+                : undefined
+            }
+            onClick={() => setDownloading(true)}
           >
-            {exporting ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Archive className="size-4" />
-            )}
-            Export all
+            <Archive className="size-4" />
+            Download all
           </Button>
         </div>
 
@@ -258,7 +193,9 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
 
               <Link
                 href={`/workspace/${document.id}`}
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                className={cn(
+                  buttonVariants({ variant: "outline", size: "sm" })
+                )}
               >
                 Review
               </Link>
@@ -280,7 +217,9 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
         {batch.rules.length === 0 ? (
           <p className="rounded-[10px] border border-dashed border-border px-4 py-6 text-center text-xs text-text-muted">
             None yet. In a document, use{" "}
-            <span className="text-text-secondary">Everywhere → whole batch</span>{" "}
+            <span className="text-text-secondary">
+              Everywhere → whole batch
+            </span>{" "}
             on a suggestion to decide it once for every file here.
           </p>
         ) : (
@@ -319,41 +258,12 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
         )}
       </section>
 
-      {result ? (
-        <section className="space-y-3 rounded-[10px] border border-border p-4">
-          <p className="label-micro text-primary">Batch export</p>
-          <p className="text-sm text-text-secondary">
-            {result.exported}{" "}
-            {result.exported === 1 ? "document" : "documents"} exported and
-            verified. The archive carries each redacted file with its own
-            report, and a roll-up.
-          </p>
-
-          {result.skipped.length > 0 ? (
-            <ul className="space-y-1 text-xs text-text-muted">
-              {result.skipped.map((skip) => (
-                <li key={skip.documentId}>
-                  {batch.documents.find(
-                    (document) => document.id === skip.documentId
-                  )?.originalName ?? skip.documentId}{" "}
-                  — {SKIP_LABELS[skip.reason]}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          {result.downloadUrl ? (
-            <a
-              href={result.downloadUrl}
-              download
-              className={cn(buttonVariants(), "btn-pill h-10")}
-            >
-              <Download className="size-4" />
-              Download archive
-            </a>
-          ) : null}
-        </section>
-      ) : null}
+      <BatchDownloadDialog
+        batchId={batch.id}
+        open={downloading}
+        onOpenChange={setDownloading}
+        documentCount={batch.documents.length}
+      />
     </div>
   )
 }

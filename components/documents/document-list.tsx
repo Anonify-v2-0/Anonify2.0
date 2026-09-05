@@ -5,9 +5,11 @@ import Link from "next/link"
 import { UploadCloud } from "lucide-react"
 import { toast } from "sonner"
 
+import { BatchGroup } from "@/components/documents/batch-group"
 import { DocumentCard } from "@/components/documents/document-card"
 import { useRetryDocument } from "@/hooks/use-retry-document"
 import { toastFailure } from "@/lib/api/errors"
+import { groupByBatch } from "@/lib/documents/grouping"
 import type { DocumentListItem } from "@/lib/documents/listing"
 
 /**
@@ -16,6 +18,10 @@ import type { DocumentListItem } from "@/lib/documents/listing"
  * It refreshes on its own while anything is still processing, so a document
  * that was queued when the page loaded turns into a ready one without the user
  * reaching for reload. Once everything has settled the polling stops.
+ *
+ * Documents uploaded together are shown together. A batch is a single review
+ * pass with decisions carried across it and one archive at the end, and a flat
+ * list left the reviewer inferring all of that from filenames.
  */
 
 const POLL_INTERVAL_MS = 4000
@@ -84,7 +90,11 @@ export function DocumentList({
     try {
       const response = await fetch(`/api/documents/${id}`, { method: "DELETE" })
       if (!response.ok) {
-        await toastFailure(toast, response, "That document could not be deleted.")
+        await toastFailure(
+          toast,
+          response,
+          "That document could not be deleted."
+        )
         return
       }
 
@@ -123,6 +133,8 @@ export function DocumentList({
     [startRetry]
   )
 
+  const entries = groupByBatch(documents)
+
   if (documents.length === 0) {
     return (
       <div className="flex flex-col items-center gap-4 rounded-[10px] border border-dashed border-border px-6 py-16 text-center">
@@ -144,17 +156,30 @@ export function DocumentList({
 
   return (
     <ul className="flex flex-col gap-3">
-      {documents.map((document) => (
-        <DocumentCard
-          key={document.id}
-          document={document}
-          onDelete={remove}
-          onRetry={retry}
-          onExtended={onExtended}
-          deleting={deleting === document.id}
-          retrying={retryingId === document.id}
-        />
-      ))}
+      {entries.map((entry) =>
+        entry.kind === "batch" ? (
+          <BatchGroup
+            key={entry.batchId}
+            batchId={entry.batchId}
+            documents={entry.documents}
+            onDelete={remove}
+            onRetry={retry}
+            onExtended={onExtended}
+            deletingId={deleting}
+            retryingId={retryingId}
+          />
+        ) : (
+          <DocumentCard
+            key={entry.document.id}
+            document={entry.document}
+            onDelete={remove}
+            onRetry={retry}
+            onExtended={onExtended}
+            deleting={deleting === entry.document.id}
+            retrying={retryingId === entry.document.id}
+          />
+        )
+      )}
     </ul>
   )
 }

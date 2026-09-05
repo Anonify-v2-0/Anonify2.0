@@ -2,14 +2,12 @@ import { z } from "zod"
 
 import { errorResponse, handleRouteError, jsonResponse } from "@/lib/api/http"
 import { requireBatch } from "@/lib/documents/batches"
-import { listBatchDocuments } from "@/lib/documents/listing"
-import type { SkipReason } from "@/lib/redaction/archive"
-import { exportAndStore } from "@/lib/redaction/deliver"
-import { ExportVerificationError } from "@/lib/redaction/export"
-import { ReportLeakError } from "@/lib/redaction/report"
+import {
+  collectBatchExport,
+  EmptyBatchError,
+  runBatchExport,
+} from "@/lib/redaction/batch-export"
 import { peekIdentity } from "@/lib/security/fingerprint"
-import { consumeRateLimit } from "@/lib/security/rate-limit"
-import { createBatchToken } from "@/lib/security/signed-url"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -20,20 +18,17 @@ const optionsSchema = z.object({
   imageStyle: z.enum(["solid", "blur", "pixelate"]).default("solid"),
 })
 
+const NDJSON = "application/x-ndjson"
+
 /**
  * Exports every document in the batch.
  *
- * Each document is exported exactly as it would be on its own — the same
- * builder, the same verification gate, the same stored artifact and report. The
- * batch adds one rule and it is the important one: **a document that fails does
- * not hold up the rest.** A refused verification, a document still processing,
- * an exhausted export allowance — each of those removes one document from the
- * archive and is named in the response, rather than failing the batch.
- *
- * Rate limiting is charged per document, because that is what the work is. When
- * the allowance runs out partway, the documents already exported stand and the
- * remainder are reported as skipped, with the reason, so the reviewer can come
- * back for them rather than losing the ones that succeeded.
+ * The run itself lives in `lib/redaction/batch-export.ts`; this route decides
+ * how to answer. A client that asks for `application/x-ndjson` is streamed one
+ * JSON line per event as the work happens — a batch is minutes of work, and a
+ * progress bar that can name the document it is on is the difference between
+ * waiting and wondering. Anything else gets the single JSON reply this route
+ * has always returned.
  */
 export async function POST(
   request: Request,
@@ -45,88 +40,94 @@ export async function POST(
 
     const batch = await requireBatch(id, identity?.ownerKey)
     const options = optionsSchema.parse(await request.json().catch(() => ({})))
+    const networkKey = identity?.networkKey ?? "anonymous"
 
-    const documents = await listBatchDocuments(batch.id)
-    if (documents.length === 0) {
-      return errorResponse("This batch has no documents left", 409)
+    if (request.headers.get("accept")?.includes(NDJSON)) {
+      return streamed({ batch, options, networkKey })
     }
 
-    const exported: { documentId: string; artifactId: string; removed: number }[] = []
-    const skipped: { documentId: string; reason: SkipReason }[] = []
-    let allowanceGone = false
+    const result = await collectBatchExport({ batch, options, networkKey })
 
-    for (const document of documents) {
-      if (allowanceGone) {
-        skipped.push({ documentId: document.id, reason: "rate-limited" })
-        continue
-      }
+    // Nothing exported is not a partial success: there is no archive behind the
+    // token, so the status says so and the skip reasons explain why.
+    return jsonResponse(result, result.exported.length === 0 ? 409 : 200)
+  } catch (error) {
+    if (error instanceof EmptyBatchError) {
+      return errorResponse("This batch has no documents left", 409)
+    }
+    return handleRouteError(error, "batches.export")
+  }
+}
 
-      if (document.status !== "ready") {
-        skipped.push({ documentId: document.id, reason: "not-ready" })
-        continue
-      }
+/**
+ * The same run, reported as it goes.
+ *
+ * The headers matter as much as the body: a proxy that buffers this delivers
+ * every event at once at the end, which is exactly the spinner the stream
+ * exists to replace.
+ *
+ * A client that goes away stops the run. Breaking out of the loop returns the
+ * generator, so the batch does not spend another document's export allowance
+ * producing an archive nobody is waiting for — and the documents already
+ * exported keep their artifacts, which is what makes coming back cheap.
+ */
+function streamed(input: Parameters<typeof runBatchExport>[0]): Response {
+  const encoder = new TextEncoder()
+  let gone = false
 
-      const limit = await consumeRateLimit(
-        "export",
-        identity?.networkKey ?? "anonymous"
-      )
-      if (!limit.allowed) {
-        allowanceGone = true
-        skipped.push({ documentId: document.id, reason: "rate-limited" })
-        continue
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: unknown) => {
+        if (gone) return
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+        } catch {
+          // The consumer disconnected between the check and the write.
+          gone = true
+        }
       }
 
       try {
-        const outcome = await exportAndStore(document.id, options)
-        if (!outcome.ok) {
-          skipped.push({ documentId: document.id, reason: "not-ready" })
-          continue
+        for await (const event of runBatchExport(input)) {
+          if (gone) break
+          send(event)
         }
-
-        exported.push({
-          documentId: document.id,
-          artifactId: outcome.delivered.artifactId,
-          removed: outcome.delivered.appliedRedactions,
-        })
       } catch (error) {
-        // One document's failure is one document's failure. It is logged with
-        // its category, left out of the archive, and named in the response —
-        // never delivered, and never allowed to cost the others their export.
-        const reason: SkipReason =
-          error instanceof ExportVerificationError ||
-          error instanceof ReportLeakError
-            ? "verification-failed"
-            : "export-failed"
-
+        // The response has already begun, so a failure cannot become a status
+        // code. It goes down the stream as a final event the client renders.
         console.error(
           JSON.stringify({
             level: "error",
-            context: "batches.export",
-            batchId: batch.id,
-            documentId: document.id,
-            errorCategory: reason,
+            context: "batches.export.stream",
+            errorCategory:
+              error instanceof EmptyBatchError ? "empty-batch" : "unexpected",
           })
         )
-
-        skipped.push({ documentId: document.id, reason })
+        send({
+          type: "error",
+          message:
+            error instanceof EmptyBatchError
+              ? "This batch has no documents left."
+              : "The batch export could not be completed.",
+        })
+      } finally {
+        try {
+          controller.close()
+        } catch {
+          // Already closed by the cancel above; nothing to do.
+        }
       }
-    }
+    },
+    cancel() {
+      gone = true
+    },
+  })
 
-    if (exported.length === 0) {
-      return jsonResponse({ exported, skipped, downloadUrl: null }, 409)
-    }
-
-    const token = createBatchToken({
-      batchId: batch.id,
-      ownerKey: batch.userFingerprint,
-    })
-
-    return jsonResponse({
-      exported,
-      skipped,
-      downloadUrl: `/api/batches/${batch.id}/download?token=${token}`,
-    })
-  } catch (error) {
-    return handleRouteError(error, "batches.export")
-  }
+  return new Response(body, {
+    headers: {
+      "content-type": `${NDJSON}; charset=utf-8`,
+      "cache-control": "no-store, no-transform",
+      "x-accel-buffering": "no",
+    },
+  })
 }

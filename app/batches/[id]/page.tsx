@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { UploadCloud } from "lucide-react"
+import { ArrowLeft, UploadCloud } from "lucide-react"
 
 import { BatchView } from "@/components/batch/batch-view"
 import { Brand } from "@/components/layout/brand"
@@ -39,8 +39,18 @@ export default async function BatchPage(props: PageProps<"/batches/[id]">) {
 
   return (
     <div className="flex min-h-svh flex-col">
-      <header className="flex h-16 items-center justify-between border-b border-border px-6 lg:h-20 lg:px-10">
-        <Brand />
+      <header className="flex h-16 items-center justify-between gap-4 border-b border-border px-6 lg:h-20 lg:px-10">
+        <div className="flex min-w-0 items-center gap-4">
+          <Brand />
+          {/* The way back out of a batch, so the two pages are a loop. */}
+          <Link
+            href="/documents"
+            className="flex items-center gap-1.5 text-xs text-text-muted transition-colors hover:text-white"
+          >
+            <ArrowLeft className="size-4" />
+            <span className="hidden sm:inline">Documents</span>
+          </Link>
+        </div>
         <Link
           href="/"
           className="btn-pill inline-flex h-9 items-center gap-2 text-sm"

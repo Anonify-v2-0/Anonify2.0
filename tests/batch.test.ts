@@ -9,6 +9,8 @@ import {
   serializeBatchReport,
   uniqueNames,
 } from "@/lib/redaction/archive"
+import { groupByBatch } from "@/lib/documents/grouping"
+import type { DocumentListItem } from "@/lib/documents/listing"
 import { buildExportReport, type ExportReport } from "@/lib/redaction/report"
 import type { Redaction } from "@/types/redaction"
 import { SENSITIVE } from "./fixtures"
@@ -172,5 +174,86 @@ describe("batch report", () => {
     for (const value of values) {
       expect(serialized).not.toContain(value)
     }
+  })
+})
+
+/**
+ * The session list, grouped. The order is the point: the list runs newest
+ * first, a batch is reviewed oldest first, and both have to hold at once.
+ */
+describe("batch grouping", () => {
+  function listed(
+    id: string,
+    batchId: string | null,
+    createdAt: string
+  ): DocumentListItem {
+    return {
+      id,
+      originalName: `${id}.pdf`,
+      kind: "pdf",
+      mimeType: "application/pdf",
+      size: 1024,
+      status: "ready",
+      pageCount: 1,
+      createdAt,
+      expiresAt: "2026-01-02T00:00:00.000Z",
+      error: null,
+      errorCode: null,
+      hasExport: false,
+      batchId,
+      counts: { total: 0, suggested: 0, accepted: 0 },
+    }
+  }
+
+  // Newest first, which is the order the documents page reads them in.
+  const documents = [
+    listed("solo_2", null, "2026-01-01T05:00:00.000Z"),
+    listed("b_3", "bat_1", "2026-01-01T04:00:00.000Z"),
+    listed("b_2", "bat_1", "2026-01-01T03:00:00.000Z"),
+    listed("b_1", "bat_1", "2026-01-01T02:00:00.000Z"),
+    listed("solo_1", null, "2026-01-01T01:00:00.000Z"),
+  ]
+
+  it("puts the batch where its newest document was, and orders it oldest first", () => {
+    const entries = groupByBatch(documents)
+
+    expect(entries.map((entry) => entry.kind)).toEqual([
+      "document",
+      "batch",
+      "document",
+    ])
+
+    const batch = entries[1]
+    if (batch.kind !== "batch") throw new Error("expected a batch entry")
+    expect(batch.batchId).toBe("bat_1")
+    // The order the batch page numbers them in, and the workspace steps
+    // through them: "3 of 3" has to mean the same thing on every page.
+    expect(batch.documents.map((document) => document.id)).toEqual([
+      "b_1",
+      "b_2",
+      "b_3",
+    ])
+  })
+
+  it("leaves a batch of one as a plain document", () => {
+    const entries = groupByBatch([
+      listed("only", "bat_2", "2026-01-01T00:00:00.000Z"),
+    ])
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0].kind).toBe("document")
+  })
+
+  it("keeps two batches apart", () => {
+    const entries = groupByBatch([
+      listed("a_2", "bat_a", "2026-01-01T04:00:00.000Z"),
+      listed("b_2", "bat_b", "2026-01-01T03:00:00.000Z"),
+      listed("a_1", "bat_a", "2026-01-01T02:00:00.000Z"),
+      listed("b_1", "bat_b", "2026-01-01T01:00:00.000Z"),
+    ])
+
+    expect(
+      entries.map((entry) => (entry.kind === "batch" ? entry.batchId : "—"))
+    ).toEqual(["bat_a", "bat_b"])
   })
 })
