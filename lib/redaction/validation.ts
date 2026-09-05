@@ -2,6 +2,7 @@ import { extractDelimited } from "@/lib/documents/delimited/extract"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { openPackage, readPart } from "@/lib/documents/docx/ooxml"
 import { extractPdfText } from "@/lib/documents/pdf/redact"
+import { emlHaystack } from "@/lib/documents/eml/validate"
 import { extractRtf } from "@/lib/documents/rtf/extract"
 import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
@@ -74,6 +75,11 @@ async function haystackFor(
       const { text } = extractText("verify", bytes)
       return text
     }
+    case "eml":
+      // Reparsed twice: once by this pipeline's own parser, and once by an
+      // independent MIME library. A message that only our parser can read is
+      // not a message anybody received.
+      return emlHaystack(bytes)
     case "rtf": {
       // Re-parsed, which also proves the export is still RTF: a file that no
       // longer opens would throw here rather than pass for want of a match.

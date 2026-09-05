@@ -1,4 +1,5 @@
 import { formatOf, kindForExtension } from "@/lib/documents/formats"
+import { looksLikeEml } from "@/lib/documents/eml/parse"
 import { looksLikeRtf } from "@/lib/documents/rtf/parse"
 import type { DocumentKind } from "@/types/document"
 
@@ -127,6 +128,19 @@ export function detectDocumentType(
       kind: "rtf",
       mimeType: formatOf("rtf").mimeType,
       extension: "rtf",
+    }
+  }
+
+  // A message has a structure that can be checked without the filename:
+  // header lines, at least one of which is a header a message actually has.
+  // Deliberately not gated on the text test below — a message may carry an
+  // attachment transferred as raw 8-bit binary, which is a valid message and
+  // not a text file.
+  if (looksLikeEml(bytes)) {
+    return {
+      kind: "eml",
+      mimeType: formatOf("eml").mimeType,
+      extension: "eml",
     }
   }
 

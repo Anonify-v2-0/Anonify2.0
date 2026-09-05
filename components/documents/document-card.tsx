@@ -7,6 +7,7 @@ import {
   FileType,
   Image as ImageIcon,
   Layers,
+  Mail,
   Loader2,
   RotateCcw,
   Trash2,
@@ -38,6 +39,7 @@ const KIND_ICONS: Record<DocumentKind, typeof FileText> = {
   tsv: FileSpreadsheet,
   txt: FileType,
   rtf: FileType,
+  eml: Mail,
 }
 
 const IN_PROGRESS = new Set([

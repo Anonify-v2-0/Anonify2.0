@@ -1,4 +1,9 @@
 import type { DelimitedRedactionPlan } from "@/lib/documents/delimited/redact"
+import { parseEmlAddress } from "@/lib/documents/eml/address"
+import {
+  headerKey,
+  type EmlRedactionPlan,
+} from "@/lib/documents/eml/redact"
 import type { CharRange } from "@/lib/documents/shared/text"
 import type { DocxRedactionPlan } from "@/lib/documents/docx/redact"
 import type { ImageRedactionPlan, RedactionStyle } from "@/lib/documents/image/redact"
@@ -296,6 +301,88 @@ export function buildTextPlan(
 
   return {
     ranges,
+    values: acceptedValues(redactions),
+    label: labelFor(options),
+  }
+}
+
+/**
+ * Email: page offsets translated back to places in the MIME tree.
+ *
+ * Every span the reviewer saw carries an address — a header and which
+ * occurrence of it, a part and an offset into that part's decoded text, or an
+ * attachment's filename — so this is a translation rather than a search. That
+ * matters more here than anywhere else in the codebase: the same value can be
+ * in a header, in a body, in the HTML alternative of that body, in a quoted
+ * reply and in a filename, and "the second occurrence of john@example.com"
+ * would not tell an exporter which of those to touch.
+ *
+ * A span whose address does not parse is skipped rather than guessed at. There
+ * is no safe fallback: editing the wrong part of a message means either
+ * leaving the value or corrupting something that was fine.
+ */
+export function buildEmlPlan(
+  model: NormalizedDocument,
+  redactions: Redaction[],
+  options: ExportOptions
+): EmlRedactionPlan {
+  const bodies: EmlRedactionPlan["bodies"] = {}
+  const headers: EmlRedactionPlan["headers"] = {}
+  const filenames: EmlRedactionPlan["filenames"] = {}
+
+  const add = (
+    into: Record<string, CharRange[]>,
+    key: string,
+    range: CharRange
+  ) => {
+    into[key] = [...(into[key] ?? []), range]
+  }
+
+  for (const redaction of redactions) {
+    if (!isAccepted(redaction)) continue
+    if (redaction.start === undefined || redaction.end === undefined) continue
+
+    const page = model.pages.find(
+      (candidate) => candidate.number === (redaction.page ?? 1)
+    )
+    if (!page) continue
+
+    for (const span of page.spans) {
+      if (span.end <= redaction.start || span.start >= redaction.end) continue
+
+      const address = parseEmlAddress(span.id)
+      if (!address) continue
+
+      const within = rangeWithinSpan(span, redaction.start, redaction.end)
+      if (!within) continue
+
+      switch (address.kind) {
+        case "header":
+          add(
+            headers,
+            headerKey(address.path, address.name, address.index),
+            within
+          )
+          break
+        case "body":
+          // The span is one line of the part; its address is where that line
+          // begins in the part's own decoded text.
+          add(bodies, address.path, {
+            start: address.offset + within.start,
+            end: address.offset + within.end,
+          })
+          break
+        case "filename":
+          add(filenames, address.path, within)
+          break
+      }
+    }
+  }
+
+  return {
+    bodies,
+    headers,
+    filenames,
     values: acceptedValues(redactions),
     label: labelFor(options),
   }

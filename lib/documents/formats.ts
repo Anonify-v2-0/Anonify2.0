@@ -158,6 +158,24 @@ export const FORMATS: Record<DocumentKind, FormatDefinition> = {
     quotaUnit: "pages of extracted text",
     container: "flat",
   },
+  eml: {
+    kind: "eml",
+    label: "Email (.eml)",
+    mimeType: "message/rfc822",
+    mimeTypes: ["message/rfc822"],
+    extension: "eml",
+    extensions: ["eml", "mime"],
+    extractable: true,
+    exportable: true,
+    // Kibibytes of decoded text — headers, every body, every nested message.
+    // Counting an email as a page would charge a one-line reply the same as a
+    // forwarded thread with four quoted replies in it.
+    quota: "emailKilobytes",
+    quotaUnit: "kibibytes of decoded text",
+    // A MIME tree: the same name can be in a header, in a body, in the HTML
+    // alternative of that body, in a quoted reply and in a filename.
+    container: "mime",
+  },
   image: {
     kind: "image",
     label: "Images (PNG, JPEG, WebP)",

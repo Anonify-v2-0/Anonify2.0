@@ -13,6 +13,7 @@ export const DOCUMENT_KINDS = [
   "tsv",
   "txt",
   "rtf",
+  "eml",
 ] as const
 
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number]

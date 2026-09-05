@@ -17,6 +17,7 @@ import {
   MAX_VISION_PAGES,
   renderPagesForVision,
 } from "@/lib/documents/pdf/page-images"
+import { extractEml } from "@/lib/documents/eml/extract"
 import { extractRtf } from "@/lib/documents/rtf/extract"
 import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
@@ -324,6 +325,10 @@ async function extractByKind(
     }
     case "rtf": {
       const { document } = extractRtf(documentId, bytes)
+      return document
+    }
+    case "eml": {
+      const { document } = extractEml(documentId, bytes)
       return document
     }
     default:

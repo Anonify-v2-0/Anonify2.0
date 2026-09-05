@@ -2,12 +2,14 @@ import { redactDelimited } from "@/lib/documents/delimited/redact"
 import { redactDocx } from "@/lib/documents/docx/redact"
 import { redactImage } from "@/lib/documents/image/redact"
 import { redactPdf } from "@/lib/documents/pdf/redact"
+import { redactEml } from "@/lib/documents/eml/redact"
 import { redactRtf } from "@/lib/documents/rtf/redact"
 import { redactText } from "@/lib/documents/text/redact"
 import { redactXlsx } from "@/lib/documents/xlsx/redact"
 import {
   buildDelimitedPlan,
   buildDocxPlan,
+  buildEmlPlan,
   buildImagePlan,
   buildPdfPlan,
   buildTextPlan,
@@ -82,6 +84,9 @@ export async function exportRedacted(input: {
       break
     case "txt":
       bytes = redactText(source, buildTextPlan(model, accepted, options))
+      break
+    case "eml":
+      bytes = redactEml(source, buildEmlPlan(model, accepted, options))
       break
     case "rtf":
       // The same plan the plain-text exporter takes: RTF spans are addressed

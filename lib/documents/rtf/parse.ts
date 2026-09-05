@@ -1,3 +1,8 @@
+import type {
+  SourceAtom,
+  SourceAtomKind,
+} from "@/lib/documents/shared/atoms"
+
 /**
  * RTF, parsed into visible text plus the map back to where it came from.
  *
@@ -21,27 +26,15 @@
  * That is the same contract the DOCX pipeline relies on, reached differently.
  */
 
-export type RtfAtomKind =
-  /** Plain characters, one source byte per text character. */
-  | "literal"
-  /** An escape that produced one character from several source bytes. */
-  | "escape"
-  /**
-   * A break: `\par`, `\line`, `\tab`, `\cell`. It contributes text, so offsets
-   * line up with what a reviewer reads, but removing it would restructure the
-   * document rather than redact it.
-   */
-  | "structural"
+/**
+ * The three atom kinds are shared with the HTML parser inside the email
+ * pipeline, because it is the same problem: see lib/documents/shared/atoms.ts.
+ * Here a `\par` is structural, `\'e9` and `\u233?` are escapes, and ordinary
+ * characters are literals whose bytes are their characters.
+ */
+export type RtfAtomKind = SourceAtomKind
 
-export type RtfAtom = {
-  kind: RtfAtomKind
-  /** Byte range in the source RTF. */
-  start: number
-  end: number
-  /** Range in the decoded visible text. */
-  textStart: number
-  textEnd: number
-}
+export type RtfAtom = SourceAtom
 
 export type RtfDocument = {
   /** Visible text, in document order. */
