@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  Code,
   Download,
   Layers,
 } from "lucide-react"
@@ -14,6 +15,7 @@ import { Brand } from "@/components/layout/brand"
 import { Button } from "@/components/ui/button"
 import { StatusPill } from "@/components/processing/status-pill"
 import { RetentionControl } from "@/components/documents/retention-control"
+import { REPOSITORY_URL } from "@/lib/config"
 import { useAppDispatch } from "@/store/hooks"
 import { documentLoaded } from "@/store/documentSlice"
 import { exportDialogToggled } from "@/store/uiSlice"
@@ -100,6 +102,22 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
         <ArrowLeft className="size-4" />
         <span className="hidden md:inline">Documents</span>
       </Link>
+
+      {/*
+        The reviewer is trusting this tool with their file, so the workspace is
+        where a "where does this come from?" link earns its place — a subtle
+        affordance, not a full footer in the editor chrome.
+      */}
+      <a
+        href={REPOSITORY_URL}
+        target="_blank"
+        rel="noreferrer"
+        title="View source on GitHub"
+        className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-text-muted transition-colors hover:border-border-strong hover:text-white lg:flex"
+      >
+        <Code className="size-3.5" />
+        Source
+      </a>
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-white md:text-base">

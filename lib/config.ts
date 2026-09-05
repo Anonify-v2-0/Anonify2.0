@@ -54,6 +54,13 @@ export const ALLOWED_TTL_SECONDS: TtlOption[] = [3600, 21600, 86400, 259200]
  */
 export const MAX_RETENTION_SECONDS = 72 * 60 * 60
 
+/**
+ * The project's own source. Anonify is a clone-and-run tool, not a hosted
+ * service — the repo is where the real capabilities live — so the UI surfaces
+ * this wherever a curious reviewer or self-hoster might look for it.
+ */
+export const REPOSITORY_URL = "https://github.com/nabeel-w/Anonify2.0"
+
 // Quotas live in lib/security/quota-config.ts and rate limits in
 // lib/security/rate-limit-config.ts. Both differ by deployment profile — the
 // demo rations a shared endpoint, a self-hosted install has nobody to ration

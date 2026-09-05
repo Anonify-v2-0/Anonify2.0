@@ -1,6 +1,8 @@
 import Link from "next/link"
+import { Code } from "lucide-react"
 
 import { Brand } from "@/components/layout/brand"
+import { REPOSITORY_URL } from "@/lib/config"
 
 export default function NotFound() {
   return (
@@ -19,6 +21,15 @@ export default function NotFound() {
         <Link href="/" className="btn-pill mt-2 inline-flex h-10 items-center">
           Upload a document
         </Link>
+        <a
+          href={`${REPOSITORY_URL}/issues`}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 inline-flex items-center gap-1.5 text-xs text-text-muted transition-colors hover:text-white"
+        >
+          <Code className="size-3.5" />
+          Something missing? Open an issue
+        </a>
       </main>
     </div>
   )
