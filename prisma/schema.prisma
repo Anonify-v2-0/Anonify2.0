@@ -23,7 +23,13 @@ model Document {
   pageCount        Int?
 
   status           String   @default("queued")
+  /// User-facing failure sentence, chosen from lib/workflows/failure.ts. Never
+  /// a raw thrown message: those can carry internal detail, and a parser error
+  /// is not guaranteed to be free of document content.
   error            String?
+  /// Why it failed, as a stable code. Retry decisions read this rather than
+  /// re-parsing the sentence shown to the user.
+  errorCode        String?
 
   /// Set once the client upload has been ingested and re-sealed by the
   /// pipeline. Null while the browser is still uploading.

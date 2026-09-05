@@ -31,6 +31,13 @@ export type OwnedDocument = {
   encryptionKey: string | null
   checksum: string | null
   error: string | null
+  errorCode: string | null
+  /**
+   * Present once extraction has produced a normalized model. A failure after
+   * this point still leaves a document worth opening — the text is there and
+   * can be redacted by hand — while a failure before it leaves nothing to show.
+   */
+  normalizedBlobKey: string | null
   userFingerprint: string
 }
 
@@ -59,6 +66,8 @@ export async function requireDocument(
       encryptionKey: true,
       checksum: true,
       error: true,
+      errorCode: true,
+      normalizedBlobKey: true,
       userFingerprint: true,
     },
   })

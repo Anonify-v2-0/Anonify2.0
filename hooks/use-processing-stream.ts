@@ -3,7 +3,10 @@
 import { useEffect, useRef } from "react"
 
 import { decodeStreamEvent } from "@/lib/workflows/events"
-import { documentStatusChanged } from "@/store/documentSlice"
+import {
+  documentFailureRecorded,
+  documentStatusChanged,
+} from "@/store/documentSlice"
 import { useAppDispatch } from "@/store/hooks"
 import {
   eventReceived,
@@ -138,7 +141,18 @@ export function useProcessingStream(documentId: string, initialStatus: string) {
         dispatch(suggestionCountChanged(event.payload.suggestions))
       }
       if (event.type === "document.failed") {
-        dispatch(processingFailed(event.message ?? "Processing failed"))
+        const message = event.message ?? "Processing failed"
+        const code = event.payload?.code
+        dispatch(processingFailed(message))
+        // Carry the reason and its code onto the summary too, so the failure
+        // notice can say what happened and decide whether retrying is worth
+        // offering, without waiting for a server round trip.
+        dispatch(
+          documentFailureRecorded({
+            message,
+            code: typeof code === "string" ? code : null,
+          })
+        )
       }
 
       return event.type === "document.ready" || event.type === "document.failed"

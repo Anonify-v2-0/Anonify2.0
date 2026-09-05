@@ -51,11 +51,16 @@ export default async function DocumentsPage() {
           <div>
             <p className="label-micro">Your documents</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">
+              {/*
+                A plain count, because "in progress" was being said about
+                documents that had finished — and about ones that had failed,
+                which read as though they were still going.
+              */}
               {documents.length === 0
                 ? "Nothing in progress"
                 : documents.length === 1
-                  ? "1 document in progress"
-                  : `${documents.length} documents in progress`}
+                  ? "1 document"
+                  : `${documents.length} documents`}
             </h1>
           </div>
           <p className="max-w-xs text-xs leading-relaxed text-text-muted">

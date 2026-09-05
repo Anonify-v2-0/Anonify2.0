@@ -1,24 +1,28 @@
 "use client"
 
-import { useState } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { Check, Loader2, RotateCcw } from "lucide-react"
-import { toast } from "sonner"
+import { Check, Loader2 } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
-import { toastFailure } from "@/lib/api/errors"
+import { FailureNotice } from "@/components/processing/failure-notice"
 import { documentStatusChanged } from "@/store/documentSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { cn } from "@/lib/utils"
 import type { DocumentSummary } from "@/types/document"
 
+/**
+ * The stages a document actually passes through.
+ *
+ * There used to be a "Preparing editor" row bound to the `rendering` status,
+ * which the workflow never emits — so it sat greyed out until the document went
+ * ready and then completed without ever having been active. A step the pipeline
+ * does not take should not be drawn as one it is about to.
+ */
 const STAGES: { key: string; label: string; statuses: string[] }[] = [
   { key: "upload", label: "Uploading", statuses: ["uploading"] },
   { key: "extract", label: "Extracting", statuses: ["queued", "extracting"] },
   { key: "structure", label: "Understanding structure", statuses: ["normalizing"] },
   { key: "detect", label: "Finding sensitive data", statuses: ["analyzing"] },
-  { key: "prepare", label: "Preparing editor", statuses: ["rendering"] },
 ]
 
 const ORDER = ["uploading", "queued", "extracting", "normalizing", "analyzing", "rendering", "ready"]
@@ -38,66 +42,19 @@ export function ProcessingScreen({ summary }: { summary: DocumentSummary }) {
   const dispatch = useAppDispatch()
   const router = useRouter()
   const suggestionCount = useAppSelector((state) => state.processing.suggestionCount)
-  const [retrying, setRetrying] = useState(false)
-  const failed = summary.status === "failed"
 
-  /**
-   * The button here was rendered from the beginning and wired to nothing, so
-   * "you can retry the analysis" was a sentence the screen could not keep.
-   * Moving the status locally is what reconnects the processing stream, which
-   * only subscribes while a document is still working.
-   */
-  async function retry() {
-    setRetrying(true)
-    try {
-      const response = await fetch(`/api/documents/${summary.id}/retry`, {
-        method: "POST",
-      })
-      if (!response.ok) {
-        await toastFailure(toast, response, "That analysis could not be retried.")
-        return
-      }
-      dispatch(documentStatusChanged("queued"))
-      router.refresh()
-    } catch {
-      toast.error("That analysis could not be retried.")
-    } finally {
-      setRetrying(false)
-    }
-  }
-
-  if (failed) {
+  if (summary.status === "failed") {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-        <Image
-          src="/Anonify.png"
-          alt=""
-          width={48}
-          height={48}
-          className="rounded-[10px] opacity-60 grayscale"
-        />
-        <p className="label-micro text-primary">Processing failed</p>
-        <h1 className="text-2xl font-semibold text-white">
-          We couldn&apos;t analyze this document
-        </h1>
-        <p className="max-w-md text-sm text-text-muted">
-          Your original file is safe and was not modified. You can retry the
-          analysis, or redact manually.
-        </p>
-        {summary.error ? (
-          <p className="max-w-md rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-text-secondary">
-            {summary.error}
-          </p>
-        ) : null}
-        <Button className="btn-pill mt-2 h-10" disabled={retrying} onClick={retry}>
-          {retrying ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <RotateCcw className="size-4" />
-          )}
-          {retrying ? "Starting…" : "Retry analysis"}
-        </Button>
-      </main>
+      <FailureNotice
+        summary={summary}
+        variant="screen"
+        // Moving the status locally is what reconnects the processing stream,
+        // which only subscribes while a document is still working.
+        onRetried={() => {
+          dispatch(documentStatusChanged("queued"))
+          router.refresh()
+        }}
+      />
     )
   }
 

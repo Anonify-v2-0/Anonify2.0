@@ -45,7 +45,7 @@ export function DocumentCanvas({
 }) {
   const dispatch = useAppDispatch()
   const containerRef = useRef<HTMLDivElement>(null)
-  const normalized = useNormalizedDocument(summary.id, summary.status)
+  const normalized = useNormalizedDocument(summary)
   const { currentPage, zoom, fitMode, tool } = useAppSelector(
     (state) => state.editor
   )
@@ -255,7 +255,11 @@ function Placeholder({ summary }: { summary: DocumentSummary }) {
       <p className="max-w-xs text-xs text-neutral-500">
         {summary.status === "ready"
           ? "This document could not be rendered."
-          : "Preparing this document…"}
+          : summary.status === "failed"
+            ? // Never "Preparing…" for a run that has already ended: the banner
+              // above says what happened, and this must not contradict it.
+              "This document could not be rendered."
+            : "Preparing this document…"}
       </p>
     </div>
   )
