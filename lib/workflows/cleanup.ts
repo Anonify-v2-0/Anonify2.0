@@ -36,14 +36,23 @@ export async function cleanupExpired(now = new Date()): Promise<CleanupResult> {
   let documentsDeleted = 0
   let failures = 0
 
+  // A message and the attachments it was expanded into share an expiry, so a
+  // page of this sweep routinely holds both. Purging the message takes its
+  // attachments with it — their rows cascade from its — so the ones already
+  // gone are skipped rather than purged into a row that is no longer there.
+  const purged = new Set<string>()
+
   for (const document of expired) {
+    if (purged.has(document.id)) continue
+
     const result = await purgeDocument(document)
     objectsDeleted += result.objectsDeleted
+    documentsDeleted += result.deletedIds.length
+    for (const id of result.deletedIds) purged.add(id)
 
     // A document whose storage did not clear keeps its record, so the next run
     // retries it rather than orphaning bytes nobody is tracking any more.
-    if (result.recordDeleted) documentsDeleted += 1
-    else failures += 1
+    if (!result.recordDeleted) failures += 1
   }
 
   // A batch holds the decisions taken across its documents — patterns a person

@@ -228,12 +228,27 @@ Only after the invariants hold for it, including an adversarial test suite.
       is the same problem twice. EML is a MIME tree with addressable headers,
       bodies, quoted replies, filenames and nested messages, bounded by parser
       limits that fail closed.
-- [ ] **Attachment formats inside an email.** An EML export redacts the
-      message: its headers, its bodies and its attachment *filenames*.
-      Attachment bytes are carried through unchanged. Recursing into a PDF or a
-      DOCX inside a message is the obvious next step and is deliberately not
-      claimed yet — it needs its own quota accounting, its own resource limits
-      and its own adversarial suite before anybody should believe it.
+- [x] ~~**Attachment formats inside an email.**~~ A message that carries
+      attachments in supported formats is expanded into a batch: the message is
+      one document and each attachment is another, sealed under its own key,
+      with its own run, its own quota accounting, its own review and its own
+      export. Provenance is the parent document and the MIME part path, which
+      is unique in the database so a retried expansion cannot produce the same
+      child twice. Expansion has its own fail-closed limits — child count,
+      total expanded bytes, single-attachment size and expansion depth, which
+      is a second recursion axis from the parser's nested-message depth — and
+      the child count is the same number a batch a person uploads is capped at,
+      so the two cannot disagree about what a batch is. The redacted bytes are
+      substituted back into the message and verified by checksum against the
+      child artifact, because a replacement that landed one part over produces
+      a message containing none of the accepted values and the wrong file. Each
+      attachment's disposition — `redacted`, `carried-through` or `removed` —
+      is named in the export report, because "the message was redacted" stopped
+      being a single fact. What is still not claimed: an attachment in a format
+      Anonify cannot read is carried through with nothing inside it redacted,
+      and that is now stated per attachment rather than as a global caveat.
+      `tests/eml-attachments.test.ts` and
+      `tests/integration/attachments.integration.test.ts`.
 - [x] ~~**An export report** — what was removed, by category and count, with the
       checksum — as a separate artifact.~~ `lib/redaction/report.ts`, served by
       the download route as `?part=report`. Counts by category, the style each

@@ -324,7 +324,14 @@ export function buildTextPlan(
 export function buildEmlPlan(
   model: NormalizedDocument,
   redactions: Redaction[],
-  options: ExportOptions
+  options: ExportOptions,
+  /**
+   * What to do with each attachment part's body, keyed by MIME path. Worked
+   * out from the children the message was expanded into, which is knowledge
+   * this file does not have and should not acquire — it maps offsets onto
+   * addresses, and nothing here should need a database.
+   */
+  attachments: EmlRedactionPlan["attachments"] = {}
 ): EmlRedactionPlan {
   const bodies: EmlRedactionPlan["bodies"] = {}
   const headers: EmlRedactionPlan["headers"] = {}
@@ -383,6 +390,7 @@ export function buildEmlPlan(
     bodies,
     headers,
     filenames,
+    attachments,
     values: acceptedValues(redactions),
     label: labelFor(options),
   }

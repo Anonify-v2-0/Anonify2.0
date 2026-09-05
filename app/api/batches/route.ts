@@ -7,7 +7,11 @@ import {
   readJson,
 } from "@/lib/api/http"
 import { describeWait } from "@/lib/api/http"
-import { ALLOWED_TTL_SECONDS, MAX_UPLOAD_BYTES } from "@/lib/config"
+import {
+  ALLOWED_TTL_SECONDS,
+  MAX_BATCH_FILES,
+  MAX_UPLOAD_BYTES,
+} from "@/lib/config"
 import { prisma } from "@/lib/database/prisma"
 import { newBatchId } from "@/lib/documents/ids"
 import { reserveDocument } from "@/lib/documents/reserve"
@@ -18,9 +22,6 @@ import { clientUploadMode } from "@/lib/storage/blob"
 import { DEFAULT_TTL_SECONDS } from "@/types/document"
 
 export const runtime = "nodejs"
-
-/** Enough to be a batch, few enough that one request stays a request. */
-const MAX_BATCH_FILES = 20
 
 const createSchema = z.object({
   files: z

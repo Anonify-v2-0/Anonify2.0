@@ -17,7 +17,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toastFailure } from "@/lib/api/errors"
-import { ACCEPTED_EXTENSIONS, MAX_UPLOAD_BYTES } from "@/lib/config"
+import {
+  ACCEPTED_EXTENSIONS,
+  MAX_BATCH_FILES,
+  MAX_UPLOAD_BYTES,
+} from "@/lib/config"
 import {
   DEFAULT_PRESET_ID,
   PRESET_DISCLAIMER,
@@ -49,8 +53,6 @@ const SUPPORTED_LABEL = ACCEPTED_EXTENSIONS.map((extension) =>
 ).join(", ")
 /** Above this size the browser splits the upload into parallel parts. */
 const MULTIPART_THRESHOLD = 5 * 1024 * 1024
-/** Matches the server's own ceiling on one batch request. */
-const MAX_BATCH_FILES = 20
 
 type Phase = "idle" | "reserving" | "uploading" | "starting"
 

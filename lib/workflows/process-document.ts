@@ -4,6 +4,7 @@ import {
   getWritable,
   RetryableError,
 } from "workflow"
+import { start } from "workflow/api"
 
 import { analyzeDocument, analyzeImageRegions } from "@/lib/ai/analyze"
 import type { Prisma } from "@/lib/database/generated/client"
@@ -23,6 +24,9 @@ import { extractRtf } from "@/lib/documents/rtf/extract"
 import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
+import { ExpansionLimitError } from "@/lib/documents/eml/attachments"
+import { EmlLimitError } from "@/lib/documents/eml/limits"
+import { expandMessageAttachments } from "@/lib/documents/expand"
 import { newEventId } from "@/lib/documents/ids"
 import { saveNormalized } from "@/lib/documents/normalized-store"
 import { loadNormalized } from "@/lib/documents/normalized-store"
@@ -216,6 +220,95 @@ async function runIngest(documentId: string): Promise<{ kind: DocumentKind }> {
   })
 
   return { kind: detected.kind }
+}
+
+/**
+ * Expansion: a message with attachments becomes a batch.
+ *
+ * Here rather than at reservation because reservation runs before the browser
+ * has uploaded anything — there are no bytes to parse and the declared MIME
+ * type is a guess. And before extraction, so the children are already queued
+ * while the message itself is still being read: a reviewer opening the batch
+ * sees the enclosures arriving rather than appearing at the end.
+ *
+ * Every kind but `eml` falls straight through, and a message with nothing
+ * expandable in it costs one parse.
+ */
+async function expandAttachments(
+  documentId: string
+): Promise<{ children: number }> {
+  "use step"
+  return runExpandAttachments(documentId).catch(paced)
+}
+
+// A parse, a handful of sealed writes and a run started per child. Storage and
+// the database dominate, so a blip is weather; the verdicts below throw
+// FatalError, which `paced` lets through untouched.
+expandAttachments.maxRetries = 4
+
+async function runExpandAttachments(
+  documentId: string
+): Promise<{ children: number }> {
+  let summary
+  try {
+    summary = await expandMessageAttachments(documentId)
+  } catch (error) {
+    // A limit — the parser's or expansion's — is a verdict about this message,
+    // not weather. Retrying reads the same bytes and reaches the same number,
+    // and the reviewer deserves the reason rather than four attempts and a
+    // shrug. Refused whole: a partly expanded message would look complete.
+    if (error instanceof EmlLimitError || error instanceof ExpansionLimitError) {
+      throw new FatalError(error.message)
+    }
+    throw error
+  }
+
+  if (summary.children.length === 0 && summary.carried === 0) {
+    return { children: 0 }
+  }
+
+  // Each child is a first-class document from here on: its own run, its own
+  // extraction, its own detectors, its own review, its own export. Nothing
+  // downstream should be able to tell that it arrived inside a message rather
+  // than off a desktop.
+  for (const child of summary.children) {
+    if (!child.processable) continue
+    await startChildRun(child.id)
+  }
+
+  await emit(documentId, "document.attachments.expanded", {
+    status: "extracting",
+    payload: {
+      // Counts only. A filename here would be document content in an event
+      // stream that is deliberately free of it.
+      children: summary.children.length,
+      carried: summary.carried,
+      batchId: summary.batchId,
+    },
+  })
+
+  return { children: summary.children.length }
+}
+
+/**
+ * Starts a child's run, at most once.
+ *
+ * Guarded on the column rather than on the step replaying: this step is
+ * retried, and a second run over the same document would race the first
+ * through the same rows.
+ */
+async function startChildRun(documentId: string): Promise<void> {
+  const record = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: { workflowRunId: true },
+  })
+  if (record?.workflowRunId) return
+
+  const run = await start(processDocument, [documentId])
+  await prisma.document.update({
+    where: { id: documentId },
+    data: { workflowRunId: run.runId },
+  })
 }
 
 /** Reads the sealed source back, verifies its checksum and normalizes it. */
@@ -602,6 +695,7 @@ export async function processDocument(documentId: string): Promise<{
       progress: 30,
     })
     await ingestUpload(documentId)
+    await expandAttachments(documentId)
 
     await publishStatus(documentId, "normalizing", "document.normalizing", {
       progress: 55,

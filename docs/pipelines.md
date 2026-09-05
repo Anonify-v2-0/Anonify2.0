@@ -27,7 +27,7 @@ adding a kind without registering it does not compile.
 | **TSV** | cell replacement | TSV parse and re-read |
 | **TXT** | offset replacement | exact text |
 | **RTF** | parsed text replacement | RTF reparse |
-| **EML** | headers/MIME text replacement | MIME reparse and scan |
+| **EML** | headers/MIME text replacement, attachments as child documents | MIME reparse and scan, per-attachment checksum |
 | **PPTX** | OOXML text replacement | package-wide scan |
 
 Quota units differ because the work does. Pages for PDF and DOCX; filled cells
@@ -418,9 +418,9 @@ is a copy of the address.
 
 The message is **not rebuilt**. Everything is a byte-range replacement on the
 original, so a part nobody edited comes out identical to the byte: boundaries,
-attachments, nested messages.
+carried-through attachments, nested messages.
 
-Three rewrites, three hazards:
+Four rewrites, four hazards:
 
 - **Headers.** Cutting characters out of `John Smith <john@example.com>` has to
   leave something that is still an address header. RFC 2047 is applied per
@@ -434,11 +434,106 @@ Three rewrites, three hazards:
   contains it. This happens only to a part that was actually edited.
 - **Filenames.** They live in header parameters, so they are a header rewrite
   with a different shape.
+- **Attachments.** A part's *body* is replaced with bytes that did not come
+  from this message at all — see below.
 
-**Attachments are never rewritten.** Their filenames are redacted; their bytes
-are carried through unchanged. An EML export means the message's text and
-metadata are redacted — it does not mean the PDF inside it was, and claiming
-otherwise would be claiming support this does not have.
+### Attachments are documents, and a message with them is a batch
+
+A reviewer's mental model is not "the message". It is "this email". Someone who
+uploads a message with `2026-review-John Smith.pdf` attached, watches the
+filename get redacted and downloads the result must not be handed a covering
+letter that is clean and an enclosure that is not — the name gone from five
+places and intact in the sixth, in the one format where documents actually
+travel.
+
+So **a message that carries attachments in supported formats is expanded into a
+batch.** The message is one document; each supported attachment is another. If
+the `.eml` arrived on its own a batch is created for it; if it arrived in a
+batch already, the children join that one — the reviewer's decisions already
+span it, and "this recurring name is a colleague, not a subject", answered in
+the covering letter, is the same answer in the enclosure.
+
+Expansion is a step of its own, between ingest and extraction, because that is
+the first moment the tree is knowable: reservation runs before the browser has
+uploaded anything, so there are no bytes to parse and the declared MIME type is
+a guess. Each attachment's kind is decided from **its bytes**, never from its
+filename or its declared content type, both of which a stranger chose.
+
+Two columns carry provenance: the parent document, and the MIME part path the
+bytes came from (`0.3`). The part path rather than the filename — filenames
+collide, filenames get redacted, and only the path is actually unique and
+actually stable. It is also unique in the database against the parent, which is
+what makes a retried expansion unable to produce a second copy of a part.
+
+From there a child is a first-class document: its own run, its own extraction,
+its own detectors, its own review, its own export. Nothing downstream can tell
+that it arrived inside a message rather than off a desktop, and that
+indistinguishability is what keeps this from becoming a second, weaker
+pipeline.
+
+**Quota.** An attachment costs what the same file would cost uploaded on its
+own: one `uploads` count, plus its own per-kind allowance when its extraction
+knows the real size. A message is not a discount, for the same reason a batch
+is not one. Two differences follow from the bytes already existing by the time
+we charge. The `uploads` charge is a pre-check at reservation and there is
+nothing to refuse in advance here, so an attachment the allowance does not
+cover becomes a child that is **present, named and explicitly skipped**,
+carrying the reason the reviewer would have got at upload time — never a silent
+drop, because an attachment missing from the batch with no row for it is a
+reviewer believing they have seen everything. And the charge is written in the
+same transaction as the child row, so a retry that re-parses the message from
+scratch cannot bill it twice.
+
+**Its own limits.** `emlLimits` bounds parsing; expansion is a different cost
+with a different amplification factor, so it has its own bounds in the same
+fail-closed style with the same environment overrides: how many children one
+message may produce (the same ceiling as a batch a person can upload — a
+message must not be a way to make a larger one), total expanded bytes, the
+largest single attachment, and **expansion depth**, which is a second recursion
+axis: a `message/rfc822` attached as raw bytes is sniffed as a message, becomes
+a child and expands its own attachments in turn, orthogonally to
+`maxNestedMessages`. Exceeding one refuses the whole message with a reason,
+never a partial expansion presented as a complete one.
+
+### What that does to the message's own export
+
+Once a redacted child exists, an archive holding a clean PDF *and* an `.eml`
+that still carries the original PDF is worse than the honest carry-through it
+replaced: before, the documentation told you the enclosure was untouched;
+after, the archive shows you a redacted enclosure while shipping the
+unredacted one inside the message. Trusted, and wrong.
+
+So the redacted bytes are **substituted back into the message** — a byte-range
+replacement of the attachment part's body, re-encoded as base64, with the
+transfer encoding and any `Content-Length` rewritten to match. This is the one
+rewrite here whose content did not come from the message, which is why it is
+the one verified by equality rather than by absence: a replacement that landed
+one part over produces a message that parses, opens and contains none of the
+accepted values while carrying the wrong file. Each substituted part is decoded
+again and required to hash to exactly the child artifact, and `postal-mime` is
+asked whether an independent reader sees those bytes at all.
+
+Every attachment gets one of three answers, and the export report names which:
+
+| Disposition | When | What the message carries |
+| --- | --- | --- |
+| `redacted` | the child exported and verified | the child's own artifact |
+| `carried-through` | a format this cannot read — a `.zip`, an `.exe` | the original bytes, unchanged and *stated* |
+| `removed` | not ready, failed, or skipped for quota | a short note in place of the bytes |
+
+Silently carrying through is the one option that is off the table. A removal
+leaves the part rather than deleting it, so a reader can still see that
+something was enclosed and what became of it, and it stops claiming to be a
+PDF.
+
+Inline `cid:` images take the same road as everything else: they are
+attachments in the MIME sense and body content to a reader, so they are
+redacted as image children and substituted back, which is what keeps the
+rendered body coherent.
+
+What remains deliberately unclaimed: an attachment in a format Anonify does not
+read is carried through with nothing inside it redacted, and an attachment more
+than `maxDepth` messages deep is refused rather than expanded.
 
 ### Resource limits
 

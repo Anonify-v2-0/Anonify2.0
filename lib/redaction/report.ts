@@ -1,6 +1,6 @@
 import { regionStyle, type ExportOptions } from "@/lib/redaction/apply"
 import { presetNarrows, type Preset } from "@/lib/redaction/presets"
-import type { DocumentKind } from "@/types/document"
+import { DOCUMENT_KINDS, type DocumentKind } from "@/types/document"
 import {
   REDACTION_CATEGORIES,
   REDACTION_SOURCES,
@@ -49,6 +49,30 @@ export type CategoryBreakdown = {
 export type DecisionCounts = {
   total: number
   byCategory: { category: string; count: number }[]
+}
+
+/**
+ * What happened to one of a message's attachments.
+ *
+ * "The message was redacted" stopped being a single fact the moment an
+ * enclosure could be redacted too, so the report says so per attachment. Named
+ * by MIME part path rather than by filename, for the reason the document
+ * section gives: a file is regularly named after the person it is about, and
+ * the path is the thing that is actually unique anyway.
+ */
+export type AttachmentReportEntry = {
+  partPath: string
+  disposition: "redacted" | "carried-through" | "removed"
+  /** What the bytes turned out to be, where this pipeline could tell. */
+  kind: DocumentKind | null
+  /** True for a part the HTML body references; its removal is visible. */
+  inline: boolean
+  /** The document it became, whose own report sits beside this one. */
+  childDocumentId: string | null
+  /** SHA-256 of the redacted enclosure now inside the message. */
+  artifactChecksum: string | null
+  /** Why, when it was not redacted. Written here, never taken from the file. */
+  reason: string | null
 }
 
 export type ExportReport = {
@@ -107,6 +131,14 @@ export type ExportReport = {
     /** False when the chosen preset restricted nothing. */
     narrowed: boolean
   }
+  /**
+   * One entry per attachment, for a message. Absent for every other kind.
+   *
+   * A reader has to be able to tell a redacted enclosure from one that was
+   * carried through untouched, and both from one that was taken out — and to
+   * tell them apart without opening the file.
+   */
+  attachments?: AttachmentReportEntry[]
   notes: string[]
 }
 
@@ -168,6 +200,21 @@ function withStyle(counts: StyleCounts, style: RemovalStyle): StyleCounts {
 
 const WEAKER_STYLES: RemovalStyle[] = ["blur", "pixelate"]
 
+/**
+ * What each disposition means, said in full. Written out rather than derived,
+ * because each one is a different promise and a shared sentence would blur
+ * them — "carried through" in particular has to say that nothing inside those
+ * files was looked at, which is the caveat this whole section replaces.
+ */
+const ATTACHMENT_SENTENCES: Record<string, string> = {
+  redacted:
+    "replaced with its own redacted export, verified separately against the bytes now in the message.",
+  "carried-through":
+    "in a format Anonify cannot read and was carried through unchanged. Nothing inside it was redacted.",
+  removed:
+    "removed rather than carried through, because no redacted version of it existed.",
+}
+
 function notesFor(report: Omit<ExportReport, "notes">): string[] {
   const notes = [
     "Counts only. This report never contains the redacted values themselves.",
@@ -184,6 +231,18 @@ function notesFor(report: Omit<ExportReport, "notes">): string[] {
   if (report.lookedFor.narrowed) {
     notes.push(
       "Only one preset's categories were searched for. Anything outside them was never proposed, so its absence from these counts is not evidence it is absent from the file."
+    )
+  }
+
+  for (const [disposition, sentence] of Object.entries(ATTACHMENT_SENTENCES)) {
+    const count = (report.attachments ?? []).filter(
+      (entry) => entry.disposition === disposition
+    ).length
+    if (count === 0) continue
+    notes.push(
+      count === 1
+        ? `1 attachment was ${sentence}`
+        : `${count} attachments were ${sentence.replace(/it/g, "them").replace(/its/g, "their")}`
     )
   }
 
@@ -218,6 +277,8 @@ export function buildExportReport(input: {
   verification: { passed: boolean; checkedValues: number }
   /** The named detector set the analysis ran with, if any. */
   preset?: Preset | null
+  /** One entry per attachment, for a message. Omitted for every other kind. */
+  attachments?: AttachmentReportEntry[]
   generatedAt?: Date
 }): ExportReport {
   const byStatus = (status: RedactionStatus) =>
@@ -282,6 +343,9 @@ export function buildExportReport(input: {
       categories: input.preset?.categories ?? null,
       narrowed: presetNarrows(input.preset ?? null),
     },
+    ...(input.attachments && input.attachments.length > 0
+      ? { attachments: input.attachments }
+      : {}),
   }
 
   return { ...skeleton, notes: notesFor(skeleton) }
@@ -314,6 +378,10 @@ const CLOSED_VOCABULARY = new Set<string>([
   "solid",
   "blur",
   "pixelate",
+  // Attachment dispositions and the kinds an attachment can turn out to be.
+  "redacted",
+  "carried-through",
+  ...DOCUMENT_KINDS,
 ])
 
 /**
@@ -338,6 +406,16 @@ const AUTHORED_PATHS = new Set([
   "lookedFor.presetId",
   "lookedFor.presetLabel",
 ])
+
+/**
+ * The same idea for the attachment list, which is an array and so has no fixed
+ * paths. Each of these is an identifier, a hash, or a sentence written in
+ * lib/redaction/attachments.ts — none of them can carry a filename or a value,
+ * which is exactly why the list is keyed by part path.
+ */
+const AUTHORED_PATTERNS = [
+  /^attachments\[\d+\]\.(partPath|childDocumentId|artifactChecksum|reason)$/,
+]
 
 /** Strings short enough to collide by accident are not worth asserting on. */
 const MIN_VERIFIABLE_LENGTH = 4
@@ -381,7 +459,12 @@ export function assertReportOmitsValues(
   if (values.length === 0) return
 
   const offending = stringLeaves(report, "")
-    .filter(([path]) => !AUTHORED_PATHS.has(path) && !path.startsWith("notes["))
+    .filter(
+      ([path]) =>
+        !AUTHORED_PATHS.has(path) &&
+        !path.startsWith("notes[") &&
+        !AUTHORED_PATTERNS.some((pattern) => pattern.test(path))
+    )
     .filter(([, text]) => !CLOSED_VOCABULARY.has(text))
     .filter(([, text]) =>
       values.some((value) => text.toLowerCase().includes(value.toLowerCase()))

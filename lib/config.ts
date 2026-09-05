@@ -33,6 +33,18 @@ export {
   supportedFormatsSentence,
 } from "@/lib/documents/formats"
 
+/**
+ * How many documents one batch may hold.
+ *
+ * It bounds two different things that now meet. A reviewer dragging files in
+ * is bounded here because one request should stay one request; a message being
+ * expanded into a batch is bounded by the same number for a stronger reason —
+ * a stranger chooses how many attachments a message carries, and the expansion
+ * limits in lib/documents/eml/attachments.ts default to this so the two cannot
+ * drift into disagreeing about what a batch is.
+ */
+export const MAX_BATCH_FILES = 20
+
 export const ALLOWED_TTL_SECONDS: TtlOption[] = [3600, 21600, 86400, 259200]
 
 /**

@@ -17,6 +17,16 @@ export type PurgeResult = {
   storageCleared: boolean
 }
 
+export type PurgeOutcome = PurgeResult & {
+  recordDeleted: boolean
+  /**
+   * Every document actually removed, this one and its attachments. The caller
+   * needs it because a sweep can hold a parent and one of its children in the
+   * same page, and the second must not be purged twice.
+   */
+  deletedIds: string[]
+}
+
 export type PurgeableDocument = {
   id: string
   sourceBlobKey: string | null
@@ -69,16 +79,51 @@ export async function purgeStorage(
  * Removes the storage and then the record. The order matters: the row is the
  * only thing that knows where the bytes are, so it goes last and only if they
  * are gone — a failed sweep is retried rather than leaving orphans.
+ *
+ * Attachments go first, and they have to. A document expanded out of a message
+ * is a document in its own right — its own sealed source, its own normalized
+ * model, its own exports — and its row cascades from its parent's. Deleting
+ * the message without coming here first would take away the only record of
+ * where those bytes are while leaving the bytes exactly where they were, which
+ * is the orphan this whole file exists to prevent. It also means deleting a
+ * message deletes what came inside it, which is what somebody pressing delete
+ * on an email means.
  */
 export async function purgeDocument(
   document: PurgeableDocument
-): Promise<PurgeResult & { recordDeleted: boolean }> {
-  const result = await purgeStorage(document)
-  if (!result.storageCleared) {
-    return { ...result, recordDeleted: false }
+): Promise<PurgeOutcome> {
+  let objectsDeleted = 0
+  let cleared = true
+  const deletedIds: string[] = []
+
+  const attachments = await prisma.document.findMany({
+    where: { parentDocumentId: document.id },
+    select: PURGE_SELECT,
+  })
+
+  // Recursion is bounded by the expansion depth limit; see
+  // lib/documents/eml/attachments.ts.
+  for (const attachment of attachments) {
+    const child = await purgeDocument(attachment)
+    objectsDeleted += child.objectsDeleted
+    deletedIds.push(...child.deletedIds)
+    if (!child.recordDeleted) cleared = false
+  }
+
+  const own = await purgeStorage(document)
+  objectsDeleted += own.objectsDeleted
+  cleared = cleared && own.storageCleared
+
+  if (!cleared) {
+    return { objectsDeleted, storageCleared: false, recordDeleted: false, deletedIds }
   }
 
   // Redactions, rules, events and exports cascade from the document.
   await prisma.document.delete({ where: { id: document.id } })
-  return { ...result, recordDeleted: true }
+  return {
+    objectsDeleted,
+    storageCleared: true,
+    recordDeleted: true,
+    deletedIds: [...deletedIds, document.id],
+  }
 }
