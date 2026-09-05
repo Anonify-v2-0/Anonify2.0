@@ -27,7 +27,7 @@ import type { Redaction, RedactionStatus } from "@/types/redaction"
  * than left to drift: the export reads the server's copy, so the two must not
  * disagree about what the user accepted.
  */
-export function useRedactions(documentId: string, status: string) {
+export function useRedactions(documentId: string, active: boolean) {
   const dispatch = useAppDispatch()
   const store = useAppStore()
   const redactions = useAppSelector(selectRedactions)
@@ -46,9 +46,12 @@ export function useRedactions(documentId: string, status: string) {
   }, [dispatch, documentId])
 
   useEffect(() => {
-    if (status !== "ready") return
+    // Also true for a document whose analysis failed after extraction: a run
+    // that stopped partway can still have persisted suggestions, and manual
+    // redaction has to start from whatever is actually on the server.
+    if (!active) return
     void reload()
-  }, [reload, status])
+  }, [active, reload])
 
   const setStatus = useCallback(
     async (ids: string[], next: RedactionStatus) => {

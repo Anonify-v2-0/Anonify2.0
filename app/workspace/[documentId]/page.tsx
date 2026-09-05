@@ -30,6 +30,9 @@ export default async function WorkspacePage(
       expiresAt: document.expiresAt.toISOString(),
       error: document.error,
       errorCode: document.errorCode,
+      // Extraction is the line: past it there is a normalized model to open and
+      // redact by hand, before it there is nothing an editor could show.
+      reviewable: Boolean(document.normalizedBlobKey),
     }
   } catch (error) {
     if (error instanceof AccessError && error.status === 410) {

@@ -7,6 +7,7 @@ import {
   FAILURE_CODES,
 } from "@/lib/workflows/failure"
 import { quotaMessage } from "@/lib/security/usage"
+import { isReviewable } from "@/types/document"
 
 /**
  * A processing failure is the one moment the product has to explain itself, and
@@ -193,5 +194,30 @@ describe("deciding whether to offer a retry", () => {
 
   it("falls back rather than trusting a code it does not know", () => {
     expect(failureForCode("invented-by-a-newer-deploy").code).toBe("unknown")
+  })
+})
+
+describe("deciding whether to open the editor", () => {
+  it("opens for a ready document", () => {
+    expect(isReviewable({ status: "ready", reviewable: false })).toBe(true)
+  })
+
+  it("opens for a failure that happened after extraction", () => {
+    // There is a normalized model behind it, so the text is real and can be
+    // redacted by hand even though analysis never finished.
+    expect(isReviewable({ status: "failed", reviewable: true })).toBe(true)
+  })
+
+  it("does not open over nothing", () => {
+    // The bug this replaces: every failure took the editor branch, so a
+    // document that died during ingest sat under "Preparing this document…"
+    // with no reason given and the retry button unreachable.
+    expect(isReviewable({ status: "failed", reviewable: false })).toBe(false)
+    expect(isReviewable({ status: "failed", reviewable: undefined })).toBe(false)
+  })
+
+  it("does not open while the run is still going", () => {
+    expect(isReviewable({ status: "analyzing", reviewable: true })).toBe(false)
+    expect(isReviewable({ status: "queued", reviewable: false })).toBe(false)
   })
 })

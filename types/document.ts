@@ -183,6 +183,30 @@ export type DocumentSummary = {
   error?: string | null
   /** Why it failed, so the interface can tell a verdict from weather. */
   errorCode?: string | null
+  /**
+   * Whether there is a normalized model to open.
+   *
+   * A document that failed during analysis still has its text and can be
+   * redacted by hand; one that failed during ingest has nothing behind it, and
+   * showing an editor over nothing is how a failure came to read as a hang.
+   */
+  reviewable?: boolean
+}
+
+/**
+ * Whether there is something to put in front of a reviewer.
+ *
+ * Ready is the ordinary case. A failed document counts only when extraction
+ * finished: there is a normalized model behind it, so the text is real and can
+ * be redacted by hand even though analysis never completed. A document that
+ * failed before that has nothing an editor could show, and rendering one over
+ * nothing is how a failure came to read as "Preparing this document…".
+ */
+export function isReviewable(
+  summary: Pick<DocumentSummary, "status" | "reviewable">
+): boolean {
+  if (summary.status === "ready") return true
+  return summary.status === "failed" && summary.reviewable === true
 }
 
 export type TtlOption = 3600 | 21600 | 86400 | 259200

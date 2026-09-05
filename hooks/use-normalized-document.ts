@@ -4,19 +4,25 @@ import { useEffect } from "react"
 
 import { normalizedLoaded } from "@/store/documentSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
-import type { NormalizedDocument } from "@/types/document"
+import { isReviewable, type DocumentSummary, type NormalizedDocument } from "@/types/document"
 
 /**
- * Pulls the normalized model once the document is ready. It is the shared
- * source of geometry and text for the canvas, the inspector and every
- * client-side rule match.
+ * Pulls the normalized model once there is one to pull. It is the shared source
+ * of geometry and text for the canvas, the inspector and every client-side rule
+ * match.
+ *
+ * This used to wait for `ready`, which meant a document whose analysis failed
+ * after extraction never loaded the model it already had — so the canvas sat on
+ * its "Preparing this document…" placeholder for a run that had ended.
  */
-export function useNormalizedDocument(documentId: string, status: string) {
+export function useNormalizedDocument(summary: DocumentSummary) {
+  const documentId = summary.id
+  const canLoad = isReviewable(summary)
   const dispatch = useAppDispatch()
   const loaded = useAppSelector((state) => state.document.normalized)
 
   useEffect(() => {
-    if (status !== "ready" || loaded?.documentId === documentId) return
+    if (!canLoad || loaded?.documentId === documentId) return
 
     let cancelled = false
 
@@ -38,7 +44,7 @@ export function useNormalizedDocument(documentId: string, status: string) {
     return () => {
       cancelled = true
     }
-  }, [dispatch, documentId, loaded?.documentId, status])
+  }, [canLoad, dispatch, documentId, loaded?.documentId])
 
   return loaded?.documentId === documentId ? loaded : null
 }
