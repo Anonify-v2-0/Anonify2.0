@@ -1,6 +1,6 @@
 import { extractDelimited } from "@/lib/documents/delimited/extract"
 import { extractDocx } from "@/lib/documents/docx/extract"
-import { openPackage, readPart } from "@/lib/documents/docx/ooxml"
+import { openPackage, readPart } from "@/lib/documents/ooxml/package"
 import { extractPdfText } from "@/lib/documents/pdf/redact"
 import { emlHaystack } from "@/lib/documents/eml/validate"
 import { extractRtf } from "@/lib/documents/rtf/extract"
@@ -75,6 +75,10 @@ async function haystackFor(
       const { text } = extractText("verify", bytes)
       return text
     }
+    case "pptx":
+      // Every part, not the slides: a value surviving in the speaker notes, on
+      // a layout or on the master is still in the file somebody opens.
+      return textOfXmlParts(bytes)
     case "eml":
       // Reparsed twice: once by this pipeline's own parser, and once by an
       // independent MIME library. A message that only our parser can read is

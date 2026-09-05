@@ -7,6 +7,7 @@ import {
   FileType,
   Image as ImageIcon,
   Layers,
+  Presentation,
   Mail,
   Loader2,
   RotateCcw,
@@ -40,6 +41,7 @@ const KIND_ICONS: Record<DocumentKind, typeof FileText> = {
   txt: FileType,
   rtf: FileType,
   eml: Mail,
+  pptx: Presentation,
 }
 
 const IN_PROGRESS = new Set([

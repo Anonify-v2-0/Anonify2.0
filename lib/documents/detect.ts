@@ -118,6 +118,13 @@ export function detectDocumentType(
         extension: "xlsx",
       }
     }
+    if (zipContains(bytes, "ppt/")) {
+      return {
+        kind: "pptx",
+        mimeType: formatOf("pptx").mimeType,
+        extension: "pptx",
+      }
+    }
     return null
   }
 

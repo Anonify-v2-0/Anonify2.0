@@ -12,6 +12,7 @@ import { MAX_UPLOAD_BYTES } from "@/lib/config"
 import { extractDelimited } from "@/lib/documents/delimited/extract"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { extractPdf } from "@/lib/documents/pdf/extract"
+import { extractPptx } from "@/lib/documents/pptx/extract"
 import { extractImage } from "@/lib/documents/image/extract"
 import {
   MAX_VISION_PAGES,
@@ -329,6 +330,10 @@ async function extractByKind(
     }
     case "eml": {
       const { document } = extractEml(documentId, bytes)
+      return document
+    }
+    case "pptx": {
+      const { document } = extractPptx(documentId, bytes)
       return document
     }
     default:

@@ -3,6 +3,7 @@ import { redactDocx } from "@/lib/documents/docx/redact"
 import { redactImage } from "@/lib/documents/image/redact"
 import { redactPdf } from "@/lib/documents/pdf/redact"
 import { redactEml } from "@/lib/documents/eml/redact"
+import { redactPptx } from "@/lib/documents/pptx/redact"
 import { redactRtf } from "@/lib/documents/rtf/redact"
 import { redactText } from "@/lib/documents/text/redact"
 import { redactXlsx } from "@/lib/documents/xlsx/redact"
@@ -84,6 +85,12 @@ export async function exportRedacted(input: {
       break
     case "txt":
       bytes = redactText(source, buildTextPlan(model, accepted, options))
+      break
+    case "pptx":
+      // The same plan a DOCX takes: runs addressed by part, paragraph and
+      // index. `w:p/w:r/w:t` and `a:p/a:r/a:t` are one structure under two
+      // namespaces, so there is one plan builder and one exporter shape.
+      bytes = redactPptx(source, buildDocxPlan(model, accepted, options))
       break
     case "eml":
       bytes = redactEml(source, buildEmlPlan(model, accepted, options))

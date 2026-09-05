@@ -14,6 +14,7 @@ export const DOCUMENT_KINDS = [
   "txt",
   "rtf",
   "eml",
+  "pptx",
 ] as const
 
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number]

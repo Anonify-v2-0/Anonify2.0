@@ -1,5 +1,5 @@
 import { normalizeValue } from "@/lib/documents/shared/text"
-import { findOccurrences } from "@/lib/documents/docx/xml-text"
+import { findOccurrences } from "@/lib/documents/ooxml/xml-text"
 import type { NormalizedDocument } from "@/types/document"
 import type { Detection } from "@/types/redaction"
 

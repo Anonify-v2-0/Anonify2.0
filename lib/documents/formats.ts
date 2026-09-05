@@ -176,6 +176,21 @@ export const FORMATS: Record<DocumentKind, FormatDefinition> = {
     // alternative of that body, in a quoted reply and in a filename.
     container: "mime",
   },
+  pptx: {
+    kind: "pptx",
+    label: "PowerPoint (.pptx)",
+    mimeType: `${OOXML}.presentationml.presentation`,
+    mimeTypes: [`${OOXML}.presentationml.presentation`],
+    extension: "pptx",
+    extensions: ["pptx"],
+    extractable: true,
+    exportable: true,
+    // Slides. Notes, layouts and masters are processed with the slide they
+    // belong to rather than charged separately.
+    quota: "pptxSlides",
+    quotaUnit: "slides",
+    container: "ooxml",
+  },
   image: {
     kind: "image",
     label: "Images (PNG, JPEG, WebP)",

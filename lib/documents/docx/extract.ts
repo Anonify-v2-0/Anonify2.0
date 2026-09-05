@@ -1,3 +1,8 @@
+import {
+  PART_SEPARATOR,
+  parseSpanAddress,
+  spanAddress,
+} from "@/lib/documents/ooxml/runs"
 import { TextStreamBuilder } from "@/lib/documents/shared/text"
 import {
   attr,
@@ -10,7 +15,7 @@ import {
   WORD_TEXT_PARTS,
   xmlParser,
   type XmlNode,
-} from "@/lib/documents/docx/ooxml"
+} from "@/lib/documents/ooxml/package"
 import type {
   DocxBlock,
   DocxParagraph,
@@ -206,28 +211,11 @@ function collectRuns(node: XmlNode, into: XmlNode[] = []): XmlNode[] {
   return into
 }
 
-/**
- * Addresses are qualified by the part they live in, because each part is walked
- * — and later re-walked by the exporter — independently. `word/header1.xml#p0r1`
- * is the second run of the first paragraph of that header.
- */
-export const PART_SEPARATOR = "#"
-
-export function spanAddress(part: string, paragraph: number, run: number): string {
-  return `${part}${PART_SEPARATOR}p${paragraph}r${run}`
-}
-
-/** Splits an address back into the part and the local `p{n}r{m}` key. */
-export function parseSpanAddress(
-  address: string
-): { part: string; local: string } | null {
-  const index = address.indexOf(PART_SEPARATOR)
-  if (index === -1) return null
-  return {
-    part: address.slice(0, index),
-    local: address.slice(index + 1),
-  }
-}
+// Addresses are qualified by the part they live in, because each part is walked
+// — and later re-walked by the exporter — independently. `word/header1.xml#p0r1`
+// is the second run of the first paragraph of that header. The scheme is shared
+// with the PowerPoint pipeline, so it lives with the run machinery.
+export { PART_SEPARATOR, parseSpanAddress, spanAddress }
 
 type PartContext = { part: string; region: DocxRegion; counter: Counter }
 

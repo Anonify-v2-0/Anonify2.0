@@ -247,7 +247,8 @@ export function DocumentCanvas({
         <DocxViewer page={page} zoom={zoom} renderSpan={renderSpan} />
       ) : (summary.kind === "txt" ||
           summary.kind === "rtf" ||
-          summary.kind === "eml") &&
+          summary.kind === "eml" ||
+          summary.kind === "pptx") &&
         page ? (
         <TextViewer page={page} zoom={zoom} renderSpan={renderSpan} />
       ) : (
