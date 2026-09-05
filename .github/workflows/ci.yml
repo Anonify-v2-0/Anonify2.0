@@ -345,7 +345,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # The smoke test is TypeScript and builds its own PDF fixture, so it needs
+      # The smoke test is TypeScript and builds its own fixtures, so it needs
       # the workspace. It does not need the app — that is running in a container.
       - uses: ./.github/actions/setup
 
@@ -355,7 +355,12 @@ jobs:
         # passes. Reaching the next step at all is most of the assertion.
         run: docker compose up -d --build --wait
 
-      - name: Upload, process, export, download
+      # Every supported format, each opened afterwards the way an adversary
+      # would: a CSV reparsed as a grid, a message reparsed with an independent
+      # MIME library, a deck unzipped and its notes and master read, an image's
+      # pixels sampled. Asserting a 200 here would prove only that the request
+      # was answered.
+      - name: Upload, process, export, download — every format
         run: pnpm smoke http://127.0.0.1:3000
 
       - name: Show what the containers said
