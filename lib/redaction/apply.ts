@@ -1,7 +1,10 @@
-import type { CharRange } from "@/lib/documents/docx/xml-text"
+import type { DelimitedRedactionPlan } from "@/lib/documents/delimited/redact"
+import type { CharRange } from "@/lib/documents/shared/text"
 import type { DocxRedactionPlan } from "@/lib/documents/docx/redact"
 import type { ImageRedactionPlan, RedactionStyle } from "@/lib/documents/image/redact"
 import type { PdfRedactionPlan } from "@/lib/documents/pdf/redact"
+import { parseTextAddress } from "@/lib/documents/text/extract"
+import type { TextRedactionPlan } from "@/lib/documents/text/redact"
 import type { XlsxRedactionPlan } from "@/lib/documents/xlsx/redact"
 import { boxesForRedaction, padBox } from "@/lib/redaction/geometry"
 import { acceptedValues, isAccepted } from "@/lib/redaction/model"
@@ -204,5 +207,96 @@ export function buildImagePlan(
     regions,
     defaultStyle: options.imageStyle ?? "solid",
     sanitizeMetadata: options.sanitizeMetadata,
+  }
+}
+
+/**
+ * CSV and TSV: the same three units a workbook has, addressed the same way.
+ *
+ * A delimited file normalizes to a worksheet, so a redaction against it
+ * already carries a sheet, a row and a column. There is nothing to translate —
+ * which is the point of having normalized it that way.
+ */
+export function buildDelimitedPlan(
+  redactions: Redaction[],
+  options: ExportOptions
+): DelimitedRedactionPlan {
+  const cells: DelimitedRedactionPlan["cells"] = []
+  const rows: number[] = []
+  const columns: number[] = []
+
+  for (const redaction of redactions) {
+    if (!isAccepted(redaction)) continue
+
+    switch (redaction.type) {
+      case "column":
+        if (redaction.column) columns.push(redaction.column)
+        break
+      case "row":
+        if (redaction.row) rows.push(redaction.row)
+        break
+      default:
+        if (redaction.row && redaction.column) {
+          cells.push({ row: redaction.row, column: redaction.column })
+        }
+    }
+  }
+
+  return {
+    cells,
+    rows,
+    columns,
+    values: acceptedValues(redactions),
+    label: labelFor(options),
+  }
+}
+
+/**
+ * Plain text and RTF: page offsets translated back to source offsets.
+ *
+ * A redaction is recorded against the page it was made on, and a page is a
+ * slice this pipeline invented. The span it covers carries the absolute offset
+ * of its first character in its id, so the translation is exact and does not
+ * depend on how the text happened to be paginated — change the page size and
+ * every existing redaction still points at the same characters.
+ */
+export function buildTextPlan(
+  model: NormalizedDocument,
+  redactions: Redaction[],
+  options: ExportOptions
+): TextRedactionPlan {
+  const ranges: CharRange[] = []
+
+  for (const redaction of redactions) {
+    if (!isAccepted(redaction)) continue
+    if (redaction.start === undefined || redaction.end === undefined) continue
+
+    const page = model.pages.find(
+      (candidate) => candidate.number === (redaction.page ?? 1)
+    )
+    if (!page) continue
+
+    for (const span of page.spans) {
+      if (span.end <= redaction.start || span.start >= redaction.end) continue
+
+      const sourceStart = parseTextAddress(span.id)
+      // A span with no source address cannot be safely edited: guessing an
+      // offset would delete characters somewhere else in the file.
+      if (sourceStart === null) continue
+
+      const within = rangeWithinSpan(span, redaction.start, redaction.end)
+      if (!within) continue
+
+      ranges.push({
+        start: sourceStart + within.start,
+        end: sourceStart + within.end,
+      })
+    }
+  }
+
+  return {
+    ranges,
+    values: acceptedValues(redactions),
+    label: labelFor(options),
   }
 }

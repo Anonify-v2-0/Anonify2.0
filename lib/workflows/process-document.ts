@@ -9,6 +9,7 @@ import { analyzeDocument, analyzeImageRegions } from "@/lib/ai/analyze"
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
 import { MAX_UPLOAD_BYTES } from "@/lib/config"
+import { extractDelimited } from "@/lib/documents/delimited/extract"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { extractPdf } from "@/lib/documents/pdf/extract"
 import { extractImage } from "@/lib/documents/image/extract"
@@ -16,6 +17,7 @@ import {
   MAX_VISION_PAGES,
   renderPagesForVision,
 } from "@/lib/documents/pdf/page-images"
+import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { newEventId } from "@/lib/documents/ids"
@@ -185,7 +187,9 @@ async function runIngest(documentId: string): Promise<{ kind: DocumentKind }> {
     throw new FatalError("Uploaded file is too large")
   }
 
-  const detected = detectDocumentType(bytes)
+  // The filename is passed as a hint, not as an authority: it can only choose
+  // between text formats whose bytes already decode as text.
+  const detected = detectDocumentType(bytes, document.originalName)
   if (!detected) throw new FatalError("Unsupported file type")
   if (!extensionMatchesKind(document.originalName, detected.kind)) {
     throw new FatalError("File contents do not match its extension")
@@ -306,6 +310,15 @@ async function extractByKind(
     }
     case "image": {
       const { document } = await extractImage(documentId, bytes)
+      return document
+    }
+    case "csv":
+    case "tsv": {
+      const { document } = extractDelimited(documentId, kind, bytes)
+      return document
+    }
+    case "txt": {
+      const { document } = extractText(documentId, bytes)
       return document
     }
     default:

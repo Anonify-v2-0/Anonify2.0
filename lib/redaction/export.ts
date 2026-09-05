@@ -1,11 +1,15 @@
+import { redactDelimited } from "@/lib/documents/delimited/redact"
 import { redactDocx } from "@/lib/documents/docx/redact"
 import { redactImage } from "@/lib/documents/image/redact"
 import { redactPdf } from "@/lib/documents/pdf/redact"
+import { redactText } from "@/lib/documents/text/redact"
 import { redactXlsx } from "@/lib/documents/xlsx/redact"
 import {
+  buildDelimitedPlan,
   buildDocxPlan,
   buildImagePlan,
   buildPdfPlan,
+  buildTextPlan,
   buildXlsxPlan,
   type ExportOptions,
 } from "@/lib/redaction/apply"
@@ -66,6 +70,17 @@ export async function exportRedacted(input: {
       break
     case "image":
       bytes = await redactImage(source, buildImagePlan(model, accepted, options))
+      break
+    case "csv":
+    case "tsv":
+      bytes = redactDelimited(
+        kind,
+        source,
+        buildDelimitedPlan(accepted, options)
+      )
+      break
+    case "txt":
+      bytes = redactText(source, buildTextPlan(model, accepted, options))
       break
   }
 

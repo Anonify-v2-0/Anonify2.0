@@ -150,62 +150,13 @@ export function applyTextEdits(xml: string, edits: TextEdit[]): string {
   return result
 }
 
-export type CharRange = { start: number; end: number }
-
-/** Removes (or replaces) character ranges from a string. */
-export function cutRanges(
-  text: string,
-  ranges: CharRange[],
-  replacement: (length: number) => string
-): string {
-  const merged = mergeRanges(ranges)
-  let result = ""
-  let cursor = 0
-
-  for (const range of merged) {
-    const start = Math.max(0, Math.min(range.start, text.length))
-    const end = Math.max(start, Math.min(range.end, text.length))
-    if (end <= cursor) continue
-    result += text.slice(cursor, start)
-    result += replacement(end - start)
-    cursor = end
-  }
-
-  return result + text.slice(cursor)
-}
-
-export function mergeRanges(ranges: CharRange[]): CharRange[] {
-  const sorted = [...ranges]
-    .filter((range) => range.end > range.start)
-    .sort((a, b) => a.start - b.start)
-
-  const merged: CharRange[] = []
-  for (const range of sorted) {
-    const last = merged[merged.length - 1]
-    if (last && range.start <= last.end) {
-      last.end = Math.max(last.end, range.end)
-    } else {
-      merged.push({ ...range })
-    }
-  }
-  return merged
-}
-
-/** Finds every occurrence of `needle` in `haystack`, case-insensitively. */
-export function findOccurrences(
-  haystack: string,
-  needle: string,
-  caseSensitive = false
-): CharRange[] {
-  if (!needle) return []
-  const source = caseSensitive ? haystack : haystack.toLowerCase()
-  const target = caseSensitive ? needle : needle.toLowerCase()
-
-  const ranges: CharRange[] = []
-  let index = source.indexOf(target)
-  while (index !== -1) {
-    ranges.push({ start: index, end: index + target.length })
-    index = source.indexOf(target, index + target.length)
-  }
-  return ranges
-}
+// Cutting and finding character ranges is not an OOXML concern — the CSV
+// exporter and the plain-text exporter need exactly the same operations — so
+// those live in lib/documents/shared/text.ts and are re-exported here for the
+// callers that have always imported them from this module.
+export {
+  cutRanges,
+  findOccurrences,
+  mergeRanges,
+  type CharRange,
+} from "@/lib/documents/shared/text"

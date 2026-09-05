@@ -119,6 +119,48 @@ describe("content sniffing", () => {
     expect(detectDocumentType(Buffer.from("just text"))).toBeNull()
   })
 
+  it("refuses a zip that is not one of the package formats", () => {
+    // An arbitrary archive renamed to .docx is still an archive, and reading
+    // one as a document is how a zip bomb gets in.
+    const zip = Buffer.concat([
+      Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      Buffer.from("  photos/holiday.jpg"),
+    ])
+    expect(detectDocumentType(zip, "contract.docx")).toBeNull()
+  })
+
+  describe("text formats", () => {
+    // These have no signature to read: a CSV, a TSV and a text file are all
+    // just characters. So the bytes answer the question that can be answered
+    // from bytes — is this decodable text at all — and the extension picks
+    // between formats the content already qualifies for.
+    const csv = Buffer.from("name,email\nJohn,john@example.com\n")
+
+    it("names a text format only when the bytes are text", () => {
+      expect(detectDocumentType(csv, "people.csv")?.kind).toBe("csv")
+      expect(detectDocumentType(csv, "people.tsv")?.kind).toBe("tsv")
+      expect(detectDocumentType(csv, "people.txt")?.kind).toBe("txt")
+    })
+
+    it("refuses binary content whatever the name claims", () => {
+      const binary = Buffer.from([0x00, 0x01, 0x02, 0x03, 0x00])
+      expect(detectDocumentType(binary, "people.csv")).toBeNull()
+      expect(detectDocumentType(binary, "notes.txt")).toBeNull()
+    })
+
+    it("refuses invalid UTF-8 rather than substituting characters", () => {
+      // A replacement character would mean exporting bytes that differ from
+      // the ones we were handed, in places nobody asked us to touch.
+      const invalid = Buffer.from([0x61, 0x2c, 0x62, 0x0a, 0xff, 0xfe])
+      expect(detectDocumentType(invalid, "people.csv")).toBeNull()
+    })
+
+    it("does not take a text format on the extension alone", () => {
+      expect(detectDocumentType(csv, "people.exe")).toBeNull()
+      expect(detectDocumentType(csv)).toBeNull()
+    })
+  })
+
   it("catches an extension that disagrees with the bytes", () => {
     expect(extensionMatchesKind("invoice.pdf", "pdf")).toBe(true)
     expect(extensionMatchesKind("invoice.pdf", "xlsx")).toBe(false)

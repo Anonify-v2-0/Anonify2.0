@@ -200,9 +200,18 @@ model UsageRecord {
   fingerprint String
   date        DateTime @db.Date
   pdfPages    Int      @default(0)
+  /// Filled cells across every grid format: XLSX, CSV and TSV.
   xlsxCells   Int      @default(0)
   images      Int      @default(0)
   docxPages   Int      @default(0)
+  /// Pages of extracted text, for plain text and RTF.
+  textPages   Int      @default(0)
+  /// Kibibytes of decoded text pulled out of a message: headers, every text
+  /// part and every nested message. An email is not a page.
+  emailKilobytes Int   @default(0)
+  /// Slides in a deck. Notes, layouts and masters are processed with the slide
+  /// they belong to rather than charged separately.
+  pptxSlides  Int      @default(0)
   uploads     Int      @default(0)
 
   @@unique([fingerprint, date])

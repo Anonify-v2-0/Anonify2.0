@@ -1,6 +1,8 @@
+import { extractDelimited } from "@/lib/documents/delimited/extract"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { openPackage, readPart } from "@/lib/documents/docx/ooxml"
 import { extractPdfText } from "@/lib/documents/pdf/redact"
+import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { acceptedValues } from "@/lib/redaction/model"
 import type { DocumentKind } from "@/types/document"
@@ -55,6 +57,22 @@ async function haystackFor(
     case "image":
       // Pixels carry no strings; the image suite verifies these by sampling.
       return ""
+    case "csv":
+    case "tsv": {
+      // Re-parsed rather than searched as a string: if the export produced
+      // something that no longer parses as a grid, that is a failure in its own
+      // right, and a value hiding in a field the parser cannot reach would not
+      // be found by reading the file as one blob.
+      const { document } = extractDelimited("verify", kind, bytes)
+      const cells = (document.sheets ?? [])
+        .flatMap((sheet) => sheet.cells.map((cell) => cell.value ?? ""))
+        .join("\n")
+      return cells
+    }
+    case "txt": {
+      const { text } = extractText("verify", bytes)
+      return text
+    }
   }
 }
 

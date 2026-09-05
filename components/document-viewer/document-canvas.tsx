@@ -1,10 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react"
 import { FileWarning } from "lucide-react"
 
 import { DocxViewer } from "@/components/document-viewer/docx-viewer"
 import { PdfViewer } from "@/components/document-viewer/pdf-viewer"
+import { TextViewer } from "@/components/document-viewer/text-viewer"
 import { ImageCanvas } from "@/components/image-editor/image-canvas"
 import { RedactionLayer } from "@/components/redaction/redaction-layer"
 import { SpreadsheetGrid } from "@/components/spreadsheet/spreadsheet-grid"
@@ -147,14 +148,71 @@ export function DocumentCanvas({
     )
   }
 
-  // Workbooks bring their own scrolling surface and ignore page zoom.
-  if (summary.kind === "xlsx") {
+  // Grids bring their own scrolling surface and ignore page zoom. A CSV and a
+  // TSV normalize to the same worksheet model a workbook does, so they are
+  // reviewed in the same grid rather than as text that happens to have commas.
+  if (
+    summary.kind === "xlsx" ||
+    summary.kind === "csv" ||
+    summary.kind === "tsv"
+  ) {
     return normalized ? (
       <SpreadsheetGrid normalized={normalized} actions={actions} />
     ) : (
       <section className="flex min-w-0 flex-1 items-center justify-center bg-surface-1">
         <Placeholder summary={summary} />
       </section>
+    )
+  }
+
+  /**
+   * Drawing one span, wherever the page came from.
+   *
+   * A DOCX run and a line of a text file are the same thing to a reviewer: a
+   * piece of the document you can point at and remove. Two copies of this
+   * would be two places for the highlight, the accepted state and the keyboard
+   * affordance to drift apart.
+   */
+  const renderSpan = (spanId: string, children: ReactNode) => {
+    if (!page) return children
+
+    const covering = pageRedactions.find((redaction) =>
+      coversSpan(redaction, page, spanId)
+    )
+    const span = page.spans.find((candidate) => candidate.id === spanId)
+
+    const redactThisSpan = () => {
+      if (covering) {
+        dispatch(redactionSelected(covering.id))
+      } else if (span) {
+        redactSpan({ start: span.start, end: span.end, text: span.text })
+      }
+    }
+
+    return (
+      <span
+        key={spanId}
+        role="button"
+        tabIndex={0}
+        title={covering ? covering.category : "Redact this text"}
+        onClick={redactThisSpan}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return
+          event.preventDefault()
+          if (!covering) redactThisSpan()
+        }}
+        className={cn(
+          "cursor-pointer rounded-[2px] transition-colors",
+          covering?.status === "accepted"
+            ? "bg-black text-black selection:bg-black"
+            : covering
+              ? "bg-red-soft outline-1 outline-dashed outline-red-border"
+              : "hover:bg-primary/15",
+          covering?.id === selectedId && "outline-1 outline-primary"
+        )}
+      >
+        {children}
+      </span>
     )
   }
 
@@ -186,58 +244,9 @@ export function DocumentCanvas({
           {layer}
         </PdfViewer>
       ) : summary.kind === "docx" && page ? (
-        <DocxViewer
-          page={page}
-          zoom={zoom}
-          renderSpan={(spanId, children) => {
-            const covering = pageRedactions.find((redaction) =>
-              coversSpan(redaction, page, spanId)
-            )
-            const span = page.spans.find((candidate) => candidate.id === spanId)
-
-            return (
-              <span
-                key={spanId}
-                role="button"
-                tabIndex={0}
-                title={covering ? covering.category : "Redact this text"}
-                onClick={() => {
-                  if (covering) {
-                    dispatch(redactionSelected(covering.id))
-                  } else if (span) {
-                    redactSpan({
-                      start: span.start,
-                      end: span.end,
-                      text: span.text,
-                    })
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return
-                  event.preventDefault()
-                  if (!covering && span) {
-                    redactSpan({
-                      start: span.start,
-                      end: span.end,
-                      text: span.text,
-                    })
-                  }
-                }}
-                className={cn(
-                  "cursor-pointer rounded-[2px] transition-colors",
-                  covering?.status === "accepted"
-                    ? "bg-black text-black selection:bg-black"
-                    : covering
-                      ? "bg-red-soft outline-1 outline-dashed outline-red-border"
-                      : "hover:bg-primary/15",
-                  covering?.id === selectedId && "outline-1 outline-primary"
-                )}
-              >
-                {children}
-              </span>
-            )
-          }}
-        />
+        <DocxViewer page={page} zoom={zoom} renderSpan={renderSpan} />
+      ) : summary.kind === "txt" && page ? (
+        <TextViewer page={page} zoom={zoom} renderSpan={renderSpan} />
       ) : (
         <Placeholder summary={summary} />
       )}

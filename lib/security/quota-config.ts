@@ -24,6 +24,9 @@ export const USAGE_KINDS = [
   "docxPages",
   "xlsxCells",
   "images",
+  "textPages",
+  "emailKilobytes",
+  "pptxSlides",
   "uploads",
 ] as const
 
@@ -36,8 +39,17 @@ export type Quotas = Record<UsageKind, number>
 const DEMO_DEFAULTS: Quotas = {
   pdfPages: 10,
   docxPages: 10,
+  // Shared by every grid: a workbook, a CSV and a TSV cost the same per cell.
   xlsxCells: 100 * 100,
   images: 3,
+  // Pages of extracted text, for plain text and RTF. Cheap to process, so the
+  // allowance is larger than the page-image formats'.
+  textPages: 40,
+  // Kibibytes of decoded text pulled out of a message — headers, every text
+  // part, and every nested message. An email is not a page and counting it as
+  // one would charge a one-line reply the same as a forwarded thread.
+  emailKilobytes: 512,
+  pptxSlides: 20,
   uploads: 20,
 }
 
@@ -51,6 +63,9 @@ const SELF_HOSTED_DEFAULTS: Quotas = {
   docxPages: 0,
   xlsxCells: 0,
   images: 0,
+  textPages: 0,
+  emailKilobytes: 0,
+  pptxSlides: 0,
   uploads: 0,
 }
 

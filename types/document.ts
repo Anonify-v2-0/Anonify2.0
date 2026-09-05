@@ -4,7 +4,15 @@
  * format so the canvas, the detectors and the exporters share one vocabulary.
  */
 
-export const DOCUMENT_KINDS = ["pdf", "docx", "xlsx", "image"] as const
+export const DOCUMENT_KINDS = [
+  "pdf",
+  "docx",
+  "xlsx",
+  "image",
+  "csv",
+  "tsv",
+  "txt",
+] as const
 
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number]
 

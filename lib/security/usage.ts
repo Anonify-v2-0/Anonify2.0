@@ -64,9 +64,27 @@ export function usageQuantity(
     case "images":
     case "uploads":
       return 1
+    case "emailKilobytes":
+      // What was actually decoded and searched: every header, every text part,
+      // every nested message. Rounded up, so a short email still costs one.
+      return Math.max(1, Math.ceil(textBytes(model) / 1024))
+    case "pptxSlides":
+      // Notes, layouts and masters are processed with the slide they belong to
+      // rather than charged separately; the deck's slide count is the cost.
+      return slideCount(model) ?? model.pages.length
     default:
       return model.pages.length
   }
+}
+
+function textBytes(model: NormalizedDocument): number {
+  const text = model.pages.map((page) => page.text).join("\n")
+  return Buffer.byteLength(text, "utf8")
+}
+
+function slideCount(model: NormalizedDocument): number | null {
+  const value = model.metadata?.slideCount
+  return typeof value === "number" && Number.isFinite(value) ? value : null
 }
 
 async function currentUsage(fingerprint: string) {
@@ -174,8 +192,11 @@ export function quotaMessage(check: QuotaCheck): string {
   const labels: Record<UsageKind, string> = {
     pdfPages: "PDF pages",
     docxPages: "document pages",
-    xlsxCells: "spreadsheet cells",
+    xlsxCells: "table cells",
     images: "images",
+    textPages: "text pages",
+    emailKilobytes: "kibibytes of email content",
+    pptxSlides: "slides",
     uploads: "uploads",
   }
 
