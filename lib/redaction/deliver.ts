@@ -4,6 +4,7 @@ import { loadNormalized } from "@/lib/documents/normalized-store"
 import type { ExportOptions } from "@/lib/redaction/apply"
 import { exportRedacted } from "@/lib/redaction/export"
 import { fromDatabaseRow } from "@/lib/redaction/model"
+import { presetById } from "@/lib/redaction/presets"
 import {
   assertReportOmitsValues,
   buildExportReport,
@@ -55,6 +56,7 @@ export async function exportAndStore(
       size: true,
       pageCount: true,
       checksum: true,
+      preset: true,
       encryptionKey: true,
       sourceBlobKey: true,
       normalizedBlobKey: true,
@@ -115,6 +117,7 @@ export async function exportAndStore(
       passed: result.verification.passed,
       checkedValues: result.verification.checkedValues,
     },
+    preset: presetById(document.preset),
   })
 
   // The report is verified the way the export is, and for the same reason: it

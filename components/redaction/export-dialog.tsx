@@ -107,6 +107,14 @@ function ReportSummary({ report }: { report: ExportReport }) {
         <p className="text-xs text-text-secondary">Nothing was removed.</p>
       )}
 
+      {report.lookedFor.narrowed && report.lookedFor.presetLabel ? (
+        <p className="text-[11px] leading-relaxed text-text-muted">
+          Looked for {report.lookedFor.presetLabel.toLowerCase()}. Anything
+          outside that was never searched for, so its absence from these counts
+          says nothing about the file.
+        </p>
+      ) : null}
+
       <p className="text-[11px] leading-relaxed text-text-muted">
         {leftIn === 0
           ? "Every suggestion was decided, and every accepted one was removed."

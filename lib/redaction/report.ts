@@ -1,4 +1,5 @@
 import { regionStyle, type ExportOptions } from "@/lib/redaction/apply"
+import { presetNarrows, type Preset } from "@/lib/redaction/presets"
 import type { DocumentKind } from "@/types/document"
 import {
   REDACTION_CATEGORIES,
@@ -91,6 +92,21 @@ export type ExportReport = {
     /** Distinct values the exporter searched the artifact for and did not find. */
     checkedValues: number
   }
+  /**
+   * What the analysis was asked to look for.
+   *
+   * A report that says what was removed without saying what was searched for
+   * invites the wrong reading: a short list of removals can mean a clean
+   * document or a narrow preset, and those are not the same thing at all.
+   */
+  lookedFor: {
+    presetId: string | null
+    presetLabel: string | null
+    /** `null` when nothing was excluded from the search. */
+    categories: string[] | null
+    /** False when the chosen preset restricted nothing. */
+    narrowed: boolean
+  }
   notes: string[]
 }
 
@@ -165,6 +181,12 @@ function notesFor(report: Omit<ExportReport, "notes">): string[] {
     )
   }
 
+  if (report.lookedFor.narrowed) {
+    notes.push(
+      "Only one preset's categories were searched for. Anything outside them was never proposed, so its absence from these counts is not evidence it is absent from the file."
+    )
+  }
+
   const stillPresent =
     report.notRemoved.rejected.total + report.notRemoved.undecided.total
   if (stillPresent > 0) {
@@ -194,6 +216,8 @@ export function buildExportReport(input: {
   /** Every redaction on the document, whatever its status. */
   redactions: Redaction[]
   verification: { passed: boolean; checkedValues: number }
+  /** The named detector set the analysis ran with, if any. */
+  preset?: Preset | null
   generatedAt?: Date
 }): ExportReport {
   const byStatus = (status: RedactionStatus) =>
@@ -252,6 +276,12 @@ export function buildExportReport(input: {
       passed: input.verification.passed,
       checkedValues: input.verification.checkedValues,
     },
+    lookedFor: {
+      presetId: input.preset?.id ?? null,
+      presetLabel: input.preset?.label ?? null,
+      categories: input.preset?.categories ?? null,
+      narrowed: presetNarrows(input.preset ?? null),
+    },
   }
 
   return { ...skeleton, notes: notesFor(skeleton) }
@@ -305,6 +335,8 @@ const AUTHORED_PATHS = new Set([
   "artifact.checksum",
   "artifact.mimeType",
   "artifact.extension",
+  "lookedFor.presetId",
+  "lookedFor.presetLabel",
 ])
 
 /** Strings short enough to collide by accident are not worth asserting on. */

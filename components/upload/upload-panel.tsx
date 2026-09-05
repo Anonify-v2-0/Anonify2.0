@@ -7,6 +7,7 @@ import { Loader2, UploadCloud } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import {
   Select,
@@ -16,6 +17,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toastFailure } from "@/lib/api/errors"
+import {
+  DEFAULT_PRESET_ID,
+  PRESET_DISCLAIMER,
+  PRESETS,
+  presetById,
+} from "@/lib/redaction/presets"
 import { cn } from "@/lib/utils"
 import {
   DEFAULT_TTL_SECONDS,
@@ -163,8 +170,10 @@ export function UploadPanel() {
     total: number
   } | null>(null)
   const [ttl, setTtl] = useState<TtlOption>(DEFAULT_TTL_SECONDS)
+  const [presetId, setPresetId] = useState<string>(DEFAULT_PRESET_ID)
 
   const busy = phase !== "idle"
+  const preset = presetById(presetId)
 
   const send = useCallback(
     async (file: File) => {
@@ -180,6 +189,7 @@ export function UploadPanel() {
             size: file.size,
             contentType: file.type || undefined,
             ttlSeconds: ttl,
+            preset: presetId,
           }),
         })
 
@@ -221,7 +231,7 @@ export function UploadPanel() {
         setPhase("idle")
       }
     },
-    [router, ttl]
+    [presetId, router, ttl]
   )
 
   const sendBatch = useCallback(
@@ -241,6 +251,7 @@ export function UploadPanel() {
               contentType: file.type || undefined,
             })),
             ttlSeconds: ttl,
+            preset: presetId,
           }),
         })
 
@@ -306,7 +317,7 @@ export function UploadPanel() {
         setBatchProgress(null)
       }
     },
-    [router, ttl]
+    [presetId, router, ttl]
   )
 
   /**
@@ -410,6 +421,54 @@ export function UploadPanel() {
             if (selected.length > 0) receive(selected)
           }}
         />
+      </div>
+
+      {/*
+        The preset and the sentence under it are one control. A preset changes
+        what is searched for and nothing else, and the moment a person believes
+        otherwise the tool has become worse than no tool — so the caveat is
+        stated where the choice is made, not in a document nobody opens.
+      */}
+      <div className="space-y-2 rounded-[10px] border border-border p-3">
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="preset" className="text-xs font-normal">
+            Look for
+          </Label>
+          <Select
+            value={presetId}
+            onValueChange={(value) =>
+              setPresetId(value ? String(value) : DEFAULT_PRESET_ID)
+            }
+            disabled={busy}
+          >
+            <SelectTrigger id="preset" size="sm" className="w-[230px]">
+              <SelectValue>
+                {(value) =>
+                  presetById(String(value))?.label ?? "Everything we can detect"
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {PRESETS.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {preset ? (
+          <ul className="space-y-0.5 text-[11px] text-text-muted">
+            {preset.looksFor.map((item) => (
+              <li key={item}>· {item}</li>
+            ))}
+          </ul>
+        ) : null}
+
+        <p className="text-[11px] leading-relaxed text-text-secondary">
+          {PRESET_DISCLAIMER}
+        </p>
       </div>
 
       <div className="flex items-center justify-between gap-3 text-xs text-text-muted">

@@ -209,6 +209,12 @@ export type DocumentSummary = {
   reviewable?: boolean
   /** Absent for a document uploaded on its own. */
   batch?: BatchPlacement | null
+  /**
+   * The preset the analysis ran with, if the sweep was narrowed. Shown in the
+   * editor because a short suggestion list means two very different things
+   * depending on whether everything was looked for.
+   */
+  presetLabel?: string | null
 }
 
 /**

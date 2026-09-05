@@ -27,6 +27,12 @@ export type DetectPromptInput = {
   content: string
   /** Categories the deterministic pass already covered, to avoid duplication. */
   alreadyFound?: string[]
+  /**
+   * What the chosen preset looks for, in the reviewer's own words. Narrowing
+   * the question also narrows the bill: a preset that only wants credentials
+   * should not be paying for a pass over every name in the document.
+   */
+  lookFor?: string[]
 }
 
 export function detectPiiPrompt(input: DetectPromptInput): string {
@@ -45,12 +51,19 @@ export function detectPiiPrompt(input: DetectPromptInput): string {
     )
   }
 
-  parts.push(
-    "Report the sensitive information a reviewer should consider redacting, focusing on what pattern matching cannot see: names of people, addresses written in prose, organizations named as customers or patients, job or role details tied to an individual, health or financial facts, and anything else identifying.",
-    "",
-    "CONTENT:",
-    input.content
-  )
+  if (input.lookFor && input.lookFor.length > 0) {
+    parts.push(
+      `Report only these kinds of information, and nothing else:\n${input.lookFor
+        .map((item) => `- ${item}`)
+        .join("\n")}`
+    )
+  } else {
+    parts.push(
+      "Report the sensitive information a reviewer should consider redacting, focusing on what pattern matching cannot see: names of people, addresses written in prose, organizations named as customers or patients, job or role details tied to an individual, health or financial facts, and anything else identifying."
+    )
+  }
+
+  parts.push("", "CONTENT:", input.content)
 
   return parts.join("\n")
 }

@@ -31,6 +31,11 @@ import {
 } from "@/lib/ai/schemas/detection"
 import { detectPatterns } from "@/lib/redaction/detectors"
 import {
+  categoryAllowed,
+  detectorsFor,
+  type Preset,
+} from "@/lib/redaction/presets"
+import {
   dedupeDetections,
   findAllOccurrences,
   locateInPage,
@@ -176,7 +181,8 @@ async function detectInChunk(
   documentId: string,
   chunk: Chunk,
   documentType: string | undefined,
-  alreadyFound: string[]
+  alreadyFound: string[],
+  preset: Preset | null
 ): Promise<Detection[]> {
   const { output } = await runStructured({
     task: "detect",
@@ -186,6 +192,7 @@ async function detectInChunk(
       documentType,
       content: chunk.text,
       alreadyFound,
+      lookFor: preset?.looksFor,
     }),
     schema: detectionResultSchema,
   })
@@ -194,6 +201,11 @@ async function detectInChunk(
 
   const detections: Detection[] = []
   for (const detection of output.detections) {
+    // A preset narrows what the model may propose as well as what the patterns
+    // look for. Asking it to stay inside the preset is not the same as it
+    // having done so.
+    if (!categoryAllowed(preset, detection.category)) continue
+
     const located = locateInPage(chunk.text, detection.text)
     if (!located) continue
 
@@ -291,7 +303,8 @@ function columnSamples(sheet: SpreadsheetSheet): ColumnSample[] {
 
 async function analyzeSheets(
   documentId: string,
-  model: NormalizedDocument
+  model: NormalizedDocument,
+  preset: Preset | null
 ): Promise<AnalysisResult["sensitiveColumns"]> {
   const sensitive: AnalysisResult["sensitiveColumns"] = []
 
@@ -315,6 +328,7 @@ async function analyzeSheets(
 
     for (const column of output.columns) {
       if (!column.sensitive) continue
+      if (!categoryAllowed(preset, column.category)) continue
 
       // The same rule the text pass follows: a model points at what is there,
       // it does not introduce it. Asked about a four-column sheet, one model
@@ -393,14 +407,23 @@ export async function analyzeImageRegions(
 export async function analyzeDocument(
   documentId: string,
   model: NormalizedDocument,
-  onProgress?: AnalysisProgress
+  onProgress?: AnalysisProgress,
+  /**
+   * What to look for. `null` is everything, which is what an upload gets unless
+   * the person chose otherwise — a missing preset must never narrow the sweep.
+   */
+  preset: Preset | null = null
 ): Promise<AnalysisResult> {
   // 1. Deterministic pass. Free, reproducible, and it covers most of the
   //    obvious shapes before a single token is spent.
   const deterministic: Detection[] = []
 
+  const detectors = detectorsFor(preset)
+
   for (const page of model.pages) {
-    deterministic.push(...detectPatterns(page.text, { page: page.number }))
+    deterministic.push(
+      ...detectPatterns(page.text, { page: page.number, detectors })
+    )
   }
 
   for (const sheet of model.sheets ?? []) {
@@ -408,6 +431,7 @@ export async function analyzeDocument(
       if (!cell.value) continue
       for (const detection of detectPatterns(cell.value, {
         worksheet: sheet.name,
+        detectors,
       })) {
         deterministic.push({
           ...detection,
@@ -449,7 +473,8 @@ export async function analyzeDocument(
         documentId,
         chunk,
         classification?.documentType,
-        alreadyFound
+        alreadyFound,
+        preset
       )
       completed += 1
       await onProgress?.({
@@ -478,7 +503,7 @@ export async function analyzeDocument(
   })
 
   // 5. Spreadsheet structure.
-  const sensitiveColumns = await analyzeSheets(documentId, model)
+  const sensitiveColumns = await analyzeSheets(documentId, model, preset)
 
   // 6. Expand global values locally. This is the cheap half of the work:
   //    occurrence 2..n costs a string search, not a request.

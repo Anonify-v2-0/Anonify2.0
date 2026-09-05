@@ -53,6 +53,8 @@ export async function reserveDocument(input: {
   ownerKey: string
   quotaKey: string
   batchId?: string
+  /** Named detector set; absent means everything is looked for. */
+  preset?: string
 }): Promise<ReserveResult> {
   const kind = EXTENSION_KINDS[extensionOf(input.filename)]
   if (!kind) {
@@ -100,6 +102,7 @@ export async function reserveDocument(input: {
       mimeType: input.contentType ?? "application/octet-stream",
       size: input.size,
       status: "uploading",
+      preset: input.preset ?? null,
       userFingerprint: input.ownerKey,
       quotaKey: input.quotaKey,
       batchId: input.batchId ?? null,

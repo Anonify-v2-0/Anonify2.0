@@ -22,6 +22,7 @@ import { newEventId } from "@/lib/documents/ids"
 import { saveNormalized } from "@/lib/documents/normalized-store"
 import { loadNormalized } from "@/lib/documents/normalized-store"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
+import { categoryAllowed, presetById } from "@/lib/redaction/presets"
 import { carryBatchRules } from "@/lib/redaction/rules"
 import {
   quotaMessage,
@@ -351,6 +352,7 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
       encryptionKey: true,
       normalizedBlobKey: true,
       sourceBlobKey: true,
+      preset: true,
     },
   })
 
@@ -362,6 +364,9 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
     document.normalizedBlobKey,
     document.encryptionKey
   )
+
+  // Null when no preset was chosen, which means everything is looked for.
+  const preset = presetById(document.preset)
 
   const { detections, sensitiveColumns } = await analyzeDocument(
     documentId,
@@ -376,7 +381,8 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
           suggestions: update.detections,
         },
       })
-    }
+    },
+    preset
   )
 
   // Pixels get a vision pass, because no amount of text analysis can see a
@@ -385,10 +391,12 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
     const sealed = await getObject(document.sourceBlobKey)
     const bytes = decryptDocument(sealed, document.encryptionKey)
     detections.push(
-      ...(await analyzeImageRegions(documentId, model, {
-        data: bytes,
-        mediaType: document.mimeType,
-      }))
+      ...(
+        await analyzeImageRegions(documentId, model, {
+          data: bytes,
+          mediaType: document.mimeType,
+        })
+      ).filter((detection) => categoryAllowed(preset, detection.category))
     )
   }
 
@@ -410,12 +418,14 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
 
       for (const [index, { page, png }] of rendered.entries()) {
         detections.push(
-          ...(await analyzeImageRegions(
-            documentId,
-            model,
-            { data: png, mediaType: "image/png" },
-            page
-          ))
+          ...(
+            await analyzeImageRegions(
+              documentId,
+              model,
+              { data: png, mediaType: "image/png" },
+              page
+            )
+          ).filter((detection) => categoryAllowed(preset, detection.category))
         )
         await emit(documentId, "document.ai.progress", {
           status: "analyzing",

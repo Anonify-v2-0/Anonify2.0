@@ -23,6 +23,11 @@ model Document {
   pageCount        Int?
 
   status           String   @default("queued")
+  /// Which named detector set the analysis ran with. Null means everything was
+  /// looked for, which is the default: a missing preset must never narrow the
+  /// sweep. See lib/redaction/presets.ts.
+  preset           String?
+
   /// User-facing failure sentence, chosen from lib/workflows/failure.ts. Never
   /// a raw thrown message: those can carry internal detail, and a parser error
   /// is not guaranteed to be free of document content.

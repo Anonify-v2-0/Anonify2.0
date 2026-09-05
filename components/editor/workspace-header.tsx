@@ -88,7 +88,14 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
         <p className="truncate text-sm font-medium text-white md:text-base">
           {summary.originalName}
         </p>
-        <p className="text-[11px] text-text-muted uppercase">{summary.kind}</p>
+        <p className="text-[11px] text-text-muted">
+          <span className="uppercase">{summary.kind}</span>
+          {summary.presetLabel ? (
+            // Said here rather than only at upload: an empty inspector reads as
+            // "nothing to redact" unless you know the search was narrowed.
+            <span> · looked for {summary.presetLabel.toLowerCase()}</span>
+          ) : null}
+        </p>
       </div>
 
       {summary.batch ? <BatchNav batch={summary.batch} /> : null}

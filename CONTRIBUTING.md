@@ -224,9 +224,17 @@ Only after the invariants hold for it, including an adversarial test suite.
       partway the affordable files proceed and the rest are named. Export is one
       archive of per-document artifacts, each verified on its own, with its own
       report, plus a roll-up that names what could not be included and why.
-- [ ] **Redaction presets** ("GDPR", "HIPAA-shaped", "engineering secrets") as
-      named detector + category sets. Presets must not imply compliance; naming
-      here needs care.
+- [x] ~~**Redaction presets** as named detector + category sets. Presets must
+      not imply compliance; naming here needs care.~~ `lib/redaction/presets/`
+      is JSON, so what a preset covers is a reviewable diff. The names say what
+      each one *looks for* — "Names and contact details", "Payment and account
+      numbers", "Credentials and keys" — and the rule that keeps them that way
+      is enforced rather than documented: a preset whose id, label, summary or
+      description contains a regulation's name or an outcome claim fails
+      validation at import. The caveat is stated where the choice is made, the
+      editor says which preset a document was analyzed with, and the export
+      report records it — because a short list of removals means a clean
+      document or a narrow search, and those are not the same thing.
 
 ---
 

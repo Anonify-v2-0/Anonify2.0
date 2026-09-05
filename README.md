@@ -177,6 +177,28 @@ quota accounting, its own failure and its own expiry, so one document failing
 leaves the rest exactly where they were — and the batch export delivers every
 document that succeeded, naming the ones it could not include and why.
 
+### Presets, and the one thing they must not say
+
+A preset is a named set of detectors and categories — "Names and contact
+details", "Payment and account numbers", "Credentials and keys" — chosen at
+upload. It changes **what is looked for** and nothing else.
+
+That sentence is the whole design. A preset called "HIPAA" that somebody applies
+and then believes they have a compliant document is a worse outcome than having
+no presets at all: it turns a tool that helps into one that misleads, on exactly
+the question where being misled is most expensive. So presets are named for what
+they search for, never for what they achieve, and the rule is enforced rather
+than documented — a preset whose id, label or description contains a
+regulation's name or a compliance claim fails validation at import
+(`lib/redaction/presets.ts`).
+
+Presets are data (`lib/redaction/presets/presets.json`), so changing what one
+covers is a reviewable diff. A narrowed search is carried forward everywhere it
+matters: the caveat sits under the chooser, the editor says which preset the
+document was analyzed with, and the export report records it — because a short
+list of removals means either a clean document or a narrow search, and those are
+not the same thing.
+
 ### The export report
 
 Every export produces a second artifact, downloadable beside the file: what was

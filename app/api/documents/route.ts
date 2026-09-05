@@ -10,6 +10,7 @@ import {
 import { ALLOWED_TTL_SECONDS, MAX_UPLOAD_BYTES } from "@/lib/config"
 import { listDocuments } from "@/lib/documents/listing"
 import { reserveDocument } from "@/lib/documents/reserve"
+import { isPresetId } from "@/lib/redaction/presets"
 import { getIdentity, peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { clientUploadMode } from "@/lib/storage/blob"
@@ -44,6 +45,7 @@ const createSchema = z.object({
   filename: z.string().min(1).max(200),
   size: z.number().int().positive().max(MAX_UPLOAD_BYTES),
   contentType: z.string().max(200).optional(),
+  preset: z.string().max(60).optional(),
   ttlSeconds: z
     .number()
     .int()
@@ -72,13 +74,21 @@ export async function POST(request: Request) {
       return errorResponse("Invalid upload request", 400)
     }
 
-    const { filename, size, contentType, ttlSeconds } = parsed.data
+    const { filename, size, contentType, ttlSeconds, preset } = parsed.data
+
+    // An unknown preset is refused rather than ignored: silently falling back
+    // to "everything" would be the safe direction, but a client that thinks it
+    // narrowed the search and did not is being lied to either way.
+    if (preset && !isPresetId(preset)) {
+      return errorResponse("Unknown preset", 400)
+    }
 
     const reserved = await reserveDocument({
       filename,
       size,
       contentType,
       ttlSeconds,
+      preset,
       ownerKey: identity.ownerKey,
       quotaKey: identity.quotaKey,
     })

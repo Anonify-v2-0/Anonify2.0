@@ -11,6 +11,7 @@ import { ALLOWED_TTL_SECONDS, MAX_UPLOAD_BYTES } from "@/lib/config"
 import { prisma } from "@/lib/database/prisma"
 import { newBatchId } from "@/lib/documents/ids"
 import { reserveDocument } from "@/lib/documents/reserve"
+import { isPresetId } from "@/lib/redaction/presets"
 import { getIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { clientUploadMode } from "@/lib/storage/blob"
@@ -32,6 +33,8 @@ const createSchema = z.object({
     )
     .min(1)
     .max(MAX_BATCH_FILES),
+  /** One preset for the batch: a review pass is one question, asked once. */
+  preset: z.string().max(60).optional(),
   ttlSeconds: z
     .number()
     .int()
@@ -62,7 +65,11 @@ export async function POST(request: Request) {
       return errorResponse("Invalid batch request", 400)
     }
 
-    const { files, ttlSeconds } = parsed.data
+    const { files, ttlSeconds, preset } = parsed.data
+
+    if (preset && !isPresetId(preset)) {
+      return errorResponse("Unknown preset", 400)
+    }
 
     const batchId = newBatchId()
     await prisma.batch.create({
@@ -113,6 +120,7 @@ export async function POST(request: Request) {
         ownerKey: identity.ownerKey,
         quotaKey: identity.quotaKey,
         batchId,
+        preset,
       })
 
       if (!reserved.ok) {
