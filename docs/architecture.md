@@ -216,7 +216,7 @@ lib/
                purge, retention, detection of what a file actually is
   redaction/   detectors, entities, model, apply, validation, export
   security/    fingerprint, access-control, rate-limit, usage, signed-url
-  storage/     blob, encryption, integrity
+  storage/     drivers, blob, encryption, integrity
   workflows/   the durable pipeline, cleanup
 
 store/         Redux Toolkit: document, redactions, editor, processing, ui

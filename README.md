@@ -16,6 +16,7 @@ under a black rectangle is not a redaction system.
 | [docs/workflow.md](docs/workflow.md) | The durable pipeline, its steps, streaming, expiry, failure modes |
 | [docs/ai-engine.md](docs/ai-engine.md) | Detection order, cost discipline, prompts, suggestion → decision → removal |
 | [docs/pipelines.md](docs/pipelines.md) | Why each format's pipeline is built the way it is |
+| [docs/presets.md](docs/presets.md) | The five shipped redaction presets and their detector/category memberships |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | The invariants, the roadmap, and the benchmarks we would like |
 
 ## Where this came from
@@ -216,6 +217,19 @@ document was analyzed with, and the export report records it — because a short
 list of removals means either a clean document or a narrow search, and those are
 not the same thing.
 
+The five presets that ship with the app:
+
+| Preset | What it looks for |
+| --- | --- |
+| **Everything we can detect** | Every detector, contextual pass unrestricted. |
+| **Names and contact details** | People's names, email/phone, postal addresses, faces and signatures. |
+| **Identifiers and dates** | SSNs, customer/case/patient references, dates of birth. |
+| **Payment and account numbers** | Luhn-valid cards, IBANs, labelled account/sort codes, financial facts tied to a named party. |
+| **Credentials and keys** | API keys/tokens, links carrying a token or reset path, text marked confidential. |
+
+The detector and category memberships for each are in
+[docs/presets.md](docs/presets.md).
+
 ### The export report
 
 Every export produces a second artifact, downloadable beside the file: what was
@@ -410,6 +424,30 @@ block covers the whole block, because a proportional slice of a wrapped
 paragraph would be a rectangle in the wrong place. Mistral reads difficult scans
 better; Tesseract redacts more precisely and needs no account.
 
+### AI detection, model, and cost
+
+The contextual pass is optional and off without `AI_GATEWAY_API_KEY`. Two
+further knobs shape what it runs and what it shows you:
+
+| Variable | What it does | Default |
+| --- | --- | --- |
+| `AI_GATEWAY_API_KEY` | Enables the contextual model pass. Without it, pattern detection, manual redaction, global rules and export all still work. | unset (pass skipped) |
+| `AI_MODEL` | The model the gateway routes to. | `anthropic/claude-haiku-4.5` — a small, fast, vision-capable model |
+| `AI_PRICE_INPUT_PER_MTOK` | USD per million input tokens. Turns recorded token counts into an estimated cost in the UI. | unset |
+| `AI_PRICE_OUTPUT_PER_MTOK` | USD per million output tokens, same purpose. | unset |
+
+Prices change and differ per account, so they are not hardcoded — leave
+`AI_PRICE_*` unset and the UI reports tokens and duration only, never a dollar
+figure. Set them and the run report shows an estimated cost alongside the token
+count.
+
+### Test database
+
+`TEST_DATABASE_URL` points the database-backed integration suites
+(`pnpm test:db`) at a throwaway database. These suites create and delete rows,
+so it must never be `DATABASE_URL`. Unset means the database-backed suites skip,
+and `pnpm test` still passes. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ### Rate limits
 
 Defaults differ by profile — the shared demo is strict, a self-hosted install is
@@ -447,6 +485,25 @@ ANONIFY_QUOTA_EMAIL_KILOBYTES=4096
 ANONIFY_QUOTA_IMAGES=100
 ANONIFY_QUOTA_UPLOADS=200
 ```
+
+The `demo` profile ships with its own defaults — small allowances, since one
+visitor's workbook is everyone's budget. These are what the hosted demo runs
+with when none of the env vars above are set:
+
+| Quota | Demo default | Unit |
+| --- | --- | --- |
+| `ANONIFY_QUOTA_PDF_PAGES` | 10 | pages |
+| `ANONIFY_QUOTA_DOCX_PAGES` | 10 | pages |
+| `ANONIFY_QUOTA_XLSX_CELLS` | 10,000 | filled cells |
+| `ANONIFY_QUOTA_IMAGES` | 3 | images |
+| `ANONIFY_QUOTA_TEXT_PAGES` | 40 | pages of extracted text |
+| `ANONIFY_QUOTA_EMAIL_KILOBYTES` | 512 | KiB of decoded text |
+| `ANONIFY_QUOTA_PPTX_SLIDES` | 20 | slides |
+| `ANONIFY_QUOTA_UPLOADS` | 20 | uploads |
+
+The self-hosted profile sets every one of these to `0` (unlimited). The values
+come from `lib/security/quota-config.ts`, and `pnpm setup` reads them straight
+from there when it prints what it will enforce.
 
 The units are not all the same shape, because the work is not:
 
