@@ -4,6 +4,7 @@ import { FileText, ShieldCheck, Eye, Layers, Scale, FileCheck2, Gauge, Workflow,
 
 import { Brand } from "@/components/layout/brand"
 import { Footer } from "@/components/layout/footer"
+import { KIND_ICONS } from "@/components/documents/kind-icon"
 import { FORMAT_LIST } from "@/lib/documents/formats"
 import { REPOSITORY_URL } from "@/lib/config"
 
@@ -129,14 +130,18 @@ export default function AboutPage() {
             so it cannot drift from what the tool actually accepts.
           </p>
           <ul className="mt-5 flex flex-wrap gap-2">
-            {FORMAT_LIST.map((format) => (
-              <li
-                key={format.kind}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-text-secondary"
-              >
-                {format.label}
-              </li>
-            ))}
+            {FORMAT_LIST.map((format) => {
+              const Icon = KIND_ICONS[format.kind]
+              return (
+                <li
+                  key={format.kind}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-text-secondary"
+                >
+                  <Icon aria-hidden className="size-3.5 text-primary" />
+                  {format.label}
+                </li>
+              )
+            })}
           </ul>
         </section>
 

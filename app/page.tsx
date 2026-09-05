@@ -4,6 +4,7 @@ import { ShieldCheck } from "lucide-react"
 import { Brand } from "@/components/layout/brand"
 import { Footer } from "@/components/layout/footer"
 import { UploadPanel } from "@/components/upload/upload-panel"
+import { KIND_ICONS } from "@/components/documents/kind-icon"
 import { FORMAT_LIST } from "@/lib/documents/formats"
 
 const BENEFITS = [
@@ -59,19 +60,16 @@ export default function Page() {
               sensitive parts, and lets you review every one before it writes a
               new file. The original is never modified.
             </p>
-            <ul className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs tracking-[0.14em] text-text-muted uppercase">
-              {FORMAT_LIST.map((format, index) => (
-                <span key={format.kind} className="flex items-center gap-3">
-                  {index > 0 ? (
-                    <li aria-hidden className="text-text-muted/50">
-                      ·
-                    </li>
-                  ) : null}
-                  <li className="flex items-center gap-1.5">
+            <ul className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs tracking-[0.14em] text-text-muted uppercase">
+              {FORMAT_LIST.map((format) => {
+                const Icon = KIND_ICONS[format.kind]
+                return (
+                  <li key={format.kind} className="flex items-center gap-1.5">
+                    <Icon aria-hidden className="size-3.5 text-primary" />
                     {format.label}
                   </li>
-                </span>
-              ))}
+                )
+              })}
             </ul>
           </div>
 
