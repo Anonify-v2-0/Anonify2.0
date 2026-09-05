@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 
 import { Workspace } from "@/components/editor/workspace"
 import { Brand } from "@/components/layout/brand"
+import { batchPositionFor } from "@/lib/documents/batches"
 import { AccessError, requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import type { DocumentKind, DocumentSummary } from "@/types/document"
@@ -33,6 +34,7 @@ export default async function WorkspacePage(
       // Extraction is the line: past it there is a normalized model to open and
       // redact by hand, before it there is nothing an editor could show.
       reviewable: Boolean(document.normalizedBlobKey),
+      batch: await batchPositionFor(document.id, document.batchId),
     }
   } catch (error) {
     if (error instanceof AccessError && error.status === 410) {

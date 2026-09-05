@@ -168,6 +168,22 @@ export type NormalizedDocument = {
   metadata?: Record<string, unknown>
 }
 
+/**
+ * Where a document sits in the batch it was uploaded with.
+ *
+ * The workspace needs this to move between the documents of one review pass,
+ * and to say how many decisions arrived here from elsewhere in the batch — a
+ * redaction the reviewer did not make in this file has to explain itself.
+ */
+export type BatchPlacement = {
+  batchId: string
+  position: number
+  total: number
+  previousId: string | null
+  nextId: string | null
+  carriedRules: number
+}
+
 /** Server-owned document record as exposed to the client. */
 export type DocumentSummary = {
   id: string
@@ -191,6 +207,8 @@ export type DocumentSummary = {
    * showing an editor over nothing is how a failure came to read as a hang.
    */
   reviewable?: boolean
+  /** Absent for a document uploaded on its own. */
+  batch?: BatchPlacement | null
 }
 
 /**

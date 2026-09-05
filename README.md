@@ -163,6 +163,20 @@ Each of these is argued through in [docs/pipelines.md](docs/pipelines.md).
 Every export is then re-opened and read the way an adversary would. A surviving
 value fails the export rather than shipping (`lib/redaction/validation.ts`).
 
+### Batches
+
+Several files at once become a batch: one upload, one review pass, and one
+archive at the end. The half that matters is not the upload — it is that a
+decision made once is not made again on the next file. "This recurring name is a
+colleague, not a subject" is answered in the document where it came up and
+carried to the others, including the ones still being analyzed when it was
+answered.
+
+A batch owns decisions, not processing. Each document keeps its own run, its own
+quota accounting, its own failure and its own expiry, so one document failing
+leaves the rest exactly where they were — and the batch export delivers every
+document that succeeded, naming the ones it could not include and why.
+
 ### The export report
 
 Every export produces a second artifact, downloadable beside the file: what was

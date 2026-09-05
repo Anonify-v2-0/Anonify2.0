@@ -214,7 +214,16 @@ Only after the invariants hold for it, including an adversarial test suite.
       both checksums. It contains no values, and that is checked rather than
       asserted: the report is verified before it is stored, and a field added
       later that carries document text fails the export instead of shipping.
-- [ ] **Batch upload**, with review carried across documents.
+- [x] ~~**Batch upload**, with review carried across documents.~~ Several files
+      become a `Batch`; a decision taken in one document can be promoted to the
+      whole batch, and documents that finish processing *after* it was taken
+      inherit it on arrival (`lib/redaction/rules.ts`). A batch owns decisions,
+      never processing: each document keeps its own run, quota accounting,
+      failure and expiry, so one failing holds up nothing. Allowances are
+      charged per file — a batch is not a discount — and when they run out
+      partway the affordable files proceed and the rest are named. Export is one
+      archive of per-document artifacts, each verified on its own, with its own
+      report, plus a roll-up that names what could not be included and why.
 - [ ] **Redaction presets** ("GDPR", "HIPAA-shaped", "engineering secrets") as
       named detector + category sets. Presets must not imply compliance; naming
       here needs care.

@@ -22,6 +22,7 @@ import { newEventId } from "@/lib/documents/ids"
 import { saveNormalized } from "@/lib/documents/normalized-store"
 import { loadNormalized } from "@/lib/documents/normalized-store"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
+import { carryBatchRules } from "@/lib/redaction/rules"
 import {
   quotaMessage,
   recordUsage,
@@ -473,6 +474,26 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
   return { suggestions: redactions.length }
 }
 
+/**
+ * Applies the decisions the batch has already made.
+ *
+ * A batch is reviewed while its documents are still arriving, so a rule agreed
+ * on the first file has to reach the fourth one — which was still being
+ * analyzed when the reviewer agreed it. This is where that happens, after
+ * analysis so the rule's redactions sit alongside the suggestions.
+ *
+ * It is allowed to fail the document rather than being swallowed. A carried
+ * decision that quietly did not arrive is a value the reviewer believes they
+ * have already removed everywhere, which is the one kind of silence this tool
+ * cannot afford. Retrying is safe: rules already applied here are skipped.
+ */
+async function carryDecisions(
+  documentId: string
+): Promise<{ rulesApplied: number; redactions: number }> {
+  "use step"
+  return carryBatchRules(documentId).catch(paced)
+}
+
 async function publishStatus(
   documentId: string,
   status: ProcessingStatus,
@@ -568,6 +589,8 @@ export async function processDocument(documentId: string): Promise<{
       progress: 70,
     })
     const { suggestions } = await analyze(documentId)
+
+    await carryDecisions(documentId)
 
     await finish(documentId, pageCount, suggestions)
     return { documentId, status: "ready" }

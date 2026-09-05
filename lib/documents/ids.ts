@@ -18,5 +18,7 @@ export function randomId(prefix: string, length = 24): string {
 export const newDocumentId = () => randomId("doc")
 export const newRedactionId = () => randomId("red", 16)
 export const newRuleId = () => randomId("rule", 16)
+export const newBatchId = () => randomId("bat")
+export const newBatchRuleId = () => randomId("brl", 16)
 export const newEventId = () => randomId("evt", 16)
 export const newUsageId = () => randomId("use", 16)

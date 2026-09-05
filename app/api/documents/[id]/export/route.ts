@@ -6,33 +6,13 @@ import {
   jsonResponse,
   rateLimitResponse,
 } from "@/lib/api/http"
-import { prisma } from "@/lib/database/prisma"
-import { randomId } from "@/lib/documents/ids"
-import { loadNormalized } from "@/lib/documents/normalized-store"
-import {
-  exportRedacted,
-  ExportVerificationError,
-} from "@/lib/redaction/export"
-import { fromDatabaseRow } from "@/lib/redaction/model"
-import {
-  assertReportOmitsValues,
-  buildExportReport,
-  ReportLeakError,
-  serializeExportReport,
-} from "@/lib/redaction/report"
+import { exportAndStore } from "@/lib/redaction/deliver"
+import { ExportVerificationError } from "@/lib/redaction/export"
+import { ReportLeakError } from "@/lib/redaction/report"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { createDownloadToken } from "@/lib/security/signed-url"
-import {
-  getObject,
-  processedKey,
-  putObject,
-  reportKey,
-} from "@/lib/storage/blob"
-import { decryptDocument, encryptWithDocumentKey } from "@/lib/storage/encryption"
-import { sha256 } from "@/lib/storage/integrity"
-import type { DocumentKind } from "@/types/document"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -50,6 +30,9 @@ const optionsSchema = z.object({
  * just produced, checksummed, stored encrypted, and handed back as a signed
  * short-lived link rather than a storage URL. A verification failure is a
  * refusal to deliver — never a warning attached to a leaking file.
+ *
+ * The work itself is in lib/redaction/deliver.ts, shared with the batch export
+ * so there is one definition of what an export is and one verification gate.
  */
 export async function POST(
   request: Request,
@@ -68,133 +51,42 @@ export async function POST(
     }
 
     const document = await requireDocument(id, identity?.ownerKey)
-
-    if (!document.sourceBlobKey || !document.encryptionKey) {
-      return errorResponse("Document is not ready", 409)
-    }
-
     const options = optionsSchema.parse(await request.json().catch(() => ({})))
 
-    const record = await prisma.document.findUnique({
-      where: { id: document.id },
-      select: { normalizedBlobKey: true, checksum: true },
-    })
-    if (!record?.normalizedBlobKey) {
+    const outcome = await exportAndStore(document.id, options)
+    if (!outcome.ok) {
       return errorResponse("Document is not ready", 409)
     }
 
-    const [model, rows] = await Promise.all([
-      loadNormalized(record.normalizedBlobKey, document.encryptionKey),
-      // Every redaction, not only the accepted ones: the exporter filters for
-      // itself, and the report has to be able to say what was turned down.
-      prisma.redaction.findMany({ where: { documentId: document.id } }),
-    ])
-
-    const redactions = rows.map(fromDatabaseRow)
-    const sealed = await getObject(document.sourceBlobKey)
-    const source = decryptDocument(sealed, document.encryptionKey)
-
-    const result = await exportRedacted({
-      kind: document.kind as DocumentKind,
-      source,
-      model,
-      redactions,
-      options,
-      mimeType: document.mimeType,
-    })
-
-    const artifactId = randomId("exp", 16)
-    const stored = await putObject(
-      processedKey(document.id, `${artifactId}.${result.extension}`),
-      encryptWithDocumentKey(result.bytes, document.encryptionKey)
-    )
-
-    const report = buildExportReport({
-      document: {
-        id: document.id,
-        kind: document.kind as DocumentKind,
-        sizeBytes: document.size,
-        pageCount: document.pageCount,
-        sourceChecksum: record.checksum ?? "",
-      },
-      artifact: {
-        checksum: result.checksum,
-        sizeBytes: result.bytes.byteLength,
-        mimeType: result.mimeType,
-        extension: result.extension,
-      },
-      options,
-      redactions,
-      verification: {
-        passed: result.verification.passed,
-        checkedValues: result.verification.checkedValues,
-      },
-    })
-    // The report is verified the way the export is, and for the same reason:
-    // it is about to be handed to someone who was not shown the original.
-    assertReportOmitsValues(
-      report,
-      redactions.filter((redaction) => redaction.status === "accepted")
-    )
-
-    const reportBytes = serializeExportReport(report)
-    const storedReport = await putObject(
-      reportKey(document.id, artifactId),
-      encryptWithDocumentKey(reportBytes, document.encryptionKey)
-    )
-
-    await prisma.exportArtifact.create({
-      data: {
-        id: artifactId,
-        documentId: document.id,
-        blobKey: stored.key,
-        checksum: result.checksum,
-        mimeType: result.mimeType,
-        extension: result.extension,
-        size: result.bytes.byteLength,
-        appliedRedactions: result.appliedRedactions,
-        metadataSanitized: options.sanitizeMetadata,
-        labelsAdded: options.addLabels,
-        reportBlobKey: storedReport.key,
-        reportChecksum: sha256(reportBytes),
-      },
-    })
-
-    await prisma.document.update({
-      where: { id: document.id },
-      data: {
-        processedBlobKey: stored.key,
-        processedChecksum: result.checksum,
-      },
-    })
+    const { delivered } = outcome
 
     console.log(
       JSON.stringify({
         level: "info",
         context: "documents.export",
         documentId: document.id,
-        appliedRedactions: result.appliedRedactions,
-        checkedValues: result.verification.checkedValues,
-        size: result.bytes.byteLength,
+        appliedRedactions: delivered.appliedRedactions,
+        checkedValues: delivered.verifiedValues,
+        size: delivered.size,
       })
     )
 
     const token = createDownloadToken({
       documentId: document.id,
-      artifactId,
+      artifactId: delivered.artifactId,
       ownerKey: document.userFingerprint,
     })
 
     return jsonResponse({
-      artifactId,
-      checksum: result.checksum,
-      size: result.bytes.byteLength,
-      appliedRedactions: result.appliedRedactions,
+      artifactId: delivered.artifactId,
+      checksum: delivered.checksum,
+      size: delivered.size,
+      appliedRedactions: delivered.appliedRedactions,
       metadataSanitized: options.sanitizeMetadata,
-      verifiedValues: result.verification.checkedValues,
+      verifiedValues: delivered.verifiedValues,
       downloadUrl: `/api/documents/${document.id}/download?token=${token}`,
       reportUrl: `/api/documents/${document.id}/download?token=${token}&part=report`,
-      report,
+      report: delivered.report,
     })
   } catch (error) {
     if (error instanceof ExportVerificationError) {

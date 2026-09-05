@@ -5,6 +5,7 @@ import {
   FileSpreadsheet,
   FileText,
   Image as ImageIcon,
+  Layers,
   Loader2,
   RotateCcw,
   Trash2,
@@ -111,6 +112,17 @@ export function DocumentCard({
               </span>
             ) : null}
             <span>{formatCreated(document.createdAt)}</span>
+            {document.batchId ? (
+              // The batch is where the decisions carried across these documents
+              // live, and from the list it is otherwise invisible.
+              <Link
+                href={`/batches/${document.batchId}`}
+                className="inline-flex items-center gap-1 transition-colors hover:text-white"
+              >
+                <Layers className="size-3" />
+                Batch
+              </Link>
+            ) : null}
           </div>
 
           {document.status === "failed" ? (

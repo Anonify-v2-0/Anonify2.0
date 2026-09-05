@@ -7,11 +7,11 @@ import {
   readJson,
 } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
-import { newRuleId } from "@/lib/documents/ids"
-import { loadNormalized } from "@/lib/documents/normalized-store"
-import { normalizeValue } from "@/lib/documents/shared/text"
-import { findAllOccurrences } from "@/lib/redaction/entities"
-import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
+import {
+  applyRuleToDocument,
+  createBatchRule,
+  documentRuleReason,
+} from "@/lib/redaction/rules"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
@@ -21,6 +21,14 @@ export const runtime = "nodejs"
 const createSchema = z.object({
   pattern: z.string().min(2).max(200),
   category: z.string().min(1).max(60),
+  /**
+   * `batch` promotes the decision to every document uploaded alongside this
+   * one, including the ones still processing. It is refused rather than
+   * silently downgraded for a document that is not in a batch: "apply this
+   * everywhere" quietly meaning "here only" is the failure this whole feature
+   * exists to remove.
+   */
+  scope: z.enum(["document", "batch"]).default("document"),
 })
 
 /**
@@ -31,6 +39,10 @@ const createSchema = z.object({
  * chance of a different answer for the same string. Every occurrence it finds
  * is written as an accepted redaction, because accepting the rule is the user
  * saying so.
+ *
+ * With `scope: "batch"` the same decision is recorded on the batch and applied
+ * to every document in it — the answer to "this recurring name is a colleague,
+ * not a subject", which nobody should have to give once per file.
  */
 export async function POST(
   request: Request,
@@ -50,53 +62,62 @@ export async function POST(
 
     const record = await prisma.document.findUnique({
       where: { id: document.id },
-      select: { normalizedBlobKey: true },
+      select: { normalizedBlobKey: true, batchId: true },
     })
 
     if (!record?.normalizedBlobKey || !document.encryptionKey) {
       return errorResponse("Document is not ready", 409)
     }
 
-    const model = await loadNormalized(
-      record.normalizedBlobKey,
-      document.encryptionKey
-    )
+    const { pattern, category, scope } = parsed.data
 
-    const ruleId = newRuleId()
-    const { pattern, category } = parsed.data
+    if (scope === "batch") {
+      if (!record.batchId) {
+        return errorResponse("This document is not part of a batch", 409)
+      }
 
-    await prisma.globalRule.create({
-      data: {
-        id: ruleId,
-        documentId: document.id,
+      const { batchRuleId, applied } = await createBatchRule({
+        batchId: record.batchId,
         pattern,
-        normalizedPattern: normalizeValue(pattern),
         category,
-        enabled: true,
-      },
-    })
-
-    const occurrences = findAllOccurrences(model, pattern, {
-      category,
-      confidence: 1,
-      reason: `Matches the global rule for "${pattern}"`,
-    })
-
-    const redactions = occurrences.map((occurrence) => ({
-      ...detectionToRedaction(document.id, occurrence, "rule"),
-      status: "accepted" as const,
-      ruleId,
-    }))
-
-    if (redactions.length > 0) {
-      await prisma.redaction.createMany({
-        data: redactions.map((redaction) => toDatabaseRow(redaction)),
+        originDocumentId: document.id,
       })
+
+      const here = applied.find((entry) => entry.documentId === document.id)
+
+      return jsonResponse(
+        {
+          rule: { id: batchRuleId, pattern, category, enabled: true },
+          scope,
+          redactions: here?.redactions ?? [],
+          batch: {
+            id: record.batchId,
+            documents: applied.length,
+            redactions: applied.reduce(
+              (total, entry) => total + entry.redactions.length,
+              0
+            ),
+          },
+        },
+        201
+      )
     }
+
+    const { ruleId, redactions } = await applyRuleToDocument({
+      target: {
+        id: document.id,
+        encryptionKey: document.encryptionKey,
+        normalizedBlobKey: record.normalizedBlobKey,
+      },
+      pattern,
+      category,
+      reason: documentRuleReason(pattern),
+    })
 
     return jsonResponse(
       {
         rule: { id: ruleId, pattern, category, enabled: true },
+        scope,
         redactions,
       },
       201

@@ -14,7 +14,7 @@ import { ExportDialog } from "@/components/redaction/export-dialog"
 import { MobileInspector } from "@/components/redaction/mobile-inspector"
 import { RedactionInspector } from "@/components/redaction/redaction-inspector"
 import { useProcessingStream } from "@/hooks/use-processing-stream"
-import { useRedactions } from "@/hooks/use-redactions"
+import { useRedactions, type RuleScope } from "@/hooks/use-redactions"
 import { useShortcuts } from "@/hooks/use-shortcuts"
 import { documentLoaded, documentStatusChanged } from "@/store/documentSlice"
 import { pageChanged, toolChanged } from "@/store/editorSlice"
@@ -97,8 +97,8 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
     () => ({
       accept: (ids: string[]) => void accept(ids),
       reject: (ids: string[]) => void reject(ids),
-      applyGlobalRule: (pattern: string, category: string) =>
-        void applyGlobalRule(pattern, category),
+      applyGlobalRule: (pattern: string, category: string, scope?: RuleScope) =>
+        void applyGlobalRule(pattern, category, scope),
     }),
     [accept, applyGlobalRule, reject]
   )

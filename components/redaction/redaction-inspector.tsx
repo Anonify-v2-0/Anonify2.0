@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { Check, Globe, Sparkles, User, X } from "lucide-react"
+import { Check, Globe, Layers, Sparkles, User, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -40,7 +40,11 @@ const BAND_STYLES = {
 export type InspectorActions = {
   accept: (ids: string[]) => void
   reject: (ids: string[]) => void
-  applyGlobalRule: (pattern: string, category: string) => void
+  applyGlobalRule: (
+    pattern: string,
+    category: string,
+    scope?: "document" | "batch"
+  ) => void
 }
 
 /** Desktop rail. The same body is reused by the mobile sheet below. */
@@ -59,6 +63,11 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
   const categories = useAppSelector(selectCategories)
   const filters = useAppSelector((state) => state.redactions.filters)
   const selectedId = useAppSelector((state) => state.redactions.selectedId)
+  // Offered only where it means something. "Whole batch" on a document that was
+  // uploaded on its own is a promise about files that do not exist.
+  const inBatch = useAppSelector(
+    (state) => (state.document.summary?.batch?.total ?? 0) > 1
+  )
 
   const allIds = useMemo(
     () => groups.flatMap((group) => group.members.map((member) => member.id)),
@@ -278,6 +287,24 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
                         Everywhere
                       </Button>
                     )}
+                    {inBatch ? (
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        aria-label={`Redact ${group.text} in every document in this batch`}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          actions.applyGlobalRule(
+                            group.text,
+                            group.category,
+                            "batch"
+                          )
+                        }}
+                      >
+                        <Layers className="size-3" />
+                        Whole batch
+                      </Button>
+                    ) : null}
                     <Button
                       size="xs"
                       variant="ghost"

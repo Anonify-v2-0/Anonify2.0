@@ -28,6 +28,8 @@ const ACCEPT = ".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.webp"
 const MAX_BYTES = 25 * 1024 * 1024
 /** Above this size the browser splits the upload into parallel parts. */
 const MULTIPART_THRESHOLD = 5 * 1024 * 1024
+/** Matches the server's own ceiling on one batch request. */
+const MAX_BATCH_FILES = 20
 
 type Phase = "idle" | "reserving" | "uploading" | "starting"
 
@@ -42,6 +44,11 @@ type Phase = "idle" | "reserving" | "uploading" | "starting"
  * The server decides which, because it is the thing that knows what is
  * configured. Both paths report real transfer progress and both end with the
  * same call to start processing — everything downstream is identical.
+ *
+ * Several files at once become a batch: one upload, one review pass, and
+ * decisions carried between the documents. They are transferred one at a time,
+ * and a file that fails is reported and skipped rather than stopping the rest —
+ * a batch is a convenience over separate uploads, not a transaction.
  */
 
 type UploadMode = "vercel-blob" | "server-route"
@@ -102,23 +109,65 @@ function uploadThroughServer(
     request.send(body)
   })
 }
+
+type TransferResult =
+  | { ok: true }
+  /** The failing response, when there is one worth reading a message out of. */
+  | { ok: false; response?: Response; message?: string }
+
+/** Sends one reserved document's bytes and starts its run. */
+async function transferFile(input: {
+  documentId: string
+  pathname: string
+  uploadMode: UploadMode | undefined
+  file: File
+  onProgress: (percentage: number) => void
+}): Promise<TransferResult> {
+  try {
+    const uploaded =
+      input.uploadMode === "vercel-blob"
+        ? await upload(input.pathname, input.file, {
+            access: "public",
+            handleUploadUrl: "/api/upload/token",
+            clientPayload: input.documentId,
+            multipart: input.file.size > MULTIPART_THRESHOLD,
+            onUploadProgress: ({ percentage }) => input.onProgress(percentage),
+          })
+        : await uploadThroughServer(input.documentId, input.file, input.onProgress)
+
+    const started = await fetch(`/api/documents/${input.documentId}/process`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ blobUrl: uploaded.url }),
+    })
+
+    if (!started.ok) return { ok: false, response: started }
+    return { ok: true }
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message !== "Upload failed"
+        ? error.message
+        : "Upload failed. Check your connection and try again."
+    return { ok: false, message }
+  }
+}
+
 export function UploadPanel() {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const [phase, setPhase] = useState<Phase>("idle")
   const [progress, setProgress] = useState(0)
+  const [batchProgress, setBatchProgress] = useState<{
+    done: number
+    total: number
+  } | null>(null)
   const [ttl, setTtl] = useState<TtlOption>(DEFAULT_TTL_SECONDS)
 
   const busy = phase !== "idle"
 
   const send = useCallback(
     async (file: File) => {
-      if (file.size > MAX_BYTES) {
-        toast.error("That file is larger than the 25 MB demo limit.")
-        return
-      }
-
       setProgress(0)
       setPhase("reserving")
 
@@ -147,51 +196,159 @@ export function UploadPanel() {
         }
 
         setPhase("uploading")
-        const uploaded =
-          reserved.uploadMode === "vercel-blob"
-            ? await upload(reserved.pathname, file, {
-                access: "public",
-                handleUploadUrl: "/api/upload/token",
-                clientPayload: reserved.id,
-                multipart: file.size > MULTIPART_THRESHOLD,
-                onUploadProgress: ({ percentage }) => setProgress(percentage),
-              })
-            : await uploadThroughServer(reserved.id, file, setProgress)
-
-        setPhase("starting")
-        const started = await fetch(`/api/documents/${reserved.id}/process`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ blobUrl: uploaded.url }),
+        const result = await transferFile({
+          documentId: reserved.id,
+          pathname: reserved.pathname,
+          uploadMode: reserved.uploadMode,
+          file,
+          onProgress: setProgress,
         })
 
-        if (!started.ok) {
-          await toastFailure(toast, started, "Could not start processing")
+        if (!result.ok) {
+          if (result.response) {
+            await toastFailure(toast, result.response, "Could not start processing")
+          } else {
+            toast.error(result.message ?? "Upload failed")
+          }
           setPhase("idle")
           return
         }
 
+        setPhase("starting")
         router.push(`/workspace/${reserved.id}`)
-      } catch (error) {
-        const message =
-          error instanceof Error && error.message !== "Upload failed"
-            ? error.message
-            : "Upload failed. Check your connection and try again."
-        toast.error(message)
+      } catch {
+        toast.error("Upload failed. Check your connection and try again.")
         setPhase("idle")
       }
     },
     [router, ttl]
   )
 
+  const sendBatch = useCallback(
+    async (files: File[]) => {
+      setProgress(0)
+      setBatchProgress({ done: 0, total: files.length })
+      setPhase("reserving")
+
+      try {
+        const reserve = await fetch("/api/batches", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            files: files.map((file) => ({
+              filename: file.name,
+              size: file.size,
+              contentType: file.type || undefined,
+            })),
+            ttlSeconds: ttl,
+          }),
+        })
+
+        const payload = (await reserve.json()) as {
+          batchId?: string
+          uploadMode?: UploadMode
+          accepted?: { index: number; id: string; pathname: string }[]
+          refused?: { filename: string; reason: string }[]
+          error?: string
+        }
+
+        if (!reserve.ok || !payload.batchId || !payload.accepted?.length) {
+          toast.error(payload.error ?? "Could not start the upload")
+          setPhase("idle")
+          setBatchProgress(null)
+          return
+        }
+
+        // Files the server would not take are said out loud rather than
+        // disappearing: a batch that silently starts six of eight documents is
+        // a batch the reviewer will finish believing they reviewed eight.
+        for (const refusal of payload.refused ?? []) {
+          toast.error(`${refusal.filename}: ${refusal.reason}`)
+        }
+
+        setPhase("uploading")
+        setBatchProgress({ done: 0, total: payload.accepted.length })
+
+        const failures: string[] = []
+        for (const [position, item] of payload.accepted.entries()) {
+          const file = files[item.index]
+          if (!file) continue
+
+          setProgress(0)
+          const result = await transferFile({
+            documentId: item.id,
+            pathname: item.pathname,
+            uploadMode: payload.uploadMode,
+            file,
+            onProgress: setProgress,
+          })
+
+          if (!result.ok) failures.push(file.name)
+          setBatchProgress({
+            done: position + 1,
+            total: payload.accepted.length,
+          })
+        }
+
+        if (failures.length > 0) {
+          toast.error(
+            failures.length === 1
+              ? `${failures[0]} could not be uploaded. The rest were started.`
+              : `${failures.length} files could not be uploaded. The rest were started.`
+          )
+        }
+
+        setPhase("starting")
+        router.push(`/batches/${payload.batchId}`)
+      } catch {
+        toast.error("Upload failed. Check your connection and try again.")
+        setPhase("idle")
+        setBatchProgress(null)
+      }
+    },
+    [router, ttl]
+  )
+
+  /**
+   * One file goes straight to its workspace; several become a batch. Oversized
+   * files are named and dropped here rather than being sent and refused, which
+   * costs an allowance to learn something the browser already knew.
+   */
+  const receive = useCallback(
+    (selected: File[]) => {
+      const withinLimit = selected.filter((file) => file.size <= MAX_BYTES)
+      for (const file of selected) {
+        if (file.size > MAX_BYTES) {
+          toast.error(`${file.name} is larger than the 25 MB demo limit.`)
+        }
+      }
+
+      if (withinLimit.length === 0) return
+      if (withinLimit.length === 1) {
+        void send(withinLimit[0])
+        return
+      }
+
+      if (withinLimit.length > MAX_BATCH_FILES) {
+        toast.error(
+          `A batch takes up to ${MAX_BATCH_FILES} files; the rest were not started.`
+        )
+      }
+      void sendBatch(withinLimit.slice(0, MAX_BATCH_FILES))
+    },
+    [send, sendBatch]
+  )
+
   const label =
     phase === "reserving"
       ? "Preparing…"
       : phase === "uploading"
-        ? `Uploading… ${Math.round(progress)}%`
+        ? batchProgress && batchProgress.total > 1
+          ? `Uploading ${Math.min(batchProgress.done + 1, batchProgress.total)} of ${batchProgress.total}… ${Math.round(progress)}%`
+          : `Uploading… ${Math.round(progress)}%`
         : phase === "starting"
           ? "Starting analysis…"
-          : "Drop your document"
+          : "Drop your documents"
 
   return (
     <div className="flex flex-col gap-4">
@@ -204,8 +361,8 @@ export function UploadPanel() {
         onDrop={(event) => {
           event.preventDefault()
           setDragging(false)
-          const file = event.dataTransfer.files?.[0]
-          if (file && !busy) void send(file)
+          const dropped = Array.from(event.dataTransfer.files ?? [])
+          if (dropped.length > 0 && !busy) receive(dropped)
         }}
         className={cn(
           "group flex flex-col items-center justify-center gap-5 rounded-[10px] border border-dashed border-red-border px-6 py-14 text-center transition-colors duration-200",
@@ -224,7 +381,8 @@ export function UploadPanel() {
         <div className="w-full space-y-1">
           <p className="text-base font-medium text-white">{label}</p>
           <p className="text-sm text-text-muted">
-            PDF, DOCX, XLSX or image · up to 25 MB
+            PDF, DOCX, XLSX or image · up to 25 MB · several at once become a
+            batch
           </p>
         </div>
 
@@ -236,7 +394,7 @@ export function UploadPanel() {
             disabled={busy}
             onClick={() => inputRef.current?.click()}
           >
-            Select file
+            Select files
           </Button>
         )}
 
@@ -244,11 +402,12 @@ export function UploadPanel() {
           ref={inputRef}
           type="file"
           accept={ACCEPT}
+          multiple
           className="hidden"
           onChange={(event) => {
-            const file = event.target.files?.[0]
+            const selected = Array.from(event.target.files ?? [])
             event.target.value = ""
-            if (file) void send(file)
+            if (selected.length > 0) receive(selected)
           }}
         />
       </div>
