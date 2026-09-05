@@ -1,4 +1,5 @@
 import { formatOf, kindForExtension } from "@/lib/documents/formats"
+import { looksLikeRtf } from "@/lib/documents/rtf/parse"
 import type { DocumentKind } from "@/types/document"
 
 /**
@@ -117,6 +118,16 @@ export function detectDocumentType(
       }
     }
     return null
+  }
+
+  // RTF announces itself, which is why it is settled here rather than by the
+  // extension: a file that opens `{\rtf` is RTF whatever it is called.
+  if (looksLikeRtf(bytes)) {
+    return {
+      kind: "rtf",
+      mimeType: formatOf("rtf").mimeType,
+      extension: "rtf",
+    }
   }
 
   // Text last, because it is the only test that is about the absence of

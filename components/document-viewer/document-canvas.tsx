@@ -245,7 +245,7 @@ export function DocumentCanvas({
         </PdfViewer>
       ) : summary.kind === "docx" && page ? (
         <DocxViewer page={page} zoom={zoom} renderSpan={renderSpan} />
-      ) : summary.kind === "txt" && page ? (
+      ) : (summary.kind === "txt" || summary.kind === "rtf") && page ? (
         <TextViewer page={page} zoom={zoom} renderSpan={renderSpan} />
       ) : (
         <Placeholder summary={summary} />

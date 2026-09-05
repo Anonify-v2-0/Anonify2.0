@@ -2,6 +2,7 @@ import { extractDelimited } from "@/lib/documents/delimited/extract"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { openPackage, readPart } from "@/lib/documents/docx/ooxml"
 import { extractPdfText } from "@/lib/documents/pdf/redact"
+import { extractRtf } from "@/lib/documents/rtf/extract"
 import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { acceptedValues } from "@/lib/redaction/model"
@@ -71,6 +72,12 @@ async function haystackFor(
     }
     case "txt": {
       const { text } = extractText("verify", bytes)
+      return text
+    }
+    case "rtf": {
+      // Re-parsed, which also proves the export is still RTF: a file that no
+      // longer opens would throw here rather than pass for want of a match.
+      const { text } = extractRtf("verify", bytes)
       return text
     }
   }

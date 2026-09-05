@@ -17,6 +17,7 @@ import {
   MAX_VISION_PAGES,
   renderPagesForVision,
 } from "@/lib/documents/pdf/page-images"
+import { extractRtf } from "@/lib/documents/rtf/extract"
 import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
@@ -319,6 +320,10 @@ async function extractByKind(
     }
     case "txt": {
       const { document } = extractText(documentId, bytes)
+      return document
+    }
+    case "rtf": {
+      const { document } = extractRtf(documentId, bytes)
       return document
     }
     default:

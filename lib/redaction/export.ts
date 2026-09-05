@@ -2,6 +2,7 @@ import { redactDelimited } from "@/lib/documents/delimited/redact"
 import { redactDocx } from "@/lib/documents/docx/redact"
 import { redactImage } from "@/lib/documents/image/redact"
 import { redactPdf } from "@/lib/documents/pdf/redact"
+import { redactRtf } from "@/lib/documents/rtf/redact"
 import { redactText } from "@/lib/documents/text/redact"
 import { redactXlsx } from "@/lib/documents/xlsx/redact"
 import {
@@ -81,6 +82,12 @@ export async function exportRedacted(input: {
       break
     case "txt":
       bytes = redactText(source, buildTextPlan(model, accepted, options))
+      break
+    case "rtf":
+      // The same plan the plain-text exporter takes: RTF spans are addressed
+      // by their offset in the decoded text, and translating that back to
+      // bytes is the redactor's business rather than the reviewer's.
+      bytes = redactRtf(source, buildTextPlan(model, accepted, options))
       break
   }
 

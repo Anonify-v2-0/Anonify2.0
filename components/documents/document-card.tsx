@@ -37,6 +37,7 @@ const KIND_ICONS: Record<DocumentKind, typeof FileText> = {
   csv: FileSpreadsheet,
   tsv: FileSpreadsheet,
   txt: FileType,
+  rtf: FileType,
 }
 
 const IN_PROGRESS = new Set([
