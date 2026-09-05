@@ -405,6 +405,16 @@ table there is typed against `DocumentKind`, so a kind added without an entry
 does not compile, which is the property worth having: the next format cannot be
 half-added.
 
+`pnpm bench` times extraction and export over deliberately large documents —
+twenty thousand CSV rows each with a different address, a four-megabyte text
+file, a two-thousand-reply email thread, a two-hundred-slide deck. It is not a
+comparison against anything; it exists to catch the shape of the curve. Every
+pipeline here does two things that are easy to write quadratically — mapping
+accepted ranges onto source positions, and applying edits to a string — and
+neither shows up in a unit test, because unit fixtures are small. Run it after
+touching a parser or an exporter. A row that suddenly takes ten times longer is
+the signal.
+
 `pnpm typecheck` runs `next typegen` first. `RouteContext` and `PageProps` are
 globals Next generates into `.next/types/`, so type checking a fresh clone
 without generating them fails with "Cannot find name 'RouteContext'" — the

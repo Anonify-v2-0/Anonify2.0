@@ -514,6 +514,7 @@ pnpm ocr:warm          # pre-download the Tesseract model
 pnpm cleanup           # run the expiry sweep once
 pnpm smoke             # every format, against a running instance
 pnpm smoke --only=eml  # or one of them
+pnpm bench             # extraction and export, timed over large documents
 ```
 
 Node 22+ and pnpm 11+ are required and enforced — `engines` plus

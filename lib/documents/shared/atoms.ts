@@ -60,16 +60,33 @@ export function sourceCutsFor(
     ranges: [],
   }))
 
-  for (const atom of atoms) {
-    if (atom.kind === "structural") continue
+  // Both lists are in order — atoms by construction, ranges because
+  // `mergeRanges` sorts them — so this is a sweep rather than a nested scan.
+  // It used to be one loop inside the other, which is fine for a paragraph and
+  // quadratic for a document: a large RTF is hundreds of thousands of atoms,
+  // and a document with a few hundred accepted values would have spent longer
+  // pairing them up than parsing the file.
+  //
+  // The cursor is left on the last atom that overlapped rather than past it,
+  // because one long literal can span the end of one range and the start of
+  // the next.
+  let cursor = 0
 
-    for (const cut of cuts) {
-      const range = cut.textRange
-      if (atom.textEnd <= range.start || atom.textStart >= range.end) continue
+  for (const cut of cuts) {
+    const range = cut.textRange
+
+    while (cursor < atoms.length && atoms[cursor].textEnd <= range.start) {
+      cursor += 1
+    }
+
+    for (let index = cursor; index < atoms.length; index++) {
+      const atom = atoms[index]
+      if (atom.textStart >= range.end) break
+      if (atom.kind === "structural") continue
 
       if (atom.kind === "escape") {
         cut.ranges.push({ start: atom.start, end: atom.end })
-        break
+        continue
       }
 
       const from = Math.max(atom.textStart, range.start) - atom.textStart
@@ -99,12 +116,21 @@ export function applyCuts(
         text: index === 0 ? label : "",
       }))
     )
-    .sort((a, b) => b.range.start - a.range.start)
+    .sort((a, b) => a.range.start - b.range.start)
 
-  let result = source
+  // Assembled in one forward pass. Splicing the string once per edit copies
+  // the whole document each time, which is unnoticeable for three redactions
+  // and quadratic for three thousand.
+  const pieces: string[] = []
+  let cursor = 0
+
   for (const edit of edits) {
-    result =
-      result.slice(0, edit.range.start) + edit.text + result.slice(edit.range.end)
+    const start = Math.max(cursor, edit.range.start)
+    if (start > cursor) pieces.push(source.slice(cursor, start))
+    pieces.push(edit.text)
+    cursor = Math.max(cursor, edit.range.end)
   }
-  return result
+
+  pieces.push(source.slice(cursor))
+  return pieces.join("")
 }

@@ -1,14 +1,15 @@
 import {
   applyTextEdits,
   cutRanges,
-  findOccurrences,
   mergeRanges,
   scanElements,
   scanTextNodes,
   type CharRange,
+  type ElementRange,
   type TextEdit,
   type TextNode,
 } from "@/lib/documents/ooxml/xml-text"
+import { valueMatcher } from "@/lib/documents/shared/text"
 
 /**
  * Editing the runs of an OOXML part.
@@ -134,30 +135,81 @@ export type RunSegment = {
   text: string
 }
 
+/**
+ * Every piece of text in a part, in document order, ready to be sliced per run.
+ *
+ * Scanned once for the whole part rather than once per run. The per-run version
+ * re-scanned the entire XML for every break element of every run — fine for a
+ * memo, and quadratic for a hundred-page document or a deck with a thousand
+ * runs in it.
+ */
+function piecesOf(xml: string, schema: OoxmlTextSchema): Piece[] {
+  const pieces = [
+    ...scanTextNodes(xml, schema.text).map((node) => ({
+      at: node.tagStart,
+      end: node.end,
+      segment: { node, text: node.text } as RunSegment,
+    })),
+    ...schema.breaks.flatMap((entry) =>
+      scanElements(xml, entry.tag).map((range) => ({
+        at: range.start,
+        end: range.end,
+        segment: { node: null, text: entry.text } as RunSegment,
+      }))
+    ),
+  ]
+
+  return pieces.sort((a, b) => a.at - b.at)
+}
+
+type Piece = { at: number; end: number; segment: RunSegment }
+
+/**
+ * The segments of each run, keyed by where the run starts.
+ *
+ * One sweep over both lists rather than a filter per run. Runs do not nest and
+ * both lists are in document order, so a piece belongs to at most one run and
+ * the cursor only ever moves forward.
+ */
+function segmentsByRun(
+  pieces: Piece[],
+  runs: ElementRange[]
+): Map<number, RunSegment[]> {
+  const byRun = new Map<number, RunSegment[]>()
+  let cursor = 0
+
+  for (const run of runs) {
+    while (cursor < pieces.length && pieces[cursor].at < run.start) cursor += 1
+
+    const segments: RunSegment[] = []
+    let index = cursor
+    while (index < pieces.length && pieces[index].end <= run.end) {
+      segments.push(pieces[index].segment)
+      index += 1
+    }
+
+    byRun.set(run.start, segments)
+    cursor = index
+  }
+
+  return byRun
+}
+
+/**
+ * The segments of one run, scanned on its own.
+ *
+ * Linear in the size of the part, so it is for a caller with one run to look
+ * at. The exporter uses `segmentsByRun`, which pays that cost once.
+ */
 export function segmentsOfRun(
   xml: string,
   start: number,
   end: number,
   schema: OoxmlTextSchema
 ): RunSegment[] {
-  const textNodes = scanTextNodes(xml, schema.text, { start, end })
-
-  const ordered = [
-    ...textNodes.map((node) => ({
-      at: node.tagStart,
-      segment: { node, text: node.text } as RunSegment,
-    })),
-    ...schema.breaks.flatMap((entry) =>
-      scanElements(xml, entry.tag)
-        .filter((range) => range.start >= start && range.end <= end)
-        .map((range) => ({
-          at: range.start,
-          segment: { node: null, text: entry.text } as RunSegment,
-        }))
-    ),
-  ].sort((a, b) => a.at - b.at)
-
-  return ordered.map((entry) => entry.segment)
+  return piecesOf(xml, schema)
+    .filter((piece) => piece.at >= start && piece.end <= end)
+    .map((piece) => piece.segment)
 }
 
 /** Maps ranges expressed over concatenated segment text back onto text nodes. */
@@ -216,6 +268,8 @@ export function applyRunEdits(
 ): string {
   const paragraphs = scanElements(xml, schema.paragraph)
   const runs = scanElements(xml, schema.run)
+  // Scanned once for the part; every run then reads its own slice out of it.
+  const runSegmentsByStart = segmentsByRun(piecesOf(xml, schema), runs)
   const edits: TextEdit[] = []
 
   paragraphs.forEach((paragraph, paragraphIndex) => {
@@ -233,7 +287,7 @@ export function applyRunEdits(
     let offset = 0
 
     inside.forEach((run, runIndex) => {
-      const runSegments = segmentsOfRun(xml, run.start, run.end, schema)
+      const runSegments = runSegmentsByStart.get(run.start) ?? []
       const length = runSegments.reduce(
         (total, segment) => total + segment.text.length,
         0
@@ -275,12 +329,16 @@ export function sweepValues(
     containers.length > 0 ? containers : [{ start: 0, end: xml.length }]
   const edits: TextEdit[] = []
 
+  // Compiled once for the part rather than searched per value per paragraph.
+  const matcher = valueMatcher(values)
+  if (matcher.size === 0) return xml
+
   for (const region of regions) {
     const nodes = scanTextNodes(xml, schema.text, region)
     if (nodes.length === 0) continue
 
     const combined = nodes.map((node) => node.text).join("")
-    const ranges = values.flatMap((value) => findOccurrences(combined, value))
+    const ranges = matcher.find(combined)
     if (ranges.length === 0) continue
 
     const segments: RunSegment[] = nodes.map((node) => ({

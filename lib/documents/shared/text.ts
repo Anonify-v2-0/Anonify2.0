@@ -112,3 +112,147 @@ export function findOccurrences(
   }
   return ranges
 }
+
+/**
+ * Finding any of many values at once.
+ *
+ * The safety sweep asks the same question of every part of a document: does
+ * any accepted value appear here? Written the obvious way — a loop over the
+ * values inside a loop over the parts — that is a product, and the product is
+ * only small because most documents repeat the same handful of values. A
+ * spreadsheet or a CSV where every row holds a *different* address does not:
+ * twenty thousand distinct values against eighty thousand fields is nearly two
+ * billion string searches, and a 1.5 MB file took forty seconds to export.
+ *
+ * So the values are compiled once into an Aho-Corasick automaton and every
+ * haystack is scanned once, which makes the sweep linear in the text rather
+ * than in the text times the values.
+ *
+ * Matching is case-insensitive, as the single-value search is. Unlike it, an
+ * occurrence overlapping another is reported rather than skipped — that can
+ * only widen what gets removed, never narrow it, and the ranges are merged
+ * before anything is cut.
+ */
+export type ValueMatcher = {
+  /** Every range in `haystack` covered by one of the values. */
+  find(haystack: string): CharRange[]
+  /** How many distinct values are compiled in. */
+  readonly size: number
+}
+
+const EMPTY_MATCHER: ValueMatcher = {
+  find: () => [],
+  size: 0,
+}
+
+export function valueMatcher(values: string[]): ValueMatcher {
+  const needles = [
+    ...new Set(
+      values
+        .map((value) => value.toLowerCase())
+        .filter((value) => value.length > 0)
+    ),
+  ]
+
+  if (needles.length === 0) return EMPTY_MATCHER
+
+  // Transitions live in one flat map keyed by node and character rather than a
+  // map per node: a trie over twenty thousand addresses is a quarter of a
+  // million nodes, and a quarter of a million Maps is the memory this was
+  // meant to save. `children` keeps each node's own edges so building the
+  // failure links is a walk rather than a scan of every transition per node.
+  const transitions = new Map<number, number>()
+  const children: number[][][] = [[]]
+  const lengths: number[] = [0]
+
+  const key = (node: number, code: number) => node * 0x110000 + code
+
+  let nodeCount = 1
+
+  for (const needle of needles) {
+    let node = 0
+    for (let index = 0; index < needle.length; index++) {
+      const code = needle.charCodeAt(index)
+      const existing = transitions.get(key(node, code))
+
+      if (existing === undefined) {
+        transitions.set(key(node, code), nodeCount)
+        children[node].push([code, nodeCount])
+        children.push([])
+        lengths.push(0)
+        node = nodeCount
+        nodeCount += 1
+      } else {
+        node = existing
+      }
+    }
+    lengths[node] = needle.length
+  }
+
+  // Failure links, breadth first, plus a link straight to the nearest node
+  // that ends a value so reporting a match does not walk the whole chain.
+  const fail = new Int32Array(nodeCount)
+  const dictionary = new Int32Array(nodeCount).fill(-1)
+  const queue: number[] = []
+
+  for (const [, target] of children[0]) {
+    fail[target] = 0
+    queue.push(target)
+  }
+
+  for (let head = 0; head < queue.length; head++) {
+    const node = queue[head]
+    dictionary[node] =
+      lengths[fail[node]] > 0 ? fail[node] : dictionary[fail[node]]
+
+    for (const [code, target] of children[node]) {
+      let candidate = fail[node]
+      for (;;) {
+        const next = transitions.get(key(candidate, code))
+        if (next !== undefined) {
+          fail[target] = next
+          break
+        }
+        if (candidate === 0) {
+          fail[target] = 0
+          break
+        }
+        candidate = fail[candidate]
+      }
+      queue.push(target)
+    }
+  }
+
+  return {
+    size: needles.length,
+    find(haystack: string): CharRange[] {
+      const source = haystack.toLowerCase()
+      const ranges: CharRange[] = []
+
+      let node = 0
+      for (let index = 0; index < source.length; index++) {
+        const code = source.charCodeAt(index)
+
+        for (;;) {
+          const next = transitions.get(key(node, code))
+          if (next !== undefined) {
+            node = next
+            break
+          }
+          if (node === 0) break
+          node = fail[node]
+        }
+
+        for (
+          let match = lengths[node] > 0 ? node : dictionary[node];
+          match > 0;
+          match = dictionary[match]
+        ) {
+          ranges.push({ start: index + 1 - lengths[match], end: index + 1 })
+        }
+      }
+
+      return ranges
+    },
+  }
+}

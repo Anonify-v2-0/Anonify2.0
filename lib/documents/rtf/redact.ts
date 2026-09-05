@@ -4,7 +4,7 @@ import {
   parseRtf,
 } from "@/lib/documents/rtf/parse"
 import { applyCuts, sourceCutsFor } from "@/lib/documents/shared/atoms"
-import { findOccurrences } from "@/lib/documents/shared/text"
+import { valueMatcher } from "@/lib/documents/shared/text"
 import type { TextRedactionPlan } from "@/lib/documents/text/redact"
 
 /**
@@ -43,7 +43,7 @@ export function redactRtf(
   // The safety net runs over the decoded text, not over the RTF: searching the
   // source would miss every value a word processor split across a formatting
   // group, which is most of them.
-  const sweep = plan.values.flatMap((value) => findOccurrences(text, value))
+  const sweep = valueMatcher(plan.values).find(text)
   const cuts = sourceCutsFor(atoms, [...plan.ranges, ...sweep])
 
   if (cuts.length === 0) return bytes

@@ -5,7 +5,7 @@ import {
   serializeDelimited,
 } from "@/lib/documents/delimited/parse"
 import { delimiterFor } from "@/lib/documents/delimited/extract"
-import { cutRanges, findOccurrences } from "@/lib/documents/shared/text"
+import { cutRanges, valueMatcher } from "@/lib/documents/shared/text"
 import type { DocumentKind } from "@/types/document"
 
 /**
@@ -70,13 +70,19 @@ export function redactDelimited(
   // The safety net, applied field by field rather than to the file: the same
   // value can sit in a cell nobody reviewed, and a partial match inside a
   // longer field still has to go.
-  if (plan.values.length > 0) {
+  //
+  // Compiled once and run over each field, rather than looping the values
+  // inside the loop over fields. A grid where every row holds a different
+  // address is the case that makes the difference between the two: twenty
+  // thousand values against eighty thousand fields is a product nobody wants
+  // to wait for.
+  const matcher = valueMatcher(plan.values)
+
+  if (matcher.size > 0) {
     for (const fields of parsed.rows) {
       for (const field of fields) {
         if (field.value.length === 0) continue
-        const ranges = plan.values.flatMap((value) =>
-          findOccurrences(field.value, value)
-        )
+        const ranges = matcher.find(field.value)
         if (ranges.length === 0) continue
         field.value = cutRanges(field.value, ranges, () => plan.label ?? "")
       }

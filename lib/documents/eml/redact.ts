@@ -18,9 +18,10 @@ import {
 import { applyCuts, sourceCutsFor } from "@/lib/documents/shared/atoms"
 import {
   cutRanges,
-  findOccurrences,
   mergeRanges,
+  valueMatcher,
   type CharRange,
+  type ValueMatcher,
 } from "@/lib/documents/shared/text"
 
 /**
@@ -146,15 +147,14 @@ function rewriteHeader(
 function redactPartText(
   node: MimeNode,
   ranges: CharRange[],
-  values: string[],
+  matcher: ValueMatcher,
   label: string | null
 ): string | null {
   if (node.text === null) return null
 
   if (node.contentType === "text/html") {
     const { text, atoms, attributes } = parseHtmlText(node.text)
-    const sweep = values.flatMap((value) => findOccurrences(text, value))
-    const cuts = sourceCutsFor(atoms, [...ranges, ...sweep])
+    const cuts = sourceCutsFor(atoms, [...ranges, ...matcher.find(text)])
 
     let html = node.text
     let changed = false
@@ -168,9 +168,7 @@ function redactPartText(
     // recomputed rather than carried across the edit above.
     const attributeEdits: Edit[] = []
     for (const attribute of changed ? parseHtmlText(html).attributes : attributes) {
-      const hits = values.flatMap((value) =>
-        findOccurrences(attribute.value, value)
-      )
+      const hits = matcher.find(attribute.value)
       if (hits.length === 0) continue
       attributeEdits.push({
         start: attribute.start,
@@ -189,8 +187,7 @@ function redactPartText(
     return changed ? html : null
   }
 
-  const sweep = values.flatMap((value) => findOccurrences(node.text!, value))
-  const all = mergeRanges([...ranges, ...sweep])
+  const all = mergeRanges([...ranges, ...matcher.find(node.text)])
   if (all.length === 0) return null
 
   return cut(node.text, all, label)
@@ -337,6 +334,9 @@ export function redactEml(
   const eol = eolOf(source)
 
   const edits: Edit[] = []
+  // One automaton for the whole message: a long thread reaches every header of
+  // every part, and searching each value in each of them is a product.
+  const matcher = valueMatcher(plan.values)
 
   for (const node of nodes) {
     // 1. Headers. Addressed edits, plus the sweep over everything that is not
@@ -347,7 +347,7 @@ export function redactEml(
 
       const sweep = STRUCTURAL_HEADERS.has(header.name)
         ? []
-        : plan.values.flatMap((value) => findOccurrences(header.value, value))
+        : matcher.find(header.value)
 
       const ranges = mergeRanges([...addressed, ...sweep])
       if (ranges.length === 0) continue
@@ -361,9 +361,7 @@ export function redactEml(
     let filename: string | null = null
     if (node.filename) {
       const addressed = plan.filenames[node.path] ?? []
-      const sweep = plan.values.flatMap((value) =>
-        findOccurrences(node.filename!, value)
-      )
+      const sweep = matcher.find(node.filename)
       const ranges = mergeRanges([...addressed, ...sweep])
       if (ranges.length > 0) {
         filename = cut(node.filename, ranges, plan.label)
@@ -375,7 +373,7 @@ export function redactEml(
     const redacted = redactPartText(
       node,
       plan.bodies[node.path] ?? [],
-      plan.values,
+      matcher,
       plan.label
     )
 

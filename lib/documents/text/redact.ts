@@ -5,7 +5,7 @@ import {
 } from "@/lib/documents/delimited/parse"
 import {
   cutRanges,
-  findOccurrences,
+  valueMatcher,
   type CharRange,
 } from "@/lib/documents/shared/text"
 
@@ -40,7 +40,7 @@ export function redactText(
   // reviewer accepted in one place is accepted everywhere it occurs, and in a
   // flat text file the text *is* the structure, so a search over it is a
   // search over the document rather than over its serialization.
-  const sweep = plan.values.flatMap((value) => findOccurrences(text, value))
+  const sweep = valueMatcher(plan.values).find(text)
 
   const redacted = cutRanges(
     text,
