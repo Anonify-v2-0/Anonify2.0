@@ -19,6 +19,184 @@ under a black rectangle is not a redaction system.
 | [docs/presets.md](docs/presets.md) | The five shipped redaction presets and their detector/category memberships |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | The invariants, the roadmap, and the benchmarks we would like |
 
+## What it can redact
+
+Ten formats today — the register that defines them lives in one place
+(`lib/documents/formats.ts`), and the table below mirrors it. Each format's
+pipeline is argued through in [docs/pipelines.md](docs/pipelines.md).
+
+| Format | What gets removed | How it is removed |
+| --- | --- | --- |
+| **PDF** | Text on any page | Redacted pages rasterized with boxes burned in; untouched pages keep selectable text. Scanned pages OCR'd so they are reviewable. |
+| **Word (.docx)** | Text nodes, in place | Byte-identical in-place edit — styles, numbering and relationships survive. Headers, footers, footnotes and comments swept, not just the body. |
+| **Excel (.xlsx)** | Cells | Cells rewritten; any formula still referencing a redacted address is dropped, because a cached result is a second copy. Hidden sheets read. |
+| **PowerPoint (.pptx)** | Slides, speaker notes, layouts, master | The same OOXML surgery across all four. Three of those four are never on screen, and a deck that redacts only its slides ships the other three. |
+| **Email (.eml)** | Headers, every body, HTML, quoted replies, attachment filenames, nested messages | Byte-range replacement in the original so untouched parts come out identical. Attachments in supported formats become child documents of their own. |
+| **CSV** | Cells | Parsed into a grid and rewritten cell by cell, so a value next to a comma inside a quoted field cannot shift every row after it. |
+| **TSV** | Cells | Same grid model as CSV. |
+| **Plain text (.txt)** | Offsets | Addressed by offset into the source. |
+| **Rich text (.rtf)** | Parsed text | RTF is parsed rather than searched, because a word processor splits a value across formatting groups and the string is often not in the file at all. |
+| **Images (PNG, JPEG, WebP)** | Pixels | Pixels replaced and the file re-encoded. EXIF and GPS go too. |
+
+Every export is then re-opened and read the way an adversary would. A surviving
+value fails the export rather than shipping (`lib/redaction/validation.ts`).
+
+## How it works
+
+Four layers, kept deliberately separate:
+
+| Layer | What it is | Where |
+| --- | --- | --- |
+| **A. Source** | The uploaded file. Never mutated. | Blob storage, AES-256-GCM sealed |
+| **B. Normalized** | Pages, spans with geometry, runs, sheets, regions | `lib/documents/*`, `types/document.ts` |
+| **C. Redactions** | The record of what should be removed | `types/redaction.ts`, `lib/redaction/*` |
+| **D. Output** | A new document generated from A + accepted C | `lib/redaction/export.ts` |
+
+```
+upload (browser → Blob)
+  → ingest: sniff, checksum, seal, delete plaintext
+  → extract: pages, spans, geometry
+  → normalize: encrypted model artifact
+  → detect: regex first, model for context only
+  → review: accept / reject / manual / global rules
+  → export: remove, verify, checksum, signed download
+  → report: counts, styles and both checksums, as a second artifact
+```
+
+### Redaction is removal, not concealment
+
+- **PDF** — a page with accepted redactions is rendered to pixels with the boxes
+  burned in and rebuilt from that raster. There is no way to paint over text in
+  a PDF and have it be gone. Pages without redactions are copied through and
+  keep their selectable text. Scanned pages are read with OCR so they are
+  reviewable like any other.
+- **DOCX** — the text nodes that carry the characters are edited in place, so
+  styles, numbering and relationships survive byte-identical. Headers, footers,
+  footnotes and comments are extracted and reviewable, not merely swept.
+- **XLSX** — cells are rewritten, and any formula still referencing a redacted
+  address is dropped, because a cached result is a second copy of the value.
+- **PPTX** — the same OOXML surgery, across the slides, the speaker notes, the
+  layouts and the master. Three of those four are never on screen, and a deck
+  that redacts only its slides ships the other three.
+- **EML** — a message is a tree, not a body with a header on it. Every header,
+  every text part, the visible text of every HTML part, quoted replies,
+  attachment filenames and nested messages are all reviewable, and the export
+  replaces byte ranges in the original so untouched parts come out identical.
+  Attachment *bytes* are carried through unchanged — their filenames are
+  redacted, their contents are not.
+- **CSV / TSV** — parsed into a grid and rewritten cell by cell, so a value
+  next to a comma inside a quoted field cannot shift every row after it.
+- **TXT / RTF** — addressed by offsets into the source. RTF is parsed rather
+  than searched, because a word processor splits a value across formatting
+  groups and the string is often not in the file at all.
+- **Images** — pixels are replaced and the file re-encoded. EXIF and GPS go too.
+
+Each of these is argued through in [docs/pipelines.md](docs/pipelines.md),
+which also carries the table of what each format's redaction model is and how
+each is verified.
+
+### Human review, and verification as a gate
+
+The two additions that matter most are not in the detection layer at all.
+
+**Human review.** Detection produces *suggestions*; only an accepted suggestion
+reaches the exporter. This is the difference between a tool that redacts for you
+and a tool you redact with — and it is what makes a wrong suggestion a
+non-event instead of a data loss. Nothing is removed that a person did not
+accept (`lib/redaction/model.ts`, `isAccepted`).
+
+**Verification as a gate.** v1 was correct by construction: rebuild from text and
+the old text is necessarily gone. v2 preserves the original document, which means
+that guarantee has to be *earned* rather than assumed. So every export is
+re-opened and read the way an adversary would — extracted PDF text, every OOXML
+part, every sheet including hidden ones — and refused if an accepted value
+survived. `tests/security.test.ts` runs twenty-one such recovery attempts against
+produced artifacts, all of which must fail.
+
+### Batches
+
+Several files at once become a batch: one upload, one review pass, and one
+archive at the end. The half that matters is not the upload — it is that a
+decision made once is not made again on the next file. "This recurring name is a
+colleague, not a subject" is answered in the document where it came up and
+carried to the others, including the ones still being analyzed when it was
+answered.
+
+A batch owns decisions, not processing. Each document keeps its own run, its own
+quota accounting, its own failure and its own expiry, so one document failing
+leaves the rest exactly where they were — and the batch export delivers every
+document that succeeded, naming the ones it could not include and why.
+
+### Presets, and the one thing they must not say
+
+A preset is a named set of detectors and categories — "Names and contact
+details", "Payment and account numbers", "Credentials and keys" — chosen at
+upload. It changes **what is looked for** and nothing else.
+
+That sentence is the whole design. A preset called "HIPAA" that somebody applies
+and then believes they have a compliant document is a worse outcome than having
+no presets at all: it turns a tool that helps into one that misleads, on exactly
+the question where being misled is most expensive. So presets are named for what
+they search for, never for what they achieve, and the rule is enforced rather
+than documented — a preset whose id, label or description contains a
+regulation's name or a compliance claim fails validation at import
+(`lib/redaction/presets.ts`).
+
+Presets are data (`lib/redaction/presets/presets.json`), so changing what one
+covers is a reviewable diff. A narrowed search is carried forward everywhere it
+matters: the caveat sits under the chooser, the editor says which preset the
+document was analyzed with, and the export report records it — because a short
+list of removals means either a clean document or a narrow search, and those are
+not the same thing.
+
+The five presets that ship with the app:
+
+| Preset | What it looks for |
+| --- | --- |
+| **Everything we can detect** | Every detector, contextual pass unrestricted. |
+| **Names and contact details** | People's names, email/phone, postal addresses, faces and signatures. |
+| **Identifiers and dates** | SSNs, customer/case/patient references, dates of birth. |
+| **Payment and account numbers** | Luhn-valid cards, IBANs, labelled account/sort codes, financial facts tied to a named party. |
+| **Credentials and keys** | API keys/tokens, links carrying a token or reset path, text marked confidential. |
+
+The detector and category memberships for each are in
+[docs/presets.md](docs/presets.md).
+
+### The export report
+
+Every export produces a second artifact, downloadable beside the file: what was
+removed by category and count, how each removal was applied — solid removal and
+blur are not the same guarantee and the record says which — what the reviewer
+rejected or never decided, and both checksums, so a third party can tie the
+statement to a specific source and a specific output.
+
+It carries counts and never content. A report that lists what was removed,
+verbatim, is a leak with a covering letter, so the report is verified before it
+is stored the same way the document is (`lib/redaction/report.ts`), and `pnpm
+smoke` reads the delivered bytes and fails if a redacted value appears in them.
+
+### Cost discipline
+
+Deterministic detectors run first: email, phone, Luhn-checked cards,
+structurally valid SSNs, IBANs, credentials, and label-gated dates and account
+numbers. The model is asked only the contextual question, once per chunk. A
+value judged sensitive once is expanded to all its occurrences by local search —
+occurrence 2..n costs a string scan, not a request.
+
+## What this version makes better
+
+| | v1 | v2 |
+| --- | --- | --- |
+| **Formats** | PDF | PDF, DOCX, XLSX, PPTX, EML, CSV, TSV, TXT, RTF, images |
+| **Fidelity** | Document rebuilt as plain text | Format-native: DOCX edited in place byte-identically, XLSX cells rewritten, only redacted PDF pages rasterized |
+| **Who decides** | High / Med / Low, applied globally | Every suggestion accepted or rejected individually; nothing is removed that a person did not accept |
+| **Manual control** | None | Click a word, drag a region, redact a cell/row/column, apply a rule everywhere |
+| **Detection** | Fixed NER labels | Validated patterns + contextual model pass + local expansion |
+| **Proof** | Trusted by construction | Every export re-opened and read adversarially; a surviving value **fails the export** |
+| **Processing** | In-request, Socket.io | Durable workflow — retryable steps, resumable stream, a timeout costs a retry not the upload |
+| **At rest** | Files on disk in the container | Per-document AES-256-GCM, TTL, scheduled purge of every artifact |
+| **Access** | Path-based | Session ownership on every read; signed, short-lived, checksum-verified downloads |
+
 ## Where this came from
 
 This is the successor to [nabeel-w/Anonify](https://github.com/nabeel-w/Anonify)
@@ -94,162 +272,6 @@ inject it into your document.
 A value judged sensitive once is expanded to its other occurrences by local
 string search. Seventeen mentions of a name cost one model call, not seventeen —
 and cannot come back with a different answer the second time.
-
-### What this version makes better
-
-| | v1 | v2 |
-| --- | --- | --- |
-| **Formats** | PDF | PDF, DOCX, XLSX, PPTX, EML, CSV, TSV, TXT, RTF, images |
-| **Fidelity** | Document rebuilt as plain text | Format-native: DOCX edited in place byte-identically, XLSX cells rewritten, only redacted PDF pages rasterized |
-| **Who decides** | High / Med / Low, applied globally | Every suggestion accepted or rejected individually; nothing is removed that a person did not accept |
-| **Manual control** | None | Click a word, drag a region, redact a cell/row/column, apply a rule everywhere |
-| **Detection** | Fixed NER labels | Validated patterns + contextual model pass + local expansion |
-| **Proof** | Trusted by construction | Every export re-opened and read adversarially; a surviving value **fails the export** |
-| **Processing** | In-request, Socket.io | Durable workflow — retryable steps, resumable stream, a timeout costs a retry not the upload |
-| **At rest** | Files on disk in the container | Per-document AES-256-GCM, TTL, scheduled purge of every artifact |
-| **Access** | Path-based | Session ownership on every read; signed, short-lived, checksum-verified downloads |
-
-The two additions that matter most are not in the detection layer at all.
-
-**Human review.** Detection produces *suggestions*; only an accepted suggestion
-reaches the exporter. This is the difference between a tool that redacts for you
-and a tool you redact with — and it is what makes a wrong suggestion a
-non-event instead of a data loss.
-
-**Verification as a gate.** v1 was correct by construction: rebuild from text and
-the old text is necessarily gone. v2 preserves the original document, which means
-that guarantee has to be *earned* rather than assumed. So every export is
-re-opened and read the way an adversary would — extracted PDF text, every OOXML
-part, every sheet including hidden ones — and refused if an accepted value
-survived. `tests/security.test.ts` runs twenty-one such recovery attempts against
-produced artifacts, all of which must fail.
-
-## How it works
-
-Four layers, kept deliberately separate:
-
-| Layer | What it is | Where |
-| --- | --- | --- |
-| **A. Source** | The uploaded file. Never mutated. | Blob storage, AES-256-GCM sealed |
-| **B. Normalized** | Pages, spans with geometry, runs, sheets, regions | `lib/documents/*`, `types/document.ts` |
-| **C. Redactions** | The record of what should be removed | `types/redaction.ts`, `lib/redaction/*` |
-| **D. Output** | A new document generated from A + accepted C | `lib/redaction/export.ts` |
-
-```
-upload (browser → Blob)
-  → ingest: sniff, checksum, seal, delete plaintext
-  → extract: pages, spans, geometry
-  → normalize: encrypted model artifact
-  → detect: regex first, model for context only
-  → review: accept / reject / manual / global rules
-  → export: remove, verify, checksum, signed download
-  → report: counts, styles and both checksums, as a second artifact
-```
-
-### Redaction is removal, not concealment
-
-- **PDF** — a page with accepted redactions is rendered to pixels with the boxes
-  burned in and rebuilt from that raster. There is no way to paint over text in
-  a PDF and have it be gone. Pages without redactions are copied through and
-  keep their selectable text. Scanned pages are read with OCR so they are
-  reviewable like any other.
-- **DOCX** — the text nodes that carry the characters are edited in place, so
-  styles, numbering and relationships survive byte-identical. Headers, footers,
-  footnotes and comments are extracted and reviewable, not merely swept.
-- **XLSX** — cells are rewritten, and any formula still referencing a redacted
-  address is dropped, because a cached result is a second copy of the value.
-- **PPTX** — the same OOXML surgery, across the slides, the speaker notes, the
-  layouts and the master. Three of those four are never on screen, and a deck
-  that redacts only its slides ships the other three.
-- **EML** — a message is a tree, not a body with a header on it. Every header,
-  every text part, the visible text of every HTML part, quoted replies,
-  attachment filenames and nested messages are all reviewable, and the export
-  replaces byte ranges in the original so untouched parts come out identical.
-  Attachment *bytes* are carried through unchanged — their filenames are
-  redacted, their contents are not.
-- **CSV / TSV** — parsed into a grid and rewritten cell by cell, so a value
-  next to a comma inside a quoted field cannot shift every row after it.
-- **TXT / RTF** — addressed by offsets into the source. RTF is parsed rather
-  than searched, because a word processor splits a value across formatting
-  groups and the string is often not in the file at all.
-- **Images** — pixels are replaced and the file re-encoded. EXIF and GPS go too.
-
-Each of these is argued through in [docs/pipelines.md](docs/pipelines.md),
-which also carries the table of what each format's redaction model is and how
-each is verified.
-
-Every export is then re-opened and read the way an adversary would. A surviving
-value fails the export rather than shipping (`lib/redaction/validation.ts`).
-
-### Batches
-
-Several files at once become a batch: one upload, one review pass, and one
-archive at the end. The half that matters is not the upload — it is that a
-decision made once is not made again on the next file. "This recurring name is a
-colleague, not a subject" is answered in the document where it came up and
-carried to the others, including the ones still being analyzed when it was
-answered.
-
-A batch owns decisions, not processing. Each document keeps its own run, its own
-quota accounting, its own failure and its own expiry, so one document failing
-leaves the rest exactly where they were — and the batch export delivers every
-document that succeeded, naming the ones it could not include and why.
-
-### Presets, and the one thing they must not say
-
-A preset is a named set of detectors and categories — "Names and contact
-details", "Payment and account numbers", "Credentials and keys" — chosen at
-upload. It changes **what is looked for** and nothing else.
-
-That sentence is the whole design. A preset called "HIPAA" that somebody applies
-and then believes they have a compliant document is a worse outcome than having
-no presets at all: it turns a tool that helps into one that misleads, on exactly
-the question where being misled is most expensive. So presets are named for what
-they search for, never for what they achieve, and the rule is enforced rather
-than documented — a preset whose id, label or description contains a
-regulation's name or a compliance claim fails validation at import
-(`lib/redaction/presets.ts`).
-
-Presets are data (`lib/redaction/presets/presets.json`), so changing what one
-covers is a reviewable diff. A narrowed search is carried forward everywhere it
-matters: the caveat sits under the chooser, the editor says which preset the
-document was analyzed with, and the export report records it — because a short
-list of removals means either a clean document or a narrow search, and those are
-not the same thing.
-
-The five presets that ship with the app:
-
-| Preset | What it looks for |
-| --- | --- |
-| **Everything we can detect** | Every detector, contextual pass unrestricted. |
-| **Names and contact details** | People's names, email/phone, postal addresses, faces and signatures. |
-| **Identifiers and dates** | SSNs, customer/case/patient references, dates of birth. |
-| **Payment and account numbers** | Luhn-valid cards, IBANs, labelled account/sort codes, financial facts tied to a named party. |
-| **Credentials and keys** | API keys/tokens, links carrying a token or reset path, text marked confidential. |
-
-The detector and category memberships for each are in
-[docs/presets.md](docs/presets.md).
-
-### The export report
-
-Every export produces a second artifact, downloadable beside the file: what was
-removed by category and count, how each removal was applied — solid removal and
-blur are not the same guarantee and the record says which — what the reviewer
-rejected or never decided, and both checksums, so a third party can tie the
-statement to a specific source and a specific output.
-
-It carries counts and never content. A report that lists what was removed,
-verbatim, is a leak with a covering letter, so the report is verified before it
-is stored the same way the document is (`lib/redaction/report.ts`), and `pnpm
-smoke` reads the delivered bytes and fails if a redacted value appears in them.
-
-### Cost discipline
-
-Deterministic detectors run first: email, phone, Luhn-checked cards,
-structurally valid SSNs, IBANs, credentials, and label-gated dates and account
-numbers. The model is asked only the contextual question, once per chunk. A
-value judged sensitive once is expanded to all its occurrences by local search —
-occurrence 2..n costs a string scan, not a request.
 
 ## Running it
 
