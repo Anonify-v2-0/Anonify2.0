@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Check, Download, Loader2, ShieldCheck } from "lucide-react"
+import { Check, Download, FileText, Loader2, ShieldCheck } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select"
 import { DocumentUsageSummary } from "@/components/documents/usage-summary"
 import { toastFailure } from "@/lib/api/errors"
+import type { ExportReport } from "@/lib/redaction/report"
 import { cn } from "@/lib/utils"
 import { exportDialogToggled } from "@/store/uiSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
@@ -66,11 +67,62 @@ type ImageStyle = (typeof IMAGE_STYLES)[number]["value"]
 
 type ExportResponse = {
   downloadUrl: string
+  reportUrl: string
+  report: ExportReport
   checksum: string
   appliedRedactions: number
   verifiedValues: number
   metadataSanitized: boolean
   size: number
+}
+
+/**
+ * The export report, shown rather than only offered.
+ *
+ * The downloadable file is the artifact a third party checks; this is the same
+ * content in front of the person who just made the decisions, because the
+ * number that matters most — what was left in — is the one nobody opens a
+ * JSON file to discover.
+ */
+function ReportSummary({ report }: { report: ExportReport }) {
+  const leftIn =
+    report.notRemoved.rejected.total + report.notRemoved.undecided.total
+
+  return (
+    <div className="space-y-2 rounded-[10px] border border-border p-3">
+      <p className="label-micro">Export report</p>
+
+      {report.removed.byCategory.length > 0 ? (
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-text-secondary">
+          {report.removed.byCategory.map((entry) => (
+            <div key={entry.category} className="flex justify-between gap-2">
+              <dt className="truncate">{entry.category}</dt>
+              <dd className="font-mono tabular-nums text-text-muted">
+                {entry.count}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="text-xs text-text-secondary">Nothing was removed.</p>
+      )}
+
+      {report.lookedFor.narrowed && report.lookedFor.presetLabel ? (
+        <p className="text-[11px] leading-relaxed text-text-muted">
+          Looked for {report.lookedFor.presetLabel.toLowerCase()}. Anything
+          outside that was never searched for, so its absence from these counts
+          says nothing about the file.
+        </p>
+      ) : null}
+
+      <p className="text-[11px] leading-relaxed text-text-muted">
+        {leftIn === 0
+          ? "Every suggestion was decided, and every accepted one was removed."
+          : `${leftIn} suggested ${leftIn === 1 ? "item" : "items"} (${report.notRemoved.rejected.total} rejected, ${report.notRemoved.undecided.total} undecided) ${leftIn === 1 ? "was" : "were"} not accepted and remain in the file.`}{" "}
+        The report records counts and checksums, never the values themselves.
+      </p>
+    </div>
+  )
 }
 
 export function ExportDialog({ summary }: { summary: DocumentSummary }) {
@@ -154,6 +206,7 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
             <p className="font-mono text-[11px] break-all text-text-muted">
               sha256 {result.checksum}
             </p>
+            {result.report ? <ReportSummary report={result.report} /> : null}
             <DocumentUsageSummary documentId={summary.id} />
           </div>
         ) : (
@@ -227,16 +280,30 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
 
         <DialogFooter>
           {result ? (
-            // Same reason as the card's Open control: this is a download link,
-            // and Base UI's Button would relabel it as a button.
-            <a
-              href={result.downloadUrl}
-              download
-              className={cn(buttonVariants(), "btn-pill h-10")}
-            >
-              <Download className="size-4" />
-              Download
-            </a>
+            // Same reason as the card's Open control: these are download links,
+            // and Base UI's Button would relabel them as buttons.
+            <>
+              {result.reportUrl ? (
+                <a
+                  href={result.reportUrl}
+                  download
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "lg" })
+                  )}
+                >
+                  <FileText className="size-4" />
+                  Report
+                </a>
+              ) : null}
+              <a
+                href={result.downloadUrl}
+                download
+                className={cn(buttonVariants(), "btn-pill h-10")}
+              >
+                <Download className="size-4" />
+                Download
+              </a>
+            </>
           ) : (
             <Button className="btn-pill h-10" disabled={busy} onClick={generate}>
               {busy ? (

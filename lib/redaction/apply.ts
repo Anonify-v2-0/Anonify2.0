@@ -153,6 +153,23 @@ export function buildXlsxPlan(
   }
 }
 
+/**
+ * The appearance a bounding-box redaction is exported with.
+ *
+ * Only a face takes the chosen style: the option exists because a blurred face
+ * reads as a photograph and a black rectangle reads as a mistake, whereas a
+ * blurred account number is just an account number somebody might get back.
+ *
+ * The export report asks this same function what happened, so the record and
+ * the artifact cannot drift apart.
+ */
+export function regionStyle(
+  redaction: Redaction,
+  options: ExportOptions
+): RedactionStyle {
+  return redaction.type === "face" ? (options.imageStyle ?? "solid") : "solid"
+}
+
 export function buildImagePlan(
   model: NormalizedDocument,
   redactions: Redaction[],
@@ -167,7 +184,7 @@ export function buildImagePlan(
     if (redaction.boundingBox) {
       regions.push({
         boundingBox: padBox(redaction.boundingBox),
-        style: redaction.type === "face" ? options.imageStyle : "solid",
+        style: regionStyle(redaction, options),
       })
       continue
     }

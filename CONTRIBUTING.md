@@ -207,12 +207,34 @@ Only after the invariants hold for it, including an adversarial test suite.
 
 - [ ] **More formats:** PPTX (the same OOXML approach as DOCX — speaker notes are
       a lovely hiding place), CSV/TSV, plain text, RTF, EML.
-- [ ] **An export report** — what was removed, by category and count, with the
-      checksum — as a separate artifact.
-- [ ] **Batch upload**, with review carried across documents.
-- [ ] **Redaction presets** ("GDPR", "HIPAA-shaped", "engineering secrets") as
-      named detector + category sets. Presets must not imply compliance; naming
-      here needs care.
+- [x] ~~**An export report** — what was removed, by category and count, with the
+      checksum — as a separate artifact.~~ `lib/redaction/report.ts`, served by
+      the download route as `?part=report`. Counts by category, the style each
+      removal was applied with, what the reviewer rejected or never decided, and
+      both checksums. It contains no values, and that is checked rather than
+      asserted: the report is verified before it is stored, and a field added
+      later that carries document text fails the export instead of shipping.
+- [x] ~~**Batch upload**, with review carried across documents.~~ Several files
+      become a `Batch`; a decision taken in one document can be promoted to the
+      whole batch, and documents that finish processing *after* it was taken
+      inherit it on arrival (`lib/redaction/rules.ts`). A batch owns decisions,
+      never processing: each document keeps its own run, quota accounting,
+      failure and expiry, so one failing holds up nothing. Allowances are
+      charged per file — a batch is not a discount — and when they run out
+      partway the affordable files proceed and the rest are named. Export is one
+      archive of per-document artifacts, each verified on its own, with its own
+      report, plus a roll-up that names what could not be included and why.
+- [x] ~~**Redaction presets** as named detector + category sets. Presets must
+      not imply compliance; naming here needs care.~~ `lib/redaction/presets/`
+      is JSON, so what a preset covers is a reviewable diff. The names say what
+      each one *looks for* — "Names and contact details", "Payment and account
+      numbers", "Credentials and keys" — and the rule that keeps them that way
+      is enforced rather than documented: a preset whose id, label, summary or
+      description contains a regulation's name or an outcome claim fails
+      validation at import. The caveat is stated where the choice is made, the
+      editor says which preset a document was analyzed with, and the export
+      report records it — because a short list of removals means a clean
+      document or a narrow search, and those are not the same thing.
 
 ---
 

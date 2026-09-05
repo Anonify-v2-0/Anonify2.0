@@ -8,14 +8,12 @@ import {
   rateLimitResponse,
 } from "@/lib/api/http"
 import { ALLOWED_TTL_SECONDS, MAX_UPLOAD_BYTES } from "@/lib/config"
-import { prisma } from "@/lib/database/prisma"
-import { extensionOf } from "@/lib/documents/detect"
-import { newDocumentId } from "@/lib/documents/ids"
 import { listDocuments } from "@/lib/documents/listing"
+import { reserveDocument } from "@/lib/documents/reserve"
+import { isPresetId } from "@/lib/redaction/presets"
 import { getIdentity, peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
-import { checkQuota, quotaMessage, recordUsage } from "@/lib/security/usage"
-import { clientUploadMode, uploadKey } from "@/lib/storage/blob"
+import { clientUploadMode } from "@/lib/storage/blob"
 import { DEFAULT_TTL_SECONDS } from "@/types/document"
 
 export const runtime = "nodejs"
@@ -43,20 +41,11 @@ export async function GET() {
   }
 }
 
-const EXTENSION_KINDS: Record<string, string> = {
-  pdf: "pdf",
-  docx: "docx",
-  xlsx: "xlsx",
-  png: "image",
-  jpg: "image",
-  jpeg: "image",
-  webp: "image",
-}
-
 const createSchema = z.object({
   filename: z.string().min(1).max(200),
   size: z.number().int().positive().max(MAX_UPLOAD_BYTES),
   contentType: z.string().max(200).optional(),
+  preset: z.string().max(60).optional(),
   ttlSeconds: z
     .number()
     .int()
@@ -85,65 +74,35 @@ export async function POST(request: Request) {
       return errorResponse("Invalid upload request", 400)
     }
 
-    const { filename, size, contentType, ttlSeconds } = parsed.data
+    const { filename, size, contentType, ttlSeconds, preset } = parsed.data
 
-    const kind = EXTENSION_KINDS[extensionOf(filename)]
-    if (!kind) {
-      return errorResponse("Unsupported file type", 415)
+    // An unknown preset is refused rather than ignored: silently falling back
+    // to "everything" would be the safe direction, but a client that thinks it
+    // narrowed the search and did not is being lied to either way.
+    if (preset && !isPresetId(preset)) {
+      return errorResponse("Unknown preset", 400)
     }
 
-    // The browser's `file.type` is a guess, not a fact, and it is wrong often
-    // enough to matter: Windows reports application/x-zip-compressed for a
-    // .docx, an empty string when nothing is registered for the extension, and
-    // application/octet-stream for anything dragged out of an archive. Refusing
-    // on it rejected files this pipeline handles perfectly well.
-    //
-    // Nothing is lost by trusting it less. The extension is checked above, and
-    // ingest sniffs the actual bytes and refuses a file whose contents do not
-    // match what it claims to be — which is the check that was ever worth
-    // anything, because it is the only one the uploader cannot choose.
+    const reserved = await reserveDocument({
+      filename,
+      size,
+      contentType,
+      ttlSeconds,
+      preset,
+      ownerKey: identity.ownerKey,
+      quotaKey: identity.quotaKey,
+    })
 
-    // The per-page and per-cell allowances are charged once the pipeline knows
-    // the real size; the upload count is charged here, before any work starts.
-    const quota = await checkQuota(identity.quotaKey, "uploads")
-    if (!quota.allowed) {
-      return errorResponse(quotaMessage(quota), 429, {
-        limit: quota.limit,
-        used: quota.used,
-      })
+    if (!reserved.ok) {
+      return errorResponse(reserved.message, reserved.status, reserved.quota)
     }
-
-    const documentId = newDocumentId()
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000)
-
-    await prisma.document.create({
-      data: {
-        id: documentId,
-        originalName: filename,
-        // Both are provisional: ingest re-derives them from the actual bytes.
-        kind,
-        mimeType: contentType ?? "application/octet-stream",
-        size,
-        status: "uploading",
-        userFingerprint: identity.ownerKey,
-        quotaKey: identity.quotaKey,
-        ttlSeconds,
-        expiresAt,
-      },
-    })
-
-    await recordUsage({
-      fingerprint: identity.quotaKey,
-      kind: "uploads",
-      quantity: 1,
-    })
 
     return jsonResponse(
       {
-        id: documentId,
-        pathname: uploadKey(documentId, filename),
-        expiresAt: expiresAt.toISOString(),
-        quota: { used: quota.used + 1, limit: quota.limit },
+        id: reserved.id,
+        pathname: reserved.pathname,
+        expiresAt: reserved.expiresAt.toISOString(),
+        quota: reserved.quota,
         // The server knows which storage backend is configured; the browser
         // should not have to be told separately through a public env var.
         uploadMode: clientUploadMode(),

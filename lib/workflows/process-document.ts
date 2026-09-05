@@ -22,6 +22,8 @@ import { newEventId } from "@/lib/documents/ids"
 import { saveNormalized } from "@/lib/documents/normalized-store"
 import { loadNormalized } from "@/lib/documents/normalized-store"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
+import { categoryAllowed, presetById } from "@/lib/redaction/presets"
+import { carryBatchRules } from "@/lib/redaction/rules"
 import {
   quotaMessage,
   recordUsage,
@@ -350,6 +352,7 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
       encryptionKey: true,
       normalizedBlobKey: true,
       sourceBlobKey: true,
+      preset: true,
     },
   })
 
@@ -361,6 +364,9 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
     document.normalizedBlobKey,
     document.encryptionKey
   )
+
+  // Null when no preset was chosen, which means everything is looked for.
+  const preset = presetById(document.preset)
 
   const { detections, sensitiveColumns } = await analyzeDocument(
     documentId,
@@ -375,7 +381,8 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
           suggestions: update.detections,
         },
       })
-    }
+    },
+    preset
   )
 
   // Pixels get a vision pass, because no amount of text analysis can see a
@@ -384,10 +391,12 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
     const sealed = await getObject(document.sourceBlobKey)
     const bytes = decryptDocument(sealed, document.encryptionKey)
     detections.push(
-      ...(await analyzeImageRegions(documentId, model, {
-        data: bytes,
-        mediaType: document.mimeType,
-      }))
+      ...(
+        await analyzeImageRegions(documentId, model, {
+          data: bytes,
+          mediaType: document.mimeType,
+        })
+      ).filter((detection) => categoryAllowed(preset, detection.category))
     )
   }
 
@@ -409,12 +418,14 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
 
       for (const [index, { page, png }] of rendered.entries()) {
         detections.push(
-          ...(await analyzeImageRegions(
-            documentId,
-            model,
-            { data: png, mediaType: "image/png" },
-            page
-          ))
+          ...(
+            await analyzeImageRegions(
+              documentId,
+              model,
+              { data: png, mediaType: "image/png" },
+              page
+            )
+          ).filter((detection) => categoryAllowed(preset, detection.category))
         )
         await emit(documentId, "document.ai.progress", {
           status: "analyzing",
@@ -471,6 +482,26 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
   })
 
   return { suggestions: redactions.length }
+}
+
+/**
+ * Applies the decisions the batch has already made.
+ *
+ * A batch is reviewed while its documents are still arriving, so a rule agreed
+ * on the first file has to reach the fourth one — which was still being
+ * analyzed when the reviewer agreed it. This is where that happens, after
+ * analysis so the rule's redactions sit alongside the suggestions.
+ *
+ * It is allowed to fail the document rather than being swallowed. A carried
+ * decision that quietly did not arrive is a value the reviewer believes they
+ * have already removed everywhere, which is the one kind of silence this tool
+ * cannot afford. Retrying is safe: rules already applied here are skipped.
+ */
+async function carryDecisions(
+  documentId: string
+): Promise<{ rulesApplied: number; redactions: number }> {
+  "use step"
+  return carryBatchRules(documentId).catch(paced)
 }
 
 async function publishStatus(
@@ -568,6 +599,8 @@ export async function processDocument(documentId: string): Promise<{
       progress: 70,
     })
     const { suggestions } = await analyze(documentId)
+
+    await carryDecisions(documentId)
 
     await finish(documentId, pageCount, suggestions)
     return { documentId, status: "ready" }

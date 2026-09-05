@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/database/prisma"
+import { pruneEmptyBatches } from "@/lib/documents/batches"
 import { purgeDocument, PURGE_SELECT } from "@/lib/documents/purge"
 import { pruneRateLimits } from "@/lib/security/rate-limit"
 
@@ -17,6 +18,7 @@ export type CleanupResult = {
   documentsDeleted: number
   objectsDeleted: number
   failures: number
+  batchesPruned: number
   rateLimitsPruned: number
 }
 
@@ -44,6 +46,10 @@ export async function cleanupExpired(now = new Date()): Promise<CleanupResult> {
     else failures += 1
   }
 
+  // A batch holds the decisions taken across its documents — patterns a person
+  // typed, which is document content in the plainest sense. Once its documents
+  // are gone nothing points at them, so they go on the same sweep.
+  const batchesPruned = await pruneEmptyBatches().catch(() => 0)
   const rateLimitsPruned = await pruneRateLimits().catch(() => 0)
 
   console.log(
@@ -53,11 +59,18 @@ export async function cleanupExpired(now = new Date()): Promise<CleanupResult> {
       documentsDeleted,
       objectsDeleted,
       failures,
+      batchesPruned,
       rateLimitsPruned,
     })
   )
 
-  return { documentsDeleted, objectsDeleted, failures, rateLimitsPruned }
+  return {
+    documentsDeleted,
+    objectsDeleted,
+    failures,
+    batchesPruned,
+    rateLimitsPruned,
+  }
 }
 
 /** Marks expired documents so the workspace stops serving them mid-window. */

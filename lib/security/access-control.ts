@@ -38,6 +38,10 @@ export type OwnedDocument = {
    * can be redacted by hand — while a failure before it leaves nothing to show.
    */
   normalizedBlobKey: string | null
+  /** The upload this document arrived in, when it arrived with others. */
+  batchId: string | null
+  /** Named detector set the analysis ran with; null means everything. */
+  preset: string | null
   userFingerprint: string
 }
 
@@ -68,6 +72,8 @@ export async function requireDocument(
       error: true,
       errorCode: true,
       normalizedBlobKey: true,
+      batchId: true,
+      preset: true,
       userFingerprint: true,
     },
   })

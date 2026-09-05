@@ -1,3 +1,4 @@
+import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
 import type { DocumentKind } from "@/types/document"
 
@@ -23,6 +24,7 @@ export type DocumentListItem = {
   error: string | null
   errorCode: string | null
   hasExport: boolean
+  batchId: string | null
   counts: {
     total: number
     suggested: number
@@ -38,10 +40,30 @@ export async function listDocuments(
   now = new Date()
 ): Promise<DocumentListItem[]> {
   if (!ownerKey) return []
+  return query({ userFingerprint: ownerKey, expiresAt: { gt: now } }, "desc")
+}
 
+/**
+ * The documents of one batch, oldest first.
+ *
+ * Order matters here in a way it does not on the documents page: a batch is
+ * reviewed as a sequence, and "next document" has to mean the same thing every
+ * time it is asked. Ownership is checked by the caller, against the batch.
+ */
+export async function listBatchDocuments(
+  batchId: string,
+  now = new Date()
+): Promise<DocumentListItem[]> {
+  return query({ batchId, expiresAt: { gt: now } }, "asc")
+}
+
+async function query(
+  where: Prisma.DocumentWhereInput,
+  direction: "asc" | "desc"
+): Promise<DocumentListItem[]> {
   const documents = await prisma.document.findMany({
-    where: { userFingerprint: ownerKey, expiresAt: { gt: now } },
-    orderBy: { createdAt: "desc" },
+    where,
+    orderBy: { createdAt: direction },
     take: LIST_LIMIT,
     select: {
       id: true,
@@ -56,6 +78,7 @@ export async function listDocuments(
       error: true,
       errorCode: true,
       processedBlobKey: true,
+      batchId: true,
       redactions: { select: { status: true } },
     },
   })
@@ -81,6 +104,7 @@ export async function listDocuments(
       error: document.error,
       errorCode: document.errorCode,
       hasExport: Boolean(document.processedBlobKey),
+      batchId: document.batchId,
       counts,
     }
   })

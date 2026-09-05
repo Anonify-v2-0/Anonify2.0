@@ -6,9 +6,10 @@ import { deleteObject } from "@/lib/storage/blob"
  *
  * Both the scheduled expiry sweep and an explicit "delete now" go through here,
  * so there is one list of what a document owns — source, the plaintext upload
- * if ingest never got to it, the normalized model, and every export. A helper
- * that forgets one of those leaves bytes behind that nothing is tracking any
- * more, which is exactly the failure a temporary-by-default product cannot have.
+ * if ingest never got to it, the normalized model, and every export with the
+ * report that accompanied it. A helper that forgets one of those leaves bytes
+ * behind that nothing is tracking any more, which is exactly the failure a
+ * temporary-by-default product cannot have.
  */
 
 export type PurgeResult = {
@@ -22,7 +23,7 @@ export type PurgeableDocument = {
   uploadBlobKey: string | null
   processedBlobKey: string | null
   normalizedBlobKey: string | null
-  exports: { blobKey: string }[]
+  exports: { blobKey: string; reportBlobKey?: string | null }[]
 }
 
 export const PURGE_SELECT = {
@@ -31,7 +32,7 @@ export const PURGE_SELECT = {
   uploadBlobKey: true,
   processedBlobKey: true,
   normalizedBlobKey: true,
-  exports: { select: { blobKey: true } },
+  exports: { select: { blobKey: true, reportBlobKey: true } },
 } as const
 
 /** Removes the stored objects. Idempotent: an object already gone counts. */
@@ -43,7 +44,10 @@ export async function purgeStorage(
     document.uploadBlobKey,
     document.processedBlobKey,
     document.normalizedBlobKey,
-    ...document.exports.map((artifact) => artifact.blobKey),
+    ...document.exports.flatMap((artifact) => [
+      artifact.blobKey,
+      artifact.reportBlobKey ?? null,
+    ]),
   ].filter((key): key is string => Boolean(key))
 
   let objectsDeleted = 0

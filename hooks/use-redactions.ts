@@ -20,6 +20,12 @@ import { selectRedactions } from "@/store/selectors"
 import type { Redaction, RedactionStatus } from "@/types/redaction"
 
 /**
+ * How far a rule reaches. `batch` records the decision on the batch itself, so
+ * it also applies to documents that finish processing after it was made.
+ */
+export type RuleScope = "document" | "batch"
+
+/**
  * The editor's connection to the redaction record.
  *
  * Changes are applied locally first so the canvas responds immediately, then
@@ -140,12 +146,12 @@ export function useRedactions(documentId: string, active: boolean) {
    * risk of a different answer for the same string.
    */
   const applyGlobalRule = useCallback(
-    async (pattern: string, category: string) => {
+    async (pattern: string, category: string, scope: RuleScope = "document") => {
       try {
         const response = await fetch(`/api/documents/${documentId}/rules`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ pattern, category }),
+          body: JSON.stringify({ pattern, category, scope }),
         })
         if (!response.ok) {
           await toastFailure(toast, response, "That rule could not be applied.")
@@ -155,6 +161,7 @@ export function useRedactions(documentId: string, active: boolean) {
         const payload = (await response.json()) as {
           rule: { id: string; pattern: string; category: string; enabled: boolean }
           redactions: Redaction[]
+          batch?: { documents: number; redactions: number }
         }
 
         dispatch(
@@ -166,10 +173,19 @@ export function useRedactions(documentId: string, active: boolean) {
         )
         dispatch(redactionsAdded(payload.redactions))
 
+        // A batch rule's interesting number is not the one on screen: the
+        // reviewer needs to know it reached the documents they are not looking
+        // at, or the decision they just took is invisible until they open one.
         toast.success(
-          payload.redactions.length === 1
-            ? "Redacted 1 occurrence"
-            : `Redacted ${payload.redactions.length} occurrences`
+          payload.batch
+            ? `Redacted ${payload.batch.redactions} ${
+                payload.batch.redactions === 1 ? "occurrence" : "occurrences"
+              } across ${payload.batch.documents} ${
+                payload.batch.documents === 1 ? "document" : "documents"
+              }`
+            : payload.redactions.length === 1
+              ? "Redacted 1 occurrence"
+              : `Redacted ${payload.redactions.length} occurrences`
         )
         return payload.redactions.length
       } catch {

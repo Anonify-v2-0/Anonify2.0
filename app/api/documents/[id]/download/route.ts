@@ -16,6 +16,10 @@ export const runtime = "nodejs"
  * re-checked on every request, and the bytes are re-hashed and compared against
  * the checksum recorded at export time, so what the user downloads is provably
  * the artifact that was verified.
+ *
+ * `?part=report` serves the export report for the same artifact, through the
+ * same token and the same integrity check — it is a second file, not a second
+ * kind of authorization.
  */
 export async function GET(
   request: Request,
@@ -47,10 +51,23 @@ export async function GET(
       return errorResponse("Export not found", 404)
     }
 
-    const sealed = await getObject(artifact.blobKey)
+    const wantsReport = url.searchParams.get("part") === "report"
+    const reportBlob = wantsReport ? artifact.reportBlobKey : null
+    if (wantsReport && !reportBlob) {
+      // Artifacts exported before reports existed have none, and generating one
+      // now would describe a review that has since moved on.
+      return errorResponse("This export has no report", 404)
+    }
+
+    const blobKey = reportBlob ?? artifact.blobKey
+    const expectedChecksum = reportBlob
+      ? (artifact.reportChecksum ?? "")
+      : artifact.checksum
+
+    const sealed = await getObject(blobKey)
     const bytes = decryptDocument(sealed, document.encryptionKey)
 
-    if (!checksumMatches(artifact.checksum, sha256(bytes))) {
+    if (!checksumMatches(expectedChecksum, sha256(bytes))) {
       console.error(
         JSON.stringify({
           level: "error",
@@ -63,11 +80,13 @@ export async function GET(
     }
 
     const base = document.originalName.replace(/\.[^.]+$/, "") || "document"
-    const filename = `${base}-redacted.${artifact.extension}`
+    const filename = wantsReport
+      ? `${base}-redaction-report.json`
+      : `${base}-redacted.${artifact.extension}`
 
     return new Response(new Uint8Array(bytes), {
       headers: {
-        "content-type": artifact.mimeType,
+        "content-type": wantsReport ? "application/json" : artifact.mimeType,
         "content-length": String(bytes.byteLength),
         "content-disposition": `attachment; filename="${filename.replace(/"/g, "")}"`,
         "cache-control": "no-store, private",

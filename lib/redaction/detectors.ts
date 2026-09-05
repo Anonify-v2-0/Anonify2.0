@@ -11,6 +11,13 @@ import type { Detection } from "@/types/redaction"
  */
 
 export type PatternDetector = {
+  /**
+   * Stable name for this detector, used by presets to turn it on or off. It is
+   * not the category: two detectors can propose the same category — an IBAN and
+   * a labelled account number are both `bank-account` — and a preset has to be
+   * able to want one without the other.
+   */
+  id: string
   category: string
   /** Confidence for a bare pattern match, before any contextual check. */
   confidence: number
@@ -65,6 +72,7 @@ function precededBy(context: string, index: number, labels: RegExp): boolean {
 
 export const DETECTORS: PatternDetector[] = [
   {
+    id: "email-address",
     category: "email",
     confidence: 0.97,
     global: true,
@@ -72,6 +80,7 @@ export const DETECTORS: PatternDetector[] = [
     reason: "Matches an email address",
   },
   {
+    id: "phone-number",
     category: "phone",
     confidence: 0.88,
     global: true,
@@ -81,6 +90,7 @@ export const DETECTORS: PatternDetector[] = [
     reason: "Matches a telephone number",
   },
   {
+    id: "us-social-security",
     category: "government-id",
     confidence: 0.95,
     global: true,
@@ -89,6 +99,7 @@ export const DETECTORS: PatternDetector[] = [
     reason: "Matches a Social Security number",
   },
   {
+    id: "payment-card",
     category: "financial",
     confidence: 0.94,
     global: true,
@@ -97,6 +108,7 @@ export const DETECTORS: PatternDetector[] = [
     reason: "Passes the Luhn check for a payment card number",
   },
   {
+    id: "iban",
     category: "bank-account",
     confidence: 0.93,
     global: true,
@@ -104,6 +116,7 @@ export const DETECTORS: PatternDetector[] = [
     reason: "Matches an IBAN",
   },
   {
+    id: "labelled-account-number",
     category: "bank-account",
     confidence: 0.7,
     global: true,
@@ -113,6 +126,7 @@ export const DETECTORS: PatternDetector[] = [
     reason: "A long number labelled as an account",
   },
   {
+    id: "credential",
     category: "api-key",
     confidence: 0.96,
     global: true,
@@ -121,6 +135,7 @@ export const DETECTORS: PatternDetector[] = [
     reason: "Matches a credential or API key format",
   },
   {
+    id: "labelled-date-of-birth",
     category: "date-of-birth",
     confidence: 0.72,
     pattern:
@@ -130,6 +145,7 @@ export const DETECTORS: PatternDetector[] = [
     reason: "A date labelled as a date of birth",
   },
   {
+    id: "labelled-reference",
     category: "customer-id",
     confidence: 0.68,
     pattern: /\b[A-Z]{2,5}-?\d{4,10}\b/g,
@@ -142,6 +158,7 @@ export const DETECTORS: PatternDetector[] = [
     reason: "An identifier labelled as a customer or case reference",
   },
   {
+    id: "link-with-token",
     category: "url",
     confidence: 0.55,
     pattern: /\bhttps?:\/\/[^\s<>"')]+/gi,
@@ -153,6 +170,7 @@ export const DETECTORS: PatternDetector[] = [
     reason: "A URL carrying what looks like a token or a private link",
   },
   {
+    id: "street-address",
     category: "address",
     confidence: 0.6,
     pattern:
@@ -166,6 +184,11 @@ export type DetectorOptions = {
   worksheet?: string
   /** Offset added to every match position, for chunked input. */
   offset?: number
+  /**
+   * Detector ids to run. Absent means all of them — a preset narrows the sweep,
+   * and the absence of a preset must never narrow it.
+   */
+  detectors?: readonly string[] | null
 }
 
 /**
@@ -179,8 +202,11 @@ export function detectPatterns(
 ): Detection[] {
   const offset = options.offset ?? 0
   const found: Detection[] = []
+  const enabled = options.detectors ? new Set(options.detectors) : null
 
   for (const detector of DETECTORS) {
+    if (enabled && !enabled.has(detector.id)) continue
+
     // The detectors are module-level and carry the `g` flag; resetting keeps
     // repeated calls independent.
     detector.pattern.lastIndex = 0

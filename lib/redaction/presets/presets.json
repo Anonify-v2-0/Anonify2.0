@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "everything",
+      "label": "Everything we can detect",
+      "summary": "Every detector, and the contextual pass unrestricted.",
+      "looksFor": [
+        "Email addresses, telephone numbers and postal addresses",
+        "Names of people, and organizations named as a customer or patient",
+        "Government identifiers, payment cards, bank and account numbers",
+        "Dates of birth, customer and case references",
+        "Credentials, API keys and links carrying a token",
+        "Faces and signatures in images"
+      ],
+      "detectors": null,
+      "categories": null
+    },
+    {
+      "id": "names-and-contact-details",
+      "label": "Names and contact details",
+      "summary": "The things that identify a person directly, and nothing else.",
+      "looksFor": [
+        "Names of people",
+        "Email addresses and telephone numbers",
+        "Postal and street addresses",
+        "Faces and signatures in images"
+      ],
+      "detectors": ["email-address", "phone-number", "street-address"],
+      "categories": ["person", "address", "phone", "email", "face"]
+    },
+    {
+      "id": "identifiers-and-dates",
+      "label": "Identifiers and dates",
+      "summary": "Reference numbers and dates that pin a record to a person.",
+      "looksFor": [
+        "Government identifiers, such as a Social Security number",
+        "Customer, client, member, policy, case and patient references",
+        "Dates labelled as a date of birth"
+      ],
+      "detectors": [
+        "us-social-security",
+        "labelled-reference",
+        "labelled-date-of-birth"
+      ],
+      "categories": ["government-id", "customer-id", "date-of-birth"]
+    },
+    {
+      "id": "payment-and-account-numbers",
+      "label": "Payment and account numbers",
+      "summary": "Money: cards, bank accounts, and the numbers that reach them.",
+      "looksFor": [
+        "Payment card numbers that pass the Luhn check",
+        "IBANs",
+        "Numbers labelled as an account or sort code",
+        "Financial facts tied to a named party"
+      ],
+      "detectors": ["payment-card", "iban", "labelled-account-number"],
+      "categories": ["financial", "bank-account"]
+    },
+    {
+      "id": "credentials-and-keys",
+      "label": "Credentials and keys",
+      "summary": "What leaks out of engineering documents: secrets and private links.",
+      "looksFor": [
+        "API keys, tokens and provider credential formats",
+        "Links carrying a token, an invite or a reset path",
+        "Text marked confidential or internal"
+      ],
+      "detectors": ["credential", "link-with-token"],
+      "categories": ["api-key", "url", "confidential"]
+    }
+  ]
+}

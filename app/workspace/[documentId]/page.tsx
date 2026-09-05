@@ -3,6 +3,8 @@ import { notFound } from "next/navigation"
 
 import { Workspace } from "@/components/editor/workspace"
 import { Brand } from "@/components/layout/brand"
+import { batchPositionFor } from "@/lib/documents/batches"
+import { presetById, presetNarrows } from "@/lib/redaction/presets"
 import { AccessError, requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import type { DocumentKind, DocumentSummary } from "@/types/document"
@@ -18,6 +20,7 @@ export default async function WorkspacePage(
   try {
     const identity = await peekIdentity()
     const document = await requireDocument(documentId, identity?.ownerKey)
+    const preset = presetById(document.preset)
     summary = {
       id: document.id,
       originalName: document.originalName,
@@ -33,6 +36,9 @@ export default async function WorkspacePage(
       // Extraction is the line: past it there is a normalized model to open and
       // redact by hand, before it there is nothing an editor could show.
       reviewable: Boolean(document.normalizedBlobKey),
+      batch: await batchPositionFor(document.id, document.batchId),
+      // Only when it narrowed something: "looked for everything" is noise.
+      presetLabel: presetNarrows(preset) ? (preset?.label ?? null) : null,
     }
   } catch (error) {
     if (error instanceof AccessError && error.status === 410) {

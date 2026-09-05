@@ -23,6 +23,11 @@ model Document {
   pageCount        Int?
 
   status           String   @default("queued")
+  /// Which named detector set the analysis ran with. Null means everything was
+  /// looked for, which is the default: a missing preset must never narrow the
+  /// sweep. See lib/redaction/presets.ts.
+  preset           String?
+
   /// User-facing failure sentence, chosen from lib/workflows/failure.ts. Never
   /// a raw thrown message: those can carry internal detail, and a parser error
   /// is not guaranteed to be free of document content.
@@ -44,6 +49,11 @@ model Document {
   checksum         String?
   processedChecksum String?
 
+  /// The upload this document arrived in, when it arrived with others. A batch
+  /// carries review decisions across its documents; it never couples their
+  /// processing, so one failing leaves the rest alone.
+  batchId          String?
+
   /// Hashed owner identity; a document belongs to this and nothing else.
   userFingerprint  String
   /// Hashed quota bucket (session + coarse network), charged after extraction
@@ -58,9 +68,47 @@ model Document {
   rules            GlobalRule[]
   events           ProcessingEvent[]
   exports          ExportArtifact[]
+  batch            Batch?            @relation(fields: [batchId], references: [id], onDelete: SetNull)
 
   @@index([userFingerprint])
   @@index([expiresAt])
+  @@index([batchId])
+}
+
+/// Documents uploaded and reviewed as one pass.
+///
+/// A batch owns decisions, not documents: each document keeps its own run, its
+/// own quota accounting and its own failure, and the batch is only what makes a
+/// decision taken in one of them apply to the others.
+model Batch {
+  id              String   @id
+  createdAt       DateTime @default(now())
+  userFingerprint String
+
+  documents       Document[]
+  rules           BatchRule[]
+
+  @@index([userFingerprint])
+}
+
+/// A decision carried across a batch: "this value is a subject wherever it
+/// appears in these files". It is materialized into a per-document GlobalRule
+/// for every document in the batch, including ones that finish processing
+/// after the decision was made.
+model BatchRule {
+  id                String   @id
+  batchId           String
+  createdAt         DateTime @default(now())
+
+  pattern           String
+  normalizedPattern String
+  category          String
+  /// Where the reviewer made the decision, so the interface can say so.
+  originDocumentId  String?
+
+  batch Batch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
 }
 
 model Redaction {
@@ -102,6 +150,8 @@ model GlobalRule {
   normalizedPattern String
   category          String
   enabled           Boolean  @default(true)
+  /// Set when this rule is one document's copy of a batch-wide decision.
+  batchRuleId       String?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
@@ -133,6 +183,11 @@ model ExportArtifact {
   appliedRedactions Int      @default(0)
   metadataSanitized Boolean  @default(false)
   labelsAdded       Boolean  @default(false)
+  /// The export report generated with this artifact: counts, styles and both
+  /// checksums, stored encrypted beside the file it describes. Null for
+  /// artifacts exported before reports existed.
+  reportBlobKey     String?
+  reportChecksum    String?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
