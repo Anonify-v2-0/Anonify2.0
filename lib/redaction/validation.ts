@@ -2,7 +2,12 @@ import { extractDelimited } from "@/lib/documents/delimited/extract"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { openPackage, readPart } from "@/lib/documents/ooxml/package"
 import { extractPdfText } from "@/lib/documents/pdf/redact"
-import { emlHaystack } from "@/lib/documents/eml/validate"
+import {
+  emlHaystack,
+  verifyAttachmentSubstitutions,
+  type AttachmentCheck,
+  type AttachmentExpectation,
+} from "@/lib/documents/eml/validate"
 import { extractRtf } from "@/lib/documents/rtf/extract"
 import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
@@ -25,6 +30,16 @@ export type VerificationReport = {
   /** Values that survived, for the operator's log. Never returned to a client. */
   leaked: string[]
   checkedValues: number
+  /**
+   * Per-attachment equality checks, for a message carrying redacted
+   * enclosures. Empty for every other export.
+   *
+   * A separate result because it answers a separate question. Everything else
+   * here asks whether something that should be gone is absent, which a
+   * substitution can satisfy while carrying the wrong file; this asks whether
+   * something that should be present is exactly right.
+   */
+  attachments: AttachmentCheck[]
 }
 
 /** Values short enough to appear coincidentally are not worth asserting on. */
@@ -96,14 +111,27 @@ async function haystackFor(
 export async function verifyExport(
   kind: DocumentKind,
   bytes: Uint8Array,
-  redactions: Redaction[]
+  redactions: Redaction[],
+  /** Attachment parts whose bytes were replaced, and what they must now be. */
+  expectations: AttachmentExpectation[] = []
 ): Promise<VerificationReport> {
   const values = acceptedValues(redactions).filter(
     (value) => value.length >= MIN_VERIFIABLE_LENGTH
   )
 
+  // Run first and unconditionally: a message can have no accepted redactions
+  // of its own and still carry three substituted attachments, and the early
+  // return below would have shipped those unchecked.
+  const attachments = await verifyAttachmentSubstitutions(bytes, expectations)
+  const substituted = attachments.every((check) => check.passed)
+
   if (values.length === 0 || kind === "image") {
-    return { passed: true, leaked: [], checkedValues: values.length }
+    return {
+      passed: substituted,
+      leaked: [],
+      checkedValues: values.length,
+      attachments,
+    }
   }
 
   const haystack = (await haystackFor(kind, bytes)).toLowerCase()
@@ -111,7 +139,12 @@ export async function verifyExport(
     haystack.includes(value.toLowerCase())
   )
 
-  return { passed: leaked.length === 0, leaked, checkedValues: values.length }
+  return {
+    passed: leaked.length === 0 && substituted,
+    leaked,
+    checkedValues: values.length,
+    attachments,
+  }
 }
 
 /** Confirms an exported DOCX still opens and still has its structure. */

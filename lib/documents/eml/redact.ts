@@ -45,11 +45,19 @@ import {
  *              the markup are not the same string.
  *   filenames  live in header parameters, so they are a header rewrite with a
  *              different shape.
+ *   attachments a part's *body* is replaced with bytes that did not come from
+ *              the original — the redacted export of the child document that
+ *              attachment became. This is the one rewrite that is not a
+ *              transformation of what was already there, which is why it is
+ *              the one verified against a checksum rather than a search.
  *
- * Attachments are never rewritten. An EML export means the message's text and
- * metadata are redacted; the bytes of a PDF inside it are carried through
- * unchanged, and claiming otherwise would be claiming support this does not
- * have.
+ * An attachment is only ever rewritten when the plan says so. The plan is
+ * built from the children the message was expanded into, and it has an answer
+ * for every attachment: the redacted bytes, a removal, or nothing at all for a
+ * format this cannot read. What it never has is silence — once a redacted
+ * child exists, an archive holding a clean PDF beside an `.eml` that still
+ * carries the original is worse than the honest carry-through it replaced,
+ * because it is trusted.
  */
 
 export type EmlRedactionPlan = {
@@ -59,10 +67,27 @@ export type EmlRedactionPlan = {
   headers: Record<string, CharRange[]>
   /** Ranges within an attachment filename, keyed by MIME path. */
   filenames: Record<string, CharRange[]>
+  /**
+   * What to do with each attachment part's body, keyed by MIME path. A part
+   * with no entry is carried through exactly as it arrived.
+   */
+  attachments: Record<string, AttachmentAction>
   /** Accepted values, removed wherever else they appear in the message. */
   values: string[]
   label: string | null
 }
+
+/**
+ * What happens to one attachment's bytes.
+ *
+ * `remove` rather than "leave it": every case where a child is not redacted —
+ * not ready, failed, skipped for quota — has to end somewhere other than
+ * quietly shipping the original. The part stays, so the message still says an
+ * enclosure was here and what became of it, and the export report names it.
+ */
+export type AttachmentAction =
+  | { action: "replace"; bytes: Uint8Array }
+  | { action: "remove"; note: string }
 
 export function headerKey(path: string, name: string, index: number): string {
   return `${path}|${name}|${index}`
@@ -322,6 +347,121 @@ function rewriteFilename(
   return edits
 }
 
+// --- attachment bodies ------------------------------------------------------
+
+/** Rebuilds a Content-Type value from a type and its parameters. */
+function typeValue(
+  contentType: string,
+  parameters: Record<string, string>
+): string {
+  return [
+    contentType,
+    ...Object.entries(parameters).map(([name, value]) =>
+      name === "filename" || name === "name"
+        ? encodeFilenameParameter(name as "filename" | "name", value)
+        : `${name}="${value}"`
+    ),
+  ].join("; ")
+}
+
+/** Sets a header, rewriting it in place or adding it above the part. */
+function setHeader(
+  node: MimeNode,
+  name: string,
+  value: string,
+  source: string,
+  eol: string
+): Edit {
+  const header = node.headers.find(
+    (candidate) => candidate.name === name.toLowerCase()
+  )
+  if (header) return rewriteHeader(header, value, source, eol)
+  return { start: node.start, end: node.start, text: foldHeader(name, value, eol) }
+}
+
+/**
+ * Replaces an attachment part's body.
+ *
+ * The bytes going in did not come from this message — they are the redacted
+ * export of the document this attachment became — so everything the old body's
+ * headers asserted about it has to be rewritten with them: the transfer
+ * encoding, and the length if the part declared one. A `Content-Length` left
+ * saying what the original measured is a part that some readers will truncate
+ * and others will refuse, and both of those look like corruption rather than
+ * like redaction.
+ *
+ * Always base64, whatever the part used before. The input is arbitrary binary;
+ * quoted-printable would encode most of it anyway, and 7-bit or 8-bit would
+ * let a redacted PDF grow a line that reads as the boundary containing it.
+ */
+function rewriteAttachmentBody(
+  node: MimeNode,
+  action: AttachmentAction,
+  filename: string | null,
+  source: string,
+  eol: string
+): Edit[] {
+  const edits: Edit[] = []
+
+  const removing = action.action === "remove"
+  const bytes = removing
+    ? Buffer.from(action.note, "utf8")
+    : Buffer.from(action.action === "replace" ? action.bytes : new Uint8Array())
+
+  const body = removing
+    ? encodeQuotedPrintable(bytes)
+    : encodeBase64Body(bytes)
+
+  edits.push({ start: node.bodyStart, end: node.end, text: `${body}${eol}` })
+
+  // A removed attachment stops claiming to be a PDF. Saying `application/pdf`
+  // over a sentence of English is the same category of lie the whole tool
+  // exists to refuse, in miniature.
+  const renaming = filename !== null && node.parameters.name !== undefined
+
+  if (removing || renaming) {
+    const parameters = { ...node.parameters }
+    if (renaming) parameters.name = filename as string
+    if (removing) {
+      delete parameters.boundary
+      parameters.charset = "utf-8"
+    }
+
+    edits.push(
+      setHeader(
+        node,
+        "Content-Type",
+        typeValue(removing ? "text/plain" : node.contentType, parameters),
+        source,
+        eol
+      )
+    )
+  }
+
+  edits.push(
+    setHeader(
+      node,
+      "Content-Transfer-Encoding",
+      removing ? "quoted-printable" : "base64",
+      source,
+      eol
+    )
+  )
+
+  const length = node.headers.find(
+    (header) => header.name === "content-length"
+  )
+  if (length) {
+    edits.push(rewriteHeader(length, String(body.length), source, eol))
+  }
+
+  if (filename !== null) {
+    edits.push(...rewriteDisposition(node, filename, source, eol))
+  }
+
+  return edits
+}
+
 // --- the pass ---------------------------------------------------------------
 
 export function redactEml(
@@ -368,8 +508,22 @@ export function redactEml(
       }
     }
 
-    // 3. Bodies. Attachments are carried through untouched by construction:
-    //    `node.text` is null for anything that is not a text part.
+    // 3. Attachment bodies, which are the only rewrite whose content did not
+    //    come from this message. Handled as one block so the Content-Type,
+    //    Content-Transfer-Encoding and Content-Disposition edits this needs
+    //    cannot collide with the filename rewrite below, which touches the
+    //    same two headers.
+    const substitution = plan.attachments[node.path]
+    if (node.attachment && substitution) {
+      edits.push(
+        ...rewriteAttachmentBody(node, substitution, filename, source, eol)
+      )
+      continue
+    }
+
+    // 4. Bodies. An attachment with no substitution is carried through
+    //    untouched by construction: `node.text` is null for anything that is
+    //    not a text part.
     const redacted = redactPartText(
       node,
       plan.bodies[node.path] ?? [],

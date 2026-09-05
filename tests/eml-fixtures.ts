@@ -112,7 +112,11 @@ export function mixedEml(): string {
     'Content-Disposition: attachment; filename="2026-review-John Smith.pdf"',
     "Content-Transfer-Encoding: base64",
     "",
-    // Not a real PDF; the point is that these bytes come out unchanged.
+    // Enough of a PDF header to be sniffed as one, which is the point: this
+    // is what an attachment that becomes a document of its own looks like.
+    // The suites that call redactEml without a substitution plan still get it
+    // back byte-identical, because carrying through is what happens when
+    // nothing says otherwise.
     "JVBERi0xLjQKJSBhIHNtYWxsIGZpeHR1cmUgcGF5bG9hZAo=",
     "",
     "--outer--",
@@ -309,4 +313,108 @@ export function manyPartsEml(parts: number): string {
   lines.push("--many--")
   lines.push("")
   return message(lines)
+}
+
+// --- attachments ------------------------------------------------------------
+
+/**
+ * Messages built around what is *attached* rather than what is written.
+ *
+ * These exist for the expansion path, which takes bytes from a stranger and
+ * turns them into documents. Every fixture below is a shape somebody can
+ * choose: a filename that lies about its contents, a filename that is a path,
+ * no filename at all, the same file twice, a message inside a message inside a
+ * message. The bytes are real files where the point is that they are read as
+ * files, and deliberately not where the point is that they are not.
+ */
+
+export type AttachmentSpec = {
+  contentType: string
+  /** Written as a `filename` parameter; omitted entirely when null. */
+  filename: string | null
+  bytes: Uint8Array
+  /** `inline` plus a Content-ID, for a part the HTML body points at. */
+  contentId?: string
+  /** Overrides the `filename` parameter with a raw parameter string. */
+  rawParameters?: string
+}
+
+function base64Lines(bytes: Uint8Array): string[] {
+  const encoded = Buffer.from(bytes).toString("base64")
+  const lines: string[] = []
+  for (let index = 0; index < encoded.length; index += 76) {
+    lines.push(encoded.slice(index, index + 76))
+  }
+  return lines.length > 0 ? lines : [""]
+}
+
+function attachmentPart(spec: AttachmentSpec): string[] {
+  const disposition = spec.contentId ? "inline" : "attachment"
+  const parameters =
+    spec.rawParameters ??
+    (spec.filename === null ? "" : `; filename="${spec.filename}"`)
+
+  return [
+    `Content-Type: ${spec.contentType}`,
+    `Content-Disposition: ${disposition}${parameters}`,
+    ...(spec.contentId ? [`Content-ID: <${spec.contentId}>`] : []),
+    "Content-Transfer-Encoding: base64",
+    "",
+    ...base64Lines(spec.bytes),
+    "",
+  ]
+}
+
+/** A message with a text body and whatever attachments you hand it. */
+export function attachedEml(
+  attachments: AttachmentSpec[],
+  options: { html?: string } = {}
+): string {
+  const lines = [
+    `From: ${EML.person} <${EML.email}>`,
+    `To: <${EML.colleagueEmail}>`,
+    "Subject: Your documents",
+    "MIME-Version: 1.0",
+    'Content-Type: multipart/mixed; boundary="outer"',
+    "",
+    "--outer",
+    `Content-Type: text/${options.html ? "html" : "plain"}; charset="utf-8"`,
+    "",
+    options.html ?? `Attached is the review for ${EML.person}.`,
+    "",
+  ]
+
+  for (const attachment of attachments) {
+    lines.push("--outer", ...attachmentPart(attachment))
+  }
+
+  lines.push("--outer--", "")
+  return lines.join("\r\n")
+}
+
+/** A message whose HTML body renders an image carried as an inline part. */
+export function inlineImageEml(png: Uint8Array): string {
+  return attachedEml(
+    [
+      {
+        contentType: "image/png",
+        filename: "signature.png",
+        bytes: png,
+        contentId: "sig@example.com",
+      },
+    ],
+    {
+      html: `<p>Regards, ${EML.person}</p><p><img src="cid:sig@example.com"></p>`,
+    }
+  )
+}
+
+/** Bytes that are not a format Anonify reads, so they are carried through. */
+export function unreadableBytes(): Uint8Array {
+  // A zip whose entries name none of the OOXML part trees: an archive, and
+  // nothing more specific.
+  return new Uint8Array([
+    0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x21,
+    0x21, 0x21, 0x00, 0x00,
+  ])
 }

@@ -54,6 +54,16 @@ model Document {
   /// processing, so one failing leaves the rest alone.
   batchId          String?
 
+  /// The message this document was pulled out of, when it arrived as an
+  /// attachment rather than off a desktop. Provenance only: a child is a
+  /// first-class document with its own run, its own quota accounting and its
+  /// own failure, and nothing downstream branches on this being set.
+  parentDocumentId String?
+  /// The MIME part the bytes came from, as a dotted path (`0.3`). The part
+  /// path rather than the filename, because filenames collide, filenames get
+  /// redacted, and only the path is actually unique and actually stable.
+  sourcePartPath   String?
+
   /// Hashed owner identity; a document belongs to this and nothing else.
   userFingerprint  String
   /// Hashed quota bucket (session + coarse network), charged after extraction
@@ -69,10 +79,18 @@ model Document {
   events           ProcessingEvent[]
   exports          ExportArtifact[]
   batch            Batch?            @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  parent           Document?         @relation("Attachments", fields: [parentDocumentId], references: [id], onDelete: Cascade)
+  attachments      Document[]        @relation("Attachments")
 
   @@index([userFingerprint])
   @@index([expiresAt])
   @@index([batchId])
+  @@index([parentDocumentId])
+  /// One child per part, enforced by the database rather than by the step that
+  /// writes it. Expansion is retried like every other step and re-parses the
+  /// message from scratch; this is what makes a second pass unable to produce
+  /// a second copy of the same attachment.
+  @@unique([parentDocumentId, sourcePartPath])
 }
 
 /// Documents uploaded and reviewed as one pass.

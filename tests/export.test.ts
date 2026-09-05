@@ -396,6 +396,7 @@ describe("export verification", () => {
       passed: false,
       leaked: ["value"],
       checkedValues: 1,
+      attachments: [],
     })
 
     expect(error).toBeInstanceOf(Error)

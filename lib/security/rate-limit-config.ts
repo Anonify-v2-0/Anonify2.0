@@ -114,7 +114,8 @@ export const limitsSchema = z.partialRecord(
 
 export type PartialLimits = Partial<Record<RateLimitName, RateLimit>>
 
-function envName(name: RateLimitName): string {
+/** `ANONIFY_RATE_LIMIT_UPLOAD`, `ANONIFY_RATE_LIMIT_READ`, … */
+export function envName(name: RateLimitName): string {
   return `ANONIFY_RATE_LIMIT_${name.toUpperCase()}`
 }
 

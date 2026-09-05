@@ -37,6 +37,7 @@ export const FAILURE_CODES = [
   "too-large",
   "corrupt-source",
   "missing-upload",
+  "too-complex",
   "quota",
   "internal-state",
   "configuration",
@@ -85,6 +86,15 @@ const FAILURES: Record<FailureCode, Omit<DocumentFailure, "code">> = {
   },
   "missing-upload": {
     message: "The uploaded file is no longer available. Upload it again.",
+    retryable: false,
+  },
+  // Fail closed, with a reason. The alternative is a partial result presented
+  // as a complete one — a reviewer shown three of a message's seven
+  // attachments and told nothing is in exactly the position the limits exist
+  // to prevent. An administrator can raise the limits; see .env.example.
+  "too-complex": {
+    message:
+      "This message is more than this instance will read or expand: too many parts, too deeply nested, or too much content behind them. It was not processed at all, because a partly processed message would look complete and would not be.",
     retryable: false,
   },
   // Not retryable, even though the allowance does eventually reset: a retry
@@ -141,6 +151,9 @@ const MATCHERS: { code: FailureCode; pattern: RegExp }[] = [
   { code: "empty-file", pattern: /file is empty/i },
   { code: "too-large", pattern: /file is too large/i },
   { code: "corrupt-source", pattern: /checksum mismatch/i },
+  // Both the parser's limits and expansion's, which are worded alike on
+  // purpose: to the person holding the message they are one refusal.
+  { code: "too-complex", pattern: /exceeds the \w+ (expansion )?limit of/i },
   { code: "missing-upload", pattern: /no upload to ingest|document no longer exists/i },
   { code: "quota", pattern: /daily demo limit reached/i },
   { code: "internal-state", pattern: /has not been (ingested|normalized)/i },

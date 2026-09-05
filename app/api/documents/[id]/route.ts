@@ -106,6 +106,19 @@ export async function PATCH(
       },
     })
 
+    // Attachments expanded out of a message share its clock, and have to keep
+    // sharing it: a child that expired first would leave a message whose export
+    // could no longer be rebuilt, and one that outlived its parent would be an
+    // orphan nobody can place. Their own status is left alone — extending a
+    // message says nothing about whether an enclosure finished processing.
+    await prisma.document.updateMany({
+      where: { parentDocumentId: document.id },
+      data: {
+        expiresAt: decision.expiresAt,
+        ttlSeconds: decision.ttlSeconds,
+      },
+    })
+
     console.log(
       JSON.stringify({
         level: "info",

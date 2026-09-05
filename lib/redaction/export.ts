@@ -18,6 +18,8 @@ import {
   type ExportOptions,
 } from "@/lib/redaction/apply"
 import { outputTypeFor } from "@/lib/documents/formats"
+import type { AttachmentAction } from "@/lib/documents/eml/redact"
+import type { AttachmentExpectation } from "@/lib/documents/eml/validate"
 import { verifyExport, type VerificationReport } from "@/lib/redaction/validation"
 import { sha256 } from "@/lib/storage/integrity"
 import type { DocumentKind, NormalizedDocument } from "@/types/document"
@@ -30,6 +32,18 @@ import type { Redaction } from "@/types/redaction"
  * it and confirm the accepted values are gone, then checksum it. The same
  * inputs produce the same output: nothing here consults a model.
  */
+
+/**
+ * Redacted attachment bytes to substitute into a message, keyed by MIME path.
+ *
+ * Only ever populated for an `eml`, and only from the children the message was
+ * expanded into — see lib/redaction/attachments.ts, which is where the join
+ * between the message's parts and the documents they became lives.
+ */
+export type AttachmentSubstitutions = Record<
+  string,
+  AttachmentAction & { checksum?: string }
+>
 
 export type ExportResult = {
   bytes: Uint8Array
@@ -54,8 +68,10 @@ export async function exportRedacted(input: {
   redactions: Redaction[]
   options: ExportOptions
   mimeType?: string
+  attachments?: AttachmentSubstitutions
 }): Promise<ExportResult> {
   const { kind, source, model, redactions, options } = input
+  const attachments = input.attachments ?? {}
   const accepted = redactions.filter(
     (redaction) => redaction.status === "accepted"
   )
@@ -93,7 +109,10 @@ export async function exportRedacted(input: {
       bytes = redactPptx(source, buildDocxPlan(model, accepted, options))
       break
     case "eml":
-      bytes = redactEml(source, buildEmlPlan(model, accepted, options))
+      bytes = redactEml(
+        source,
+        buildEmlPlan(model, accepted, options, attachments)
+      )
       break
     case "rtf":
       // The same plan the plain-text exporter takes: RTF spans are addressed
@@ -103,8 +122,16 @@ export async function exportRedacted(input: {
       break
   }
 
-  // Verify against the artifact itself, not against the intent.
-  const verification = await verifyExport(kind, bytes, accepted)
+  // Verify against the artifact itself, not against the intent. For a message
+  // that carries redacted enclosures this also re-decodes each substituted
+  // part and requires it to be exactly the child artifact, byte for byte —
+  // the one claim here that a search for absent values cannot make.
+  const verification = await verifyExport(
+    kind,
+    bytes,
+    accepted,
+    expectationsFor(attachments)
+  )
   if (!verification.passed) {
     throw new ExportVerificationError(verification)
   }
@@ -123,4 +150,18 @@ export async function exportRedacted(input: {
 
 function imageExtension(mimeType: string | undefined): string {
   return mimeType === "image/jpeg" ? "jpg" : "png"
+}
+
+/**
+ * The substitutions that carry a checksum, as things to verify.
+ *
+ * A removal has nothing to check against — the bytes are a sentence this code
+ * wrote — and the export report is where it is reported instead.
+ */
+function expectationsFor(
+  attachments: AttachmentSubstitutions
+): AttachmentExpectation[] {
+  return Object.entries(attachments)
+    .filter(([, value]) => value.action === "replace" && value.checksum)
+    .map(([partPath, value]) => ({ partPath, checksum: value.checksum! }))
 }

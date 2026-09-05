@@ -2,12 +2,17 @@ import { prisma } from "@/lib/database/prisma"
 import { randomId } from "@/lib/documents/ids"
 import { loadNormalized } from "@/lib/documents/normalized-store"
 import type { ExportOptions } from "@/lib/redaction/apply"
-import { exportRedacted } from "@/lib/redaction/export"
+import {
+  resolveAttachments,
+  type AttachmentOutcome,
+} from "@/lib/redaction/attachments"
+import { exportRedacted, ExportVerificationError } from "@/lib/redaction/export"
 import { fromDatabaseRow } from "@/lib/redaction/model"
 import { presetById } from "@/lib/redaction/presets"
 import {
   assertReportOmitsValues,
   buildExportReport,
+  ReportLeakError,
   serializeExportReport,
   type ExportReport,
 } from "@/lib/redaction/report"
@@ -24,6 +29,14 @@ import type { DocumentKind } from "@/types/document"
  * write the report, seal both and record them. It lives here rather than in the
  * route because a batch export is this, several times — and a second copy of
  * these steps is a second place for the verification gate to be forgotten.
+ *
+ * A message is the one document that is not on its own. Exporting one exports
+ * every attachment it was expanded into first, through this same function and
+ * therefore the same gate, and substitutes the results back into the message
+ * — so an enclosure is redacted by exactly the code that redacts it when it is
+ * downloaded alone. Fresh each time rather than reusing the child's last
+ * artifact, because a decision taken since then has to reach the copy inside
+ * the message; the recursion is bounded by the expansion depth limit.
  */
 
 export type DeliveredExport = {
@@ -36,6 +49,8 @@ export type DeliveredExport = {
   appliedRedactions: number
   verifiedValues: number
   report: ExportReport
+  /** What became of each attachment, for a message. Empty for everything else. */
+  attachments: AttachmentOutcome[]
 }
 
 export type ExportOutcome =
@@ -82,6 +97,13 @@ export async function exportAndStore(
   const sealed = await getObject(document.sourceBlobKey)
   const source = decryptDocument(sealed, document.encryptionKey)
 
+  const { outcomes, substitutions } = await resolveAttachments({
+    documentId: document.id,
+    kind: document.kind as DocumentKind,
+    source,
+    exportChild: (childId) => exportChild(childId, options),
+  })
+
   const result = await exportRedacted({
     kind: document.kind as DocumentKind,
     source,
@@ -89,6 +111,7 @@ export async function exportAndStore(
     redactions,
     options,
     mimeType: document.mimeType,
+    attachments: substitutions,
   })
 
   const artifactId = randomId("exp", 16)
@@ -118,6 +141,7 @@ export async function exportAndStore(
       checkedValues: result.verification.checkedValues,
     },
     preset: presetById(document.preset),
+    attachments: outcomes,
   })
 
   // The report is verified the way the export is, and for the same reason: it
@@ -170,6 +194,47 @@ export async function exportAndStore(
       appliedRedactions: result.appliedRedactions,
       verifiedValues: result.verification.checkedValues,
       report,
+      attachments: outcomes,
     },
+  }
+}
+
+/**
+ * One attachment's own export, or null when there is nothing to substitute.
+ *
+ * A verification failure is caught here rather than allowed to fail the
+ * message, and it takes the same road as a verification failure inside a batch
+ * does: the document is withheld and named. The difference from a batch is
+ * where the naming lands — the attachment is *removed* from the message and
+ * the export report says why, so the reviewer is never handed a message that
+ * looks complete because one enclosure quietly stayed as it was.
+ */
+async function exportChild(
+  childDocumentId: string,
+  options: ExportOptions
+): Promise<{ bytes: Uint8Array; checksum: string } | null> {
+  try {
+    const outcome = await exportAndStore(childDocumentId, options)
+    if (!outcome.ok) return null
+    return {
+      bytes: outcome.delivered.bytes,
+      checksum: outcome.delivered.checksum,
+    }
+  } catch (error) {
+    if (
+      error instanceof ExportVerificationError ||
+      error instanceof ReportLeakError
+    ) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          context: "exports.attachment",
+          documentId: childDocumentId,
+          errorCategory: "verification-failed",
+        })
+      )
+      return null
+    }
+    throw error
   }
 }

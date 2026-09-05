@@ -197,11 +197,19 @@ function makeEml(): Uint8Array {
     `<p>Write to <a href="mailto:${SENSITIVE.email}">jo<span>hn</span>@example.com</a></p>`,
     "",
     "--smoke",
-    "Content-Type: application/pdf",
+    // Deliberately a format Anonify cannot read, so this case stays about what
+    // it has always been about: the filename is redacted, the bytes are
+    // carried through, and the multipart structure survives. An attachment in
+    // a *supported* format becomes a document of its own and is substituted
+    // back redacted — that path has its own suites, in
+    // tests/eml-attachments.test.ts and tests/integration.
+    "Content-Type: application/octet-stream",
     'Content-Disposition: attachment; filename="review-john@example.com.pdf"',
     "Content-Transfer-Encoding: base64",
     "",
-    "JVBERi0xLjQK",
+    Buffer.from([0x7f, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]).toString(
+      "base64"
+    ),
     "",
     "--smoke--",
     "",

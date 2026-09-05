@@ -184,3 +184,116 @@ describe("export report", () => {
     expect(built).not.toHaveProperty("document.name")
   })
 })
+
+describe("what the report says about a message's attachments", () => {
+  const attachments = [
+    {
+      partPath: "0.2",
+      disposition: "redacted" as const,
+      kind: "pdf" as DocumentKind,
+      inline: false,
+      childDocumentId: "doc_child",
+      artifactChecksum: "c".repeat(64),
+      reason: null,
+    },
+    {
+      partPath: "0.3",
+      disposition: "carried-through" as const,
+      kind: null,
+      inline: false,
+      childDocumentId: null,
+      artifactChecksum: null,
+      reason: "it is not in a format Anonify can read",
+    },
+    {
+      partPath: "0.4",
+      disposition: "removed" as const,
+      kind: "docx" as DocumentKind,
+      inline: true,
+      childDocumentId: "doc_other",
+      artifactChecksum: null,
+      reason: "it had not finished processing",
+    },
+  ]
+
+  // Cloned, so a test that mutates an entry to prove the leak check works
+  // cannot leave that entry mutated for the next one.
+  function messageReport(extra: typeof attachments = attachments): ExportReport {
+    const entries = extra.map((entry) => ({ ...entry }))
+    return buildExportReport({
+      document: {
+        id: "doc_1",
+        kind: "eml",
+        sizeBytes: 8192,
+        pageCount: 1,
+        sourceChecksum: "a".repeat(64),
+      },
+      artifact: {
+        checksum: "b".repeat(64),
+        sizeBytes: 7000,
+        mimeType: "message/rfc822",
+        extension: "eml",
+      },
+      options: { addLabels: false, sanitizeMetadata: true },
+      redactions: [redaction({ text: SENSITIVE.person })],
+      verification: { passed: true, checkedValues: 1 },
+      attachments: entries,
+      generatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    })
+  }
+
+  it("names every attachment by part path and disposition", () => {
+    const built = messageReport()
+
+    expect(built.attachments).toHaveLength(3)
+    expect(built.attachments?.map((entry) => entry.partPath)).toEqual([
+      "0.2",
+      "0.3",
+      "0.4",
+    ])
+    // Never a filename: a file is regularly named after the person it is about.
+    expect(JSON.stringify(built.attachments)).not.toContain(".pdf")
+  })
+
+  it("says out loud that a carried-through attachment was not redacted", () => {
+    const notes = messageReport().notes.join("\n")
+
+    expect(notes).toMatch(/carried through unchanged/)
+    expect(notes).toMatch(/Nothing inside it was redacted/)
+    expect(notes).toMatch(/removed rather than carried through/)
+    expect(notes).toMatch(/verified separately/)
+  })
+
+  it("omits the section entirely for a document with no attachments", () => {
+    expect(report([redaction()]).attachments).toBeUndefined()
+    expect(messageReport([]).attachments).toBeUndefined()
+  })
+
+  it("does not trip the leak check on part paths, ids or checksums", () => {
+    expect(() =>
+      assertReportOmitsValues(messageReport(), [
+        redaction({ text: SENSITIVE.person }),
+      ])
+    ).not.toThrow()
+  })
+
+  it("fails the export if a later change puts a value in an attachment entry", () => {
+    const built = messageReport()
+    // A field added later that carries a filename, which is where an
+    // attachment's most identifying string actually lives.
+    ;(built.attachments![0] as unknown as Record<string, string>).filename =
+      `${SENSITIVE.person}.pdf`
+
+    expect(() =>
+      assertReportOmitsValues(built, [redaction({ text: SENSITIVE.person })])
+    ).toThrow(ReportLeakError)
+  })
+
+  it("still refuses a value that reaches the reason it wrote", () => {
+    const built = messageReport()
+    expect(built.attachments?.[2].reason).not.toContain(SENSITIVE.person)
+
+    const leaked = serializeExportReport(built)
+    expect(Buffer.from(leaked).toString("utf8")).not.toContain(SENSITIVE.person)
+  })
+})

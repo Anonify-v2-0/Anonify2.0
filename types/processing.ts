@@ -26,6 +26,12 @@ export type ProcessingEventType =
   | "document.queued"
   | "document.extracting"
   | "document.normalizing"
+  /**
+   * A message was expanded into a batch: one child document per supported
+   * attachment. Carries counts only — how many became documents, how many were
+   * carried through as they arrived — never a filename.
+   */
+  | "document.attachments.expanded"
   | "document.ai.started"
   | "document.ai.progress"
   | "document.redaction.created"
