@@ -125,6 +125,211 @@ async function makeXlsx(): Promise<Uint8Array> {
   return new Uint8Array(await workbook.xlsx.writeBuffer())
 }
 
+
+/** A CSV whose values sit in quoted fields, one holding a delimiter. */
+function makeCsv(): Uint8Array {
+  const text = [
+    "name,email,note",
+    `${SENSITIVE.person},${SENSITIVE.email},"reached on ${SENSITIVE.phone}, twice"`,
+    "Jane Doe,jane@example.com,fine",
+    "",
+  ].join("\n")
+  return new TextEncoder().encode(text)
+}
+
+function makeTsv(): Uint8Array {
+  const text = [
+    "name\temail\tnote",
+    `${SENSITIVE.person}\t${SENSITIVE.email}\treached on ${SENSITIVE.phone}`,
+    "Jane Doe\tjane@example.com\tfine",
+    "",
+  ].join("\n")
+  return new TextEncoder().encode(text)
+}
+
+function makeTxt(): Uint8Array {
+  const text = [
+    "Client notes",
+    "",
+    `Name: ${SENSITIVE.person}`,
+    `Email: ${SENSITIVE.email}`,
+    `Phone: ${SENSITIVE.phone}`,
+    "Naive cafe - a line with plain ASCII around it.",
+    "",
+  ].join("\n")
+  return new TextEncoder().encode(text)
+}
+
+/**
+ * An RTF whose email is split across a formatting group, so the string does
+ * not appear in the file at all and only a parse-aware pipeline finds it.
+ */
+function makeRtf(): Uint8Array {
+  const source =
+    "{\\rtf1\\ansi{\\fonttbl{\\f0 Times New Roman;}}\\pard " +
+    `Client: ${SENSITIVE.person}\\par ` +
+    "Email: jo{\\b hn}@example.com\\par " +
+    `Phone: ${SENSITIVE.phone}\\par}`
+  return new Uint8Array(Buffer.from(source, "latin1"))
+}
+
+/**
+ * A message with the address in five places: two headers, the plain-text body,
+ * the HTML alternative of it, and an attachment's filename.
+ */
+function makeEml(): Uint8Array {
+  const source = [
+    `From: ${SENSITIVE.person} <${SENSITIVE.email}>`,
+    `Reply-To: ${SENSITIVE.email}`,
+    "To: reviewer@example.com",
+    "Subject: Quarterly review",
+    "MIME-Version: 1.0",
+    'Content-Type: multipart/mixed; boundary="smoke"',
+    "",
+    "--smoke",
+    'Content-Type: text/plain; charset="utf-8"',
+    "",
+    `Call ${SENSITIVE.person} on ${SENSITIVE.phone} or write to ${SENSITIVE.email}.`,
+    "",
+    "--smoke",
+    'Content-Type: text/html; charset="utf-8"',
+    "",
+    `<p>Write to <a href="mailto:${SENSITIVE.email}">jo<span>hn</span>@example.com</a></p>`,
+    "",
+    "--smoke",
+    "Content-Type: application/pdf",
+    'Content-Disposition: attachment; filename="review-john@example.com.pdf"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    "JVBERi0xLjQK",
+    "",
+    "--smoke--",
+    "",
+  ].join("\r\n")
+  return new Uint8Array(Buffer.from(source, "latin1"))
+}
+
+
+/**
+ * A deck, assembled part by part with fflate.
+ *
+ * Built here rather than with a library because the shapes that matter are the
+ * ones a well-behaved writer never produces: an address split across three
+ * runs, and a client name that lives only on the slide master.
+ */
+async function makePptx(): Promise<Uint8Array> {
+  const { zipSync } = await import("fflate")
+  const encode = (value: string) => new Uint8Array(Buffer.from(value, "utf8"))
+  const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+  const NS =
+    'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ' +
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ' +
+    'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
+  const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+  const paragraph = (runs: string[]) =>
+    `<a:p>${runs
+      .map((text) => `<a:r><a:rPr lang="en-US"/><a:t>${text}</a:t></a:r>`)
+      .join("")}</a:p>`
+
+  const shape = (paragraphs: string[]) =>
+    '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>' +
+    `<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>${paragraphs.join("")}</p:txBody></p:sp>`
+
+  const tree = (root: string, paragraphs: string[], extra = "") =>
+    `${XML}<p:${root} ${NS}${extra}><p:cSld><p:spTree>` +
+    '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>' +
+    shape(paragraphs) +
+    `</p:spTree></p:cSld><p:clrMapOvr/></p:${root}>`
+
+  const rels = (entries: [string, string, string][]) =>
+    `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    entries
+      .map(([id, type, target]) =>
+        `<Relationship Id="${id}" Type="${REL}/${type}" Target="${target}"/>`
+      )
+      .join("") +
+    "</Relationships>"
+
+  const ML = "application/vnd.openxmlformats-officedocument.presentationml"
+
+  return zipSync(
+    {
+      "[Content_Types].xml": encode(
+        `${XML}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+          '<Default Extension="xml" ContentType="application/xml"/>' +
+          `<Override PartName="/ppt/presentation.xml" ContentType="${ML}.presentation.main+xml"/>` +
+          `<Override PartName="/ppt/slides/slide1.xml" ContentType="${ML}.slide+xml"/>` +
+          `<Override PartName="/ppt/notesSlides/notesSlide1.xml" ContentType="${ML}.notesSlide+xml"/>` +
+          `<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="${ML}.slideLayout+xml"/>` +
+          `<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="${ML}.slideMaster+xml"/>` +
+          "</Types>"
+      ),
+      "_rels/.rels": encode(
+        rels([["rId1", "officeDocument", "ppt/presentation.xml"]])
+      ),
+      "ppt/presentation.xml": encode(
+        `${XML}<p:presentation ${NS}>` +
+          '<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>' +
+          '<p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst>' +
+          '<p:sldSz cx="9144000" cy="5143500"/><p:notesSz cx="6858000" cy="9144000"/>' +
+          "</p:presentation>"
+      ),
+      "ppt/_rels/presentation.xml.rels": encode(
+        rels([
+          ["rId1", "slideMaster", "slideMasters/slideMaster1.xml"],
+          ["rId2", "slide", "slides/slide1.xml"],
+        ])
+      ),
+      "ppt/slides/slide1.xml": encode(
+        tree("sld", [
+          paragraph([`Account review for ${SENSITIVE.person}`]),
+          // Split across three runs: the string is in no part of the XML.
+          paragraph(["Contact: ", "jo", "hn@exa", "mple.com"]),
+        ])
+      ),
+      "ppt/slides/_rels/slide1.xml.rels": encode(
+        rels([
+          ["rId1", "slideLayout", "../slideLayouts/slideLayout1.xml"],
+          ["rId2", "notesSlide", "../notesSlides/notesSlide1.xml"],
+        ])
+      ),
+      "ppt/notesSlides/notesSlide1.xml": encode(
+        tree("notes", [paragraph([`His mobile is ${SENSITIVE.phone}.`])])
+      ),
+      "ppt/notesSlides/_rels/notesSlide1.xml.rels": encode(
+        rels([["rId1", "slide", "../slides/slide1.xml"]])
+      ),
+      "ppt/slideLayouts/slideLayout1.xml": encode(
+        tree("sldLayout", [paragraph(["Prepared by the deck team"])], ' type="obj" preserve="1"')
+      ),
+      "ppt/slideLayouts/_rels/slideLayout1.xml.rels": encode(
+        rels([["rId1", "slideMaster", "../slideMasters/slideMaster1.xml"]])
+      ),
+      "ppt/slideMasters/slideMaster1.xml": encode(
+        tree(
+          "sldMaster",
+          [paragraph([`${SENSITIVE.person} - confidential`])],
+          ' preserve="1"'
+        ).replace(
+          "<p:clrMapOvr/>",
+          '<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst>'
+        )
+      ),
+      "ppt/slideMasters/_rels/slideMaster1.xml.rels": encode(
+        rels([["rId1", "slideLayout", "../slideLayouts/slideLayout1.xml"]])
+      ),
+      "docProps/core.xml": encode(
+        `${XML}<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" ` +
+          'xmlns:dc="http://purl.org/dc/elements/1.1/">' +
+          `<dc:creator>${SENSITIVE.author}</dc:creator></cp:coreProperties>`
+      ),
+    },
+    { level: 6 }
+  )
+}
+
 /** Where the image fixture's band sits, and the fine detail inside it. */
 const BAND = { x: 40, y: 60, width: 160, height: 60 }
 const DETAIL = { x: 60, y: 80, width: 12, height: 12 }
@@ -392,36 +597,44 @@ const CASES: SmokeCase[] = [
         throw new Error("the exported image has no readable dimensions")
       }
 
+      /**
+       * The mean colour of one region.
+       *
+       * The crop is materialized before it is measured, because sharp's
+       * `stats()` reports on the pipeline's *input* rather than on the
+       * operations queued after it: `extract().stats()` silently measures the
+       * whole image, and every assertion built on it is really an assertion
+       * about the average of the picture.
+       */
+      const meanOf = async (box: typeof BAND) => {
+        const crop = await sharp(artifact)
+          .extract({
+            left: box.x,
+            top: box.y,
+            width: box.width,
+            height: box.height,
+          })
+          .png()
+          .toBuffer()
+        const stats = await sharp(crop).stats()
+        return {
+          max: Math.max(...stats.channels.map((channel) => channel.max)),
+          min: Math.min(...stats.channels.map((channel) => channel.mean)),
+          mean: Math.max(...stats.channels.map((channel) => channel.mean)),
+        }
+      }
+
       // The band must be filled, and the fine detail inside it must be gone.
       // A rectangle drawn in a viewer would leave both untouched.
-      const band = await sharp(artifact)
-        .extract({
-          left: BAND.x,
-          top: BAND.y,
-          width: BAND.width,
-          height: BAND.height,
-        })
-        .stats()
-
-      const brightest = Math.max(...band.channels.map((channel) => channel.max))
-      if (brightest > 40) {
+      const band = await meanOf(BAND)
+      if (band.max > 40) {
         throw new Error(
-          `the redacted band still has pixels up to ${brightest}; it was not filled`
+          `the redacted band still has pixels up to ${band.max}; it was not filled`
         )
       }
 
-      const detail = await sharp(artifact)
-        .extract({
-          left: DETAIL.x,
-          top: DETAIL.y,
-          width: DETAIL.width,
-          height: DETAIL.height,
-        })
-        .stats()
-      const detailMean = Math.max(
-        ...detail.channels.map((channel) => channel.mean)
-      )
-      if (detailMean > 40) {
+      const detail = await meanOf(DETAIL)
+      if (detail.mean > 40) {
         throw new Error(
           "the white detail square inside the band survived the redaction"
         )
@@ -429,13 +642,8 @@ const CASES: SmokeCase[] = [
 
       // Untouched pixels must still be untouched: a redaction that flattens
       // the whole image is not a redaction, it is a deletion.
-      const corner = await sharp(artifact)
-        .extract({ left: 300, top: 200, width: 40, height: 40 })
-        .stats()
-      const cornerMean = Math.min(
-        ...corner.channels.map((channel) => channel.mean)
-      )
-      if (cornerMean < 200) {
+      const corner = await meanOf({ x: 300, y: 200, width: 40, height: 40 })
+      if (corner.min < 200) {
         throw new Error("the untouched area of the image was altered")
       }
 
@@ -449,7 +657,234 @@ const CASES: SmokeCase[] = [
       )
     },
   },
+  {
+    name: "csv",
+    filename: "smoke.csv",
+    contentType: "text/csv",
+    bytes: async () => makeCsv(),
+    expectedRedactions: 2,
+    sensitive: [SENSITIVE.email, SENSITIVE.phone],
+    async verifyOutput(artifact, context) {
+      const text = artifact.toString("utf8")
+      const rows = text.trimEnd().split(/\r?\n/)
+
+      // Still a grid. A naive replacement of a value that sits next to a comma
+      // inside a quoted field shifts every field after it, and this is what
+      // that failure looks like from the outside.
+      if (rows.length !== 3) {
+        throw new Error(`expected 3 rows in the exported CSV, got ${rows.length}`)
+      }
+      for (const row of rows) {
+        const fields = splitCsvRow(row)
+        if (fields.length !== 3) {
+          throw new Error(
+            `a row of the exported CSV has ${fields.length} fields, not 3: ${row}`
+          )
+        }
+      }
+
+      assertAbsent(text, context.accepted, "the exported CSV")
+
+      // The header row is content nothing proposed, and it has to survive: a
+      // redactor that empties the file passes the assertion above and is
+      // useless. (This run accepts every suggestion, so the data rows are
+      // expected to be largely gone — the header is what proves the export was
+      // selective rather than destructive.)
+      if (!text.startsWith("name,email,note")) {
+        throw new Error("the CSV export lost its header row")
+      }
+    },
+  },
+  {
+    name: "tsv",
+    filename: "smoke.tsv",
+    contentType: "text/tab-separated-values",
+    bytes: async () => makeTsv(),
+    expectedRedactions: 2,
+    sensitive: [SENSITIVE.email],
+    async verifyOutput(artifact, context) {
+      const text = artifact.toString("utf8")
+      const rows = text.trimEnd().split(/\r?\n/)
+
+      if (rows.length !== 3) {
+        throw new Error(`expected 3 rows in the exported TSV, got ${rows.length}`)
+      }
+      for (const row of rows) {
+        const fields = row.split("\t")
+        if (fields.length !== 3) {
+          throw new Error(`a row of the exported TSV has ${fields.length} fields`)
+        }
+      }
+
+      assertAbsent(text, context.accepted, "the exported TSV")
+    },
+  },
+  {
+    name: "txt",
+    filename: "smoke.txt",
+    contentType: "text/plain",
+    bytes: async () => makeTxt(),
+    expectedRedactions: 2,
+    sensitive: [SENSITIVE.email, SENSITIVE.phone],
+    async verifyOutput(artifact, context) {
+      const text = artifact.toString("utf8")
+
+      assertAbsent(text, context.accepted, "the exported text")
+      // Everything outside a redacted range survives exactly.
+      for (const kept of ["Client notes", "Naive cafe", "Email: ", "Phone: "]) {
+        if (!text.includes(kept)) {
+          throw new Error(
+            `the text export lost content it was not asked to touch: ${kept}`
+          )
+        }
+      }
+    },
+  },
+  {
+    name: "rtf",
+    filename: "smoke.rtf",
+    contentType: "application/rtf",
+    bytes: async () => makeRtf(),
+    expectedRedactions: 2,
+    sensitive: [SENSITIVE.phone],
+    async verifyOutput(artifact, context) {
+      const source = artifact.toString("latin1")
+
+      // Still RTF: the header, the font table, the closing brace.
+      if (!source.startsWith("{\\rtf")) {
+        throw new Error("the exported RTF lost its header")
+      }
+      if (!source.trimEnd().endsWith("}")) {
+        throw new Error("the exported RTF is not closed")
+      }
+      if (!source.includes("fonttbl")) {
+        throw new Error("the exported RTF lost its font table")
+      }
+
+      assertAbsent(source, context.accepted, "the exported RTF")
+
+      // The address was split across a formatting group in the source, so the
+      // string never appeared in the file. Stripping the groups is how you
+      // check it is gone from the *text* rather than merely from the bytes —
+      // which is the difference between a parse-aware pipeline and a search.
+      assertAbsent(
+        source.replace(/\{\\[a-z]+ ?|\}/g, ""),
+        [SENSITIVE.email],
+        "the exported RTF with its formatting groups removed"
+      )
+    },
+  },
+  {
+    name: "eml",
+    filename: "smoke.eml",
+    contentType: "message/rfc822",
+    bytes: async () => makeEml(),
+    expectedRedactions: 2,
+    sensitive: [SENSITIVE.email],
+    async verifyOutput(artifact, context) {
+      const source = artifact.toString("latin1")
+
+      // Reparsed with an independent library: a message only our own parser
+      // can read is not a message anybody received.
+      const PostalMime = (await import("postal-mime")).default
+      const parsed = await PostalMime.parse(artifact).catch((error: unknown) => {
+        throw new Error(
+          `the exported message could not be reparsed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        )
+      })
+
+      const readable = [
+        parsed.subject ?? "",
+        parsed.text ?? "",
+        parsed.html ?? "",
+        ...parsed.headers.map((header) => String(header.value ?? "")),
+        ...parsed.attachments.map((attachment) => attachment.filename ?? ""),
+      ].join("\n")
+
+      assertAbsent(readable, context.accepted, "the reparsed message")
+      assertAbsent(source, context.accepted, "the exported message bytes")
+
+      // The structure survived: the attachment is still there and the
+      // boundaries still delimit the parts.
+      if (parsed.attachments.length !== 1) {
+        throw new Error(
+          `expected 1 attachment after export, got ${parsed.attachments.length}`
+        )
+      }
+      if (!source.includes("--smoke")) {
+        throw new Error("the exported message lost its multipart boundaries")
+      }
+    },
+  },
+  {
+    name: "pptx",
+    filename: "smoke.pptx",
+    contentType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    bytes: makePptx,
+    expectedRedactions: 1,
+    sensitive: [SENSITIVE.phone],
+    async verifyOutput(artifact, context) {
+      const parts = await packageParts(artifact)
+
+      if (!parts["ppt/presentation.xml"]) {
+        throw new Error("the exported PPTX has no ppt/presentation.xml")
+      }
+
+      // Every part: the slide, the notes nobody prints, the layout and the
+      // master. Reading only the slides would leave three of the four.
+      for (const [name, xml] of Object.entries(parts)) {
+        assertAbsent(xml, context.accepted, `${name} of the exported PPTX`)
+      }
+
+      for (const required of [
+        "ppt/slides/slide1.xml",
+        "ppt/notesSlides/notesSlide1.xml",
+        "ppt/slideLayouts/slideLayout1.xml",
+        "ppt/slideMasters/slideMaster1.xml",
+      ]) {
+        if (!parts[required]) {
+          throw new Error(`the exported PPTX lost ${required}`)
+        }
+      }
+
+      if ((parts["docProps/core.xml"] ?? "").includes(SENSITIVE.author)) {
+        throw new Error("deck metadata still names the author")
+      }
+    },
+  },
 ]
+
+/** Splits one CSV row, respecting quoted fields. */
+function splitCsvRow(row: string): string[] {
+  const fields: string[] = []
+  let current = ""
+  let quoted = false
+
+  for (let index = 0; index < row.length; index++) {
+    const character = row[index]
+    if (character === '"') {
+      if (quoted && row[index + 1] === '"') {
+        current += '"'
+        index += 1
+        continue
+      }
+      quoted = !quoted
+      continue
+    }
+    if (character === "," && !quoted) {
+      fields.push(current)
+      current = ""
+      continue
+    }
+    current += character
+  }
+
+  fields.push(current)
+  return fields
+}
 
 // --- HTTP -------------------------------------------------------------------
 
