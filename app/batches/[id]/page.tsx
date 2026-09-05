@@ -5,6 +5,7 @@ import { ArrowLeft, UploadCloud } from "lucide-react"
 
 import { BatchView } from "@/components/batch/batch-view"
 import { Brand } from "@/components/layout/brand"
+import { Footer } from "@/components/layout/footer"
 import {
   batchOverview,
   requireBatch,
@@ -76,6 +77,8 @@ export default async function BatchPage(props: PageProps<"/batches/[id]">) {
 
         <BatchView initial={overview} />
       </main>
+
+      <Footer />
     </div>
   )
 }

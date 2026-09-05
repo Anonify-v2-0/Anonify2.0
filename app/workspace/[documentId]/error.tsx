@@ -2,10 +2,11 @@
 
 import { useEffect } from "react"
 import Link from "next/link"
-import { RotateCcw } from "lucide-react"
+import { Code, RotateCcw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Brand } from "@/components/layout/brand"
+import { REPOSITORY_URL } from "@/lib/config"
 
 /**
  * Workspace error boundary. A failure while reviewing must never imply that a
@@ -55,6 +56,15 @@ export default function WorkspaceError({
             Start over
           </Link>
         </div>
+        <a
+          href={`${REPOSITORY_URL}/issues`}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 inline-flex items-center gap-1.5 text-xs text-text-muted transition-colors hover:text-white"
+        >
+          <Code className="size-3.5" />
+          Think this is a bug? Open an issue
+        </a>
       </main>
     </div>
   )

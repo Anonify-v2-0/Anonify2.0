@@ -6,6 +6,7 @@ import { DocumentList } from "@/components/documents/document-list"
 import { LimitsCard } from "@/components/documents/limits-card"
 import { AggregateUsageSummary } from "@/components/documents/usage-summary"
 import { Brand } from "@/components/layout/brand"
+import { Footer } from "@/components/layout/footer"
 import { aggregateUsage } from "@/lib/ai/usage-report"
 import { listDocuments } from "@/lib/documents/listing"
 import { peekIdentity } from "@/lib/security/fingerprint"
@@ -78,6 +79,8 @@ export default async function DocumentsPage() {
           <LimitsCard />
         </div>
       </main>
+
+      <Footer />
     </div>
   )
 }

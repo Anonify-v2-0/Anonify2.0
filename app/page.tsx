@@ -1,8 +1,8 @@
-import Image from "next/image"
 import Link from "next/link"
 import { FileSpreadsheet, FileText, Image as ImageIcon, ShieldCheck } from "lucide-react"
 
 import { Brand } from "@/components/layout/brand"
+import { Footer } from "@/components/layout/footer"
 import { UploadPanel } from "@/components/upload/upload-panel"
 
 const BENEFITS = [
@@ -86,19 +86,7 @@ export default function Page() {
         </section>
       </main>
 
-      <footer className="flex items-center gap-3 border-t border-border px-6 py-6 text-xs text-text-muted lg:px-10">
-        <Image
-          src="/Anonify.png"
-          alt=""
-          width={20}
-          height={20}
-          className="shrink-0 rounded-[4px] opacity-70"
-        />
-        <span>
-          Documents are stored encrypted, expire automatically, and are deleted
-          with every artifact they produced.
-        </span>
-      </footer>
+      <Footer />
     </div>
   )
 }
