@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # An escape hatch: re-runs everything unconditionally, past the decisions below.
+  workflow_dispatch:
 
 # A newer push to the same ref makes the running checks irrelevant.
 concurrency:
@@ -13,6 +15,9 @@ concurrency:
 
 permissions:
   contents: read
+  # `decide` asks which pull request a commit came from, and which files a pull
+  # request touches.
+  pull-requests: read
 
 env:
   # Placeholders, not secrets. Nothing here reaches a real service:
@@ -39,12 +44,119 @@ env:
   NEXT_TELEMETRY_DISABLED: "1"
 
 jobs:
-  # The four checks are independent and run as four concurrent jobs rather than
-  # four sequential steps: the slowest is the build, so the wall clock is the
-  # build alone instead of the sum. None of them gates on an install job, which
-  # would serialize the graph for a cache the four already share.
+  # Everything below is gated on this job, which answers one question: is there
+  # anything here the checks have not already seen?
+  #
+  # Two ways the answer is no.
+  #
+  # A merge into main is the first. The pull request that produced it was built,
+  # tested and booted on exactly the tree that is now main — a squash or merge
+  # commit has the same content as the head that passed. Re-running is a second
+  # opinion from the same machine on the same bytes. Rather than guess from the
+  # commit message, this asks the API which pull requests claim the commit as
+  # their merge, which is true for squash and merge-commit alike. A hand-pushed
+  # commit to main belongs to no pull request and is checked in full.
+  #
+  # A change that no check can read is the second. `pnpm build` does not compile
+  # README.md and the compose stack does not boot .vscode. The list below is an
+  # allow-list of things to ignore and is deliberately short: anything not named
+  # in it — including this workflow, the Dockerfile, lockfiles and package.json —
+  # counts as source and runs everything.
+  decide:
+    name: Decide
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      why: ${{ steps.decide.outputs.why }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      EVENT: ${{ github.event_name }}
+      SHA: ${{ github.sha }}
+      BEFORE: ${{ github.event.before }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - id: decide
+        run: |
+          set -uo pipefail
+
+          decision() {
+            echo "run=$1"   >> "$GITHUB_OUTPUT"
+            echo "why=$2"   >> "$GITHUB_OUTPUT"
+            echo "::notice::$2"
+            echo "$2"       >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          run_ci()  { decision true  "Running the checks — $1"; }
+          skip_ci() { decision false "Skipping the checks — $1"; }
+
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            run_ci "asked for by hand."
+          fi
+
+          # 1. A push to main that is a pull request main has already checked.
+          if [ "$EVENT" = "push" ]; then
+            merged=$(gh api "repos/$REPO/commits/$SHA/pulls" \
+                       --jq "[.[] | select(.merge_commit_sha == \"$SHA\")] | .[0].number" 2>/dev/null) || merged=""
+            if [ -n "$merged" ] && [ "$merged" != "null" ]; then
+              skip_ci "$SHA is the merge of #$merged, which was checked on the pull request."
+            fi
+          fi
+
+          # 2. Nothing changed that any check can read.
+          case "$EVENT" in
+            pull_request)
+              files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename' 2>/dev/null) || files=""
+              ;;
+            push)
+              if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+                run_ci "a new branch, with nothing to compare against."
+              fi
+              # `compare` reports at most 300 files; past that `files` is
+              # truncated and the answer would be a guess, so `truncated` sends
+              # this to the fallback below.
+              files=$(gh api "repos/$REPO/compare/$BEFORE...$SHA" \
+                        --jq 'if (.files | length) >= 300 then "truncated" else .files[].filename end' 2>/dev/null) || files=""
+              ;;
+            *)
+              run_ci "an event this job does not know how to narrow down."
+              ;;
+          esac
+
+          if [ -z "$files" ] || [ "$files" = "truncated" ]; then
+            run_ci "the changed files could not be listed."
+          fi
+
+          ignorable() {
+            case "$1" in
+              *.md) return 0 ;;
+              docs/*) return 0 ;;
+              LICENSE|LICENSE.*|NOTICE|AUTHORS|CODEOWNERS) return 0 ;;
+              .gitignore|.gitattributes|.editorconfig) return 0 ;;
+              .vscode/*|.idea/*) return 0 ;;
+              .github/ISSUE_TEMPLATE/*) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            if ! ignorable "$f"; then
+              run_ci "$f is source."
+            fi
+          done <<< "$files"
+
+          skip_ci "only documentation and editor files changed."
+
+  # The checks below are independent and run as concurrent jobs rather than as
+  # sequential steps: the slowest is the compose stack, so the wall clock is that
+  # one job instead of the sum of all of them. None of them gates on an install
+  # job, which would serialize the graph for a cache they already share.
   lint:
     name: Lint
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -54,6 +166,8 @@ jobs:
 
   typecheck:
     name: Typecheck
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -63,6 +177,8 @@ jobs:
 
   test:
     name: Test
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -78,11 +194,14 @@ jobs:
 
   build:
     name: Build
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
+
 
       # Turbopack's build cache. Keyed on the lockfile plus the sources, with a
       # prefix restore so an unrelated source change still starts from the
@@ -106,6 +225,8 @@ jobs:
   # a broken migration by rebuilding from the schema instead of replaying it.
   migrations:
     name: Migrations
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -159,6 +280,8 @@ jobs:
   # Unit tests pass through all of them.
   compose:
     name: Compose stack
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -195,20 +318,25 @@ jobs:
 
   # A single check to require in branch protection, so adding a job above does
   # not mean editing the protected-branch settings.
+  #
+  # This one is never gated on `decide` — branch protection waits for a required
+  # check to arrive, so a skipped run still has to report. A `skipped` job is not
+  # a failure here: `decide` already established there was nothing to check.
   ci:
     name: CI
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, build, migrations, compose]
+    needs: [decide, lint, typecheck, test, build, migrations, compose]
     if: always()
     steps:
       - name: Report
         run: |
-          echo "lint:      ${{ needs.lint.result }}"
-          echo "typecheck: ${{ needs.typecheck.result }}"
-          echo "test:      ${{ needs.test.result }}"
-          echo "build:     ${{ needs.build.result }}"
+          echo "decide:     ${{ needs.decide.result }} — ${{ needs.decide.outputs.why }}"
+          echo "lint:       ${{ needs.lint.result }}"
+          echo "typecheck:  ${{ needs.typecheck.result }}"
+          echo "test:       ${{ needs.test.result }}"
+          echo "build:      ${{ needs.build.result }}"
           echo "migrations: ${{ needs.migrations.result }}"
-          echo "compose:   ${{ needs.compose.result }}"
+          echo "compose:    ${{ needs.compose.result }}"
 
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
             echo "::error::One or more checks failed."
