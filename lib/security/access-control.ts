@@ -31,6 +31,7 @@ export type OwnedDocument = {
   encryptionKey: string | null
   checksum: string | null
   error: string | null
+  errorCode: string | null
   userFingerprint: string
 }
 
@@ -59,6 +60,7 @@ export async function requireDocument(
       encryptionKey: true,
       checksum: true,
       error: true,
+      errorCode: true,
       userFingerprint: true,
     },
   })

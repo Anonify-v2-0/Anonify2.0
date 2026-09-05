@@ -29,6 +29,7 @@ import {
   encodeStreamEvent,
   type ProcessingStreamEvent,
 } from "@/lib/workflows/events"
+import { describeFailure } from "@/lib/workflows/failure"
 import type { DocumentKind } from "@/types/document"
 import type {
   ProcessingEventType,
@@ -84,6 +85,7 @@ async function setStatus(
   data: {
     pageCount?: number
     error?: string | null
+    errorCode?: string | null
     normalizedBlobKey?: string
   } = {}
 ): Promise<void> {
@@ -421,7 +423,11 @@ async function finish(
 ): Promise<void> {
   "use step"
 
-  await setStatus(documentId, "ready", { error: null, pageCount })
+  await setStatus(documentId, "ready", {
+    error: null,
+    errorCode: null,
+    pageCount,
+  })
   await emit(documentId, "document.ready", {
     status: "ready",
     progress: 100,
@@ -430,23 +436,42 @@ async function finish(
   await getWritable().close()
 }
 
-async function fail(documentId: string, message: string): Promise<void> {
+/**
+ * Records a failure in the terms the user needs, not the terms it arrived in.
+ *
+ * The raw message is classified here and then dropped. Storing it was how
+ * `FatalError: Unsupported file type` reached the screen, and any error at all
+ * could take that path — a driver or parser message is not guaranteed to be
+ * free of document content, which invariant 6 does not allow us to keep.
+ *
+ * Classification happens in the step rather than the orchestrator so the
+ * workflow function stays pure sequencing.
+ */
+async function fail(documentId: string, rawMessage: string): Promise<void> {
   "use step"
+
+  const failure = describeFailure(rawMessage)
 
   console.error(
     JSON.stringify({
       level: "error",
       context: "process-document",
       documentId,
-      errorCategory: "processing",
+      errorCategory: failure.code,
+      retryable: failure.retryable,
     })
   )
 
-  // The uploaded file is untouched; the user can retry the analysis.
-  await setStatus(documentId, "failed", { error: message.slice(0, 500) })
+  // The uploaded file is untouched either way; whether asking again can help is
+  // what the code carries.
+  await setStatus(documentId, "failed", {
+    error: failure.message,
+    errorCode: failure.code,
+  })
   await emit(documentId, "document.failed", {
     status: "failed",
-    message: message.slice(0, 200),
+    message: failure.message,
+    payload: { code: failure.code, retryable: failure.retryable },
   })
   await getWritable().close()
 }

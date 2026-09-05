@@ -21,6 +21,7 @@ export type DocumentListItem = {
   createdAt: string
   expiresAt: string
   error: string | null
+  errorCode: string | null
   hasExport: boolean
   counts: {
     total: number
@@ -53,6 +54,7 @@ export async function listDocuments(
       createdAt: true,
       expiresAt: true,
       error: true,
+      errorCode: true,
       processedBlobKey: true,
       redactions: { select: { status: true } },
     },
@@ -77,6 +79,7 @@ export async function listDocuments(
       createdAt: document.createdAt.toISOString(),
       expiresAt: document.expiresAt.toISOString(),
       error: document.error,
+      errorCode: document.errorCode,
       hasExport: Boolean(document.processedBlobKey),
       counts,
     }

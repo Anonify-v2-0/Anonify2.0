@@ -179,7 +179,10 @@ export type DocumentSummary = {
   pageCount: number | null
   createdAt: string
   expiresAt: string
+  /** A sentence written for the user; see lib/workflows/failure.ts. */
   error?: string | null
+  /** Why it failed, so the interface can tell a verdict from weather. */
+  errorCode?: string | null
 }
 
 export type TtlOption = 3600 | 21600 | 86400 | 259200

@@ -29,6 +29,7 @@ export default async function WorkspacePage(
       createdAt: document.createdAt.toISOString(),
       expiresAt: document.expiresAt.toISOString(),
       error: document.error,
+      errorCode: document.errorCode,
     }
   } catch (error) {
     if (error instanceof AccessError && error.status === 410) {
