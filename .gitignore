@@ -53,3 +53,5 @@ next-env.d.ts
 # tesseract language data, downloaded on first OCR use (~5 MB)
 /.cache/
 *.traineddata
+
+.vscode
