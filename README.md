@@ -8,6 +8,10 @@ The governing rule: **AI proposes, the application applies, and only what a
 person accepted is removed.** A beautiful editor that leaves the original text
 under a black rectangle is not a redaction system.
 
+![Anonify: a document is uploaded, suggestions appear, the reviewer accepts and rejects them, and a redacted file is exported](public/anonify-workflow-readme.gif)
+
+*Upload, review what was proposed, export a file the value is actually gone from.*
+
 ## Documentation
 
 | Document | What it covers |
@@ -52,15 +56,17 @@ Four layers, kept deliberately separate:
 | **C. Redactions** | The record of what should be removed | `types/redaction.ts`, `lib/redaction/*` |
 | **D. Output** | A new document generated from A + accepted C | `lib/redaction/export.ts` |
 
-```
-upload (browser → Blob)
-  → ingest: sniff, checksum, seal, delete plaintext
-  → extract: pages, spans, geometry
-  → normalize: encrypted model artifact
-  → detect: regex first, model for context only
-  → review: accept / reject / manual / global rules
-  → export: remove, verify, checksum, signed download
-  → report: counts, styles and both checksums, as a second artifact
+```mermaid
+flowchart TD
+    U["Upload<br/>browser → blob storage"]
+    I["Ingest<br/>sniff, checksum, seal, delete the plaintext"]
+    E["Extract<br/>pages, spans, geometry"]
+    N["Normalize<br/>encrypted model artifact"]
+    D["Detect<br/>regex first, the model for context only"]
+    R["Review<br/>accept · reject · manual · global rules"]
+    X["Export<br/>remove, verify, checksum, signed download"]
+    P["Report<br/>counts, styles and both checksums"]
+    U --> I --> E --> N --> D --> R --> X --> P
 ```
 
 ### Redaction is removal, not concealment
