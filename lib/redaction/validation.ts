@@ -53,7 +53,17 @@ function textOfXmlParts(bytes: Uint8Array): string {
     .join("\n")
 }
 
-async function haystackFor(
+/**
+ * Everything in an exported document that is readable as text.
+ *
+ * Named and exported because two callers need exactly this: the verifier,
+ * which searches it for values that should be gone, and the restore pipeline,
+ * which searches it for the surrogates it is about to put values back into.
+ * They are the same question asked from opposite ends, and a second definition
+ * of "what counts as readable" would be a second place for one of them to miss
+ * a hidden sheet.
+ */
+export async function readableText(
   kind: DocumentKind,
   bytes: Uint8Array
 ): Promise<string> {
@@ -150,7 +160,7 @@ export async function verifyExport(
   }
 
   const haystack = withoutSubstitutions(
-    (await haystackFor(kind, bytes)).toLowerCase(),
+    (await readableText(kind, bytes)).toLowerCase(),
     substitutions
   )
   const leaked = values.filter((value) =>
