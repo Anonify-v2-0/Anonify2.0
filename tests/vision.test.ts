@@ -57,7 +57,8 @@ describe("vision regions", () => {
       },
     })
 
-    const [detection] = await analyzeImageRegions("doc_1", model(), image, 2)
+    const { regions } = await analyzeImageRegions("doc_1", model(), image, 2)
+    const [detection] = regions
 
     expect(detection.page).toBe(2)
     expect(detection.boundingBox).toEqual({
@@ -86,7 +87,8 @@ describe("vision regions", () => {
       },
     })
 
-    const [detection] = await analyzeImageRegions("doc_1", model(), image, 3)
+    const { regions } = await analyzeImageRegions("doc_1", model(), image, 3)
+    const [detection] = regions
 
     expect(detection.page).toBe(3)
     expect(detection.boundingBox).toEqual({
@@ -107,6 +109,17 @@ describe("vision regions", () => {
   it("returns nothing when the provider gives nothing", async () => {
     runStructured.mockResolvedValue({ output: null })
 
-    expect(await analyzeImageRegions("doc_1", model(), image, 2)).toEqual([])
+    expect(
+      (await analyzeImageRegions("doc_1", model(), image, 2)).regions
+    ).toEqual([])
+  })
+
+  it("carries the reason back, so a refused pass is not read as an empty one", async () => {
+    runStructured.mockResolvedValue({ output: null, skipped: "rate-limit" })
+
+    const analysis = await analyzeImageRegions("doc_1", model(), image, 2)
+
+    expect(analysis.regions).toEqual([])
+    expect(analysis.skipped).toBe("rate-limit")
   })
 })

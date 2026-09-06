@@ -27,6 +27,40 @@ export type UsageBreakdown = UsageTotals & {
   key: string
 }
 
+/**
+ * The model pass having done less than it meant to, and why.
+ *
+ * Reported alongside what the analysis cost because it is the other half of the
+ * same question. "Six model calls, $0.004" and "six model calls, $0.004, and
+ * eleven more the provider refused" describe very different documents, and only
+ * one of them is safe to review as though the model had been asked.
+ */
+export type UsageDegradation = {
+  reason: string
+  /** Model calls lost to it. */
+  calls: number
+}
+
+/** Plain language for a reason code, for the reviewer rather than the log. */
+export const DEGRADATION_LABELS: Record<string, string> = {
+  "rate-limit":
+    "the AI provider was rate-limiting this instance and the wait did not clear",
+  budget: "the configured daily AI spend cap was reached",
+  authorization: "the AI provider rejected this instance's key",
+  timeout: "the AI provider did not answer in time",
+  "invalid-output": "the AI provider returned something unreadable",
+  provider: "the AI provider failed",
+}
+
+export function describeDegradation(degraded: UsageDegradation): string {
+  const cause = DEGRADATION_LABELS[degraded.reason] ?? "the AI provider failed"
+  const calls =
+    degraded.calls === 1 ? "1 model call" : `${degraded.calls} model calls`
+  return degraded.calls > 0
+    ? `${calls} did not happen because ${cause}. Pattern detection ran in full; the contextual pass did not.`
+    : `The contextual pass was skipped because ${cause}. Pattern detection ran in full.`
+}
+
 export type DocumentUsage = {
   documentId: string
   totals: UsageTotals
@@ -34,6 +68,8 @@ export type DocumentUsage = {
   models: string[]
   /** Null when no rates are configured. */
   estimatedCostUsd: number | null
+  /** Null when the model pass did everything it set out to. */
+  degraded: UsageDegradation | null
 }
 
 export type AggregateUsage = {

@@ -1,4 +1,9 @@
-import { runStructured } from "@/lib/ai/gateway"
+import {
+  runStructured,
+  skipIsFailure,
+  type StructuredSkip,
+} from "@/lib/ai/gateway"
+import { spendAllows, spendStatus } from "@/lib/ai/spend"
 import {
   ANALYZE_IMAGE_SYSTEM,
   analyzeImagePrompt,
@@ -41,6 +46,7 @@ import {
   locateInPage,
 } from "@/lib/redaction/entities"
 import { normalizeValue } from "@/lib/documents/shared/text"
+import { serviceLimits } from "@/lib/services/limits"
 import type { NormalizedDocument, SpreadsheetSheet } from "@/types/document"
 import type { Detection } from "@/types/redaction"
 
@@ -56,8 +62,6 @@ import type { Detection } from "@/types/redaction"
 
 /** Characters per model call. Small enough to stay fast, large enough for context. */
 const CHUNK_CHARS = 6000
-/** Concurrent model calls. Provider rate limits are shared across documents. */
-const MAX_CONCURRENCY = 4
 /** Deterministic hits at or below this confidence get a contextual second look. */
 const VERIFY_BELOW = 0.75
 /** Characters of surrounding text sent with a candidate during verification. */
@@ -74,9 +78,34 @@ export type AnalysisProgress = (update: {
   detections: number
 }) => Promise<void> | void
 
+/**
+ * How the model pass was cut short, when it was.
+ *
+ * A contextual pass that produced nothing because the provider refused looks,
+ * from the outside, exactly like one that genuinely found nothing — and the
+ * difference is a document reviewed against pattern matching alone. It is
+ * carried out of here so the run can say so.
+ */
+export type AnalysisDegradation = {
+  reason: StructuredSkip
+  /** Model calls lost to it. */
+  calls: number
+}
+
+/**
+ * The vision pass, which the workflow drives page by page rather than through
+ * `analyzeDocument`, so it reports its own skip for the caller to tally.
+ */
+export type ImageAnalysis = {
+  regions: Detection[]
+  skipped: StructuredSkip | undefined
+}
+
 export type AnalysisResult = {
   detections: Detection[]
   classification: Classification | null
+  /** Null when every model call the pass wanted to make was made. */
+  degraded: AnalysisDegradation | null
   /** Columns the model judged sensitive as a whole. */
   sensitiveColumns: {
     worksheet: string
@@ -108,6 +137,48 @@ async function mapWithConcurrency<T, R>(
 
   await Promise.all(workers)
   return results
+}
+
+/**
+ * What the provider refused, and how often.
+ *
+ * Every model call in this file is allowed to come back empty — that is the
+ * contract, and it is why a rate limit cannot cost somebody their document. The
+ * cost of that contract is that "the model found nothing" and "the model was
+ * never asked" arrive here identically, so the reasons are counted on the way
+ * past and reported once at the end.
+ *
+ * The reason reported is the most *actionable* one rather than the most common.
+ * Twelve rate limits and one empty balance is an install that needs its balance
+ * topping up, and burying that under the twelve helps nobody. The count is the
+ * total lost either way, because that is the size of what the reviewer did not
+ * get.
+ */
+const SKIP_SEVERITY: StructuredSkip[] = [
+  "budget",
+  "authorization",
+  "rate-limit",
+  "invalid-output",
+  "timeout",
+  "provider",
+]
+
+class SkipTally {
+  private readonly seen = new Set<StructuredSkip>()
+  private lost = 0
+
+  note(skip: StructuredSkip | undefined): void {
+    if (!skipIsFailure(skip) || skip === undefined) return
+    this.seen.add(skip)
+    this.lost += 1
+  }
+
+  result(): AnalysisDegradation | null {
+    if (this.lost === 0) return null
+    const reason =
+      SKIP_SEVERITY.find((candidate) => this.seen.has(candidate)) ?? "provider"
+    return { reason, calls: this.lost }
+  }
 }
 
 type Chunk = {
@@ -150,7 +221,8 @@ export function chunkPages(
 
 async function classify(
   documentId: string,
-  model: NormalizedDocument
+  model: NormalizedDocument,
+  tally: SkipTally
 ): Promise<Classification | null> {
   const sample =
     model.pages[0]?.text.slice(0, CLASSIFY_SAMPLE) ??
@@ -161,7 +233,7 @@ async function classify(
 
   if (!sample.trim()) return null
 
-  const { output } = await runStructured({
+  const { output, skipped } = await runStructured({
     task: "classify",
     documentId,
     system: CLASSIFY_SYSTEM,
@@ -169,6 +241,7 @@ async function classify(
     schema: classificationSchema,
   })
 
+  tally.note(skipped)
   return output
 }
 
@@ -182,9 +255,10 @@ async function detectInChunk(
   chunk: Chunk,
   documentType: string | undefined,
   alreadyFound: string[],
-  preset: Preset | null
+  preset: Preset | null,
+  tally: SkipTally
 ): Promise<Detection[]> {
-  const { output } = await runStructured({
+  const { output, skipped } = await runStructured({
     task: "detect",
     documentId,
     system: DETECT_PII_SYSTEM,
@@ -197,6 +271,7 @@ async function detectInChunk(
     schema: detectionResultSchema,
   })
 
+  tally.note(skipped)
   if (!output) return []
 
   const detections: Detection[] = []
@@ -228,7 +303,8 @@ async function detectInChunk(
 async function verifyCandidates(
   documentId: string,
   model: NormalizedDocument,
-  candidates: Detection[]
+  candidates: Detection[],
+  tally: SkipTally
 ): Promise<Detection[]> {
   if (candidates.length === 0) return []
 
@@ -246,7 +322,7 @@ async function verifyCandidates(
     }
   })
 
-  const { output } = await runStructured({
+  const { output, skipped } = await runStructured({
     task: "verify",
     documentId,
     system: VERIFY_SYSTEM,
@@ -254,6 +330,7 @@ async function verifyCandidates(
     schema: verificationSchema,
   })
 
+  tally.note(skipped)
   // Without a verdict the candidate stands as the detector reported it: the
   // reviewer sees it with its original confidence and decides.
   if (!output) return candidates
@@ -304,7 +381,8 @@ function columnSamples(sheet: SpreadsheetSheet): ColumnSample[] {
 async function analyzeSheets(
   documentId: string,
   model: NormalizedDocument,
-  preset: Preset | null
+  preset: Preset | null,
+  tally: SkipTally
 ): Promise<AnalysisResult["sensitiveColumns"]> {
   const sensitive: AnalysisResult["sensitiveColumns"] = []
 
@@ -312,7 +390,7 @@ async function analyzeSheets(
     const columns = columnSamples(sheet)
     if (columns.length === 0) continue
 
-    const { output } = await runStructured({
+    const { output, skipped } = await runStructured({
       task: "columns",
       documentId,
       system: ANALYZE_SPREADSHEET_SYSTEM,
@@ -324,6 +402,7 @@ async function analyzeSheets(
       schema: columnAnalysisSchema,
     })
 
+    tally.note(skipped)
     if (!output) continue
 
     for (const column of output.columns) {
@@ -368,13 +447,13 @@ export async function analyzeImageRegions(
   model: NormalizedDocument,
   image: { data: Uint8Array; mediaType: string },
   pageNumber = 1
-): Promise<Detection[]> {
+): Promise<ImageAnalysis> {
   const page =
     model.pages.find((candidate) => candidate.number === pageNumber) ??
     model.pages[0]
-  if (!page) return []
+  if (!page) return { regions: [], skipped: undefined }
 
-  const { output } = await runStructured({
+  const { output, skipped } = await runStructured({
     task: "image",
     documentId,
     system: ANALYZE_IMAGE_SYSTEM,
@@ -387,9 +466,9 @@ export async function analyzeImageRegions(
     images: [image],
   })
 
-  if (!output) return []
+  if (!output) return { regions: [], skipped }
 
-  return output.regions.map((region) => ({
+  const regions: Detection[] = output.regions.map((region) => ({
     text: region.kind === "face" ? "Face" : region.reason.slice(0, 80),
     category: region.kind === "face" ? "face" : region.category,
     confidence: region.confidence,
@@ -402,6 +481,8 @@ export async function analyzeImageRegions(
       height: region.height * page.height,
     },
   }))
+
+  return { regions, skipped }
 }
 
 export async function analyzeDocument(
@@ -451,8 +532,38 @@ export async function analyzeDocument(
     detections: deterministic.length,
   })
 
+  const tally = new SkipTally()
+
+  // 1a. The day's budget, before anything is spent against it.
+  //
+  //     Asked once here rather than before every chunk: a hundred chunks is a
+  //     hundred aggregate queries for a number that cannot move far between
+  //     them, and a call that slips over the line anyway comes back as a 402
+  //     the gate already refuses to retry. Over the cap, this behaves exactly
+  //     as an install with no key does — deterministic detection, manual
+  //     redaction, rules and export all still work — and it says so.
+  const spend = await spendStatus()
+  if (!spendAllows(spend)) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        context: "ai.spend",
+        documentId,
+        state: spend.state,
+        message:
+          "The daily spend cap is reached; the contextual pass is skipped for the rest of the UTC day.",
+      })
+    )
+    return {
+      detections: dedupeDetections(deterministic),
+      classification: null,
+      degraded: { reason: "budget", calls: 0 },
+      sensitiveColumns: [],
+    }
+  }
+
   // 2. Classification, from a small sample.
-  const classification = await classify(documentId, model)
+  const classification = await classify(documentId, model, tally)
   await onProgress?.({
     stage: "classify",
     completed: 1,
@@ -461,6 +572,11 @@ export async function analyzeDocument(
   })
 
   // 3. Contextual pass over the text, chunked and run in parallel.
+  //
+  //    The ceiling is configuration and it is process-wide, which is the fix
+  //    rather than a detail: it used to be a constant applied per *document*,
+  //    so six documents processing at once meant twenty-four concurrent calls
+  //    and the number the provider actually saw was one nobody had chosen.
   const alreadyFound = [
     ...new Set(deterministic.map((detection) => detection.text)),
   ]
@@ -468,13 +584,14 @@ export async function analyzeDocument(
   let completed = 0
 
   const contextual = (
-    await mapWithConcurrency(chunks, MAX_CONCURRENCY, async (chunk) => {
+    await mapWithConcurrency(chunks, serviceLimits("ai").concurrency, async (chunk) => {
       const found = await detectInChunk(
         documentId,
         chunk,
         classification?.documentType,
         alreadyFound,
-        preset
+        preset,
+        tally
       )
       completed += 1
       await onProgress?.({
@@ -494,7 +611,7 @@ export async function analyzeDocument(
   const solid = deterministic.filter(
     (detection) => detection.confidence > VERIFY_BELOW
   )
-  const verified = await verifyCandidates(documentId, model, shaky)
+  const verified = await verifyCandidates(documentId, model, shaky, tally)
   await onProgress?.({
     stage: "verify",
     completed: 1,
@@ -503,7 +620,7 @@ export async function analyzeDocument(
   })
 
   // 5. Spreadsheet structure.
-  const sensitiveColumns = await analyzeSheets(documentId, model, preset)
+  const sensitiveColumns = await analyzeSheets(documentId, model, preset, tally)
 
   // 6. Expand global values locally. This is the cheap half of the work:
   //    occurrence 2..n costs a string search, not a request.
@@ -528,5 +645,10 @@ export async function analyzeDocument(
 
   const detections = dedupeDetections([...combined, ...expanded])
 
-  return { detections, classification, sensitiveColumns }
+  return {
+    detections,
+    classification,
+    degraded: tally.result(),
+    sensitiveColumns,
+  }
 }

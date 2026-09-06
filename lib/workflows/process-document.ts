@@ -7,6 +7,7 @@ import {
 import { start } from "workflow/api"
 
 import { analyzeDocument, analyzeImageRegions } from "@/lib/ai/analyze"
+import { skipIsFailure, type StructuredSkip } from "@/lib/ai/gateway"
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
 import { MAX_UPLOAD_BYTES } from "@/lib/config"
@@ -475,7 +476,13 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
   // Null when no preset was chosen, which means everything is looked for.
   const preset = presetById(document.preset)
 
-  const { detections, sensitiveColumns } = await analyzeDocument(
+  // The vision pass is driven here rather than inside `analyzeDocument`, so the
+  // calls it loses have to be counted here too — a scanned signature block that
+  // was never looked at is exactly the kind of miss this reporting exists for.
+  let visionSkip: StructuredSkip | undefined
+  let lostVisionCalls = 0
+
+  const { detections, sensitiveColumns, degraded } = await analyzeDocument(
     documentId,
     model,
     async (update) => {
@@ -497,13 +504,16 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
   if (document.sourceBlobKey && document.kind === "image") {
     const sealed = await getObject(document.sourceBlobKey)
     const bytes = decryptDocument(sealed, document.encryptionKey)
+    const analysis = await analyzeImageRegions(documentId, model, {
+      data: bytes,
+      mediaType: document.mimeType,
+    })
+    lostVisionCalls += analysis.skipped ? 1 : 0
+    visionSkip ??= analysis.skipped
     detections.push(
-      ...(
-        await analyzeImageRegions(documentId, model, {
-          data: bytes,
-          mediaType: document.mimeType,
-        })
-      ).filter((detection) => categoryAllowed(preset, detection.category))
+      ...analysis.regions.filter((detection) =>
+        categoryAllowed(preset, detection.category)
+      )
     )
   }
 
@@ -524,15 +534,18 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
       const rendered = await renderPagesForVision(bytes, imagePages)
 
       for (const [index, { page, png }] of rendered.entries()) {
+        const analysis = await analyzeImageRegions(
+          documentId,
+          model,
+          { data: png, mediaType: "image/png" },
+          page
+        )
+        lostVisionCalls += analysis.skipped ? 1 : 0
+        visionSkip ??= analysis.skipped
         detections.push(
-          ...(
-            await analyzeImageRegions(
-              documentId,
-              model,
-              { data: png, mediaType: "image/png" },
-              page
-            )
-          ).filter((detection) => categoryAllowed(preset, detection.category))
+          ...analysis.regions.filter((detection) =>
+            categoryAllowed(preset, detection.category)
+          )
         )
         await emit(documentId, "document.ai.progress", {
           status: "analyzing",
@@ -545,6 +558,23 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
         })
       }
     }
+  }
+
+  // Say what the model was not able to do, before the suggestions are written.
+  //
+  // A run that comes out the far end looking finished, having quietly reviewed
+  // the document against pattern matching alone, is the failure mode this whole
+  // codebase exists to prevent. It arrives with a clean exit code, so the only
+  // thing that surfaces it is saying so on purpose.
+  const worstSkip =
+    degraded?.reason ?? (skipIsFailure(visionSkip) ? visionSkip : undefined)
+  const lostCalls = (degraded?.calls ?? 0) + lostVisionCalls
+
+  if (worstSkip) {
+    await emit(documentId, "document.ai.degraded", {
+      status: "analyzing",
+      payload: { reason: worstSkip, calls: lostCalls },
+    })
   }
 
   const redactions = detections.map((detection) =>

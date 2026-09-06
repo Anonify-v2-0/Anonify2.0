@@ -66,6 +66,30 @@ import {
   type RateLimitName,
 } from "@/lib/security/rate-limit-config"
 import {
+  DEFAULT_MISTRAL_OCR_MODEL,
+  DEFAULT_TESSERACT_LANGUAGE,
+  DEFAULT_TESSERACT_MODEL,
+  MISTRAL_OCR_MODELS,
+  TESSERACT_LANGUAGE_NAMES,
+  TESSERACT_LANGUAGES,
+  TESSERACT_MODEL_DETAIL,
+  TESSERACT_MODELS,
+  type MistralOcrModel,
+  type TesseractLanguage,
+  type TesseractModel,
+} from "@/lib/ocr/models"
+import {
+  DEFAULT_DAILY_SPEND_USD,
+  SERVICE_LIMIT_KEYS,
+  SERVICES,
+  serviceDefaults,
+  serviceEnvName,
+  SPEND_ENV_NAME,
+  type ServiceLimitKey,
+  type ServiceLimits,
+  type ServiceName,
+} from "@/lib/services/limits"
+import {
   decodesTo32Bytes,
   parseEnv,
   renderEnv,
@@ -129,6 +153,14 @@ type Answers = {
   profile: Profile
   ports: { app: number; postgres: number; minio: number; minioConsole: number }
   ocr: "tesseract" | "mistral"
+  /** Which model the chosen engine reads with, from a validated list. */
+  tesseractModel: TesseractModel
+  tesseractLanguage: TesseractLanguage
+  mistralOcrModel: MistralOcrModel
+  /** Blank keeps the gateway's built-in default. */
+  aiModel: string
+  services: Partial<Record<ServiceName, Partial<ServiceLimits>>>
+  spendCapUsd: number
   quotas: Partial<Quotas>
   rates: Partial<Record<RateLimitName, string>>
   eml: Partial<EmlLimits>
@@ -170,6 +202,233 @@ const EXPANSION_UNITS: Record<keyof ExpansionLimits, string> = {
   maxExpandedBytes: "bytes across all of them",
   maxAttachmentBytes: "bytes in any single attachment",
   maxDepth: "a message inside a message inside a message",
+}
+
+/** What each external-service setting bounds, since none of them is a quota. */
+const SERVICE_UNITS: Record<ServiceLimitKey, string> = {
+  concurrency: "requests in flight at once, across every document",
+  requestsPerMinute: "sustained requests per minute; 0 paces nothing",
+  maxAttempts: "tries per request before it is given up",
+}
+
+const SERVICE_TITLES: Record<ServiceName, string> = {
+  ai: "AI Gateway",
+  ocr: "Hosted OCR (Mistral)",
+}
+
+/**
+ * The limits belonging to services this install does not own.
+ *
+ * Asked separately from the rate limits above because they are the opposite
+ * question. Those ration people arriving here; these pace us arriving somewhere
+ * else, where being refused costs a page of somebody's document rather than
+ * producing a tidy 429.
+ *
+ * Only the services actually in use are asked about. A fully local install
+ * running Tesseract has no hosted OCR to pace, and asking anyway invites a
+ * number that does nothing.
+ */
+async function askServiceLimits(
+  prompt: Prompter,
+  answers: { ocr: Answers["ocr"] }
+): Promise<Answers["services"]> {
+  const relevant: ServiceName[] = answers.ocr === "mistral" ? [...SERVICES] : ["ai"]
+
+  say()
+  say(`  ${paint.bold("External service limits")}`)
+  say()
+  note("Mistral meters OCR requests per second; the AI Gateway meters spend.")
+  note("Neither ceiling is yours to raise, and the only thing you control is")
+  note("how hard this instance pushes at it. A request held back for a moment")
+  note("costs a moment; one refused costs a page of somebody's document.")
+  if (answers.ocr !== "mistral") {
+    say()
+    note("Tesseract runs locally and answers to no limit, so only the gateway")
+    note("is asked about here.")
+  }
+  say()
+  for (const service of relevant) {
+    const defaults = serviceDefaults(service)
+    for (const key of SERVICE_LIMIT_KEYS) {
+      setting(serviceEnvName(service, key), String(defaults[key]), {
+        defaulted: true,
+      })
+    }
+  }
+  say()
+
+  if (await prompt.confirm("Keep these service limits?", true)) return {}
+
+  const chosen: Answers["services"] = {}
+  for (const service of relevant) {
+    const defaults = serviceDefaults(service)
+    say()
+    say(`    ${paint.gray(SERVICE_TITLES[service])}`)
+    const picked: Partial<ServiceLimits> = {}
+    for (const key of SERVICE_LIMIT_KEYS) {
+      picked[key] = await prompt.askInteger(serviceEnvName(service, key), {
+        fallback: defaults[key],
+        // 0 is a real answer for a rate — it means do not pace — and a refusal
+        // for the other two, which is what `serviceLimits` bounds enforce.
+        allowZero: key === "requestsPerMinute",
+        unit: `(${SERVICE_UNITS[key]})`,
+      })
+    }
+    chosen[service] = picked
+  }
+  return chosen
+}
+
+/**
+ * The gateway's real ceiling.
+ *
+ * Asked apart from the numbers above because it is a different kind of thing:
+ * not a rate, but an amount of money per day, enforced by this application
+ * against its own recorded token counts. It only means anything where prices
+ * are configured, so the question says so rather than offering a number that
+ * silently does nothing.
+ */
+async function askSpendCap(prompt: Prompter): Promise<number> {
+  say()
+  say(`  ${paint.bold("Daily AI spend cap")} ${paint.gray("— USD, per UTC day")}`)
+  say()
+  note("The AI Gateway meters spend rather than requests, so this is the")
+  note("ceiling that is actually there. Estimated from recorded tokens and the")
+  note("prices in AI_PRICE_*, which means it needs those set to do anything.")
+  note("At 80% the model runs one call at a time; at 100% the contextual pass")
+  note("is skipped for the rest of the day and pattern detection carries on.")
+  say()
+  setting(SPEND_ENV_NAME, "no cap", { defaulted: true })
+  say()
+
+  if (await prompt.confirm("Leave AI spend uncapped?", true)) {
+    return DEFAULT_DAILY_SPEND_USD
+  }
+
+  return prompt.askAmount(SPEND_ENV_NAME, {
+    fallback: DEFAULT_DAILY_SPEND_USD,
+    unit: "(USD per day, 0 for no cap)",
+  })
+}
+
+/**
+ * Which model Tesseract reads with.
+ *
+ * A list rather than free text, and that is the point rather than an
+ * implementation detail: this value ends up in a compose file, where a typo
+ * becomes a container that builds, starts, accepts an upload and fails on the
+ * first scanned page with a 404 from a CDN. Asked here, the same typo is a
+ * re-prompt that never leaves the terminal.
+ */
+async function askTesseractModel(prompt: Prompter): Promise<TesseractModel> {
+  return prompt.choose<TesseractModel>(
+    "Which Tesseract model?",
+    TESSERACT_MODELS.map((value) => {
+      const { approxMb, summary } = TESSERACT_MODEL_DETAIL[value]
+      return {
+        value,
+        label: value === DEFAULT_TESSERACT_MODEL ? `${value} (default)` : value,
+        detail: [summary, `About ${approxMb} MB per language, downloaded once.`],
+      }
+    }),
+    TESSERACT_MODELS.indexOf(DEFAULT_TESSERACT_MODEL)
+  )
+}
+
+/**
+ * Which language it reads.
+ *
+ * Detection is still English-shaped (#43), so a non-English document is only
+ * half-served by this — but OCR that cannot read the page at all serves it
+ * not at all, and that half is worth having on its own.
+ */
+async function askTesseractLanguage(
+  prompt: Prompter
+): Promise<TesseractLanguage> {
+  say()
+  note("Only the languages available in every model variant are listed, so")
+  note("changing the variant later cannot leave you without the data for it.")
+
+  return prompt.choose<TesseractLanguage>(
+    "Which language?",
+    TESSERACT_LANGUAGES.map((value) => ({
+      value,
+      label: `${TESSERACT_LANGUAGE_NAMES[value]} (${value})`,
+    })),
+    TESSERACT_LANGUAGES.indexOf(DEFAULT_TESSERACT_LANGUAGE)
+  )
+}
+
+async function askMistralOcrModel(prompt: Prompter): Promise<MistralOcrModel> {
+  return prompt.choose<MistralOcrModel>(
+    "Which Mistral OCR model?",
+    MISTRAL_OCR_MODELS.map((value) => ({
+      value,
+      label: value,
+      detail:
+        value === DEFAULT_MISTRAL_OCR_MODEL
+          ? ["Follows Mistral's newest OCR release. The right default here:", "a better reader is strictly better, and no output format breaks."]
+          : ["Pinned to one release, for an install that has validated its", "results against this one and would rather they not move."],
+    })),
+    MISTRAL_OCR_MODELS.indexOf(DEFAULT_MISTRAL_OCR_MODEL)
+  )
+}
+
+/**
+ * Known-good gateway models, with free text still allowed.
+ *
+ * Deliberately not a closed list, unlike the OCR ones. Gateway model ids change
+ * faster than this repository does, and refusing a model released next month
+ * would be obstruction rather than validation. The shortlist exists so nobody
+ * has to go and look one up to get started.
+ */
+const AI_MODEL_CHOICES: { value: string; label: string; detail: string[] }[] = [
+  {
+    value: "",
+    label: "The built-in default (anthropic/claude-haiku-4.5)",
+    detail: [
+      "Cheap, fast and vision-capable, which is the shape of work this does.",
+    ],
+  },
+  {
+    value: "anthropic/claude-sonnet-4.5",
+    label: "anthropic/claude-sonnet-4.5",
+    detail: ["Stronger on subtle context; several times the cost per token."],
+  },
+  {
+    value: "openai/gpt-4.1-mini",
+    label: "openai/gpt-4.1-mini",
+    detail: ["A comparable small vision model from another provider."],
+  },
+  {
+    value: "other",
+    label: "Something else",
+    detail: ["Any id your gateway accepts. Typed in, not validated here."],
+  },
+]
+
+async function askAiModel(prompt: Prompter, current: string): Promise<string> {
+  say()
+  say(`  ${paint.bold("AI model")}`)
+  say()
+  note("Everything reaches the provider through the gateway by model id, so")
+  note("this is the whole of swapping models. Vision matters: a scanned page")
+  note("and a photograph are read by the same call. Only relevant with a")
+  note("gateway key — without one the contextual pass is skipped entirely and")
+  note("pattern detection, manual redaction, rules and export all still work.")
+
+  const picked = await prompt.choose<string>(
+    "Which model?",
+    AI_MODEL_CHOICES,
+    0
+  )
+
+  if (picked !== "other") return picked
+
+  return prompt.ask("Model id", {
+    fallback: current,
+    hint: "As your gateway spells it, for example anthropic/claude-haiku-4.5.",
+  })
 }
 
 async function askQuotas(
@@ -422,6 +681,28 @@ function limitGroups(answers: Answers): EnvGroup[] {
       }),
     },
     {
+      heading: "External service limits",
+      note: [
+        "The other direction from the rate limits above: those ration callers",
+        "arriving here, these pace this instance arriving somewhere else. A",
+        "request held back waits; one refused by the provider costs a page of",
+        "somebody's document. Only the OCR pair applies to a hosted engine —",
+        "Tesseract runs locally and answers to no limit.",
+      ],
+      lines: SERVICES.flatMap((service) =>
+        SERVICE_LIMIT_KEYS.map((key) => {
+          const fallback = serviceDefaults(service)[key]
+          const chosen = answers.services[service]?.[key]
+          return {
+            key: serviceEnvName(service, key),
+            value: String(chosen ?? fallback),
+            comment: SERVICE_UNITS[key],
+            commented: chosen === undefined || chosen === fallback,
+          }
+        })
+      ),
+    },
+    {
       heading: "Batch size and concurrency",
       note: [
         "How much happens at once, as opposed to how often it may start. A rate",
@@ -557,6 +838,11 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
 
   const ocr: EnvGroup = {
     heading: "OCR",
+    note: [
+      "The engine and the model it reads with are separate choices. Every model",
+      "value here is one of a fixed set, checked when it was chosen — a typo in",
+      "one of these is a 404 on the first scanned page, not a startup error.",
+    ],
     lines:
       answers.ocr === "tesseract"
         ? [
@@ -565,6 +851,21 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
               value: "tesseract",
               comment:
                 "Runs locally, no account, per-word boxes. `pnpm ocr:warm` fetches the model.",
+            },
+            {
+              key: "OCR_TESSERACT_MODEL",
+              value: answers.tesseractModel,
+              comment: `One of: ${TESSERACT_MODELS.join(", ")}. ${
+                TESSERACT_MODEL_DETAIL[answers.tesseractModel].summary
+              }`,
+              commented: answers.tesseractModel === DEFAULT_TESSERACT_MODEL,
+            },
+            {
+              key: "OCR_TESSERACT_LANGUAGE",
+              value: answers.tesseractLanguage,
+              comment: "Join several with +, as in eng+deu. See .env.example.",
+              commented:
+                answers.tesseractLanguage === DEFAULT_TESSERACT_LANGUAGE,
             },
             {
               key: "TESSERACT_CACHE_PATH",
@@ -581,6 +882,13 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
               comment:
                 "REQUIRED for OCR. Mistral locates text per paragraph, so a redaction covers the block.",
             },
+            {
+              key: "MISTRAL_OCR_MODEL",
+              value: answers.mistralOcrModel,
+              comment: `One of: ${MISTRAL_OCR_MODELS.join(", ")}.`,
+              commented:
+                answers.mistralOcrModel === DEFAULT_MISTRAL_OCR_MODEL,
+            },
           ],
   }
 
@@ -595,18 +903,25 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
         { key: "AI_GATEWAY_API_KEY", value: keep("AI_GATEWAY_API_KEY") },
         {
           key: "AI_MODEL",
-          value: keep("AI_MODEL"),
+          value: answers.aiModel || keep("AI_MODEL"),
           comment: "Defaults to a small, fast, vision-capable model.",
         },
         {
           key: "AI_PRICE_INPUT_PER_MTOK",
           value: keep("AI_PRICE_INPUT_PER_MTOK"),
           comment:
-            "USD per million tokens. Unset reports tokens and duration without a cost.",
+            "USD per million tokens. Unset reports tokens and duration without a cost, and leaves the spend cap below unenforceable.",
         },
         {
           key: "AI_PRICE_OUTPUT_PER_MTOK",
           value: keep("AI_PRICE_OUTPUT_PER_MTOK"),
+        },
+        {
+          key: SPEND_ENV_NAME,
+          value: String(answers.spendCapUsd),
+          comment:
+            "USD per UTC day, estimated from the prices above. 0 is no cap. At 80% the gateway drops to one call at a time; at 100% the contextual pass is skipped and pattern detection carries on.",
+          commented: answers.spendCapUsd === DEFAULT_DAILY_SPEND_USD,
         },
       ],
     },
@@ -733,7 +1048,7 @@ const NEXT_STEPS: Record<Mode, string[]> = {
   local: [
     "docker compose up -d      # Postgres + MinIO, with the bucket created",
     "pnpm db:migrate           # apply the schema",
-    "pnpm ocr:warm             # fetch the ~5 MB OCR model now, not mid-redaction",
+    "pnpm ocr:warm             # fetch the configured OCR model now, not mid-redaction",
     "pnpm dev                  # http://localhost:3000",
   ],
   demo: [
@@ -888,6 +1203,22 @@ async function main(): Promise<void> {
             0
           )
 
+    // The model each engine reads with. A validated list rather than free
+    // text: the answer ends up in a compose file, and a typo there is a
+    // container that starts and then fails on the first scanned page.
+    const tesseractModel =
+      ocr === "tesseract" ? await askTesseractModel(prompt) : DEFAULT_TESSERACT_MODEL
+    const tesseractLanguage =
+      ocr === "tesseract"
+        ? await askTesseractLanguage(prompt)
+        : DEFAULT_TESSERACT_LANGUAGE
+    const mistralOcrModel =
+      ocr === "mistral"
+        ? await askMistralOcrModel(prompt)
+        : DEFAULT_MISTRAL_OCR_MODEL
+
+    const aiModel = await askAiModel(prompt, "")
+
     // 4. Limits.
     step(4, STEPS, "Limits")
     const skipLimits = argv.has("--defaults")
@@ -902,6 +1233,10 @@ async function main(): Promise<void> {
 
     const quotas = skipLimits ? {} : await askQuotas(prompt, profile)
     const rates = skipLimits ? {} : await askRates(prompt, profile)
+    const services = skipLimits ? {} : await askServiceLimits(prompt, { ocr })
+    const spendCapUsd = skipLimits
+      ? DEFAULT_DAILY_SPEND_USD
+      : await askSpendCap(prompt)
     const eml = skipLimits ? {} : await askEmlLimits(prompt)
     const expansion = skipLimits ? {} : await askExpansionLimits(prompt)
     const batch = skipLimits ? {} : await askBatchLimits(prompt, profile)
@@ -944,7 +1279,23 @@ async function main(): Promise<void> {
     }
 
     const contents = buildEnv(
-      { mode, profile, ports, ocr, quotas, rates, eml, expansion, batch },
+      {
+        mode,
+        profile,
+        ports,
+        ocr,
+        tesseractModel,
+        tesseractLanguage,
+        mistralOcrModel,
+        aiModel,
+        services,
+        spendCapUsd,
+        quotas,
+        rates,
+        eml,
+        expansion,
+        batch,
+      },
       kept
     )
 
@@ -978,11 +1329,25 @@ async function main(): Promise<void> {
       "Profile",
       profile === "demo" ? "public and shared" : "self-hosted"
     )
-    setting("OCR", ocr)
+    setting(
+      "OCR",
+      ocr === "tesseract"
+        ? `${ocr} · ${tesseractModel} · ${tesseractLanguage}`
+        : `${ocr} · ${mistralOcrModel}`
+    )
+    setting("AI model", aiModel || "built-in default", {
+      defaulted: aiModel === "",
+    })
+    setting(
+      "AI spend cap",
+      spendCapUsd > 0 ? `$${spendCapUsd} per UTC day` : "none",
+      { defaulted: spendCapUsd === DEFAULT_DAILY_SPEND_USD }
+    )
 
     const changed = [
       ...Object.keys(quotas),
       ...Object.keys(rates),
+      ...Object.values(services).flatMap((limits) => Object.keys(limits)),
       ...Object.keys(eml),
       ...Object.keys(expansion),
     ].length
@@ -1015,6 +1380,18 @@ async function main(): Promise<void> {
       for (const [key, what] of missing) {
         bullet(`${paint.bold(key.padEnd(22))} ${paint.gray(what)}`)
       }
+    }
+
+    // A cap computed from prices nobody set is a cap that does nothing, and
+    // silently doing nothing is exactly what a spend limit must not do.
+    if (
+      spendCapUsd > 0 &&
+      !(written.get("AI_PRICE_INPUT_PER_MTOK") && written.get("AI_PRICE_OUTPUT_PER_MTOK"))
+    ) {
+      say()
+      warn(`${SPEND_ENV_NAME} is set but the prices it is computed from are not.`)
+      note("Set AI_PRICE_INPUT_PER_MTOK and AI_PRICE_OUTPUT_PER_MTOK, or the cap")
+      note("cannot be enforced and the app will say so on every document.")
     }
 
     say()

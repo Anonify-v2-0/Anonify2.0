@@ -259,13 +259,19 @@ export class Prompter {
     choices: Choice<T>[],
     fallbackIndex = 0
   ): Promise<T> {
+    // A blank line after a choice separates it from its explanation. A list of
+    // fifteen bare labels has no explanations to separate, and spacing them out
+    // turns a menu that fits on screen into one that scrolls.
+    const spaced = choices.some((choice) => (choice.detail ?? []).length > 0)
+
     say()
     for (const [index, choice] of choices.entries()) {
       const marker = index === fallbackIndex ? paint.cyan("›") : " "
       say(`  ${marker} ${paint.bold(`${index + 1}.`)} ${paint.bold(choice.label)}`)
       for (const line of choice.detail ?? []) say(`       ${paint.gray(line)}`)
-      say()
+      if (spaced) say()
     }
+    if (!spaced) say()
 
     if (!this.interactive) {
       this.echo(question, choices[fallbackIndex].label)
@@ -321,6 +327,41 @@ export class Prompter {
         continue
       }
       return Number(answer)
+    }
+  }
+
+  /**
+   * An amount of money, re-asked until it is one.
+   *
+   * Not `askInteger`, because a daily AI budget of $2.50 is an ordinary thing
+   * to want and rounding somebody's budget to the nearest dollar without saying
+   * so is the sort of quiet dishonesty this script exists to avoid. Zero is a
+   * real answer here and means no cap.
+   */
+  async askAmount(
+    question: string,
+    options: { fallback: number; unit?: string }
+  ): Promise<number> {
+    const { fallback } = options
+
+    if (!this.interactive) {
+      this.echo(question, String(fallback))
+      return fallback
+    }
+
+    for (;;) {
+      const unit = options.unit ? paint.gray(` ${options.unit}`) : ""
+      const answer = await this.read(
+        `    ${question}${unit} ${paint.gray(`[${fallback}]`)}: `
+      )
+      if (!answer) return fallback
+
+      const value = Number(answer.replace(/^\$/, ""))
+      if (!Number.isFinite(value) || value < 0) {
+        warn(`  "${answer}" is not an amount in dollars.`)
+        continue
+      }
+      return value
     }
   }
 

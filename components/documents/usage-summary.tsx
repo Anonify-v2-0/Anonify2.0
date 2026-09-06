@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Cpu } from "lucide-react"
+import { Cpu, TriangleAlert } from "lucide-react"
 
 import {
+  describeDegradation,
   formatCost,
   formatDuration,
   formatTokens,
@@ -62,7 +63,11 @@ export function DocumentUsageSummary({
     }
   }, [documentId])
 
-  if (!usage || usage.totals.calls === 0) return null
+  // A degraded pass is shown even with no calls at all: zero calls because the
+  // key was refused and zero calls because nobody configured a model look
+  // identical, and the first one is the reviewer's problem.
+  if (!usage) return null
+  if (usage.totals.calls === 0 && !usage.degraded) return null
 
   const cost = formatCost(usage.estimatedCostUsd)
 
@@ -75,14 +80,26 @@ export function DocumentUsageSummary({
         {usage.models.length > 0 ? ` · ${usage.models.join(", ")}` : ""}
       </p>
 
-      <dl className="mt-2 grid grid-cols-3 gap-3">
-        <Stat label="In" value={formatTokens(usage.totals.inputTokens)} />
-        <Stat label="Out" value={formatTokens(usage.totals.outputTokens)} />
-        <Stat
-          label={cost ? "Cost" : "Time"}
-          value={cost ?? formatDuration(usage.totals.durationMs)}
-        />
-      </dl>
+      {usage.totals.calls > 0 ? (
+        <dl className="mt-2 grid grid-cols-3 gap-3">
+          <Stat label="In" value={formatTokens(usage.totals.inputTokens)} />
+          <Stat label="Out" value={formatTokens(usage.totals.outputTokens)} />
+          <Stat
+            label={cost ? "Cost" : "Time"}
+            value={cost ?? formatDuration(usage.totals.durationMs)}
+          />
+        </dl>
+      ) : null}
+
+      {usage.degraded ? (
+        <p className="mt-2 flex gap-1.5 text-[11px] leading-relaxed text-text-secondary">
+          <TriangleAlert className="mt-px size-3 shrink-0 text-primary" />
+          <span>
+            {describeDegradation(usage.degraded)} Review this document more
+            closely than usual.
+          </span>
+        </p>
+      ) : null}
     </div>
   )
 }
