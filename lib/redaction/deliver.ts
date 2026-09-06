@@ -49,6 +49,8 @@ import type { DocumentKind } from "@/types/document"
 
 export type DeliveredArtifact = {
   artifactId: string
+  /** Where the sealed artifact actually landed, as storage named it. */
+  blobKey: string
   /** Which output of the review this is; see lib/redaction/variants.ts. */
   variant: string
   checksum: string
@@ -245,6 +247,7 @@ export async function exportAndStore(
 
     artifacts.push({
       artifactId,
+      blobKey: stored.key,
       variant: variant.name,
       checksum: result.checksum,
       size: result.bytes.byteLength,
@@ -271,13 +274,15 @@ export async function exportAndStore(
   // The document's own pointer names the first variant. A second variant is a
   // second artifact with its own row and its own link; overwriting the pointer
   // with each in turn would leave it naming whichever finished last.
+  //
+  // The key comes back from storage rather than being rebuilt from the id: a
+  // driver is entitled to store the object under a name of its own, and
+  // reconstructing the path here would point the document at a key that does
+  // not exist.
   await prisma.document.update({
     where: { id: document.id },
     data: {
-      processedBlobKey: processedKey(
-        document.id,
-        `${primary.artifactId}.${primary.extension}`
-      ),
+      processedBlobKey: primary.blobKey,
       processedChecksum: primary.checksum,
     },
   })

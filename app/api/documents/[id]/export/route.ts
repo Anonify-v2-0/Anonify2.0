@@ -75,20 +75,33 @@ export async function POST(
     const { id } = await context.params
     const identity = await peekIdentity()
 
-    const limit = await consumeRateLimit(
-      "export",
-      identity?.networkKey ?? "anonymous"
-    )
-    if (!limit.allowed) {
-      return rateLimitResponse(limit, "exports")
-    }
-
     const document = await requireDocument(id, identity?.ownerKey)
     const options = optionsSchema.parse(await request.json().catch(() => ({})))
 
     const specs: VariantSpec[] = options.variants ?? []
     const variants =
       specs.length > 0 ? nameVariants(specs) : [defaultVariant(options)]
+
+    // Charged once per variant, before any work starts. Each one is a full
+    // pass over the document — its own plan, its own rasterisation, its own
+    // verification — so a four-variant export that spent one allowance would
+    // be four exports at the price of one, which is the shape of request
+    // somebody eventually notices. Refused whole rather than truncated to
+    // what the allowance covers: a reviewer who asked for a tokenised copy
+    // and silently got only the masked one has been told something untrue.
+    let limit = await consumeRateLimit(
+      "export",
+      identity?.networkKey ?? "anonymous"
+    )
+    for (let taken = 1; limit.allowed && taken < variants.length; taken++) {
+      limit = await consumeRateLimit(
+        "export",
+        identity?.networkKey ?? "anonymous"
+      )
+    }
+    if (!limit.allowed) {
+      return rateLimitResponse(limit, "exports")
+    }
 
     const outcome = await exportAndStore(document.id, variants)
     if (!outcome.ok) {

@@ -393,7 +393,11 @@ file. Shares one definition of "export" (and one verification gate) with the
 batch exporter via `lib/redaction/deliver.ts`.
 
 - **Auth:** session
-- **Rate limit:** `export`
+- **Rate limit:** `export`, charged **once per variant**. Each variant is a full
+  pass over the document, so a four-variant request spends four of the day's
+  exports. If the allowance does not stretch to all of them the whole request
+  is refused rather than truncated — a reviewer who asked for a tokenized copy
+  and silently got only the masked one has been told something untrue.
 - **Path params:** `id`
 - **Body** (all optional, defaults shown):
   ```json
