@@ -1,6 +1,7 @@
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
 import type { SkipReason } from "@/lib/redaction/archive"
+import type { MethodOverrides } from "@/lib/redaction/methods"
 
 /**
  * The state of a batch export, as a record rather than a response.
@@ -54,6 +55,16 @@ export type BatchExportOptions = {
   addLabels: boolean
   sanitizeMetadata: boolean
   imageStyle: "solid" | "blur" | "pixelate"
+  /**
+   * Methods asked for by category, applied to every document in the batch.
+   *
+   * One spec rather than the list of variants a single export accepts. A batch
+   * is already one full pass per document, and multiplying that by variants
+   * turns a run measured in minutes into one measured in tens of them — so the
+   * per-category policy travels, and asking for a second output of the same
+   * batch means running the export again with a different policy.
+   */
+  methods?: MethodOverrides
 }
 
 /** A run that has not finished, and so must not be started a second time. */

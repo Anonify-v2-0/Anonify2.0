@@ -20,6 +20,7 @@ import {
 import { outputTypeFor } from "@/lib/documents/formats"
 import type { AttachmentAction } from "@/lib/documents/eml/redact"
 import type { AttachmentExpectation } from "@/lib/documents/eml/validate"
+import { buildSurrogates, type Surrogates } from "@/lib/redaction/surrogates"
 import { verifyExport, type VerificationReport } from "@/lib/redaction/validation"
 import { sha256 } from "@/lib/storage/integrity"
 import type { DocumentKind, NormalizedDocument } from "@/types/document"
@@ -52,6 +53,14 @@ export type ExportResult = {
   mimeType: string
   verification: VerificationReport
   appliedRedactions: number
+  /**
+   * What this export substituted, and what the reviewer needs to reverse it.
+   *
+   * Returned rather than written: the vault is the caller's to hand over
+   * once, and nothing here decides that it should be stored — because it
+   * should not be.
+   */
+  surrogates: Surrogates
 }
 
 export class ExportVerificationError extends Error {
@@ -70,11 +79,20 @@ export async function exportRedacted(input: {
   mimeType?: string
   attachments?: AttachmentSubstitutions
 }): Promise<ExportResult> {
-  const { kind, source, model, redactions, options } = input
+  const { kind, source, model, redactions, options: requested } = input
   const attachments = input.attachments ?? {}
   const accepted = redactions.filter(
     (redaction) => redaction.status === "accepted"
   )
+
+  // Worked out once, here, rather than by each plan builder: a value's method
+  // is a property of the document and the variant, not of the format, and the
+  // report has to be able to ask the same object what happened.
+  const surrogates = buildSurrogates(accepted, kind, {
+    overrides: requested.methods,
+    key: requested.valueKey,
+  })
+  const options: ExportOptions = { ...requested, surrogates }
 
   let bytes: Uint8Array
 
@@ -130,7 +148,8 @@ export async function exportRedacted(input: {
     kind,
     bytes,
     accepted,
-    expectationsFor(attachments)
+    expectationsFor(attachments),
+    surrogates.substitutions
   )
   if (!verification.passed) {
     throw new ExportVerificationError(verification)
@@ -145,6 +164,7 @@ export async function exportRedacted(input: {
     mimeType: kind === "image" ? (input.mimeType ?? output.mimeType) : output.mimeType,
     verification,
     appliedRedactions: accepted.length,
+    surrogates,
   }
 }
 

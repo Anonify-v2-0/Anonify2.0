@@ -69,9 +69,10 @@ describe("export report", () => {
 
     expect(built.removed.total).toBe(3)
     expect(built.removed.byCategory).toEqual([
-      { category: "email", count: 2, styles: { removed: 2 } },
-      { category: "person", count: 1, styles: { removed: 1 } },
+      { category: "email", count: 2, styles: { removed: 2 }, methods: { mask: 2 } },
+      { category: "person", count: 1, styles: { removed: 1 }, methods: { mask: 1 } },
     ])
+    expect(built.removed.byMethod).toEqual({ mask: 3 })
     expect(built.removed.bySource).toEqual({ ai: 2, user: 1, rule: 0 })
     expect(built.removed.byStyle).toEqual({ removed: 3 })
   })
@@ -122,7 +123,7 @@ describe("export report", () => {
     ])
 
     expect(built.removed.byCategory).toEqual([
-      { category: "other", count: 1, styles: { removed: 1 } },
+      { category: "other", count: 1, styles: { removed: 1 }, methods: { mask: 1 } },
     ])
   })
 

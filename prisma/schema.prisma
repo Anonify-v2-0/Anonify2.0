@@ -249,6 +249,10 @@ model ExportArtifact {
   appliedRedactions Int      @default(0)
   metadataSanitized Boolean  @default(false)
   labelsAdded       Boolean  @default(false)
+  /// Which output of one review this is, when the reviewer asked for more than
+  /// one. Null for artifacts exported before variants existed, which is the
+  /// same thing as "redacted". See lib/redaction/variants.ts.
+  variant           String?
   /// The export report generated with this artifact: counts, styles and both
   /// checksums, stored encrypted beside the file it describes. Null for
   /// artifacts exported before reports existed.

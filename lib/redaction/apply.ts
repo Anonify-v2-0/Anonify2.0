@@ -16,9 +16,10 @@ import { parseTextAddress } from "@/lib/documents/text/extract"
 import type { TextRedactionPlan } from "@/lib/documents/text/redact"
 import type { XlsxRedactionPlan } from "@/lib/documents/xlsx/redact"
 import { boxesForRedaction, padBox } from "@/lib/redaction/geometry"
+import type { MethodOverrides } from "@/lib/redaction/methods"
 import { acceptedValues, isAccepted } from "@/lib/redaction/model"
 import { NO_SURROGATES, type Surrogates } from "@/lib/redaction/surrogates"
-import type { BoundingBox, NormalizedDocument, TextSpan } from "@/types/document"
+import type { NormalizedDocument, TextSpan } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
 
 /**
@@ -36,6 +37,17 @@ export type ExportOptions = {
   sanitizeMetadata: boolean
   /** Appearance for image regions. */
   imageStyle?: RedactionStyle
+  /**
+   * A method asked for by category, overriding what each redaction carries.
+   * This is what distinguishes one variant of an export from another.
+   */
+  methods?: MethodOverrides
+  /**
+   * The key `encrypt` uses, when the caller needs several exports to share
+   * one — a message and the attachments substituted into it. Generated per
+   * export when absent, and never stored either way.
+   */
+  valueKey?: Buffer
   /**
    * What stands in for each accepted value.
    *

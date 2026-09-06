@@ -1,12 +1,15 @@
 import { regionStyle, type ExportOptions } from "@/lib/redaction/apply"
 import { presetNarrows, type Preset } from "@/lib/redaction/presets"
+import { NO_SURROGATES, type Surrogates } from "@/lib/redaction/surrogates"
 import { DOCUMENT_KINDS, type DocumentKind } from "@/types/document"
 import {
   REDACTION_CATEGORIES,
+  REDACTION_METHODS,
   REDACTION_SOURCES,
   REDACTION_STATUSES,
   REDACTION_TYPES,
   type Redaction,
+  type RedactionMethod,
   type RedactionStatus,
 } from "@/types/redaction"
 
@@ -27,6 +30,9 @@ import {
 
 export const REPORT_VERSION = 1
 
+/** The name an export takes when the reviewer asked for only one output. */
+export const DEFAULT_VARIANT = "redacted"
+
 /**
  * How a redaction was applied.
  *
@@ -40,10 +46,23 @@ export type RemovalStyle = "removed" | "solid" | "blur" | "pixelate"
 
 export type StyleCounts = Partial<Record<RemovalStyle, number>>
 
+/**
+ * How many of each category were masked, pseudonymised, tokenised, encrypted.
+ *
+ * Separate from `styles`, which says how the *pixels* were treated, because
+ * they answer different questions: a style is about how thoroughly something
+ * was obscured, a method is about whether anything stands in its place and who
+ * can get back to the original. A reader who sees `tokenize` needs to know
+ * that a vault exists somewhere; a reader who sees `blur` needs to know the
+ * pixels are a function of what was there.
+ */
+export type MethodCounts = Partial<Record<RedactionMethod, number>>
+
 export type CategoryBreakdown = {
   category: string
   count: number
   styles: StyleCounts
+  methods: MethodCounts
 }
 
 export type DecisionCounts = {
@@ -98,11 +117,21 @@ export type ExportReport = {
     extension: string
     metadataSanitized: boolean
     labelsAdded: boolean
+    /**
+     * Which output of the review this is.
+     *
+     * One pass can produce several artifacts — an internally shareable copy
+     * with names masked and an external one with them tokenised, say — and a
+     * report that did not name which one it described would be the same
+     * document from two reports with different counts in them.
+     */
+    variant: string
   }
   removed: {
     total: number
     byCategory: CategoryBreakdown[]
     byStyle: StyleCounts
+    byMethod: MethodCounts
     bySource: { ai: number; user: number; rule: number }
   }
   notRemoved: {
@@ -198,7 +227,31 @@ function withStyle(counts: StyleCounts, style: RemovalStyle): StyleCounts {
   return { ...counts, [style]: (counts[style] ?? 0) + 1 }
 }
 
+function withMethod(counts: MethodCounts, method: RedactionMethod): MethodCounts {
+  return { ...counts, [method]: (counts[method] ?? 0) + 1 }
+}
+
 const WEAKER_STYLES: RemovalStyle[] = ["blur", "pixelate"]
+
+/**
+ * What each method did, said in the terms of the bytes rather than of the law.
+ *
+ * The same discipline the presets are held to, and for the same reason: a
+ * reader who is told a document has been "anonymised" believes something about
+ * their obligations, and nothing in this pipeline can support that belief.
+ * Tokenisation in particular is the tempting one to oversell — it is
+ * reversible by whoever holds the vault, which is the opposite of anonymous,
+ * and the note has to say so rather than leave it to be inferred.
+ */
+const METHOD_SENTENCES: Record<RedactionMethod, string> = {
+  mask: "masked: the value is gone and nothing stands in its place.",
+  pseudonymize:
+    "pseudonymized: replaced with a stable surrogate, so equal values are still equal in the export. No mapping back to the originals exists anywhere. This is not anonymisation: a surrogate that is consistent across a file can still be re-identified by joining it against something else.",
+  tokenize:
+    "tokenized: replaced with a surrogate whose mapping to the original is in the token vault handed to the reviewer. Anyone holding that vault can reverse it, and it is not stored here.",
+  encrypt:
+    "encrypted: replaced with ciphertext under a key handed to the reviewer and kept nowhere else. Anyone holding that key can reverse it.",
+}
 
 /**
  * What each disposition means, said in full. Written out rather than derived,
@@ -216,10 +269,22 @@ const ATTACHMENT_SENTENCES: Record<string, string> = {
 }
 
 function notesFor(report: Omit<ExportReport, "notes">): string[] {
+  const substituted = REDACTION_METHODS.filter(
+    (method) => method !== "mask" && report.removed.byMethod[method]
+  ).length > 0
+
   const notes = [
     "Counts only. This report never contains the redacted values themselves.",
-    "Accepted redactions are removed from the exported file, not covered over. The source document is unchanged.",
+    substituted
+      ? "No accepted value is in the exported file. Where a method other than masking was used, what stands in its place is derived from the value and does not contain it. The source document is unchanged."
+      : "Accepted redactions are removed from the exported file, not covered over. The source document is unchanged.",
   ]
+
+  for (const method of REDACTION_METHODS) {
+    const count = report.removed.byMethod[method]
+    if (!count || method === "mask") continue
+    notes.push(`${count} ${count === 1 ? "value was" : "values were"} ${METHOD_SENTENCES[method]}`)
+  }
 
   const weaker = WEAKER_STYLES.filter((style) => report.removed.byStyle[style])
   if (weaker.length > 0) {
@@ -272,6 +337,17 @@ export function buildExportReport(input: {
     extension: string
   }
   options: ExportOptions
+  /**
+   * What this variant is called, so two reports of one review are telling
+   * apart by something other than their counts.
+   */
+  variant?: string
+  /**
+   * What the export actually substituted, asked of the object the export
+   * used. A report that worked the methods out again could disagree with the
+   * artifact it describes, which is the one thing it must never do.
+   */
+  surrogates?: Surrogates
   /** Every redaction on the document, whatever its status. */
   redactions: Redaction[]
   verification: { passed: boolean; checkedValues: number }
@@ -286,22 +362,33 @@ export function buildExportReport(input: {
 
   const accepted = byStatus("accepted")
 
+  const surrogates = input.surrogates ?? NO_SURROGATES
+
   const categories = new Map<string, CategoryBreakdown>()
   let byStyle: StyleCounts = {}
+  let byMethod: MethodCounts = {}
   const bySource = { ai: 0, user: 0, rule: 0 }
 
   for (const redaction of accepted) {
     const category = safeCategory(redaction.category)
     const style = styleFor(input.document.kind, redaction, input.options)
+    const method = surrogates.methodOf(redaction)
 
-    const entry = categories.get(category) ?? { category, count: 0, styles: {} }
+    const entry = categories.get(category) ?? {
+      category,
+      count: 0,
+      styles: {},
+      methods: {},
+    }
     categories.set(category, {
       category,
       count: entry.count + 1,
       styles: withStyle(entry.styles, style),
+      methods: withMethod(entry.methods, method),
     })
 
     byStyle = withStyle(byStyle, style)
+    byMethod = withMethod(byMethod, method)
     bySource[redaction.source] += 1
   }
 
@@ -322,11 +409,13 @@ export function buildExportReport(input: {
       extension: input.artifact.extension,
       metadataSanitized: input.options.sanitizeMetadata,
       labelsAdded: input.options.addLabels,
+      variant: input.variant ?? DEFAULT_VARIANT,
     },
     removed: {
       total: accepted.length,
       byCategory: sortCounts([...categories.values()]),
       byStyle,
+      byMethod,
       bySource,
     },
     notRemoved: {
@@ -374,6 +463,11 @@ const CLOSED_VOCABULARY = new Set<string>([
   ...REDACTION_TYPES,
   ...REDACTION_SOURCES,
   ...REDACTION_STATUSES,
+  // The methods, and the name of the default single output. A variant the
+  // reviewer named themselves is not in here, which is deliberate — see
+  // AUTHORED_PATHS.
+  ...REDACTION_METHODS,
+  DEFAULT_VARIANT,
   "removed",
   "solid",
   "blur",

@@ -7,6 +7,7 @@ import {
   carriesSubstitutableText,
   resolveMethod,
   usesShortSurrogate,
+  type MethodOverrides,
 } from "@/lib/redaction/methods"
 import {
   encryptValue,
@@ -141,8 +142,22 @@ export const NO_SURROGATES: Surrogates = {
  */
 export function buildSurrogates(
   redactions: Redaction[],
-  kind: DocumentKind
+  kind: DocumentKind,
+  options: {
+    /** The variant's per-category overrides, if it named any. */
+    overrides?: MethodOverrides
+    /**
+     * A key to encrypt under, rather than one generated here.
+     *
+     * A message and its attachments are exported separately and delivered
+     * together, so they have to share a key: handing the reviewer three keys
+     * for one download would be three chances to lose the one that mattered.
+     * The key is only *reported* if something was actually encrypted with it.
+     */
+    key?: Buffer
+  } = {}
 ): Surrogates {
+  const overrides = options.overrides ?? {}
   const accepted = redactions.filter(isAccepted)
 
   // Grouped by folded value, which is how the sweep matches too: the same name
@@ -158,7 +173,7 @@ export function buildSurrogates(
     if (!carriesSubstitutableText(redaction)) continue
     const text = redaction.text?.trim()
     if (!text) continue
-    const method = resolveMethod(redaction)
+    const method = resolveMethod(redaction, overrides)
     const folded = normalizeValue(text)
 
     const group = groups.get(folded)
@@ -180,6 +195,8 @@ export function buildSurrogates(
   const vaultEntries: VaultEntry[] = []
   const values: ValueReplacement[] = []
   const substitutions: string[] = []
+  // Non-null only once something has been encrypted with it, so a supplied
+  // key that went unused is not handed back as though it opened something.
   let key: Buffer | null = null
 
   const nextName = (stem: string) => {
@@ -209,7 +226,7 @@ export function buildSurrogates(
     let replacement: string
 
     if (method === "encrypt") {
-      key ??= newValueKey()
+      key ??= options.key ?? newValueKey()
       const ciphertext = encryptValue(group.display, key)
 
       if (shortForm) {

@@ -157,6 +157,18 @@ export function isMethodAllowed(
 }
 
 /**
+ * A method asked for by category, overriding what each redaction carries.
+ *
+ * This is what makes two artifacts out of one review: a variant that names
+ * `{ person: "tokenize" }` tokenises every accepted name, whatever the
+ * inspector recorded against each one, and a variant that names nothing
+ * exports what the reviewer chose. An override is not a way around the table
+ * above — it goes through `resolveMethod()` like everything else, so asking
+ * for a tokenised face still produces a mask.
+ */
+export type MethodOverrides = Partial<Record<RedactionCategory, RedactionMethod>>
+
+/**
  * The method this redaction is exported with.
  *
  * Asked at export time, not read from the record: a method that was valid when
@@ -165,8 +177,12 @@ export function isMethodAllowed(
  * `mask` rather than to a substitution that cannot be made. Falling back to
  * removal is always safe; falling back the other way never is.
  */
-export function resolveMethod(redaction: Redaction): RedactionMethod {
-  const requested = redaction.method
+export function resolveMethod(
+  redaction: Redaction,
+  overrides: MethodOverrides = {}
+): RedactionMethod {
+  const requested =
+    overrides[asCategory(redaction.category)] ?? redaction.method
   if (!requested || requested === DEFAULT_METHOD) return DEFAULT_METHOD
   return isMethodAllowed(requested, redaction) ? requested : DEFAULT_METHOD
 }

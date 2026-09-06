@@ -19,6 +19,7 @@ import {
 import { listBatchDocuments } from "@/lib/documents/listing"
 import type { SkipReason } from "@/lib/redaction/archive"
 import { exportAndStore } from "@/lib/redaction/deliver"
+import { defaultVariant } from "@/lib/redaction/variants"
 import { ExportVerificationError } from "@/lib/redaction/export"
 import { ReportLeakError } from "@/lib/redaction/report"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
@@ -277,17 +278,20 @@ async function runExportDocument(
   const options = (record.options ?? {}) as BatchExportOptions
 
   try {
-    const outcome = await exportAndStore(documentId, {
-      addLabels: options.addLabels ?? false,
-      sanitizeMetadata: options.sanitizeMetadata ?? true,
-      imageStyle: options.imageStyle ?? "solid",
-    })
+    const outcome = await exportAndStore(documentId, [
+      defaultVariant({
+        addLabels: options.addLabels ?? false,
+        sanitizeMetadata: options.sanitizeMetadata ?? true,
+        imageStyle: options.imageStyle ?? "solid",
+        methods: options.methods,
+      }),
+    ])
 
     if (!outcome.ok) return skip("not-ready")
 
     await patched(exportId, documentId, {
       state: "exported",
-      removed: outcome.delivered.appliedRedactions,
+      removed: outcome.delivered.primary.appliedRedactions,
     })
     return { stop: false }
   } catch (error) {
