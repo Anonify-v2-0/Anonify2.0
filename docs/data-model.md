@@ -293,6 +293,7 @@ exporter filters on `status === "accepted"` — and nothing else.
 | `category` | `String` | Entity category (person, email, …). |
 | `confidence` | `Float?` | Detector confidence, when applicable. |
 | `status` | `String` `@default("suggested")` | `suggested \| accepted \| rejected`. The exporter reads `accepted` only. |
+| `method` | `String?` | What accepting this does to the bytes: `mask \| pseudonymize \| tokenize \| encrypt`. Null means `mask`, which is what every redaction taken before methods existed did. Stored, not trusted — whether a method is *allowed* is decided by `lib/redaction/methods.ts` and asked again at export time, so a method that stops being defensible resolves to a mask. |
 | `page` | `Int?` | Page index for paginated formats. |
 | `text` | `String?` | The matched text. Shown to the reviewer before a decision. |
 | `startOffset` | `Int?` | Start offset into the page's flat text stream. |
@@ -364,6 +365,7 @@ A generated export. Kept encrypted, addressed only by signed token.
 | `appliedRedactions` | `Int` `@default(0)` | Count of accepted redactions actually applied to produce this artifact. |
 | `metadataSanitized` | `Boolean` `@default(false)` | Whether EXIF/GPS and other metadata was stripped. On for images when the option is set. |
 | `labelsAdded` | `Boolean` `@default(false)` | Whether redaction labels were added to the output. |
+| `variant` | `String?` | Which output of one review this is, when the reviewer asked for more than one. Null means the single default output. The name is derived from the methods the variant applied, never typed by the reviewer — it reaches the export report, which must carry no free strings. See `lib/redaction/variants.ts`. |
 | `reportBlobKey` | `String?` | The export report generated with this artifact: counts, styles and both checksums, stored encrypted beside the file it describes. Null for artifacts exported before reports existed. |
 | `reportChecksum` | `String?` | SHA-256 of the report blob. |
 | `document` | `Document` | Relation via `documentId`, `onDelete: Cascade`. |

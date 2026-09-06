@@ -280,15 +280,26 @@ Creates a manual redaction — a text selection, a drawn region, a cell.
 
 ### `PATCH /api/documents/:id/redactions`
 
-Bulk accept or reject. Accepting is the only thing that makes a suggestion
-count at export time, so it is an explicit, auditable write.
+Bulk accept or reject, and choose what accepting does. Accepting is the only
+thing that makes a suggestion count at export time, so it is an explicit,
+auditable write.
 
 - **Auth:** session
 - **Path params:** `id`
-- **Body:** `{ "ids": ["red_..."], "status": "accepted" | "rejected" | ... }`
-  (`ids` is 1–2000 non-empty strings; `status` must be in `REDACTION_STATUSES`).
+- **Body:** `{ "ids": ["red_..."], "status"?: "accepted" | "rejected" | ...,
+  "method"?: "mask" | "pseudonymize" | "tokenize" | "encrypt" }`
+  (`ids` is 1–2000 non-empty strings; at least one of `status` and `method`
+  must be present).
 - **Response `200`:** `{ "updated": 3 }` (count of rows actually changed)
-- **Errors:** `400` invalid status change; `404`/`410` access.
+- **Errors:** `400` nothing to change, or an unrecognised status or method;
+  `404`/`410` access.
+
+`method` is stored, not enforced here. Whether a method is *allowed* is decided
+by `lib/redaction/methods.ts` and asked again at export time against the
+redaction as it stands then — so a method that stops being defensible (the
+category was corrected, the region turned out to have no text) resolves to a
+mask rather than being honoured because it was legal when it was saved. See
+[the pipelines doc](./pipelines.md#what-happens-to-a-value).
 
 ### `DELETE /api/documents/:id/redactions`
 
@@ -386,27 +397,85 @@ batch exporter via `lib/redaction/deliver.ts`.
 - **Path params:** `id`
 - **Body** (all optional, defaults shown):
   ```json
-  { "addLabels": false, "sanitizeMetadata": true, "imageStyle": "solid" }
+  {
+    "addLabels": false,
+    "sanitizeMetadata": true,
+    "imageStyle": "solid",
+    "methods": { "person": "tokenize" },
+    "variants": [
+      { "sanitizeMetadata": true },
+      { "sanitizeMetadata": true, "methods": { "person": "tokenize" } }
+    ]
+  }
   ```
-  `imageStyle` is `solid` | `blur` | `pixelate`.
-- **Response `200`:**
+  `imageStyle` is `solid` | `blur` | `pixelate`. `methods` asks for a method by
+  category, overriding what each redaction carries; keys are
+  `REDACTION_CATEGORIES` and values `REDACTION_METHODS`. An override for a
+  mask-only category parses fine and then resolves to a mask — the schema
+  checks that the strings are ours, the policy decides whether the answer is
+  defensible.
+
+  `variants` asks for more than one output from one review, up to four. Each is
+  a full pass with its own artifact, verification and report. Omit it and the
+  body is read as a single variant, which is what an older client sends.
+- **Response `200`:** the first variant's fields, plus every variant under
+  `artifacts`:
   ```json
   {
     "artifactId": "art_...",
+    "variant": "redacted",
     "checksum": "sha256...",
     "size": 98765,
     "appliedRedactions": 12,
     "metadataSanitized": true,
-    "verifiedValues": [...],
+    "verifiedValues": 12,
     "downloadUrl": "/api/documents/<id>/download?token=<token>",
     "reportUrl": "/api/documents/<id>/download?token=<token>&part=report",
-    "report": { ... }
+    "report": { ... },
+    "vault": null,
+    "artifacts": [ { "...": "one entry per variant" } ]
   }
   ```
-  `downloadUrl` and `reportUrl` carry the same short-lived signed token.
+  Each artifact's `downloadUrl` and `reportUrl` carry its own short-lived signed
+  token.
+
+  `vault` is non-null when that variant tokenized or encrypted something. It is
+  returned **inline and stored nowhere** — not in the database, not in blob
+  storage — because it holds the original values and the key that recovers
+  them. There is no URL for it and no way to ask for it again: the client saves
+  it or it is gone. That is also why Anonify cannot reverse an `encrypt` export.
 - **Errors:** `409` document is not ready; `500` the generated document did
   not pass verification (not saved), **or** the export report did not pass
   verification (not saved); `429` export rate limit.
+
+### `POST /api/restore`
+
+Puts the values back: upload a tokenized or encrypted export together with the
+vault that came with it, and get the original document in the response body.
+
+Takes no document id and stores nothing — not the upload, not the vault, not
+the result. The reviewer holds both halves, and a version that worked from
+stored state would be a version where Anonify could reverse the redaction
+without them.
+
+- **Auth:** session
+- **Rate limit:** `export`
+- **Body:** `multipart/form-data` with `file` (the redacted document) and
+  `vault` (the JSON downloaded with it).
+- **Response `200`:** the restored bytes, as `Content-Type` of the detected
+  format with `Content-Disposition: attachment`. Three headers carry the
+  outcome: `X-Restored-Values`, `X-Unresolved-Values`, and `X-Vault-Matches`
+  (whether the vault names this exact artifact — reported rather than
+  enforced, because a restore run with the wrong vault produces plausible
+  nonsense rather than an error).
+- **Errors:** `400` no file, no vault, or a vault that does not parse; `413`
+  either file too large; `415` unrecognised file type; `422` the format cannot
+  be restored (a PDF or an image was rasterised, so its surrogates are pixels),
+  nothing in the document matches the vault, or the vault has no key for the
+  ciphertexts in it; `429` export rate limit.
+
+A pseudonymized value never comes back. There is no mapping, anywhere, which is
+the whole difference between `pseudonymize` and `tokenize`.
 
 ---
 
