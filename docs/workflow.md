@@ -121,6 +121,25 @@ docs did not:
 
 ## 3. The steps
 
+```mermaid
+flowchart TD
+    Q["publishStatus: queued"] --> ING["ingestUpload<br/>fetch, sniff, checksum, seal, delete the plaintext"]
+    ING --> ATT{"a message with<br/>attachments?"}
+    ATT -- yes --> CH["expandAttachments<br/>each attachment becomes a document with its own run"]
+    ATT -- no --> EX
+    CH --> EX["extractAndNormalize<br/>re-verify the checksum, dispatch to the format pipeline,<br/>charge the allowance once"]
+    EX --> AN["analyze<br/>detectors → contextual pass → expand<br/>every result written with status suggested"]
+    AN --> FIN["finish<br/>terminal status, last event, stream closed"]
+    ING -. throws .-> F["fail<br/>an error category in the log and a short message<br/>on the row — never the document's content"]
+    EX -. throws .-> F
+    AN -. throws .-> F
+    FIN --> DONE(["status: ready"])
+    F --> STOP(["status: failed"])
+```
+
+Each box is a `"use step"` function: retried on its own, its result persisted,
+so a replay resumes at the first one that has not completed.
+
 ### `ingestUpload` — take ownership of the bytes
 
 The browser uploaded straight to Blob storage, so this is the first moment the
@@ -230,10 +249,19 @@ connection resumes rather than replaying the run or missing its middle.
 Events carry ids, stages, counts and durations. They never carry document text —
 the stream is a progress channel, not a data channel.
 
-```
-document.queued → document.extracting → document.normalizing
-  → document.ai.started → document.ai.progress ×N
-  → document.redaction.created → document.ready | document.failed
+```mermaid
+stateDiagram-v2
+    [*] --> queued: document.queued
+    queued --> extracting: document.extracting
+    extracting --> normalizing: document.normalizing
+    normalizing --> analyzing: document.ai.started
+    analyzing --> analyzing: document.ai.progress ×N
+    analyzing --> ready: document.redaction.created<br/>then document.ready
+    extracting --> failed: document.failed
+    normalizing --> failed: document.failed
+    analyzing --> failed: document.failed
+    ready --> [*]
+    failed --> [*]
 ```
 
 ### Event shapes

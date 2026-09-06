@@ -28,41 +28,48 @@ A few properties are worth keeping in mind before reading the tables:
 
 ## 1. Entity-relationship overview
 
+```mermaid
+erDiagram
+    Batch ||--o{ Document : groups
+    Batch ||--o{ BatchRule : "carries decisions across files"
+    Batch ||--o{ BatchExport : "one archive run"
+    Document ||--o{ Document : "Attachments — parentDocumentId"
+    Document ||--o{ Redaction : "suggested / accepted / rejected"
+    Document ||--o{ GlobalRule : "applied everywhere"
+    Document ||--o{ ProcessingEvent : "run history"
+    Document ||--o{ ExportArtifact : "generated outputs"
+    Document ||--o{ AiUsage : "tokens — unenforced documentId"
+
+    Document {
+        string id PK
+        string status "queued to ready, or failed"
+        string batchId FK
+        string parentDocumentId FK
+        json metadata
+    }
+    Redaction {
+        string id PK
+        string documentId FK
+        string status "the exporter reads accepted only"
+    }
+    Setting {
+        string key PK
+        json value "written by the rate-limit CLI"
+    }
+    RateLimit {
+        string key PK
+        int tokens "token bucket"
+    }
+    UsageRecord {
+        string fingerprint PK
+        string date PK
+        int used "daily quota"
+    }
 ```
-                         ┌──────────────────────┐
-                         │       Setting        │  key → JSON value
-                         │  (rate-limit CLI)    │
-                         └──────────────────────┘
 
-                         ┌──────────────────────┐
-                         │      RateLimit       │  token bucket
-                         │  key → tokens, ts    │
-                         └──────────────────────┘
-
-                         ┌──────────────────────┐
-                         │     UsageRecord      │  daily quota, per fingerprint
-                         │  fingerprint + date  │
-                         └──────────────────────┘
-
-  ┌──────────┐  1—N   ┌────────────────┐  1—N   ┌────────────────────┐
-  │  Batch   │◀───────│   Document     │────────▶│  Redaction         │
-  │          │        │  (parent ◀──┐) │        └────────────────────┘
-  │          │        │             │  │  1—N   ┌────────────────────┐
-  │          │        │             │  │────────▶│  GlobalRule        │
-  └────┬─────┘        │             │  │        └────────────────────┘
-       │ 1—N          │             │  │  1—N   ┌────────────────────┐
-       ▼              │             │  │────────▶│  ProcessingEvent   │
-  ┌──────────┐        │             │  │        └────────────────────┘
-  │BatchRule │        │             │  │  1—N   ┌────────────────────┐
-  └──────────┘        │             │  │────────▶│  ExportArtifact    │
-       │ 1—N          │             │  │        └────────────────────┘
-       ▼              └──────┬──────┘  │
-  ┌──────────┐    N—1 (self) │  1—N   ┌────────────────────┐
-  │BatchExport│◀─────────────┘────────▶│      AiUsage       │
-  └──────────┘   "Attachments"         └────────────────────┘
-                 (parentDocumentId,
-                  sourcePartPath unique)
-```
+`Setting`, `RateLimit` and `UsageRecord` are operational tables with no foreign
+key to a document; `AiUsage` carries a `documentId` for telemetry that the
+schema does not enforce.
 
 A `Document` is the hub. Most other tables hang off `documentId` and cascade on
 delete, so a document that is purged takes its redactions, rules, events,

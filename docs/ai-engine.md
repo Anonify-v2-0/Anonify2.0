@@ -16,39 +16,21 @@ Two ideas run through this whole layer:
 
 ## 1. The pipeline
 
+```mermaid
+flowchart TD
+    N["Normalized document"] --> D1["1 · DETERMINISTIC DETECTORS<br/>email, phone, Luhn-checked cards, valid SSNs, IBANs,<br/>credentials, label-gated dates and accounts<br/>free, reproducible, no tokens"]
+    D1 -- "candidates + an already-found list" --> D2["2 · CLASSIFY<br/>type, language, likely density — one small sample"]
+    D2 --> D3["3 · CONTEXTUAL DETECTION<br/>names, prose addresses, roles, health, confidential<br/>chunked, ≤4 concurrent"]
+    D3 --> D4["4 · VERIFY<br/>is this labelled number really an account number?<br/>one batched call for the shaky categories"]
+    D4 --> D5["5 · EXPAND<br/>occurrence 2..n of a value already judged<br/>string search — no tokens"]
+    D5 --> P["deduplicate → persist as SUGGESTIONS"]
+    P --> H{"a person accepts<br/>or rejects"}
+    H -- accepted --> R["the exporter removes it"]
+    H -- "rejected, or never decided" --> K["it stays in the document"]
 ```
-normalized document
-      │
-      ▼
-┌──────────────────┐   free, reproducible, no tokens
-│ 1. DETERMINISTIC │   email, phone, Luhn-checked cards, valid SSNs,
-│    DETECTORS     │   IBANs, credentials, label-gated dates and accounts
-└────────┬─────────┘
-         │  candidates + "already found" list
-         ▼
-┌──────────────────┐   one small sample
-│ 2. CLASSIFY      │   type, language, likely density
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐   chunked, ≤4 concurrent
-│ 3. CONTEXTUAL    │   names, prose addresses, roles, health, confidential
-│    DETECTION     │   ("do not repeat what pattern matching already found")
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐   one batched call for the shaky categories
-│ 4. VERIFY        │   "is this labelled number really an account number?"
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐   string search — no tokens
-│ 5. EXPAND        │   occurrence 2..n of a value already judged
-└────────┬─────────┘
-         │
-         ▼
-    deduplicate → persist as SUGGESTIONS
-```
+
+Steps 1 and 5 cost nothing. Steps 2 to 4 are the only ones that spend tokens,
+and step 3 is told not to repeat what pattern matching already found.
 
 ### Cost, concretely
 

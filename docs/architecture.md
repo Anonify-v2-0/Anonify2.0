@@ -14,24 +14,16 @@ Everything below exists to make that claim true and to make it checkable.
 The system keeps four things separate, and most of its correctness comes from
 refusing to blur them.
 
-```
-┌─ A ─ SOURCE ────────────────────────────────────────────────┐
-│  The uploaded bytes. Sealed, checksummed, never mutated.     │
-└──────────────────────────────┬───────────────────────────────┘
-                               │ extract
-┌─ B ─ NORMALIZED ─────────────▼───────────────────────────────┐
-│  Pages, spans with geometry, runs, sheets, regions.          │
-│  One vocabulary for every format.                            │
-└──────────────────────────────┬───────────────────────────────┘
-                               │ detect
-┌─ C ─ REDACTIONS ─────────────▼───────────────────────────────┐
-│  suggested → accepted / rejected.                            │
-│  The record of intent. The only source of truth.             │
-└──────────────────────────────┬───────────────────────────────┘
-                               │ apply (A + accepted C)
-┌─ D ─ OUTPUT ─────────────────▼───────────────────────────────┐
-│  A new document. Verified, checksummed, then delivered.      │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A["A · SOURCE<br/>The uploaded bytes.<br/>Sealed, checksummed, never mutated."]
+    B["B · NORMALIZED<br/>Pages, spans with geometry, runs, sheets, regions.<br/>One vocabulary for every format."]
+    C["C · REDACTIONS<br/>suggested → accepted / rejected.<br/>The record of intent. The only source of truth."]
+    D["D · OUTPUT<br/>A new document.<br/>Verified, checksummed, then delivered."]
+    A -- extract --> B
+    B -- detect --> C
+    C -- "apply: A + accepted C" --> D
+    A -. "read on every export, never edited" .-> D
 ```
 
 | Layer | Lives in | Notes |
@@ -60,34 +52,30 @@ export untouched, and there is a test asserting exactly that.
 
 ## 2. Request paths
 
-```
-BROWSER                    SERVER                      DURABLE RUN
-   │
-   │ POST /api/documents        reserve, quota, rate limit
-   │──────────────────────────▶ creates row (status: uploading)
-   │◀────────────────────────── { id, pathname }
-   │
-   │ POST /api/upload/token     validate path ownership
-   │──────────────────────────▶ sign scoped token
-   │◀────────────────────────── token
-   │
-   │ upload() ─────────────────────────────────▶ VERCEL BLOB
-   │                                              (file never
-   │                                               passes through
-   │                                               a function)
-   │
-   │ POST /api/documents/:id/process
-   │──────────────────────────▶ start(processDocument) ─────▶ ingest
-   │◀────────────────────────── { runId }                     extract
-   │                                                          normalize
-   │ GET  /api/documents/:id/stream                           detect
-   │══════════════════════════▶ SSE ◀═══════════════════════ progress
-   │                                                          events
-   │ (review: accept / reject / manual / rules)
-   │
-   │ POST /api/documents/:id/export
-   │──────────────────────────▶ build plan → generate → VERIFY
-   │◀────────────────────────── signed short-lived download URL
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Browser
+    participant S as Server routes
+    participant BL as Blob storage
+    participant W as Durable run
+
+    B->>S: POST /api/documents
+    Note right of S: reserve, quota, rate limit<br/>row created with status uploading
+    S-->>B: id + pathname
+    B->>S: POST /api/upload/token
+    Note right of S: validate path ownership
+    S-->>B: scoped upload token
+    B->>BL: upload the file directly, never through a function
+    B->>S: POST /api/documents/:id/process
+    S->>W: start processDocument
+    S-->>B: runId
+    B->>S: GET /api/documents/:id/stream
+    W-->>B: SSE progress — ingest, extract, normalize, detect
+    Note over B: review: accept · reject · manual · rules
+    B->>S: POST /api/documents/:id/export
+    Note right of S: build plan → generate → VERIFY
+    S-->>B: signed, short-lived download URL
 ```
 
 ### Why uploads go browser → Blob
@@ -151,12 +139,20 @@ reported as **404**, not 403, so ownership is not probeable by id.
 
 Envelope encryption, everywhere bytes are stored:
 
-```
-random 256-bit data key  ──seals──▶  document bytes      (AES-256-GCM)
-                                     normalized model
-                                     each export
-        │
-        └──sealed by──▶  master key (ENCRYPTION_KEY)  ──▶  stored in DB
+```mermaid
+flowchart LR
+    MK["Master key<br/>ENCRYPTION_KEY, server-held"]
+    DK["Random 256-bit data key<br/>one per document"]
+    ROW["Wrapped key on the document row"]
+    SRC["Document bytes"]
+    NRM["Normalized model"]
+    EXP["Each export"]
+
+    DK -- "AES-256-GCM" --> SRC
+    DK -- "AES-256-GCM" --> NRM
+    DK -- "AES-256-GCM" --> EXP
+    MK -- seals --> DK
+    DK --> ROW
 ```
 
 Every document gets its own data key. The key is random — never derived from an

@@ -40,6 +40,30 @@ for XLSX, CSV and TSV; pages of extracted text for TXT and RTF; slides for
 PPTX; kibibytes of decoded text for EML; one per image. Counting an email as a
 page would charge a one-line reply the same as a forwarded thread.
 
+The shape every one of them shares:
+
+```mermaid
+flowchart TB
+    SRC["Sealed source bytes — layer A"] --> KIND["lib/documents/formats.ts<br/>the sniffed kind chooses the pipeline"]
+    KIND --> PDF["pdf<br/>pages, spans, OCR for scans"]
+    KIND --> OOX["docx · pptx · xlsx<br/>OOXML package surgery"]
+    KIND --> GRD["csv · tsv<br/>a parsed grid, cell by cell"]
+    KIND --> TXT["txt · rtf<br/>offsets into an atom map"]
+    KIND --> EML["eml<br/>headers, every body, nested messages"]
+    KIND --> IMG["png · jpeg · webp<br/>pixels and metadata"]
+    PDF --> NORM
+    OOX --> NORM
+    GRD --> NORM
+    TXT --> NORM
+    EML --> NORM
+    IMG --> NORM["One normalized model<br/>pages, spans with geometry, runs, sheets, regions"]
+    NORM --> ACC["Accepted redactions only"]
+    ACC --> OUT["A format-native export, generated from the original source"]
+    OUT --> VER{"Re-opened and read<br/>the way an adversary would"}
+    VER -- "an accepted value survived" --> REF["Export refused<br/>no file stored, no link issued"]
+    VER -- "nothing recoverable" --> DEL["Checksummed, sealed,<br/>signed short-lived download"]
+```
+
 ---
 
 ## PDF — the format that cannot be faked
