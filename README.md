@@ -446,6 +446,33 @@ block covers the whole block, because a proportional slice of a wrapped
 paragraph would be a rectangle in the wrong place. Mistral reads difficult scans
 better; Tesseract redacts more precisely and needs no account.
 
+### The OCR model, not just the engine
+
+Choosing the engine and choosing the model it reads with are separate decisions,
+and both are configuration. Every value below is checked against a fixed list
+when it is read, because these end up in a compose file, where free text turns a
+typo into a container that builds, starts, accepts an upload and then fails on
+the first scanned page.
+
+| Variable | Options | Default |
+| --- | --- | --- |
+| `OCR_TESSERACT_MODEL` | `fast` (~2 MB), `standard` (~3 MB), `best` (~13 MB) | `standard` — what tesseract.js ships with |
+| `OCR_TESSERACT_LANGUAGE` | `eng`, `deu`, `fra`, `spa`, `ita`, `por`, `nld`, `pol`, `rus`, `tur`, `ara`, `hin`, `jpn`, `kor`, `chi_sim` — join with `+` | `eng` |
+| `MISTRAL_OCR_MODEL` | `mistral-ocr-latest`, `mistral-ocr-2505` | `mistral-ocr-latest` |
+
+`fast` trades accuracy on poor scans for speed and size; `best` is the float
+model and is the one to reach for when a scan is genuinely difficult. Each
+variant caches in its own directory under `TESSERACT_CACHE_PATH`, so switching
+actually switches rather than continuing to read with the model already on disk.
+`pnpm ocr:warm` downloads whatever is configured, up front, rather than in the
+middle of somebody's first redaction.
+
+Only languages present in every variant are listed, so changing the variant can
+never leave you without the data for the language you chose. Note that
+*detection* is still English-shaped
+([#43](https://github.com/nabeel-w/Anonify2.0/issues/43)) — this makes the page
+readable, which is the half that has to work first.
+
 ### AI detection, model, and cost
 
 The contextual pass is optional and off without `AI_GATEWAY_API_KEY`. Two
@@ -462,6 +489,49 @@ Prices change and differ per account, so they are not hardcoded — leave
 `AI_PRICE_*` unset and the UI reports tokens and duration only, never a dollar
 figure. Set them and the run report shows an estimated cost alongside the token
 count.
+
+### External service limits
+
+Two of the services this app depends on belong to somebody else. Mistral meters
+OCR requests per second; the AI Gateway meters **spend** — a credit balance, not
+a requests-per-minute number — with the model provider behind it still free to
+return a 429 of its own. Neither ceiling is yours to raise, and the only thing
+you control is how hard this instance pushes at it.
+
+This is the opposite direction from the rate limits below. Those ration callers
+arriving here, and being refused is the answer. These pace this instance
+arriving somewhere *else*, where refusing is not an option — the document is
+already uploaded — so a request that arrives too early waits instead.
+
+| Variable | What it bounds | Default |
+| --- | --- | --- |
+| `ANONIFY_AI_CONCURRENCY` | Gateway calls in flight, across every document | `4` |
+| `ANONIFY_AI_REQUESTS_PER_MINUTE` | Sustained gateway rate; `0` paces nothing | `0` |
+| `ANONIFY_AI_MAX_ATTEMPTS` | Tries per call before it is given up | `4` |
+| `ANONIFY_OCR_CONCURRENCY` | Hosted-OCR requests in flight | `2` |
+| `ANONIFY_OCR_REQUESTS_PER_MINUTE` | Sustained hosted-OCR rate | `60` |
+| `ANONIFY_OCR_MAX_ATTEMPTS` | Tries per page before the step fails | `4` |
+| `ANONIFY_AI_DAILY_SPEND_USD` | USD per UTC day; `0` is no cap | `0` |
+
+The OCR pair applies only to a hosted engine — Tesseract runs on your machine
+and answers to no limit. Unlike every other limit here these are **not**
+per-profile: they describe someone else's service, and an account's ceiling is
+the same whether a shared demo or a laptop is calling it.
+
+Two mechanisms sit behind them, and they are not the same thing. **Pacing** holds
+a request back until the bucket can afford it, so a limit you know about is never
+hit. **Retrying** handles the one you did not: a `429`, a `5xx` or a timeout is
+tried again with jitter, honouring `Retry-After`; a `401`, `402` or `403` is not
+retried at all, because no number of tries fixes a bad key or an empty balance.
+
+`ANONIFY_AI_DAILY_SPEND_USD` is the gateway's real ceiling, estimated from the
+token counts already recorded on every call and the `AI_PRICE_*` rates. At 80%
+the gateway drops to one call at a time; at 100% the contextual pass is skipped
+for the rest of the day and pattern detection, manual redaction, rules and
+export all carry on — and the document **says so**, in its usage panel, rather
+than looking finished. Without `AI_PRICE_*` no spend can be estimated, and the
+app says that in the log rather than pretending to enforce a cap it cannot
+compute.
 
 ### Test database
 

@@ -3,6 +3,11 @@ import type { z } from "zod"
 
 import { newUsageId } from "@/lib/documents/ids"
 import { prisma } from "@/lib/database/prisma"
+import {
+  classifyServiceError,
+  runThrottled,
+  type ServiceErrorKind,
+} from "@/lib/services/throttle"
 
 /**
  * The model layer.
@@ -35,8 +40,13 @@ export type StructuredCall<T> = {
   maxRetries?: number
 }
 
+/** Why a call produced nothing, when it did. */
+export type StructuredSkip = "not-configured" | ServiceErrorKind
+
 export type StructuredResult<T> = {
   output: T | null
+  /** Set only when `output` is null, and always set when it is. */
+  skipped?: StructuredSkip
   inputTokens: number
   outputTokens: number
   durationMs: number
@@ -48,6 +58,18 @@ export type StructuredResult<T> = {
  * A provider error returns null rather than throwing: detection is an assist,
  * and losing it must never cost the user the document they uploaded. The
  * deterministic detectors have already run by this point.
+ *
+ * What it no longer does is lose the *reason*. A rate limit, an empty balance,
+ * a bad key and a malformed response all used to arrive at the caller as the
+ * same silent null, so a document reviewed against pattern matching alone was
+ * indistinguishable from one the model had genuinely found nothing in. Silently
+ * doing less redaction than the user believes they asked for is the failure
+ * this whole codebase exists to prevent; `skipped` is how the caller can say so.
+ *
+ * The call itself goes through the shared gate: paced under the configured
+ * concurrency and rate, and retried on the failures where retrying can work.
+ * The AI SDK's own `maxRetries` is left at 0 by default so the two schedules
+ * cannot compound into a wait nobody chose.
  */
 export async function runStructured<T>(
   call: StructuredCall<T>
@@ -56,29 +78,37 @@ export async function runStructured<T>(
   const model = resolveModel()
 
   if (!aiConfigured()) {
-    return { output: null, inputTokens: 0, outputTokens: 0, durationMs: 0 }
+    return {
+      output: null,
+      skipped: "not-configured",
+      inputTokens: 0,
+      outputTokens: 0,
+      durationMs: 0,
+    }
   }
 
   try {
-    const result = await generateText({
-      model,
-      system: call.system,
-      maxRetries: call.maxRetries ?? 2,
-      output: Output.object({ schema: call.schema }),
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: call.prompt },
-            ...(call.images ?? []).map((image) => ({
-              type: "file" as const,
-              data: image.data,
-              mediaType: image.mediaType,
-            })),
-          ],
-        },
-      ],
-    })
+    const result = await runThrottled("ai", { label: call.task }, () =>
+      generateText({
+        model,
+        system: call.system,
+        maxRetries: call.maxRetries ?? 0,
+        output: Output.object({ schema: call.schema }),
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: call.prompt },
+              ...(call.images ?? []).map((image) => ({
+                type: "file" as const,
+                data: image.data,
+                mediaType: image.mediaType,
+              })),
+            ],
+          },
+        ],
+      })
+    )
 
     const durationMs = Date.now() - startedAt
     const inputTokens = result.usage?.inputTokens ?? 0
@@ -95,6 +125,8 @@ export async function runStructured<T>(
 
     return { output: result.output, inputTokens, outputTokens, durationMs }
   } catch (error) {
+    const failure = classifyServiceError(error)
+
     // Log the shape of the failure, never the prompt: it contains document text.
     console.error(
       JSON.stringify({
@@ -104,11 +136,12 @@ export async function runStructured<T>(
         task: call.task,
         model,
         durationMs: Date.now() - startedAt,
-        errorCategory: categorizeAiError(error),
+        errorCategory: failure.kind,
       })
     )
     return {
       output: null,
+      skipped: failure.kind,
       inputTokens: 0,
       outputTokens: 0,
       durationMs: Date.now() - startedAt,
@@ -116,13 +149,9 @@ export async function runStructured<T>(
   }
 }
 
-function categorizeAiError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  if (/rate.?limit|429/i.test(message)) return "rate-limit"
-  if (/timeout|ETIMEDOUT|aborted/i.test(message)) return "timeout"
-  if (/401|403|api.?key|unauthor/i.test(message)) return "authorization"
-  if (/schema|validat|parse/i.test(message)) return "invalid-output"
-  return "provider"
+/** Whether a skip is worth telling the reviewer about, or merely how it is. */
+export function skipIsFailure(skip: StructuredSkip | undefined): boolean {
+  return skip !== undefined && skip !== "not-configured"
 }
 
 export async function recordUsage(usage: {

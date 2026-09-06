@@ -34,6 +34,16 @@ export type ProcessingEventType =
   | "document.attachments.expanded"
   | "document.ai.started"
   | "document.ai.progress"
+  /**
+   * The model pass did less than it set out to — a rate limit it could not wait
+   * out, an empty balance, a bad key. Carries the reason and how many calls
+   * were lost, never a prompt or a document's text.
+   *
+   * It exists because losing the contextual pass is invisible otherwise: a
+   * document reviewed against pattern matching alone finishes, goes ready, and
+   * looks exactly like one the model genuinely found nothing in.
+   */
+  | "document.ai.degraded"
   | "document.redaction.created"
   | "document.rendering"
   | "document.ready"

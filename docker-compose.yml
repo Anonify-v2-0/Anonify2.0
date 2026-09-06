@@ -139,6 +139,25 @@ services:
       OCR_PROVIDER: ${OCR_PROVIDER:-tesseract}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
 
+      # Which model each engine reads with. Both are validated against a fixed
+      # list at startup, so a typo here is an error with a list of the valid
+      # values rather than a 404 from a CDN on the first scanned page.
+      #
+      #   OCR_TESSERACT_MODEL     fast | standard | best
+      #   OCR_TESSERACT_LANGUAGE  eng, deu, fra, … (join with +, as in eng+deu)
+      #   MISTRAL_OCR_MODEL       mistral-ocr-latest | mistral-ocr-2505
+      OCR_TESSERACT_MODEL: ${OCR_TESSERACT_MODEL:-}
+      OCR_TESSERACT_LANGUAGE: ${OCR_TESSERACT_LANGUAGE:-}
+      MISTRAL_OCR_MODEL: ${MISTRAL_OCR_MODEL:-}
+
+      # The volume below, so the model survives a container restart.
+      #
+      # It was never set, which meant the volume was mounted and then ignored:
+      # the cache fell back to the working directory inside the image and every
+      # restart re-downloaded the model. Harmless enough at 3 MB, and not at all
+      # harmless at 13 MB per language with OCR_TESSERACT_MODEL=best.
+      TESSERACT_CACHE_PATH: ${TESSERACT_CACHE_PATH:-/data/tesseract}
+
       # Optional. Without a key the contextual pass is skipped and pattern
       # detection, manual redaction and export all still work.
       AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
@@ -146,13 +165,34 @@ services:
       AI_PRICE_INPUT_PER_MTOK: ${AI_PRICE_INPUT_PER_MTOK:-}
       AI_PRICE_OUTPUT_PER_MTOK: ${AI_PRICE_OUTPUT_PER_MTOK:-}
 
+      # Pacing for the services this install does not own. The other direction
+      # from the rate limits above: those ration callers arriving here, these
+      # pace this instance arriving somewhere else, where being refused costs a
+      # page of somebody's document rather than producing a tidy 429.
+      #
+      # The OCR pair applies only to a hosted engine. Tesseract runs in this
+      # container and answers to no limit.
+      ANONIFY_AI_CONCURRENCY: ${ANONIFY_AI_CONCURRENCY:-}
+      ANONIFY_AI_REQUESTS_PER_MINUTE: ${ANONIFY_AI_REQUESTS_PER_MINUTE:-}
+      ANONIFY_AI_MAX_ATTEMPTS: ${ANONIFY_AI_MAX_ATTEMPTS:-}
+      ANONIFY_OCR_CONCURRENCY: ${ANONIFY_OCR_CONCURRENCY:-}
+      ANONIFY_OCR_REQUESTS_PER_MINUTE: ${ANONIFY_OCR_REQUESTS_PER_MINUTE:-}
+      ANONIFY_OCR_MAX_ATTEMPTS: ${ANONIFY_OCR_MAX_ATTEMPTS:-}
+
+      # The gateway meters spend rather than requests, so this is the ceiling
+      # that is actually there. USD per UTC day, estimated from the prices
+      # above — without those it cannot be enforced and the app says so.
+      ANONIFY_AI_DAILY_SPEND_USD: ${ANONIFY_AI_DAILY_SPEND_USD:-}
+
       # NODE_ENV is production in the image, so the cleanup endpoint refuses
       # every request that does not carry this. Leave it unset and the sweep
       # simply will not run.
       CRON_SECRET: ${CRON_SECRET:-}
     volumes:
-      # Tesseract downloads its ~5 MB language model on first use. Without this
-      # the download repeats on every container restart.
+      # Tesseract downloads its language model on first use — a few megabytes
+      # for the default variant, more for `best`. Without this the download
+      # repeats on every container restart, and with OCR_TESSERACT_MODEL=best
+      # that is 13 MB per language, every time.
       - tesseract-cache:/data/tesseract
     restart: unless-stopped
 

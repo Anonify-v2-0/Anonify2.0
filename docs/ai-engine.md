@@ -125,6 +125,33 @@ Detection is an assist; losing it must never cost the user the document. Without
 `AI_GATEWAY_API_KEY` the whole layer short-circuits and the product still works:
 deterministic detection, manual redaction, global rules, and export all run.
 
+**But the reason is not lost.** `null` used to be the whole answer, and a rate
+limit, an empty balance, a bad key and a malformed response all arrived at the
+caller identically — so a document reviewed against pattern matching alone was
+indistinguishable from one the model genuinely found nothing in. That is this
+codebase's own worst failure mode arriving with a clean exit code. Every result
+now carries `skipped`, the analysis tallies them, and a run that fell short
+writes a `document.ai.degraded` event which the usage panel reads back and says
+out loud.
+
+**Paced, then retried.** `lib/services/throttle.ts` sits in front of every call.
+`ANONIFY_AI_CONCURRENCY` bounds how many are in flight *across every document* —
+it used to be a constant applied per document, so six documents at once meant
+twenty-four concurrent calls and the number the provider saw was one nobody had
+chosen. A `429`, `5xx` or timeout is retried with jitter, honouring
+`Retry-After`; a `401`, `402` or `403` is not retried at all, because no number
+of tries fixes a bad key or an empty balance.
+
+**A budget, because the gateway meters spend.** The AI Gateway has a credit
+balance and a budget rather than a requests-per-minute number, so the ceiling
+worth enforcing is one the application applies to itself before the money is
+spent. `ANONIFY_AI_DAILY_SPEND_USD` is estimated from the `AiUsage` rows written
+on every call and the `AI_PRICE_*` rates: at 80% the gateway drops to one call
+at a time, and at 100% the contextual pass is skipped for the rest of the UTC
+day — the same posture as no key at all, and said rather than swallowed. It is
+opt-in and defaults to no cap, because a budget nobody set must never silently
+stop a redaction, and an install without prices cannot have one at all.
+
 **Prompts are never logged.** They contain the document. Logs carry model, task,
 duration, token counts and an error category — nothing else.
 

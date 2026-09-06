@@ -1,3 +1,5 @@
+import { mistralOcrModel } from "@/lib/ocr/models"
+import { runThrottled } from "@/lib/services/throttle"
 import type {
   OcrProvider,
   OcrResult,
@@ -17,9 +19,14 @@ import type {
  * converted to the same top-left pixel space Tesseract reports, and the result
  * is labelled `block`, which tells the redaction geometry to cover the whole
  * block rather than guess at a slice of it.
+ *
+ * The third trade is that it is metered. One request per page, and a batch of
+ * scans produces them as fast as the loop can, so every call goes through the
+ * shared gate in lib/services/throttle.ts: paced under the configured rate, and
+ * retried on the 429 that arrives anyway. Without it a rate-limited page failed
+ * the whole extraction step, and the step-level retry re-ran the decrypt, the
+ * rasterisation and every page already read — into the same limit.
  */
-
-const MODEL = "mistral-ocr-latest"
 /** Mistral's confidence is per block when requested; treat blocks as reliable. */
 const BLOCK_CONFIDENCE = 90
 
@@ -88,30 +95,49 @@ export const mistralProvider: OcrProvider = {
   granularity: "block",
   local: false,
 
-  unavailableReason: () =>
-    apiKey()
-      ? null
-      : "MISTRAL_API_KEY is not set. Set it, or use OCR_PROVIDER=tesseract.",
+  unavailableReason: () => {
+    if (!apiKey()) {
+      return "MISTRAL_API_KEY is not set. Set it, or use OCR_PROVIDER=tesseract."
+    }
+    // Asked here rather than left to the first page: selection is where an
+    // unusable provider is meant to be reported, and a misspelled model that
+    // surfaces mid-document reads as the document being at fault.
+    try {
+      mistralOcrModel()
+      return null
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  },
 
   async start(): Promise<OcrSession> {
     const key = apiKey()
     if (!key) throw new Error("MISTRAL_API_KEY is not set")
 
     const { Mistral } = await import("@mistralai/mistralai")
-    const client = new Mistral({ apiKey: key })
+    // The SDK retries on its own schedule and knows nothing about the pacing
+    // above, so two independent backoffs would compound into a wait nobody
+    // chose. Retrying is the gate's job.
+    const client = new Mistral({ apiKey: key, retryConfig: { strategy: "none" } })
+    const model = mistralOcrModel()
 
     return {
       name: "mistral",
       granularity: "block",
 
       async recognize(bytes: Uint8Array): Promise<OcrResult> {
-        const response = await client.ocr.process({
-          model: MODEL,
-          document: { type: "image_url", imageUrl: dataUrl(bytes) },
-          // Blocks are the only geometry this API offers; without them a
-          // redaction would have text and nowhere to put it.
-          includeBlocks: true,
-        })
+        const response = await runThrottled(
+          "ocr",
+          { label: "mistral.ocr.process" },
+          () =>
+            client.ocr.process({
+              model,
+              document: { type: "image_url", imageUrl: dataUrl(bytes) },
+              // Blocks are the only geometry this API offers; without them a
+              // redaction would have text and nowhere to put it.
+              includeBlocks: true,
+            })
+        )
 
         const pages = (response.pages ?? []) as MistralPage[]
         const blocks = pages.flatMap((page) => page.blocks ?? [])

@@ -338,6 +338,18 @@ it exists to say retrying cannot help, and wrapping it would throw that away.
 The processing pipeline uses the same pacing (see §3 and
 `lib/workflows/process-document.ts`).
 
+**Not the right altitude for a rate limit.** Step retry re-runs a *whole step* —
+the decrypt, the rasterisation, every page already recognised — which is correct
+for a storage blip and wrong for a metered provider. A rate limit is a
+per-request condition, and re-running the same burst against a limit that exists
+*because* of the burst is the one response that reliably makes it worse. So
+requests to a service this install does not own go through
+`lib/services/throttle.ts` instead: paced under `ANONIFY_OCR_*` /
+`ANONIFY_AI_*` so a known limit is not hit, and retried per request — with
+jitter, honouring `Retry-After` — when one is hit anyway. The step-level pacing
+above still covers everything around them: storage, the database, rasterizing
+pages for the vision pass.
+
 Nothing about the browser is load-bearing. Closing the modal, reloading, or
 opening the batch on another device reads the same row, which is why the button
 can show `Exporting 3 of 8` while the window that started it is gone.

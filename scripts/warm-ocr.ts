@@ -3,10 +3,16 @@
  *
  *   pnpm ocr:warm
  *
- * tesseract.js fetches roughly 5 MB the first time it reads anything. Left to
- * happen on demand, that download lands in the middle of a user's first
+ * tesseract.js fetches several megabytes the first time it reads anything. Left
+ * to happen on demand, that download lands in the middle of a user's first
  * redaction and looks like the app has hung. Doing it during setup makes the
  * cost visible at a moment when waiting is expected.
+ *
+ * It warms *what is configured* — the variant chosen by OCR_TESSERACT_MODEL and
+ * every language in OCR_TESSERACT_LANGUAGE. Warming `eng` at the default
+ * variant regardless, which is what it used to do, is worse than not warming at
+ * all: it reports success, and then the first real page downloads the model
+ * that was actually needed anyway.
  *
  * Safe to run repeatedly: an already-cached model is not fetched again.
  */
@@ -17,9 +23,13 @@
 import "dotenv/config"
 
 import { existsSync } from "node:fs"
-import path from "node:path"
 
-import { cachePath } from "@/lib/ocr/tesseract"
+import {
+  TESSERACT_MODEL_DETAIL,
+  tesseractLanguageCodes,
+  tesseractModel,
+} from "@/lib/ocr/models"
+import { cacheDirectory, modelPath } from "@/lib/ocr/tesseract"
 import { selectOcrProvider } from "@/lib/ocr"
 
 async function main(): Promise<void> {
@@ -32,16 +42,22 @@ async function main(): Promise<void> {
     return
   }
 
-  const directory = cachePath()
-  const model = path.join(directory, "eng.traineddata")
+  const directory = cacheDirectory()
+  const variant = tesseractModel()
+  const languages = tesseractLanguageCodes()
+  const files = languages.map((language) => modelPath(language))
 
-  if (existsSync(model)) {
-    console.log(`\n  Already cached: ${model}\n`)
+  if (files.every((file) => existsSync(file))) {
+    console.log(`\n  Already cached: ${files.join(", ")}\n`)
     return
   }
 
-  console.log(`\n  Downloading the English model into ${directory} …`)
-  console.log("  About 5 MB, once.\n")
+  const { approxMb, summary } = TESSERACT_MODEL_DETAIL[variant]
+  console.log(
+    `\n  Downloading the ${variant} model for ${languages.join(", ")} into ${directory} …`
+  )
+  console.log(`  ${summary}`)
+  console.log(`  About ${approxMb} MB per language, once.\n`)
 
   const started = Date.now()
   const session = await provider.start()
@@ -69,7 +85,7 @@ async function main(): Promise<void> {
 
   const seconds = ((Date.now() - started) / 1000).toFixed(1)
   console.log(
-    existsSync(model)
+    files.every((file) => existsSync(file))
       ? `  Done in ${seconds}s. OCR will not need the network again.\n`
       : `  Finished in ${seconds}s, but no model was written to ${directory}.\n`
   )
