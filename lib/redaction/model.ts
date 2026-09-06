@@ -1,4 +1,5 @@
 import { newRedactionId } from "@/lib/documents/ids"
+import { isRedactionMethod } from "@/lib/redaction/methods"
 import type { Detection, Redaction, RedactionType } from "@/types/redaction"
 
 /**
@@ -54,6 +55,7 @@ export function toDatabaseRow(redaction: Redaction) {
     category: redaction.category,
     confidence: redaction.confidence ?? null,
     status: redaction.status,
+    method: redaction.method ?? null,
     page: redaction.page ?? null,
     text: redaction.text ?? null,
     startOffset: redaction.start ?? null,
@@ -80,6 +82,7 @@ type DatabaseRedaction = {
   category: string
   confidence: number | null
   status: string
+  method?: string | null
   page: number | null
   text: string | null
   startOffset: number | null
@@ -105,6 +108,9 @@ export function fromDatabaseRow(row: DatabaseRedaction): Redaction {
     category: row.category,
     confidence: row.confidence ?? undefined,
     status: row.status as Redaction["status"],
+    // Anything the column does not recognise is read as no method at all,
+    // which resolves to masking. A stored string is not a promise.
+    method: isRedactionMethod(row.method) ? row.method : undefined,
     page: row.page ?? undefined,
     text: row.text ?? undefined,
     start: row.startOffset ?? undefined,

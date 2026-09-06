@@ -17,6 +17,7 @@ import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { createBatchToken } from "@/lib/security/signed-url"
 import { exportBatch } from "@/lib/workflows/export-batch"
+import { REDACTION_METHODS } from "@/types/redaction"
 
 export const runtime = "nodejs"
 
@@ -24,6 +25,15 @@ const optionsSchema = z.object({
   addLabels: z.boolean().default(false),
   sanitizeMetadata: z.boolean().default(true),
   imageStyle: z.enum(["solid", "blur", "pixelate"]).default("solid"),
+  /** What happens to values in a file the reviewer did not decide about. */
+  method: z.enum(REDACTION_METHODS).default("mask"),
+  /**
+   * Per-file choice, keyed by document id. Ids that are not in this batch are
+   * ignored rather than refused: the run resolves the method per document it
+   * actually reaches, so a stale id from a document deleted between opening
+   * the dialog and pressing the button decides nothing.
+   */
+  methodByDocument: z.record(z.string(), z.enum(REDACTION_METHODS)).optional(),
 })
 
 /**

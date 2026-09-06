@@ -9,18 +9,51 @@ import {
 import { exportAndStore } from "@/lib/redaction/deliver"
 import { ExportVerificationError } from "@/lib/redaction/export"
 import { ReportLeakError } from "@/lib/redaction/report"
+import {
+  defaultVariant,
+  nameVariants,
+  MAX_VARIANTS,
+  type VariantSpec,
+} from "@/lib/redaction/variants"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { createDownloadToken } from "@/lib/security/signed-url"
+import { REDACTION_CATEGORIES, REDACTION_METHODS } from "@/types/redaction"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 
-const optionsSchema = z.object({
+/**
+ * Methods asked for by category.
+ *
+ * Nothing here decides whether the method is *allowed* — that is
+ * lib/redaction/methods.ts, asked again at export time — so an override for a
+ * mask-only category parses fine and then resolves to a mask. The schema's job
+ * is to make sure the strings are ours; the policy's job is to make sure the
+ * answer is defensible, and putting both here would give a client two places
+ * to be told no.
+ */
+const methodsSchema = z
+  .record(z.enum(REDACTION_CATEGORIES), z.enum(REDACTION_METHODS))
+  .optional()
+
+const variantSchema = z.object({
   addLabels: z.boolean().default(false),
   sanitizeMetadata: z.boolean().default(true),
   imageStyle: z.enum(["solid", "blur", "pixelate"]).default("solid"),
+  methods: methodsSchema,
+})
+
+/**
+ * One export, or several.
+ *
+ * `variants` is how a reviewer gets two outputs from one pass — an internal
+ * copy with names masked and a shareable one with them tokenised. Absent, the
+ * body is read as a single variant, which is what every existing client sends.
+ */
+const optionsSchema = variantSchema.extend({
+  variants: z.array(variantSchema).min(1).max(MAX_VARIANTS).optional(),
 })
 
 /**
@@ -42,18 +75,35 @@ export async function POST(
     const { id } = await context.params
     const identity = await peekIdentity()
 
-    const limit = await consumeRateLimit(
+    const document = await requireDocument(id, identity?.ownerKey)
+    const options = optionsSchema.parse(await request.json().catch(() => ({})))
+
+    const specs: VariantSpec[] = options.variants ?? []
+    const variants =
+      specs.length > 0 ? nameVariants(specs) : [defaultVariant(options)]
+
+    // Charged once per variant, before any work starts. Each one is a full
+    // pass over the document — its own plan, its own rasterisation, its own
+    // verification — so a four-variant export that spent one allowance would
+    // be four exports at the price of one, which is the shape of request
+    // somebody eventually notices. Refused whole rather than truncated to
+    // what the allowance covers: a reviewer who asked for a tokenised copy
+    // and silently got only the masked one has been told something untrue.
+    let limit = await consumeRateLimit(
       "export",
       identity?.networkKey ?? "anonymous"
     )
+    for (let taken = 1; limit.allowed && taken < variants.length; taken++) {
+      limit = await consumeRateLimit(
+        "export",
+        identity?.networkKey ?? "anonymous"
+      )
+    }
     if (!limit.allowed) {
       return rateLimitResponse(limit, "exports")
     }
 
-    const document = await requireDocument(id, identity?.ownerKey)
-    const options = optionsSchema.parse(await request.json().catch(() => ({})))
-
-    const outcome = await exportAndStore(document.id, options)
+    const outcome = await exportAndStore(document.id, variants)
     if (!outcome.ok) {
       return errorResponse("Document is not ready", 409)
     }
@@ -65,28 +115,44 @@ export async function POST(
         level: "info",
         context: "documents.export",
         documentId: document.id,
-        appliedRedactions: delivered.appliedRedactions,
-        checkedValues: delivered.verifiedValues,
-        size: delivered.size,
+        variants: delivered.artifacts.length,
+        appliedRedactions: delivered.primary.appliedRedactions,
+        checkedValues: delivered.primary.verifiedValues,
+        size: delivered.primary.size,
       })
     )
 
-    const token = createDownloadToken({
-      documentId: document.id,
-      artifactId: delivered.artifactId,
-      ownerKey: document.userFingerprint,
+    const described = delivered.artifacts.map((artifact) => {
+      const token = createDownloadToken({
+        documentId: document.id,
+        artifactId: artifact.artifactId,
+        ownerKey: document.userFingerprint,
+      })
+
+      return {
+        artifactId: artifact.artifactId,
+        variant: artifact.variant,
+        checksum: artifact.checksum,
+        size: artifact.size,
+        appliedRedactions: artifact.appliedRedactions,
+        verifiedValues: artifact.verifiedValues,
+        downloadUrl: `/api/documents/${document.id}/download?token=${token}`,
+        reportUrl: `/api/documents/${document.id}/download?token=${token}&part=report`,
+        report: artifact.report,
+        // Handed over inline and stored nowhere. It carries original values and
+        // the key that recovers them, so a link to it would be a link to the
+        // thing the export exists to remove — and would mean this server had
+        // written it down. The browser saves it or it is gone.
+        vault: artifact.vault,
+      }
     })
 
+    const [primary] = described
+
     return jsonResponse({
-      artifactId: delivered.artifactId,
-      checksum: delivered.checksum,
-      size: delivered.size,
-      appliedRedactions: delivered.appliedRedactions,
+      ...primary,
       metadataSanitized: options.sanitizeMetadata,
-      verifiedValues: delivered.verifiedValues,
-      downloadUrl: `/api/documents/${document.id}/download?token=${token}`,
-      reportUrl: `/api/documents/${document.id}/download?token=${token}&part=report`,
-      report: delivered.report,
+      artifacts: described,
     })
   } catch (error) {
     if (error instanceof ExportVerificationError) {

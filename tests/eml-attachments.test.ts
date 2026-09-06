@@ -504,7 +504,7 @@ describe("substituting a redacted attachment back into the message", () => {
     const exported = substitute(
       source,
       { "0.2": { action: "replace", bytes: redacted } },
-      { values: [EML.person] }
+      { values: [{ value: EML.person }] }
     )
 
     const disposition = headerOf(exported, "0.2", "content-disposition")
@@ -554,7 +554,7 @@ describe("a filename that is entirely redacted", () => {
       bytesOf(source),
       emptyPlan({
         // Every character of the name is an accepted value bar the extension.
-        values: [EML.person],
+        values: [{ value: EML.person }],
         attachments: { "0.2": { action: "replace", bytes: redacted } },
       })
     )

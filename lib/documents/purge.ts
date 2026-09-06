@@ -33,7 +33,16 @@ export type PurgeableDocument = {
   uploadBlobKey: string | null
   processedBlobKey: string | null
   normalizedBlobKey: string | null
-  exports: { blobKey: string; reportBlobKey?: string | null }[]
+  exports: {
+    blobKey: string
+    reportBlobKey?: string | null
+    /**
+     * The vault a batch export wrote. It carries the original values, so it is
+     * the one derived artifact whose survival past the document would matter
+     * most — it is listed here rather than left to a prefix sweep.
+     */
+    vaultBlobKey?: string | null
+  }[]
 }
 
 export const PURGE_SELECT = {
@@ -42,7 +51,9 @@ export const PURGE_SELECT = {
   uploadBlobKey: true,
   processedBlobKey: true,
   normalizedBlobKey: true,
-  exports: { select: { blobKey: true, reportBlobKey: true } },
+  exports: {
+    select: { blobKey: true, reportBlobKey: true, vaultBlobKey: true },
+  },
 } as const
 
 /** Removes the stored objects. Idempotent: an object already gone counts. */
@@ -57,6 +68,7 @@ export async function purgeStorage(
     ...document.exports.flatMap((artifact) => [
       artifact.blobKey,
       artifact.reportBlobKey ?? null,
+      artifact.vaultBlobKey ?? null,
     ]),
   ].filter((key): key is string => Boolean(key))
 

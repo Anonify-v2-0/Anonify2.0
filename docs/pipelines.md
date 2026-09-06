@@ -9,6 +9,11 @@ decisions and the reasoning behind them.
 Every pipeline produces the same normalized model and answers the same question
 at export time: **is the string actually gone?**
 
+Gone is not the same as *replaced by nothing* — see "What happens to a value"
+below. A redaction can leave a surrogate where the value was, and the question
+above is unchanged by that: a token is not the value, and the artifact is still
+re-opened and refused if the value survived.
+
 What a format *is* — its MIME types, its extensions, its quota unit, whether it
 is a package — lives in one place, `lib/documents/formats.ts`. The upload
 allow-list, the file picker's `accept`, the refusal message, the quota mapping
@@ -627,3 +632,197 @@ anybody has to answer.
 
 And every pipeline ends the same way: the artifact is re-opened, read
 adversarially, and refused if an accepted value survived.
+
+## What happens to a value
+
+`lib/redaction/methods.ts`, `lib/redaction/surrogates.ts`, `lib/redaction/vault.ts`
+
+Removal used to be the only answer. It is still the default and still the only
+one that needs no further trust, but it is not the only thing a reviewer can
+reasonably want done to a name — so an accepted redaction carries a **method**,
+drawn from a closed set.
+
+| Method | What happens to the bytes | Who can reverse it |
+| --- | --- | --- |
+| `mask` | The value is replaced by a label, or by nothing. | Nobody. |
+| `pseudonymize` | Replaced by a stable surrogate (`PERSON_014`), so the same value maps to the same surrogate throughout the document. | Nobody, including us. No mapping is kept anywhere. |
+| `tokenize` | The same surrogate, with the mapping written into a **vault** the reviewer downloads. | Whoever holds the vault. |
+| `encrypt` | Replaced by AES-256-GCM ciphertext under a key the reviewer downloads. | Whoever holds the key. |
+
+**What is not claimed.** None of these is anonymisation in any regulatory
+sense, and the copy does not say it is — the same discipline
+`lib/redaction/presets.ts` enforces on preset names, for the same reason.
+`pseudonymize` in particular is *not* anonymisation: a surrogate that is
+consistent across a file preserves equality, and equality is what somebody
+re-identifies by, joining it against anything else they hold. `tokenize` and
+`encrypt` are reversible by design, which is the opposite of anonymous.
+
+### Two gates, and both have to open
+
+A method is only offered when the **category** permits it and the **target**
+can carry a surrogate.
+
+The category gate is a table. `face`, `government-id`, `bank-account`,
+`financial` and `api-key` permit `mask` and nothing else: a pseudonymised
+government ID joins the same records the number did, and a face has no textual
+form to replace. `address` and `date-of-birth` permit `encrypt` but not the two
+surrogate methods, because a stable surrogate for a street or a birth date is a
+quasi-identifier — encryption keeps the field's position without keeping its
+power to link.
+
+The capability gate is about the bytes. A method other than `mask` has to
+actually put a surrogate somewhere, and a redaction that covers no text — a
+face, a whole column whose header the export deliberately keeps, a region OCR
+found nothing behind — has nowhere to put one. Masking is not the *default* in
+those cases; it is the only thing they have. This is asked before the choice is
+offered and asked again at export time, so a method that was valid when it was
+chosen and is not valid now resolves to a mask rather than to a substitution
+that cannot be made.
+
+### Where a surrogate goes, per format
+
+A format that holds characters gets the surrogate written exactly where the
+value was, in a form the next program to open the file can read and search:
+DOCX, PPTX, XLSX, CSV, TSV, TXT, RTF and EML all take this path, and for EML it
+reaches header values and filenames as well as bodies — pseudonymising a sender
+is the same operation as redacting one, with a different string going in.
+
+A **PDF or an image has no text stream left to write into.** A redacted PDF page
+is rasterised, which is exactly what makes the redaction real rather than a
+rectangle over recoverable glyphs. But the strip covering the value is a
+rectangle this pipeline draws, and it can be drawn *with the surrogate on it* —
+so a scanned contract or a photographed form gets the same vocabulary as a DOCX,
+which is the whole reason methods are not simply switched off for them. The text
+is shrunk to fit and dropped if it cannot be drawn legibly; a strip with an
+illegible smear on it reads as a rendering fault, while a plain strip reads as
+what it is.
+
+The one thing a strip cannot hold is a long string, so a raster `encrypt` paints
+a short reference (`ENC_007`) and the vault carries the ciphertext.
+
+### One method per value, not per redaction
+
+A method is chosen per suggestion in the inspector, but applied per **value**
+across the whole document. A document does not contain redactions; it contains
+occurrences of a string, and the safety sweep finds the ones in a hidden sheet,
+a speaker note or a quoted reply that nobody reviewed. If the same name were
+pseudonymised where it was reviewed and masked where it was swept, the export
+would silently break the join the pseudonym existed to preserve.
+
+Where the redactions covering one value disagree, the **strongest** wins, in
+this order: `mask`, `pseudonymize`, `encrypt`, `tokenize`. Masking something the
+reviewer asked to pseudonymise costs them a pseudonym; the other direction
+substitutes where they asked to remove.
+
+### The vault, and what is not stored
+
+The vault is a separate, labelled artifact — deliberately *not* the export
+report. The report is shown to someone who was not allowed to see the original,
+so it carries counts and never content, and `assertReportOmitsValues` enforces
+that. The vault is the opposite artifact: it exists to be kept by the one person
+allowed to reverse the substitution, and it carries exactly the material that
+makes that possible.
+
+It is returned inline in the export response and written nowhere — not to the
+database, not to blob storage. **Anonify cannot reverse an `encrypt` export**,
+and that is the design rather than a gap. A message and the attachments
+substituted into it share one key, so one vault opens the whole download.
+
+### Getting back
+
+`lib/redaction/restore.ts`, `POST /api/restore`, `/restore`
+
+Upload the exported document and its vault; get the original back. It is the
+same operation as an export with the direction reversed — every format's safety
+sweep already replaces a value wherever it occurs, which is exactly what a
+restore is — so nothing new had to be written per format.
+
+The route takes no document id and stores nothing. The reviewer holds both
+halves, and a version that remembered the export would be a version that could
+reverse it without them.
+
+Three things it does not do, stated rather than attempted: a PDF or an image
+cannot be restored (its surrogates are pixels); a message's attachments are
+restored on their own, with the same vault; and a pseudonymised value never
+comes back, because no mapping exists anywhere.
+
+### More than one output from one review
+
+`ExportOptions` carries per-category method overrides, and an export can ask for
+several **variants** — an internal copy with names masked and a shareable one
+with them tokenised, from one pass over the review.
+
+Each variant is a full pass: its own plan, its own artifact, its own
+verification and its own export report. Nothing is shared between them, because
+the only way to know an artifact is clean is to re-open *that* artifact and
+look, and sharing work would mean verifying one file and delivering another.
+Variant names are derived from the methods a variant applies rather than typed
+by the reviewer — the name reaches the report, and the report is the artifact
+that must never carry a free string.
+
+### A batch gets a method per file, not variants per file
+
+A batch produces **one artifact per document**, and the reviewer chooses what
+that artifact does to the values — per file. The contract tokenized, the
+invoices masked, the spreadsheet encrypted, in one run.
+
+Not one artifact per document per variant, and the reason is worth stating
+because it looks like a missing feature. Every variant is a full pass over the
+document, so four of them across a dozen files is forty-eight exports, for
+outputs most reviewers will never open. Worse, the archive names entries after
+the document (`contract-redacted.pdf`), so four variants would collide into
+`contract-redacted-2.pdf` and up — names that tell a reader nothing about which
+is the tokenized one — and `BatchReport.documents[]` is one row per document
+with one artifact checksum, so per-document totals would double-count.
+
+A reviewer who wants a second form of one file opens that file and exports it
+again, where variants do exist. That is cheaper for them and honest about what
+the archive can describe.
+
+`batchMethodFor()` in `lib/documents/batch-exports.ts` is the one place that
+resolves a document's method: its per-file entry, else the run's default, else
+`mask`. The run expands that into per-category overrides with
+`categoriesAllowing()`, so a file marked "tokenize" still gets its government
+ids removed — the category table wins, here as everywhere.
+
+### The one place a vault is stored
+
+A batch is the exception to "the vault is never written down", and the
+asymmetry is deliberate rather than an oversight.
+
+A single export hands the vault back in the response and stores nothing, which
+is what makes an `encrypt` export unreversible by this tool. A batch run
+finishes minutes after the request that started it and is collected as a zip
+later, so there is no response to hand anything back in. The vault is therefore
+sealed under the same per-document key as the artifact and its report
+(`vaultBlobKey` on `ExportArtifact`), shipped in the archive as
+`<name>-vault.json`, and purged by the same sweep that purges the document.
+
+The argument for accepting that: within the retention window the **source
+document itself** is already in that bucket under that key, so anyone who could
+read the vault could already read the original. Storing it grants no capability
+that was not already there, and past the window both are gone. What it does
+change is that the batch archive contains both the reversible file and the
+thing that reverses it, so the batch report says so in as many words and the
+export dialog says it before the run starts.
+
+A vault that fails its checksum at download time is left out of the archive
+rather than shipped: half a mapping restores half a document and a reviewer
+would have no way to tell which half. The file still goes in — it was verified
+on its own — and the batch report records which documents ended up with a
+vault.
+
+### What verification had to learn
+
+The gate is unchanged in substance: the artifact is re-opened and the accepted
+values must be absent. Every method satisfies that, because every one of them
+*replaces* the value.
+
+One thing did change. The strings this pipeline authored — surrogates and
+ciphertexts — are excised from the haystack before it is searched. A base64url
+ciphertext is long and arbitrary, and can contain the four letters of a short
+accepted value by coincidence; refusing a correct export over that would be the
+worst kind of false alarm, one that looks exactly like a leak. Excising them
+cannot hide a real leak, because none of those strings is derived from the value
+in a way that could reproduce it: a surrogate is a counter, and a ciphertext is
+indistinguishable from random without the key.

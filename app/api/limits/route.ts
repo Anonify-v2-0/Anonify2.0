@@ -1,5 +1,6 @@
 import { handleRouteError, jsonResponse } from "@/lib/api/http"
 import { peekIdentity } from "@/lib/security/fingerprint"
+import { batchLimits } from "@/lib/documents/batch-config"
 import { activeProfile, RATE_LIMIT_NAMES } from "@/lib/security/rate-limit-config"
 import { peekRateLimit } from "@/lib/security/rate-limit"
 import { usageSnapshot } from "@/lib/security/usage"
@@ -41,6 +42,10 @@ export async function GET() {
       profile: activeProfile(),
       rateLimits,
       quotas: await usageSnapshot(identity?.quotaKey),
+      // Read here rather than compiled into the bundle: a client component
+      // cannot see a server environment variable, so the browser has to ask
+      // what this deployment is actually configured for.
+      batch: batchLimits(),
     }
 
     return jsonResponse(report)

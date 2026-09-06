@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { activeProfile, PROFILES, type Profile } from "@/lib/config/profile"
 import { prisma } from "@/lib/database/prisma"
 
 /**
@@ -35,8 +36,11 @@ export type RateLimit = {
 
 export type RateLimits = Record<RateLimitName, RateLimit>
 
-export const PROFILES = ["demo", "self-hosted"] as const
-export type Profile = (typeof PROFILES)[number]
+// The profile itself lives in lib/config/profile.ts, which imports nothing:
+// asking what kind of install this is must not drag a database client along,
+// because settings read from inside a workflow function ask the same question.
+// Re-exported here because this is where callers have always looked.
+export { activeProfile, PROFILES, type Profile }
 
 /**
  * A shared anonymous demo: strict, because anyone can reach it.
@@ -79,11 +83,6 @@ const SELF_HOSTED_DEFAULTS: RateLimits = {
   processing: { limit: 300, windowSeconds: 60 },
   export: { limit: 120, windowSeconds: 60 },
   read: { limit: 2000, windowSeconds: 60 },
-}
-
-export function activeProfile(): Profile {
-  const raw = process.env.ANONIFY_PROFILE?.trim().toLowerCase()
-  return raw === "demo" ? "demo" : "self-hosted"
 }
 
 export function defaultsFor(profile: Profile): RateLimits {

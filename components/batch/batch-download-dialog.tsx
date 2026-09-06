@@ -20,7 +20,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import type { BatchExportControls } from "@/hooks/use-batch-export"
+import { BatchExportSetup } from "@/components/batch/batch-export-setup"
+import type {
+  BatchExportControls,
+  BatchStartOptions,
+} from "@/hooks/use-batch-export"
 import { isActiveExport } from "@/hooks/use-batch-export"
 import type { BatchExportDocument } from "@/lib/documents/batch-exports"
 import type { SkipReason } from "@/lib/redaction/archive"
@@ -117,24 +121,27 @@ function RowIcon({ document }: { document: BatchExportDocument }) {
 export function BatchDownloadDialog({
   open,
   onOpenChange,
+  batchId,
   controls,
   documentCount,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  batchId: string
   controls: BatchExportControls
   /** Known before a run exists, so the window can say what it is about to do. */
   documentCount?: number
 }) {
   const { state, loading, starting, cancelling, start, cancel } = controls
   const [fetching, setFetching] = useState<Fetching>({ phase: "idle" })
+  /** What the reviewer chose, kept so "Export again" can reuse it. */
+  const optionsRef = useRef<BatchStartOptions>({})
 
   const objectUrlRef = useRef<string | null>(null)
   const [archiveUrl, setArchiveUrl] = useState<string | null>(null)
   // Which export id this window has already fetched an archive for, so a fresh
   // token arriving on the next poll does not start the download over.
   const fetchedRef = useRef<string | null>(null)
-  const startedRef = useRef(false)
 
   const active = isActiveExport(state)
   const deliverable = state?.downloadUrl ?? null
@@ -149,24 +156,15 @@ export function BatchDownloadDialog({
   useEffect(() => releaseArchive, [releaseArchive])
 
   /**
-   * Starting the run, when opening the window is what asked for it.
+   * Whether this window is asking a question rather than reporting progress.
    *
-   * Not when one is already going — the window is then a view of it — and not
-   * when there is an archive waiting, because re-exporting a finished batch
-   * spends the allowance again to produce what is already there. That is
-   * offered as its own control instead.
+   * Opening it used to start the run immediately. It no longer does, because
+   * there is now something to decide first — what happens to the values in each
+   * file — and a run that started before the reviewer could say would have made
+   * the choice for them. The default is masking everything, so the common case
+   * costs one press.
    */
-  useEffect(() => {
-    if (!open) {
-      startedRef.current = false
-      return
-    }
-    if (loading || startedRef.current) return
-    if (state !== null || starting) return
-
-    startedRef.current = true
-    void start()
-  }, [open, loading, state, starting, start])
+  const setup = !loading && state === null
 
   /** Fetching the archive once the run has produced one. */
   useEffect(() => {
@@ -256,8 +254,16 @@ export function BatchDownloadDialog({
     setFetching({ phase: "idle" })
     setArchiveUrl(null)
     releaseArchive()
-    void start()
+    void start(optionsRef.current)
   }, [releaseArchive, start])
+
+  const begin = useCallback(
+    (options: BatchStartOptions) => {
+      optionsRef.current = options
+      void start(options)
+    },
+    [start]
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -265,16 +271,27 @@ export function BatchDownloadDialog({
         <DialogHeader>
           <DialogTitle>Download this batch</DialogTitle>
           <DialogDescription>
-            {describe({
-              state,
-              loading,
-              fetching,
-              planned,
-              exported,
-            })}
+            {setup
+              ? documentCount
+                ? `${documentCount} ${documentCount === 1 ? "document" : "documents"}. Each one is redacted and verified on its own, and gets one output — choose what that output does to the values.`
+                : "Each document is redacted and verified on its own, and gets one output — choose what that output does to the values."
+              : describe({
+                  state,
+                  loading,
+                  fetching,
+                  planned,
+                  exported,
+                })}
           </DialogDescription>
         </DialogHeader>
 
+        {setup ? (
+          <BatchExportSetup
+            batchId={batchId}
+            starting={starting}
+            onStart={begin}
+          />
+        ) : (
         <div className="space-y-3">
           <div className="space-y-1.5">
             <ProgressBar
@@ -333,6 +350,7 @@ export function BatchDownloadDialog({
             </p>
           ) : null}
         </div>
+        )}
 
         <DialogFooter>
           {active ? (

@@ -21,6 +21,7 @@ import { pageChanged, toolChanged } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { selectSelectedRedaction } from "@/store/selectors"
 import { isReviewable, type DocumentSummary } from "@/types/document"
+import type { RedactionMethod } from "@/types/redaction"
 
 export function Workspace({ summary }: { summary: DocumentSummary }) {
   const dispatch = useAppDispatch()
@@ -36,10 +37,8 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
 
   useProcessingStream(summary.id, summary.status)
 
-  const { accept, reject, create, applyGlobalRule, undo, redo } = useRedactions(
-    summary.id,
-    isReviewable(current)
-  )
+  const { accept, reject, setMethod, create, applyGlobalRule, undo, redo } =
+    useRedactions(summary.id, isReviewable(current))
 
   /**
    * The stream reports the status change; the server component holds the rest of
@@ -97,10 +96,12 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
     () => ({
       accept: (ids: string[]) => void accept(ids),
       reject: (ids: string[]) => void reject(ids),
+      setMethod: (ids: string[], method: RedactionMethod) =>
+        void setMethod(ids, method),
       applyGlobalRule: (pattern: string, category: string, scope?: RuleScope) =>
         void applyGlobalRule(pattern, category, scope),
     }),
-    [accept, applyGlobalRule, reject]
+    [accept, applyGlobalRule, reject, setMethod]
   )
 
   const onExport = useCallback(() => undefined, [])

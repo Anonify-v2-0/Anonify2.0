@@ -12,12 +12,17 @@ import {
   redactionsAdded,
   redactionsReplaced,
   redactionStatusSet,
+  redactionMethodSet,
   redone,
   ruleAdded,
   undone,
 } from "@/store/redactionSlice"
 import { selectRedactions } from "@/store/selectors"
-import type { Redaction, RedactionStatus } from "@/types/redaction"
+import type {
+  Redaction,
+  RedactionMethod,
+  RedactionStatus,
+} from "@/types/redaction"
 
 /**
  * How far a rule reaches. `batch` records the decision on the batch itself, so
@@ -200,6 +205,41 @@ export function useRedactions(documentId: string, active: boolean) {
     (ids: string[]) => setStatus(ids, "accepted"),
     [setStatus]
   )
+
+  /**
+   * Chooses what accepting these will do to the bytes.
+   *
+   * Not an accept. A reviewer weighing up whether to redact a name can decide
+   * it should be tokenised if they do, and collapsing the two would make
+   * picking a method an irreversible decision to redact.
+   */
+  const setMethod = useCallback(
+    async (ids: string[], method: RedactionMethod) => {
+      if (ids.length === 0) return
+      dispatch(redactionMethodSet({ ids, method }))
+
+      try {
+        const response = await fetch(
+          `/api/documents/${documentId}/redactions`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ ids, method }),
+          }
+        )
+        if (!response.ok) {
+          await toastFailure(toast, response, "That change could not be saved.")
+          dispatch(undone())
+          void reload()
+        }
+      } catch {
+        toast.error("That change could not be saved.")
+        dispatch(undone())
+        void reload()
+      }
+    },
+    [dispatch, documentId, reload]
+  )
   const reject = useCallback(
     (ids: string[]) => setStatus(ids, "rejected"),
     [setStatus]
@@ -245,5 +285,16 @@ export function useRedactions(documentId: string, active: boolean) {
     void syncStatuses()
   }, [dispatch, syncStatuses])
 
-  return { redactions, reload, accept, reject, create, remove, applyGlobalRule, undo, redo }
+  return {
+    redactions,
+    reload,
+    accept,
+    reject,
+    setMethod,
+    create,
+    remove,
+    applyGlobalRule,
+    undo,
+    redo,
+  }
 }

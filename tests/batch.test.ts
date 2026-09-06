@@ -8,13 +8,17 @@ import {
   reportName,
   serializeBatchReport,
   uniqueNames,
+  vaultName,
 } from "@/lib/redaction/archive"
 import {
   applyDocumentState,
+  batchMethodFor,
   settleUnreached,
   toView,
   type BatchExportDocument,
+  type BatchExportOptions,
 } from "@/lib/documents/batch-exports"
+import { buildSurrogates } from "@/lib/redaction/surrogates"
 import { groupByBatch } from "@/lib/documents/grouping"
 import type { DocumentListItem } from "@/lib/documents/listing"
 import { buildExportReport, type ExportReport } from "@/lib/redaction/report"
@@ -45,7 +49,15 @@ function accepted(text: string, category = "person"): Redaction {
   }
 }
 
-function reportFor(documentId: string, redactions: Redaction[]): ExportReport {
+function reportFor(
+  documentId: string,
+  redactions: Redaction[],
+  method?: Redaction["method"]
+): ExportReport {
+  const withMethod = method
+    ? redactions.map((redaction) => ({ ...redaction, method }))
+    : redactions
+
   return buildExportReport({
     document: {
       id: documentId,
@@ -61,10 +73,17 @@ function reportFor(documentId: string, redactions: Redaction[]): ExportReport {
       extension: "pdf",
     },
     options: { addLabels: false, sanitizeMetadata: true },
-    redactions,
-    verification: { passed: true, checkedValues: redactions.length },
+    surrogates: buildSurrogates(withMethod, "pdf"),
+    redactions: withMethod,
+    verification: { passed: true, checkedValues: withMethod.length },
     generatedAt: new Date("2026-01-01T00:00:00.000Z"),
   })
+}
+
+const BASE_OPTIONS: BatchExportOptions = {
+  addLabels: false,
+  sanitizeMetadata: true,
+  imageStyle: "solid",
 }
 
 describe("batch archive", () => {
@@ -353,5 +372,133 @@ describe("batch export progress", () => {
     expect(
       toView(record, "/api/batches/bat_1/download?token=x").downloadUrl
     ).toBe("/api/batches/bat_1/download?token=x")
+  })
+})
+
+/**
+ * A batch produces one artifact per document, and the reviewer chooses what
+ * that one artifact does to the values — per file.
+ *
+ * Not one artifact per document per variant. Every variant is a full pass over
+ * the document, so four of them across a dozen files is forty-eight exports,
+ * and the archive would then hold four entries per document that nothing in
+ * their names could tell apart. A reviewer who wants a second form of one file
+ * exports that file on its own, where variants do exist.
+ */
+describe("a method per file in a batch", () => {
+  it("falls back to masking for a file nobody decided about", () => {
+    expect(batchMethodFor(BASE_OPTIONS, "doc_1")).toBe("mask")
+  })
+
+  it("applies the run's default to every file", () => {
+    const options = { ...BASE_OPTIONS, method: "tokenize" as const }
+    expect(batchMethodFor(options, "doc_1")).toBe("tokenize")
+    expect(batchMethodFor(options, "doc_2")).toBe("tokenize")
+  })
+
+  it("lets one file differ from the rest of the run", () => {
+    const options: BatchExportOptions = {
+      ...BASE_OPTIONS,
+      method: "mask",
+      methodByDocument: { doc_2: "encrypt" },
+    }
+
+    expect(batchMethodFor(options, "doc_1")).toBe("mask")
+    expect(batchMethodFor(options, "doc_2")).toBe("encrypt")
+  })
+
+  it("ignores a choice about a document this run never reaches", () => {
+    // The dialog is a snapshot; a document can be deleted between opening it
+    // and pressing the button. A stale id decides nothing.
+    const options: BatchExportOptions = {
+      ...BASE_OPTIONS,
+      methodByDocument: { doc_gone: "tokenize" },
+    }
+    expect(batchMethodFor(options, "doc_1")).toBe("mask")
+  })
+})
+
+describe("a batch report about files handled differently", () => {
+  it("says how each document was treated rather than only how many", () => {
+    const report = buildBatchReport({
+      batchId: "bat_1",
+      reports: [
+        reportFor("doc_1", [accepted(SENSITIVE.person)], "mask"),
+        reportFor("doc_2", [accepted("Jane Doe")], "tokenize"),
+      ],
+      skipped: [],
+      vaulted: new Set(["doc_2"]),
+    })
+
+    // One document's counts say nothing about the next one's, which is exactly
+    // the case a per-file batch creates.
+    expect(report.documents).toEqual([
+      expect.objectContaining({
+        documentId: "doc_1",
+        methods: { mask: 1 },
+        vault: false,
+      }),
+      expect.objectContaining({
+        documentId: "doc_2",
+        methods: { tokenize: 1 },
+        vault: true,
+      }),
+    ])
+  })
+
+  it("warns that a reversible file travels with what reverses it", () => {
+    const report = buildBatchReport({
+      batchId: "bat_1",
+      reports: [reportFor("doc_1", [accepted(SENSITIVE.person)], "encrypt")],
+      skipped: [],
+      vaulted: new Set(["doc_1"]),
+    })
+
+    expect(report.notes.join(" ")).toContain("reversible by whoever holds the vault")
+    expect(report.notes.join(" ")).toContain("Separate the vaults")
+  })
+
+  it("says a pseudonymized file is not reversible, and not anonymous either", () => {
+    const report = buildBatchReport({
+      batchId: "bat_1",
+      reports: [
+        reportFor("doc_1", [accepted(SENSITIVE.person)], "pseudonymize"),
+      ],
+      skipped: [],
+    })
+
+    const notes = report.notes.join(" ")
+    expect(notes).toContain("Nothing reverses those")
+    expect(notes).toContain("re-identify")
+    expect(notes).not.toContain("reversible by whoever holds the vault")
+  })
+
+  it("quotes no value even when a document was tokenized", () => {
+    // The vault carries the mapping; the batch report must not, and a
+    // tokenized document is where that is easiest to get wrong.
+    const serialized = Buffer.from(
+      serializeBatchReport(
+        buildBatchReport({
+          batchId: "bat_1",
+          reports: [
+            reportFor("doc_1", [accepted(SENSITIVE.person)], "tokenize"),
+          ],
+          skipped: [],
+          vaulted: new Set(["doc_1"]),
+        })
+      )
+    ).toString("utf8")
+
+    expect(serialized).not.toContain(SENSITIVE.person)
+  })
+
+  it("names a vault after the file it opens, and cannot escape the archive", () => {
+    expect(vaultName("contract.pdf")).toBe("contract-vault.json")
+
+    for (const hostile of ["../../etc/passwd.pdf", "/absolute/report.pdf"]) {
+      const name = vaultName(hostile)
+      expect(name).not.toMatch(/[\\/]/)
+      expect(name.startsWith(".")).toBe(false)
+    }
   })
 })

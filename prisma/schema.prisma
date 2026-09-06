@@ -183,6 +183,10 @@ model Redaction {
   category    String
   confidence  Float?
   status      String   @default("suggested")
+  /// What accepting this does to the bytes. Null means mask, which is what
+  /// every redaction taken before methods existed did. See
+  /// lib/redaction/methods.ts for which categories permit which.
+  method      String?
 
   page        Int?
   text        String?
@@ -245,11 +249,26 @@ model ExportArtifact {
   appliedRedactions Int      @default(0)
   metadataSanitized Boolean  @default(false)
   labelsAdded       Boolean  @default(false)
+  /// Which output of one review this is, when the reviewer asked for more than
+  /// one. Null for artifacts exported before variants existed, which is the
+  /// same thing as "redacted". See lib/redaction/variants.ts.
+  variant           String?
   /// The export report generated with this artifact: counts, styles and both
   /// checksums, stored encrypted beside the file it describes. Null for
   /// artifacts exported before reports existed.
   reportBlobKey     String?
   reportChecksum    String?
+  /// The token vault for this artifact, when a batch produced one.
+  ///
+  /// Only ever written by a batch export. A single-document export hands its
+  /// vault straight back in the response and stores nothing, which is what
+  /// makes an `encrypt` export unreversible by this tool — a batch has no
+  /// response to hand it back in, so it is sealed under the same per-document
+  /// key as the artifact and dies with the document. During that window the
+  /// source itself is already in the same bucket under the same key, so this
+  /// adds no capability that was not already there.
+  vaultBlobKey      String?
+  vaultChecksum     String?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 

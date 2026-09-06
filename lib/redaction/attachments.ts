@@ -5,6 +5,7 @@ import {
 } from "@/lib/documents/eml/attachments"
 import { decodeEml } from "@/lib/documents/eml/parse"
 import type { AttachmentSubstitutions } from "@/lib/redaction/export"
+import type { VaultEntry } from "@/lib/redaction/vault"
 import type { DocumentKind } from "@/types/document"
 
 /**
@@ -62,14 +63,38 @@ export type AttachmentOutcome = {
 export type ResolvedAttachments = {
   outcomes: AttachmentOutcome[]
   substitutions: AttachmentSubstitutions
+  /**
+   * What the enclosures substituted, gathered so the message's vault opens
+   * them too. A reviewer downloads one message and one vault; a vault that
+   * only reversed the covering note would be a trap rather than a limitation.
+   */
+  vaultEntries: VaultEntry[]
+  /**
+   * True when an enclosure encrypted something under the shared key.
+   *
+   * Needed separately from the entries because an encrypted value inside a
+   * format that can hold text leaves no vault entry at all — the ciphertext is
+   * in the document, and the key alone reverses it. Without this flag a
+   * message whose only encryption happened inside an attachment would be
+   * delivered with no key, which is a file nobody can ever read again.
+   */
+  vaultKeyUsed: boolean
 }
 
 /** One child's redacted bytes, or null when it has no export to give. */
-export type ChildExporter = (
-  childDocumentId: string
-) => Promise<{ bytes: Uint8Array; checksum: string } | null>
+export type ChildExporter = (childDocumentId: string) => Promise<{
+  bytes: Uint8Array
+  checksum: string
+  vaultEntries: VaultEntry[]
+  vaultKeyUsed: boolean
+} | null>
 
-const EMPTY: ResolvedAttachments = { outcomes: [], substitutions: {} }
+const EMPTY: ResolvedAttachments = {
+  outcomes: [],
+  substitutions: {},
+  vaultEntries: [],
+  vaultKeyUsed: false,
+}
 
 /** Short, and about the enclosure rather than about what was in it. */
 const REASONS: Record<string, string> = {
@@ -99,6 +124,8 @@ export async function resolveAttachments(input: {
   )
 
   const outcomes: AttachmentOutcome[] = []
+  const vaultEntries: VaultEntry[] = []
+  let vaultKeyUsed = false
   const substitutions: AttachmentSubstitutions = {}
 
   for (const attachment of attachments) {
@@ -163,6 +190,9 @@ export async function resolveAttachments(input: {
       continue
     }
 
+    vaultEntries.push(...exported.vaultEntries)
+    vaultKeyUsed ||= exported.vaultKeyUsed
+
     substitutions[attachment.path] = {
       action: "replace",
       bytes: exported.bytes,
@@ -176,7 +206,7 @@ export async function resolveAttachments(input: {
     })
   }
 
-  return { outcomes, substitutions }
+  return { outcomes, substitutions, vaultEntries, vaultKeyUsed }
 }
 
 /**

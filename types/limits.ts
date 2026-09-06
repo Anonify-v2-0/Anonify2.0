@@ -28,10 +28,28 @@ export type QuotaStatus = {
   limit: number
 }
 
+/**
+ * How much may happen at once, as opposed to how often it may start.
+ *
+ * Reported alongside the other two because it is the third wall a user can
+ * walk into and the only one they cannot otherwise see: a document that sits
+ * at "queued" is waiting for a slot, not stuck, and nothing on the screen said
+ * so until this existed.
+ */
+export type BatchLimitsStatus = {
+  /** Documents one batch may hold. */
+  maxFiles: number
+  /** Documents of yours that may process at once. */
+  processing: number
+  /** Documents a batch export works on at once. */
+  exporting: number
+}
+
 export type LimitsReport = {
   profile: string
   rateLimits: RateLimitStatus[]
   quotas: QuotaStatus[]
+  batch: BatchLimitsStatus
 }
 
 export const RATE_LIMIT_LABELS: Record<RateLimitName, string> = {

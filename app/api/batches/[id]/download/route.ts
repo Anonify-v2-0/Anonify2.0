@@ -7,6 +7,7 @@ import {
   buildArchive,
   buildBatchReport,
   reportName,
+  vaultName,
   serializeBatchReport,
   type ArchiveFile,
   type SkipReason,
@@ -65,6 +66,8 @@ export async function GET(
     const files: ArchiveFile[] = []
     const reports: ExportReport[] = []
     const skipped: { documentId: string; reason: SkipReason }[] = []
+    /** Documents whose vault made it into the archive, for the batch report. */
+    const vaulted = new Set<string>()
     let archiveBytes = 0
 
     for (const document of documents) {
@@ -123,6 +126,37 @@ export async function GET(
       })
       files.push({ name: reportName(document.originalName), bytes: reportBytes })
       reports.push(JSON.parse(Buffer.from(reportBytes).toString("utf8")))
+
+      // The vault, for a file the reviewer had tokenized or encrypted. Named
+      // after its own document, because it opens that one and no other.
+      //
+      // A vault that fails its checksum is left out rather than shipped: half
+      // a mapping restores half a document, and a reviewer would have no way
+      // to tell which half. The file itself still goes in — it is verified
+      // separately and is not made wrong by an unreadable vault — and the
+      // batch report says which documents ended up with one.
+      if (artifact.vaultBlobKey) {
+        const sealedVault = await getObject(artifact.vaultBlobKey)
+        const vaultBytes = decryptDocument(sealedVault, record.encryptionKey)
+
+        if (checksumMatches(artifact.vaultChecksum ?? "", sha256(vaultBytes))) {
+          files.push({
+            name: vaultName(document.originalName),
+            bytes: vaultBytes,
+          })
+          vaulted.add(document.id)
+        } else {
+          console.error(
+            JSON.stringify({
+              level: "error",
+              context: "batches.download",
+              batchId: batch.id,
+              documentId: document.id,
+              errorCategory: "vault-checksum-mismatch",
+            })
+          )
+        }
+      }
     }
 
     if (files.length === 0) {
@@ -132,7 +166,7 @@ export async function GET(
     files.push({
       name: "batch-report.json",
       bytes: serializeBatchReport(
-        buildBatchReport({ batchId: batch.id, reports, skipped })
+        buildBatchReport({ batchId: batch.id, reports, skipped, vaulted })
       ),
     })
 

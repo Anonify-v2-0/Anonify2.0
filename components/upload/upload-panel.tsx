@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { upload } from "@vercel/blob/client"
 import { Loader2, UploadCloud } from "lucide-react"
@@ -29,6 +29,7 @@ import {
   presetById,
 } from "@/lib/redaction/presets"
 import { cn } from "@/lib/utils"
+import type { LimitsReport } from "@/types/limits"
 import {
   DEFAULT_TTL_SECONDS,
   TTL_OPTIONS,
@@ -187,6 +188,39 @@ export function UploadPanel() {
   } | null>(null)
   const [ttl, setTtl] = useState<TtlOption>(DEFAULT_TTL_SECONDS)
   const [presetId, setPresetId] = useState<string>(DEFAULT_PRESET_ID)
+  /**
+   * How many files this deployment takes in one batch.
+   *
+   * Asked for rather than compiled in: the limit is a server setting and a
+   * bundle cannot read one, so `MAX_BATCH_FILES` is the value to slice with
+   * until the answer arrives. Slicing is a courtesy either way — the server
+   * refuses anything over its own ceiling and says so per file — but a panel
+   * that quietly drops files a raised limit would have accepted is a panel
+   * that lies about what the tool can do.
+   */
+  const [maxFiles, setMaxFiles] = useState(MAX_BATCH_FILES)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function readLimits() {
+      try {
+        const response = await fetch("/api/limits", { cache: "no-store" })
+        if (!response.ok) return
+        const payload = (await response.json()) as LimitsReport
+        if (!cancelled && payload.batch?.maxFiles) {
+          setMaxFiles(payload.batch.maxFiles)
+        }
+      } catch {
+        // The compiled default stands, and the server still decides.
+      }
+    }
+
+    void readLimits()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const busy = phase !== "idle"
   const preset = presetById(presetId)
@@ -356,14 +390,14 @@ export function UploadPanel() {
         return
       }
 
-      if (withinLimit.length > MAX_BATCH_FILES) {
+      if (withinLimit.length > maxFiles) {
         toast.error(
-          `A batch takes up to ${MAX_BATCH_FILES} files; the rest were not started.`
+          `A batch takes up to ${maxFiles} files; the rest were not started.`
         )
       }
-      void sendBatch(withinLimit.slice(0, MAX_BATCH_FILES))
+      void sendBatch(withinLimit.slice(0, maxFiles))
     },
-    [send, sendBatch]
+    [maxFiles, send, sendBatch]
   )
 
   const label =

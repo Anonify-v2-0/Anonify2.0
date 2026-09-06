@@ -1,7 +1,14 @@
 "use client"
 
 import { useState } from "react"
-import { Check, Download, FileText, Loader2, ShieldCheck } from "lucide-react"
+import {
+  Check,
+  Download,
+  FileText,
+  KeyRound,
+  Loader2,
+  ShieldCheck,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -24,12 +31,15 @@ import {
 } from "@/components/ui/select"
 import { DocumentUsageSummary } from "@/components/documents/usage-summary"
 import { toastFailure } from "@/lib/api/errors"
+import { categoriesAllowing } from "@/lib/redaction/methods"
 import type { ExportReport } from "@/lib/redaction/report"
+import type { TokenVault } from "@/lib/redaction/vault"
 import { cn } from "@/lib/utils"
 import { exportDialogToggled } from "@/store/uiSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { selectCounts } from "@/store/selectors"
 import type { DocumentSummary } from "@/types/document"
+import type { RedactionMethod } from "@/types/redaction"
 
 /**
  * Export.
@@ -65,15 +75,98 @@ const IMAGE_STYLES = [
 
 type ImageStyle = (typeof IMAGE_STYLES)[number]["value"]
 
-type ExportResponse = {
+/**
+ * A second copy of the same review, with one method applied throughout.
+ *
+ * Deliberately not a per-category grid. A reviewer wanting two outputs wants
+ * "one I can share and one I can join on", and the categories a method reaches
+ * are decided by what is defensible for each — see lib/redaction/methods.ts —
+ * not by what somebody remembered to tick. Per-suggestion control already
+ * exists in the inspector, which is where a finer decision belongs.
+ */
+const SECOND_COPY = [
+  {
+    value: "none",
+    label: "Just the one",
+    note: "Every accepted value is handled the way the inspector says.",
+  },
+  {
+    value: "pseudonymize",
+    label: "…and a pseudonymized copy",
+    note: "Names, emails, phones, customer ids and URLs become stable surrogates. Nothing can reverse them, including you.",
+  },
+  {
+    value: "tokenize",
+    label: "…and a tokenized copy",
+    note: "The same values become tokens, and you get a vault that reverses them. Download it with the file: it is not stored here.",
+  },
+  {
+    value: "encrypt",
+    label: "…and an encrypted copy",
+    note: "Values become ciphertext under a key you download once. Anonify keeps no copy of it, so a lost key is a lost value.",
+  },
+] as const
+
+type SecondCopy = (typeof SECOND_COPY)[number]["value"]
+
+type ExportedArtifact = {
+  artifactId: string
+  variant: string
   downloadUrl: string
   reportUrl: string
   report: ExportReport
   checksum: string
   appliedRedactions: number
   verifiedValues: number
-  metadataSanitized: boolean
   size: number
+  vault: TokenVault | null
+}
+
+type ExportResponse = ExportedArtifact & {
+  metadataSanitized: boolean
+  artifacts: ExportedArtifact[]
+}
+
+/**
+ * The vault, as something the browser can save.
+ *
+ * Built here from JSON that arrived in the response rather than fetched from a
+ * link, because there is no link: the server produced the vault, handed it
+ * over, and kept nothing. A reviewer who closes this dialog without taking it
+ * has lost the only copy, so the control says so instead of looking like one
+ * more optional download.
+ */
+function VaultDownload({
+  vault,
+  variant,
+}: {
+  vault: TokenVault
+  variant: string
+}) {
+  const href = `data:application/json;charset=utf-8,${encodeURIComponent(
+    `${JSON.stringify(vault, null, 2)}
+`
+  )}`
+
+  return (
+    <div className="space-y-1.5 rounded-[10px] border border-red-border p-3">
+      <p className="label-micro text-primary">Vault — save this now</p>
+      <p className="text-[11px] leading-relaxed text-text-muted">
+        This file is the only way to reverse the {variant} copy. It holds the
+        original values{vault.key ? " and the key that recovers them" : ""}, so
+        keep it the way you keep the source document — not the way you keep the
+        export. Anonify does not store it, and cannot send it again.
+      </p>
+      <a
+        href={href}
+        download={`${variant}-vault.json`}
+        className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+      >
+        <KeyRound className="size-4" />
+        Download vault
+      </a>
+    </div>
+  )
 }
 
 /**
@@ -133,6 +226,7 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
   const [sanitizeMetadata, setSanitizeMetadata] = useState(true)
   const [addLabels, setAddLabels] = useState(false)
   const [imageStyle, setImageStyle] = useState<ImageStyle>("solid")
+  const [secondCopy, setSecondCopy] = useState<SecondCopy>("none")
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<ExportResponse | null>(null)
 
@@ -140,11 +234,23 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
     setBusy(true)
     setResult(null)
 
+    const base = { sanitizeMetadata, addLabels, imageStyle }
+    const variants =
+      secondCopy === "none"
+        ? undefined
+        : [
+            base,
+            {
+              ...base,
+              methods: categoriesAllowing(secondCopy as RedactionMethod),
+            },
+          ]
+
     try {
       const response = await fetch(`/api/documents/${summary.id}/export`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sanitizeMetadata, addLabels, imageStyle }),
+        body: JSON.stringify({ ...base, variants }),
       })
 
       const payload = (await response.json()) as ExportResponse & {
@@ -203,10 +309,55 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
                 absent from the export
               </li>
             </ul>
-            <p className="font-mono text-[11px] break-all text-text-muted">
-              sha256 {result.checksum}
-            </p>
-            {result.report ? <ReportSummary report={result.report} /> : null}
+
+            {/*
+              Each output gets its own block. Two artifacts of one review
+              differ only in what happened to the values, so showing one set of
+              counts and two links would invite the reader to apply the first
+              artifact's report to the second.
+            */}
+            {result.artifacts.map((artifact) => (
+              <div key={artifact.artifactId} className="space-y-2">
+                {result.artifacts.length > 1 ? (
+                  <p className="label-micro">{artifact.variant}</p>
+                ) : null}
+                <p className="font-mono text-[11px] break-all text-text-muted">
+                  sha256 {artifact.checksum}
+                </p>
+                {artifact.report ? (
+                  <ReportSummary report={artifact.report} />
+                ) : null}
+                {artifact.vault ? (
+                  <VaultDownload
+                    vault={artifact.vault}
+                    variant={artifact.variant}
+                  />
+                ) : null}
+                {result.artifacts.length > 1 ? (
+                  <div className="flex flex-wrap gap-2">
+                    <a
+                      href={artifact.downloadUrl}
+                      download
+                      className={cn(buttonVariants({ size: "sm" }))}
+                    >
+                      <Download className="size-4" />
+                      {artifact.variant}
+                    </a>
+                    <a
+                      href={artifact.reportUrl}
+                      download
+                      className={cn(
+                        buttonVariants({ variant: "outline", size: "sm" })
+                      )}
+                    >
+                      <FileText className="size-4" />
+                      Report
+                    </a>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+
             <DocumentUsageSummary documentId={summary.id} />
           </div>
         ) : (
@@ -238,6 +389,41 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
               <Label htmlFor="labels" className="text-sm font-normal">
                 Add [REDACTED] labels where content was removed
               </Label>
+            </div>
+
+            <div className="space-y-1.5 pt-1">
+              <Label htmlFor="second-copy" className="text-sm font-normal">
+                Outputs
+              </Label>
+              <Select
+                value={secondCopy}
+                onValueChange={(value) => setSecondCopy(value as SecondCopy)}
+              >
+                <SelectTrigger id="second-copy" size="sm" className="w-full">
+                  <SelectValue>
+                    {(value) =>
+                      SECOND_COPY.find((option) => option.value === value)
+                        ?.label ?? "Just the one"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {SECOND_COPY.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] leading-relaxed text-text-muted">
+                {
+                  SECOND_COPY.find((option) => option.value === secondCopy)
+                    ?.note
+                }{" "}
+                {secondCopy === "none"
+                  ? ""
+                  : "Government ids, bank and card numbers, API keys and faces are removed in every copy — there is no softer option for them."}
+              </p>
             </div>
 
             {summary.kind === "image" ? (

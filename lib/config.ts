@@ -34,14 +34,21 @@ export {
 } from "@/lib/documents/formats"
 
 /**
- * How many documents one batch may hold.
+ * How many documents one batch may hold, as a compiled-in default.
  *
- * It bounds two different things that now meet. A reviewer dragging files in
- * is bounded here because one request should stay one request; a message being
+ * It bounds two different things that meet here. A reviewer dragging files in
+ * is bounded because one request should stay one request; a message being
  * expanded into a batch is bounded by the same number for a stronger reason —
  * a stranger chooses how many attachments a message carries, and the expansion
  * limits in lib/documents/eml/attachments.ts default to this so the two cannot
  * drift into disagreeing about what a batch is.
+ *
+ * The value actually in force is `maxBatchFiles()` in
+ * lib/documents/batch-config.ts, which is per deployment profile and settable
+ * from the environment. This constant remains because it is what a browser
+ * bundle can see: a client component cannot read a server environment
+ * variable, so the panel slices with this and the server decides for real.
+ * Keep it equal to the demo default.
  */
 export const MAX_BATCH_FILES = 20
 

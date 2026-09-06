@@ -48,7 +48,9 @@ export function redactRtf(
 
   if (cuts.length === 0) return bytes
 
+  // A surrogate goes through the same escape the label does: `PERSON_001`
+  // needs none, but a replacement is not this file's to assume about.
   return encodeRtf(
-    applyCuts(source, cuts, plan.label ? escapeRtf(plan.label) : "")
+    applyCuts(source, cuts, plan.label ? escapeRtf(plan.label) : "", escapeRtf)
   )
 }

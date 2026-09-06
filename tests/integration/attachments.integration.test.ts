@@ -347,6 +347,8 @@ describe.skipIf(!hasDatabase)("what a message's export carries", () => {
       exportChild: async () => ({
         bytes: redacted,
         checksum: sha256(redacted),
+        vaultEntries: [],
+        vaultKeyUsed: false,
       }),
     })
 

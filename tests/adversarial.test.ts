@@ -14,6 +14,9 @@ import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { detectPatterns } from "@/lib/redaction/detectors"
 import { exportRedacted } from "@/lib/redaction/export"
+import { surrogateCarrier } from "@/lib/redaction/methods"
+import { restoreDocument } from "@/lib/redaction/restore"
+import { buildVault } from "@/lib/redaction/vault"
 import type { DocumentKind, NormalizedDocument } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
 
@@ -409,6 +412,90 @@ describe("adversarial verification, every format", () => {
         expect(result.verification.passed).toBe(true)
         expect(result.checksum).toHaveLength(64)
       })
+    })
+  }
+
+  /**
+   * The same pass again, with a method other than removal.
+   *
+   * The claim changes shape and has to be re-stated rather than assumed: the
+   * accepted value is still absent, but now something derived from it stands
+   * where it was, and that something must not be the value. For the two
+   * reversible methods there is a third claim, which is the whole reason they
+   * are on offer — the reviewer can get back.
+   */
+  for (const testCase of CASES.filter(
+    (candidate) => surrogateCarrier(candidate.kind) === "text"
+  )) {
+    describe(`${testCase.name}, substituted`, () => {
+      it.each(["pseudonymize", "tokenize", "encrypt"] as const)(
+        "replaces the accepted value with a %s surrogate",
+        async (method) => {
+          const source = await testCase.source()
+          const model = await testCase.extract(source)
+
+          // Re-categorised, because the fixtures use `other` — which is
+          // mask-only, correctly, and would make this test pass for the wrong
+          // reason by silently exporting a removal.
+          const redactions = redactionsFor(
+            model,
+            testCase.accepted,
+            testCase.rejected
+          ).map((redaction) =>
+            redaction.status === "accepted"
+              ? { ...redaction, category: "person", method }
+              : redaction
+          )
+
+          const result = await exportRedacted({
+            kind: testCase.kind,
+            source,
+            model,
+            redactions,
+            options: OPTIONS,
+          })
+
+          const haystack = await testCase.read(result.bytes)
+          const surrogate = result.surrogates.forValue(testCase.accepted)
+
+          expect(surrogate).toBeDefined()
+          // The value is gone, something stands in for it, and the stand-in is
+          // not the thing it replaced.
+          expect(haystack).not.toContain(testCase.accepted)
+          expect(haystack).toContain(surrogate as string)
+          expect(surrogate as string).not.toContain(testCase.accepted)
+
+          expect(haystack).toContain(testCase.rejected)
+          expect(await testCase.reopens(result.bytes)).toBe(true)
+          expect(result.verification.passed).toBe(true)
+
+          if (method === "pseudonymize") {
+            // Deliberately unreversible: there is no mapping, anywhere.
+            expect(result.surrogates.vaultEntries).toEqual([])
+            expect(result.surrogates.key).toBeNull()
+            return
+          }
+
+          const restored = await restoreDocument({
+            kind: testCase.kind,
+            bytes: result.bytes,
+            vault: buildVault({
+              documentId: "doc",
+              artifactChecksum: result.checksum,
+              key: result.surrogates.key,
+              entries: result.surrogates.vaultEntries,
+            }),
+          })
+
+          expect(restored.ok).toBe(true)
+          if (!restored.ok) return
+
+          expect(await testCase.read(restored.bytes)).toContain(
+            testCase.accepted
+          )
+          expect(restored.matchesVault).toBe(true)
+        }
+      )
     })
   }
 

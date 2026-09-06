@@ -53,7 +53,17 @@ function textOfXmlParts(bytes: Uint8Array): string {
     .join("\n")
 }
 
-async function haystackFor(
+/**
+ * Everything in an exported document that is readable as text.
+ *
+ * Named and exported because two callers need exactly this: the verifier,
+ * which searches it for values that should be gone, and the restore pipeline,
+ * which searches it for the surrogates it is about to put values back into.
+ * They are the same question asked from opposite ends, and a second definition
+ * of "what counts as readable" would be a second place for one of them to miss
+ * a hidden sheet.
+ */
+export async function readableText(
   kind: DocumentKind,
   bytes: Uint8Array
 ): Promise<string> {
@@ -113,7 +123,22 @@ export async function verifyExport(
   bytes: Uint8Array,
   redactions: Redaction[],
   /** Attachment parts whose bytes were replaced, and what they must now be. */
-  expectations: AttachmentExpectation[] = []
+  expectations: AttachmentExpectation[] = [],
+  /**
+   * Strings this export wrote into the document in place of values.
+   *
+   * They are taken out of the haystack before it is searched, and the reason
+   * is a false positive rather than a false negative. A surrogate is text this
+   * pipeline authored — `PERSON_014`, or a base64url ciphertext — and a long
+   * ciphertext can contain, by coincidence, the four letters of a short
+   * accepted value. Searching what we wrote for what the document said would
+   * refuse a perfectly correct export over an accident of encoding.
+   *
+   * Excising them cannot hide a real leak: none of these strings is derived
+   * from the value in a way that could reproduce it. A surrogate is a counter,
+   * and a ciphertext is indistinguishable from random without the key.
+   */
+  substitutions: string[] = []
 ): Promise<VerificationReport> {
   const values = acceptedValues(redactions).filter(
     (value) => value.length >= MIN_VERIFIABLE_LENGTH
@@ -134,7 +159,10 @@ export async function verifyExport(
     }
   }
 
-  const haystack = (await haystackFor(kind, bytes)).toLowerCase()
+  const haystack = withoutSubstitutions(
+    (await readableText(kind, bytes)).toLowerCase(),
+    substitutions
+  )
   const leaked = values.filter((value) =>
     haystack.includes(value.toLowerCase())
   )
@@ -145,6 +173,36 @@ export async function verifyExport(
     checkedValues: values.length,
     attachments,
   }
+}
+
+/**
+ * The haystack with every string this export authored blanked out.
+ *
+ * Replaced with spaces rather than deleted, so removing a substitution cannot
+ * bring two halves of the surrounding text together and manufacture a value
+ * that was never in the file.
+ */
+function withoutSubstitutions(
+  haystack: string,
+  substitutions: string[]
+): string {
+  let result = haystack
+
+  for (const substitution of substitutions) {
+    const needle = substitution.toLowerCase()
+    if (needle.length === 0) continue
+
+    let index = result.indexOf(needle)
+    while (index !== -1) {
+      result =
+        result.slice(0, index) +
+        " ".repeat(needle.length) +
+        result.slice(index + needle.length)
+      index = result.indexOf(needle, index + needle.length)
+    }
+  }
+
+  return result
 }
 
 /** Confirms an exported DOCX still opens and still has its structure. */

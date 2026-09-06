@@ -5,7 +5,11 @@ import {
   serializeDelimited,
 } from "@/lib/documents/delimited/parse"
 import { delimiterFor } from "@/lib/documents/delimited/extract"
-import { cutRanges, valueMatcher } from "@/lib/documents/shared/text"
+import {
+  cutRanges,
+  valueMatcher,
+  type ValueReplacement,
+} from "@/lib/documents/shared/text"
 import type { DocumentKind } from "@/types/document"
 
 /**
@@ -23,14 +27,17 @@ import type { DocumentKind } from "@/types/document"
  */
 
 export type DelimitedRedactionPlan = {
-  /** Cells addressed by 1-based row and column. */
-  cells: { row: number; column: number }[]
-  /** Whole rows, every field. */
+  /**
+   * Cells addressed by 1-based row and column, each with what the field
+   * becomes. No replacement means the label, which is what a mask is.
+   */
+  cells: { row: number; column: number; replacement?: string }[]
+  /** Whole rows, every field. Emptied by position, so always masked. */
   rows: number[]
   /** Whole columns below the header, which keeps the sheet readable. */
   columns: number[]
-  /** Accepted values, removed wherever else they appear in a field. */
-  values: string[]
+  /** Accepted values, replaced wherever else they appear in a field. */
+  values: ValueReplacement[]
   /** Visible marker left behind, or null to close the gap silently. */
   label: string | null
 }
@@ -45,12 +52,12 @@ export function redactDelimited(
   const { text, bom } = decodeText(bytes)
   const parsed = parseDelimited(text, delimiterFor(kind), { bom })
 
-  const blank = (row: number, column: number) => {
+  const blank = (row: number, column: number, replacement?: string) => {
     const fields = parsed.rows[row - 1]
     if (!fields) return
     const field = fields[column - 1]
     if (!field || field.value.length === 0) return
-    field.value = plan.label ?? ""
+    field.value = replacement ?? plan.label ?? ""
   }
 
   for (const column of plan.columns) {
@@ -65,7 +72,7 @@ export function redactDelimited(
     for (let column = 1; column <= fields.length; column++) blank(row, column)
   }
 
-  for (const cell of plan.cells) blank(cell.row, cell.column)
+  for (const cell of plan.cells) blank(cell.row, cell.column, cell.replacement)
 
   // The safety net, applied field by field rather than to the file: the same
   // value can sit in a cell nobody reviewed, and a partial match inside a
