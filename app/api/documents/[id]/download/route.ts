@@ -1,4 +1,4 @@
-import { errorResponse, handleRouteError } from "@/lib/api/http"
+import { errorResponse, fileResponse, handleRouteError } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
@@ -84,14 +84,11 @@ export async function GET(
       ? `${base}-redaction-report.json`
       : `${base}-redacted.${artifact.extension}`
 
-    return new Response(new Uint8Array(bytes), {
-      headers: {
-        "content-type": wantsReport ? "application/json" : artifact.mimeType,
-        "content-length": String(bytes.byteLength),
-        "content-disposition": `attachment; filename="${filename.replace(/"/g, "")}"`,
-        "cache-control": "no-store, private",
-        "x-content-type-options": "nosniff",
-      },
+    return fileResponse(new Uint8Array(bytes), {
+      "content-type": wantsReport ? "application/json" : artifact.mimeType,
+      "content-disposition": `attachment; filename="${filename.replace(/"/g, "")}"`,
+      "cache-control": "no-store, private",
+      "x-content-type-options": "nosniff",
     })
   } catch (error) {
     return handleRouteError(error, "documents.download")

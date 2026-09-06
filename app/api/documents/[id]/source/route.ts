@@ -1,4 +1,4 @@
-import { errorResponse, handleRouteError } from "@/lib/api/http"
+import { errorResponse, fileResponse, handleRouteError } from "@/lib/api/http"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
@@ -29,14 +29,11 @@ export async function GET(
     const sealed = await getObject(document.sourceBlobKey)
     const bytes = decryptDocument(sealed, document.encryptionKey)
 
-    return new Response(new Uint8Array(bytes), {
-      headers: {
-        "content-type": document.mimeType,
-        "content-length": String(bytes.byteLength),
-        "cache-control": "no-store, private",
-        "content-disposition": "inline",
-        "x-content-type-options": "nosniff",
-      },
+    return fileResponse(new Uint8Array(bytes), {
+      "content-type": document.mimeType,
+      "cache-control": "no-store, private",
+      "content-disposition": "inline",
+      "x-content-type-options": "nosniff",
     })
   } catch (error) {
     return handleRouteError(error, "documents.source")

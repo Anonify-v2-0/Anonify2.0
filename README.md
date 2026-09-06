@@ -21,6 +21,7 @@ under a black rectangle is not a redaction system.
 | [docs/ai-engine.md](docs/ai-engine.md) | Detection order, cost discipline, prompts, suggestion → decision → removal |
 | [docs/pipelines.md](docs/pipelines.md) | Why each format's pipeline is built the way it is |
 | [docs/presets.md](docs/presets.md) | The five shipped redaction presets and their detector/category memberships |
+| [docs/deploy-vercel.md](docs/deploy-vercel.md) | Deploying to Vercel on the Hobby plan, and the limits that shape it |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | The invariants, the roadmap, and the benchmarks we would like |
 
 ## What it can redact
@@ -633,6 +634,10 @@ column AN is charged for what it contains, not for the blanks between.
 Documents are temporary, which is only true if something is actually deleting
 them. On Vercel that is the cron entry in `vercel.json`. **Nothing outside
 Vercel reads that file**, so a self-hosted install needs its own schedule.
+
+(On Vercel's Hobby plan that entry can only fire once a day — the plan rejects
+anything more frequent — so a Hobby deployment wants the same backstop for a
+different reason. See [docs/deploy-vercel.md](docs/deploy-vercel.md).)
 
 Either run the sweep directly — no server and no secret needed, so this suits
 cron, a systemd timer or Task Scheduler:

@@ -268,14 +268,43 @@ export function selectStorageDriver(): StorageDriver {
     return createS3Driver(config)
   }
 
-  if (requested === "local") return localDriver
+  if (requested === "local") {
+    refuseLocalOnVercel()
+    return localDriver
+  }
 
   if (process.env.BLOB_READ_WRITE_TOKEN) return vercelBlobDriver
 
   const s3 = s3ConfigFromEnv()
   if (s3) return createS3Driver(s3)
 
+  refuseLocalOnVercel()
   return localDriver
+}
+
+/**
+ * The filesystem fallback is a convenience for a fresh clone, and a trap on
+ * Vercel.
+ *
+ * Nothing about it announces itself: a deployment with no storage configured
+ * picks this driver, writes land on a filesystem that is read-only outside
+ * /tmp, and what does succeed belongs to one function instance and is gone by
+ * the next request. Worse, `clientUpload: "server-route"` sends the browser's
+ * bytes through our own route, where Vercel caps a request body at 4.5 MB — so
+ * the visible symptom is a 413 on a 12 MB PDF, which points at the upload and
+ * not at the missing configuration that caused it.
+ *
+ * Failing here turns all of that into one sentence naming the variable to set.
+ */
+function refuseLocalOnVercel(): void {
+  if (!process.env.VERCEL) return
+  throw new Error(
+    "The local filesystem driver cannot be used on Vercel: the filesystem is " +
+      "read-only and per-instance, and uploads through this app's own route " +
+      "are capped at 4.5 MB. Set BLOB_READ_WRITE_TOKEN (connect a Vercel Blob " +
+      "store to the project), or configure S3 with S3_BUCKET, S3_ACCESS_KEY_ID " +
+      "and S3_SECRET_ACCESS_KEY."
+  )
 }
 
 /**

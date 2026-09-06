@@ -25,6 +25,46 @@ export async function readFormData(
   }
 }
 
+/**
+ * A file response, streamed rather than buffered.
+ *
+ * The bytes are already in memory by the time this is called — everything here
+ * decrypts a whole object and verifies its checksum before serving it, and
+ * cannot honestly stream something it has to hash in full first. What this
+ * changes is the *response*, and on Vercel that is the difference between a
+ * download working and not: a buffered response body is capped at 4.5 MB and
+ * anything larger is refused by the platform with FUNCTION_PAYLOAD_TOO_LARGE
+ * before a byte reaches the browser. A streamed body has no such cap. Since
+ * this app's ceiling is MAX_UPLOAD_BYTES — 50 MiB — the buffered form was wrong
+ * for almost every real document.
+ *
+ * `content-length` is deliberately absent. Setting it alongside a stream is
+ * what makes some intermediaries treat the response as buffered again, which
+ * reinstates the limit this exists to avoid; the cost is a progress bar the
+ * browser cannot fill, which is the correct trade against a download that 413s.
+ *
+ * Chunked because a single 50 MiB enqueue is one buffered write wearing a
+ * stream's clothes: it pins the whole object in the response queue at once,
+ * which is the memory profile that matters on a 2 GB Hobby function.
+ */
+const STREAM_CHUNK_BYTES = 512 * 1024
+
+export function fileResponse(
+  bytes: Uint8Array,
+  headers: Record<string, string>
+): Response {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (let offset = 0; offset < bytes.byteLength; offset += STREAM_CHUNK_BYTES) {
+        controller.enqueue(bytes.subarray(offset, offset + STREAM_CHUNK_BYTES))
+      }
+      controller.close()
+    },
+  })
+
+  return new Response(body, { headers })
+}
+
 export function jsonResponse(data: unknown, status = 200): Response {
   return Response.json(data, {
     status,

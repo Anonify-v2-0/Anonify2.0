@@ -1,0 +1,74 @@
+name: Sweep
+
+# The expiry sweep, for deployments whose own scheduler cannot run it often
+# enough.
+#
+# `/api/cron/cleanup` marks expired documents, deletes them, and admits any
+# document left queued behind a slot nothing freed. It wants to run every few
+# minutes: retention is the promise this app makes about how long a document
+# lives, and a document that outlives its stated TTL by hours has broken that
+# promise even though nothing errored.
+#
+# Vercel's Hobby plan schedules cron jobs **once per day**, and rejects any
+# expression that would run more often — so `vercel.json` carries a daily entry
+# and this fills the gap. On Pro, delete this file and raise the schedule in
+# `vercel.json` instead; two schedulers calling the same endpoint is harmless
+# (the work is idempotent) but there is no reason to run both.
+#
+# Setup: add two repository secrets under Settings → Secrets and variables →
+# Actions.
+#
+#   SWEEP_URL      https://<your-deployment>/api/cron/cleanup
+#   CRON_SECRET    the same value set in the deployment's environment
+#
+# Without them the job exits without calling anything, so a fork that never
+# configures it does not fail every fifteen minutes.
+
+on:
+  schedule:
+    # GitHub's scheduler is best-effort and queues under load; treat this as
+    # "roughly every 15 minutes", which is what a backstop needs to be.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the cleanup endpoint
+        env:
+          SWEEP_URL: ${{ secrets.SWEEP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$SWEEP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "SWEEP_URL or CRON_SECRET is unset; nothing to call."
+            exit 0
+          fi
+
+          # --max-time is below the endpoint's own 300s ceiling: a sweep that
+          # has not answered by then is one the next run will repeat anyway,
+          # and the work is idempotent.
+          status=$(curl --silent --show-error --fail-with-body \
+            --max-time 290 \
+            --header "authorization: Bearer $CRON_SECRET" \
+            --write-out '%{http_code}' \
+            --output response.json \
+            "$SWEEP_URL") || true
+
+          echo "HTTP $status"
+          cat response.json || true
+          echo
+
+          # A 401 means the secret does not match the deployment's, which is a
+          # sweep that has silently not been running. Fail loudly for that.
+          case "$status" in
+            200) exit 0 ;;
+            *) echo "::error::Sweep failed with HTTP $status"; exit 1 ;;
+          esac
