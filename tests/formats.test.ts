@@ -5,6 +5,7 @@ import {
   ACCEPTED_MIME_TYPES,
   FORMAT_LIST,
   FORMATS,
+  isPureContainer,
   kindForExtension,
   kindForMimeType,
   outputTypeFor,
@@ -60,6 +61,18 @@ describe("the format register", () => {
     for (const format of FORMAT_LIST) {
       expect(USAGE_KINDS).toContain(format.quota)
       expect(quotaKindFor(format.kind)).toBe(format.quota)
+    }
+  })
+
+  it("gives a container nothing to extract and nothing to export", () => {
+    // The one shape that is allowed to be neither: a mailbox is not a document
+    // somebody reviews, it is the batch its messages arrived in. Asserting
+    // both halves stops a format being registered as half a container, which
+    // would reach an extractor that does not exist.
+    for (const format of FORMAT_LIST) {
+      if (format.extractable) continue
+      expect(format.exportable).toBe(false)
+      expect(isPureContainer(format.kind)).toBe(true)
     }
   })
 

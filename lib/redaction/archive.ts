@@ -69,6 +69,13 @@ export type SkipReason =
   | "export-failed"
   /** The reviewer stopped the run before this document was reached. */
   | "cancelled"
+  /**
+   * A mailbox, which is the batch rather than a file in it. Named rather than
+   * left out silently, and named as itself rather than as "not ready": a
+   * reviewer counting nine hundred messages and one missing mailbox needs to
+   * know the mailbox was never going to be there.
+   */
+  | "container"
 
 export type BatchReport = {
   version: number
@@ -114,6 +121,8 @@ const SKIP_SENTENCES: Record<SkipReason, string> = {
   "rate-limited": "was not exported because the export allowance ran out",
   "archive-full": "did not fit in this archive",
   "export-failed": "could not be exported",
+  container:
+    "is a mailbox, so its messages were exported in its place rather than the mailbox itself",
 }
 
 export function buildBatchReport(input: {

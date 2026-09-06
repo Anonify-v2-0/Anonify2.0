@@ -18,7 +18,14 @@ import {
 import { randomClientId } from "@/lib/documents/client-ids"
 import type { ProcessingStatus } from "@/types/processing"
 
-const TERMINAL = new Set<ProcessingStatus>(["ready", "failed", "expired"])
+const TERMINAL = new Set<ProcessingStatus>([
+  "ready",
+  // A container's run ends here. Without it the workspace would hold a stream
+  // open against a document that has already finished everything it will do.
+  "expanded",
+  "failed",
+  "expired",
+])
 const RECONNECT_DELAY_MS = 1500
 const MAX_RECONNECTS = 10
 

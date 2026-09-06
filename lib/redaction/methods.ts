@@ -92,6 +92,10 @@ const CARRIER: Record<DocumentKind, SurrogateCarrier> = {
   txt: "text",
   rtf: "text",
   eml: "text",
+  // A mailbox is never redacted itself, so nothing ever carries a surrogate
+  // here. Registered as `text` because that is what its messages are, and a
+  // table typed over every kind has to answer for this one too.
+  mbox: "text",
 }
 
 export function surrogateCarrier(kind: DocumentKind): SurrogateCarrier {

@@ -55,6 +55,7 @@ const SKIP_LABELS: Record<SkipReason, string> = {
   "archive-full": "did not fit in the archive",
   "export-failed": "could not be exported",
   cancelled: "not reached",
+  container: "expanded into the messages above",
 }
 
 const ARCHIVE_FILENAME = "anonify-batch-redacted.zip"

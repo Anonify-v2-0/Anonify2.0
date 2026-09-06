@@ -195,6 +195,12 @@ async function rewrite(
         values,
         label: null,
       })
+    // Never reached: a mailbox is `exportable: false` in the format register.
+    // It expanded into the documents this is working on and is not one of
+    // them. Named rather than left to the fall-through, so a mailbox arriving
+    // here says which invariant broke instead of silently producing nothing.
+    case "mbox":
+      throw new Error("A mailbox is expanded rather than exported")
     case "docx":
       return redactDocx(bytes, ooxml)
     case "pptx":

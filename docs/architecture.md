@@ -206,6 +206,7 @@ lib/
   ai/          gateway, prompts, schemas, orchestration
   documents/   formats.ts — the register every other list derives from
                pdf | docx | xlsx | image | csv/tsv | txt | rtf | eml | pptx
+               mbox/ — a container: splits into messages, never extracted
                ooxml/ — package access and run surgery, shared by docx + pptx
                shared/ — text streams, ranges, and the atom map RTF and the
                HTML inside an email both use

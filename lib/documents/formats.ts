@@ -191,6 +191,31 @@ export const FORMATS: Record<DocumentKind, FormatDefinition> = {
     quotaUnit: "slides",
     container: "ooxml",
   },
+  mbox: {
+    kind: "mbox",
+    label: "Mailbox (.mbox)",
+    mimeType: "application/mbox",
+    mimeTypes: ["application/mbox"],
+    extension: "mbox",
+    extensions: ["mbox"],
+    // A pure container, and the only one in the register. A mailbox is not a
+    // document that can be reviewed: it is hundreds of them concatenated, and
+    // it expands into a batch of messages that are each reviewed and exported
+    // on their own. There is nothing to normalize here and nothing to write
+    // back — see lib/documents/mbox/ and lib/documents/expand.ts.
+    extractable: false,
+    exportable: false,
+    // Never actually charged. The per-kind allowance is spent at extraction,
+    // which a container never reaches; what a mailbox costs is one `uploads`
+    // count for itself and then one message's worth of `emailKilobytes` for
+    // each message it produces, charged through the ordinary path when that
+    // message's own extraction knows its real size. Registered against the
+    // family it belongs to so the table stays a description of the format
+    // rather than a special case.
+    quota: "emailKilobytes",
+    quotaUnit: "kibibytes of decoded text, charged per message",
+    container: "mime",
+  },
   image: {
     kind: "image",
     label: "Images (PNG, JPEG, WebP)",
@@ -248,6 +273,19 @@ export function kindForMimeType(mimeType: string): DocumentKind | undefined {
 /** The daily allowance a document of this kind is charged against. */
 export function quotaKindFor(kind: DocumentKind): UsageKind {
   return FORMATS[kind].quota
+}
+
+/**
+ * True for a kind that is only ever a container.
+ *
+ * A mailbox is not a document somebody reviews — it is the batch that the
+ * documents came in. Expansion is the whole of its pipeline: it is never
+ * normalized, never analyzed, never exported, and the reviewer works on the
+ * children. Read from `extractable` rather than named per kind so the register
+ * stays the one place a format is described.
+ */
+export function isPureContainer(kind: DocumentKind): boolean {
+  return !FORMATS[kind].extractable
 }
 
 /** What an export of this kind is written as. */

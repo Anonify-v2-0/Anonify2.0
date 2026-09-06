@@ -138,6 +138,12 @@ export async function exportRedacted(input: {
       // bytes is the redactor's business rather than the reviewer's.
       bytes = redactRtf(source, buildTextPlan(model, accepted, options))
       break
+    // Never reached: a mailbox is `exportable: false` in the format register.
+    // It expanded into the documents this is working on and is not one of
+    // them. Named rather than left to the fall-through, so a mailbox arriving
+    // here says which invariant broke instead of silently producing nothing.
+    case "mbox":
+      throw new Error("A mailbox is expanded rather than exported")
   }
 
   // Verify against the artifact itself, not against the intent. For a message

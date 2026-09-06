@@ -1,5 +1,6 @@
 import { formatOf, kindForExtension } from "@/lib/documents/formats"
 import { looksLikeEml } from "@/lib/documents/eml/parse"
+import { looksLikeMbox } from "@/lib/documents/mbox/parse"
 import { looksLikeRtf } from "@/lib/documents/rtf/parse"
 import type { DocumentKind } from "@/types/document"
 
@@ -135,6 +136,20 @@ export function detectDocumentType(
       kind: "rtf",
       mimeType: formatOf("rtf").mimeType,
       extension: "rtf",
+    }
+  }
+
+  // Before the message check, because a mailbox's first message would answer
+  // to it: a mailbox is messages, so anything that recognises one recognises
+  // the other, and the more specific test has to be asked first. It is also
+  // the stricter of the two — a `From ` line of the right shape *and* a header
+  // block behind it — so a message that merely mentions one is not caught by
+  // it.
+  if (looksLikeMbox(bytes)) {
+    return {
+      kind: "mbox",
+      mimeType: formatOf("mbox").mimeType,
+      extension: "mbox",
     }
   }
 

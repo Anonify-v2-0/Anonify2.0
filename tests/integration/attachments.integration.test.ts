@@ -19,7 +19,9 @@ import { hasDatabase, testFingerprint, testId } from "./support"
  */
 
 const { prisma } = await import("@/lib/database/prisma")
-const { expandMessageAttachments } = await import("@/lib/documents/expand")
+const { expandContainer: expandMessageAttachments } = await import(
+  "@/lib/documents/expand"
+)
 const { resolveAttachments } = await import("@/lib/redaction/attachments")
 const { putObject, sourceKey } = await import("@/lib/storage/blob")
 const { encryptDocument } = await import("@/lib/storage/encryption")
