@@ -22,10 +22,17 @@
  * change.
  *
  * So every default shown here is read from the code that enforces it —
- * `defaultsFor`, `DEFAULT_EML_LIMITS`, `DEFAULT_EXPANSION_LIMITS` — rather than
- * copied into this file. A number printed here and a number in force can then
- * never disagree, which is the only version of this worth having: a setup
- * script that lies about the defaults is worse than no setup script.
+ * `defaultsFor`, `DEFAULT_EML_LIMITS`, `DEFAULT_EXPANSION_LIMITS`,
+ * `mboxDefaultsFor` — rather than copied into this file. A number printed here
+ * and a number in force can then never disagree, which is the only version of
+ * this worth having: a setup script that lies about the defaults is worse than
+ * no setup script.
+ *
+ * Sizes are asked for and written as sizes — `32MB`, `512KB` — rather than as
+ * byte counts. Nobody types `33554432` correctly, and the way that goes wrong
+ * is not a rejected answer but a plausible number off by a factor of a
+ * thousand, accepted and in force. A plain number still means bytes, so an
+ * existing `.env` keeps working. See lib/config/bytes.ts.
  */
 
 import { randomBytes } from "node:crypto"
@@ -34,6 +41,7 @@ import { readFile, rename, writeFile } from "node:fs/promises"
 import { createConnection } from "node:net"
 import path from "node:path"
 
+import { formatByteSize } from "@/lib/config/bytes"
 import {
   batchDefaultsFor as batchDefaults,
   batchEnvName,
@@ -51,6 +59,11 @@ import {
   envName as emlEnvName,
   type EmlLimits,
 } from "@/lib/documents/eml/limits"
+import {
+  mboxDefaultsFor as mboxDefaults,
+  mboxEnvName,
+  type MboxLimits,
+} from "@/lib/documents/mbox/limits"
 import {
   defaultsFor as quotaDefaults,
   envName as quotaEnvName,
@@ -163,11 +176,11 @@ type Answers = {
   spendCapUsd: number
   quotas: Partial<Quotas>
   rates: Partial<Record<RateLimitName, string>>
-  eml: Partial<EmlLimits>
-  expansion: Partial<ExpansionLimits>
+  eml: Partial<Record<keyof EmlLimits, string>>
+  expansion: Partial<Record<keyof ExpansionLimits, string>>
+  mbox: Partial<Record<keyof MboxLimits, string>>
   batch: Partial<BatchLimits>
 }
-
 
 /** What each concurrency setting bounds, since none of them is a rate. */
 const BATCH_UNITS: Record<BatchLimitKey, string> = {
@@ -191,17 +204,47 @@ const QUOTA_UNITS: Record<UsageKind, string> = {
 const EML_UNITS: Record<keyof EmlLimits, string> = {
   maxDepth: "how deeply multiparts may nest",
   maxParts: "parts across the whole tree",
-  maxTextBytes: "bytes of decoded text",
-  maxHeaderBytes: "bytes in one part's header block",
+  maxTextBytes: "decoded text, across every part",
+  maxHeaderBytes: "one part's header block",
   maxAttachments: "attachments one message may carry",
   maxNestedMessages: "forwarded messages inside one another",
 }
 
 const EXPANSION_UNITS: Record<keyof ExpansionLimits, string> = {
   maxChildren: "documents one message may produce",
-  maxExpandedBytes: "bytes across all of them",
-  maxAttachmentBytes: "bytes in any single attachment",
+  maxExpandedBytes: "across all of them",
+  maxAttachmentBytes: "any single attachment",
   maxDepth: "a message inside a message inside a message",
+}
+
+const MBOX_UNITS: Record<keyof MboxLimits, string> = {
+  maxMessages: "documents one mailbox may produce",
+  maxTotalBytes: "across every message in it",
+  maxMessageBytes: "any single message",
+  maxDepth: "a mailbox forwarded inside a mailbox",
+}
+
+/**
+ * The limits that are a size rather than a count, so the prompt asks for one.
+ *
+ * Kept beside the unit labels rather than imported from the three limit
+ * modules: those export the sets they enforce with, and a second import here
+ * would make this file look like it was deciding something it is not. What it
+ * decides is only how to ask.
+ */
+const EML_SIZES = new Set<keyof EmlLimits>(["maxTextBytes", "maxHeaderBytes"])
+const EXPANSION_SIZES = new Set<keyof ExpansionLimits>([
+  "maxExpandedBytes",
+  "maxAttachmentBytes",
+])
+const MBOX_SIZES = new Set<keyof MboxLimits>([
+  "maxTotalBytes",
+  "maxMessageBytes",
+])
+
+/** A default, shown the way it may be typed back in. */
+function shownAs(value: number, isSize: boolean): string {
+  return isSize ? formatByteSize(value) : String(value)
 }
 
 /** What each external-service setting bounds, since none of them is a quota. */
@@ -232,7 +275,8 @@ async function askServiceLimits(
   prompt: Prompter,
   answers: { ocr: Answers["ocr"] }
 ): Promise<Answers["services"]> {
-  const relevant: ServiceName[] = answers.ocr === "mistral" ? [...SERVICES] : ["ai"]
+  const relevant: ServiceName[] =
+    answers.ocr === "mistral" ? [...SERVICES] : ["ai"]
 
   say()
   say(`  ${paint.bold("External service limits")}`)
@@ -290,7 +334,9 @@ async function askServiceLimits(
  */
 async function askSpendCap(prompt: Prompter): Promise<number> {
   say()
-  say(`  ${paint.bold("Daily AI spend cap")} ${paint.gray("— USD, per UTC day")}`)
+  say(
+    `  ${paint.bold("Daily AI spend cap")} ${paint.gray("— USD, per UTC day")}`
+  )
   say()
   note("The AI Gateway meters spend rather than requests, so this is the")
   note("ceiling that is actually there. Estimated from recorded tokens and the")
@@ -328,7 +374,10 @@ async function askTesseractModel(prompt: Prompter): Promise<TesseractModel> {
       return {
         value,
         label: value === DEFAULT_TESSERACT_MODEL ? `${value} (default)` : value,
-        detail: [summary, `About ${approxMb} MB per language, downloaded once.`],
+        detail: [
+          summary,
+          `About ${approxMb} MB per language, downloaded once.`,
+        ],
       }
     }),
     TESSERACT_MODELS.indexOf(DEFAULT_TESSERACT_MODEL)
@@ -367,8 +416,14 @@ async function askMistralOcrModel(prompt: Prompter): Promise<MistralOcrModel> {
       label: value,
       detail:
         value === DEFAULT_MISTRAL_OCR_MODEL
-          ? ["Follows Mistral's newest OCR release. The right default here:", "a better reader is strictly better, and no output format breaks."]
-          : ["Pinned to one release, for an install that has validated its", "results against this one and would rather they not move."],
+          ? [
+              "Follows Mistral's newest OCR release. The right default here:",
+              "a better reader is strictly better, and no output format breaks.",
+            ]
+          : [
+              "Pinned to one release, for an install that has validated its",
+              "results against this one and would rather they not move.",
+            ],
     })),
     MISTRAL_OCR_MODELS.indexOf(DEFAULT_MISTRAL_OCR_MODEL)
   )
@@ -439,7 +494,9 @@ async function askQuotas(
   const unlimited = USAGE_KINDS.every((kind) => defaults[kind] === 0)
 
   say()
-  say(`  ${paint.bold("Daily allowances")} ${paint.gray("— per person, per UTC day")}`)
+  say(
+    `  ${paint.bold("Daily allowances")} ${paint.gray("— per person, per UTC day")}`
+  )
   say()
   if (unlimited) {
     note("A self-hosted install has nobody to ration against, so nothing is")
@@ -508,7 +565,9 @@ async function askRates(
   return chosen
 }
 
-async function askEmlLimits(prompt: Prompter): Promise<Partial<EmlLimits>> {
+async function askEmlLimits(
+  prompt: Prompter
+): Promise<Partial<Record<keyof EmlLimits, string>>> {
   say()
   say(`  ${paint.bold("Email parser limits")}`)
   say()
@@ -518,25 +577,38 @@ async function askEmlLimits(prompt: Prompter): Promise<Partial<EmlLimits>> {
   note("truncated document presented as a complete one.")
   say()
   for (const key of Object.keys(DEFAULT_EML_LIMITS) as (keyof EmlLimits)[]) {
-    setting(emlEnvName(key), String(DEFAULT_EML_LIMITS[key]), { defaulted: true })
+    setting(
+      emlEnvName(key),
+      shownAs(DEFAULT_EML_LIMITS[key], EML_SIZES.has(key)),
+      {
+        defaulted: true,
+      }
+    )
   }
   say()
 
   if (await prompt.confirm("Keep these parser limits?", true)) return {}
 
-  const chosen: Partial<EmlLimits> = {}
+  const chosen: Partial<Record<keyof EmlLimits, string>> = {}
   for (const key of Object.keys(DEFAULT_EML_LIMITS) as (keyof EmlLimits)[]) {
-    chosen[key] = await prompt.askInteger(emlEnvName(key), {
-      fallback: DEFAULT_EML_LIMITS[key],
-      unit: `(${EML_UNITS[key]})`,
-    })
+    chosen[key] = EML_SIZES.has(key)
+      ? await prompt.askSize(emlEnvName(key), {
+          fallback: DEFAULT_EML_LIMITS[key],
+          unit: `(${EML_UNITS[key]})`,
+        })
+      : String(
+          await prompt.askInteger(emlEnvName(key), {
+            fallback: DEFAULT_EML_LIMITS[key],
+            unit: `(${EML_UNITS[key]})`,
+          })
+        )
   }
   return chosen
 }
 
 async function askExpansionLimits(
   prompt: Prompter
-): Promise<Partial<ExpansionLimits>> {
+): Promise<Partial<Record<keyof ExpansionLimits, string>>> {
   say()
   say(`  ${paint.bold("Email attachment expansion")}`)
   say()
@@ -548,26 +620,94 @@ async function askExpansionLimits(
   for (const key of Object.keys(
     DEFAULT_EXPANSION_LIMITS
   ) as (keyof ExpansionLimits)[]) {
-    setting(expansionEnvName(key), String(DEFAULT_EXPANSION_LIMITS[key]), {
-      defaulted: true,
-    })
+    setting(
+      expansionEnvName(key),
+      shownAs(DEFAULT_EXPANSION_LIMITS[key], EXPANSION_SIZES.has(key)),
+      { defaulted: true }
+    )
   }
   say()
 
   if (await prompt.confirm("Keep these expansion limits?", true)) return {}
 
-  const chosen: Partial<ExpansionLimits> = {}
+  const chosen: Partial<Record<keyof ExpansionLimits, string>> = {}
   for (const key of Object.keys(
     DEFAULT_EXPANSION_LIMITS
   ) as (keyof ExpansionLimits)[]) {
-    chosen[key] = await prompt.askInteger(expansionEnvName(key), {
-      fallback: DEFAULT_EXPANSION_LIMITS[key],
-      unit: `(${EXPANSION_UNITS[key]})`,
-    })
+    chosen[key] = EXPANSION_SIZES.has(key)
+      ? await prompt.askSize(expansionEnvName(key), {
+          fallback: DEFAULT_EXPANSION_LIMITS[key],
+          unit: `(${EXPANSION_UNITS[key]})`,
+        })
+      : String(
+          await prompt.askInteger(expansionEnvName(key), {
+            fallback: DEFAULT_EXPANSION_LIMITS[key],
+            unit: `(${EXPANSION_UNITS[key]})`,
+          })
+        )
   }
   return chosen
 }
 
+/**
+ * The mailbox limits.
+ *
+ * Asked after attachment expansion because it is the same question one scale
+ * up, and the answer to the first one makes the second one legible: a message
+ * with attachments becomes a small batch, and a mailbox becomes a large one.
+ *
+ * These are per profile, unlike the two above, because a shared demo absorbing
+ * everybody's archive and a laptop expanding its owner's are not answering the
+ * same question.
+ */
+async function askMboxLimits(
+  prompt: Prompter,
+  profile: Profile
+): Promise<Partial<Record<keyof MboxLimits, string>>> {
+  const defaults = mboxDefaults(profile)
+
+  say()
+  say(`  ${paint.bold("Mailbox expansion")}`)
+  say()
+  note("An .mbox is not a document, it is hundreds of them. It expands into a")
+  note("batch: one document per message, each with its own run, its own")
+  note(
+    "allowance and its own export, and the mailbox itself is never redacted."
+  )
+  note("This is the first format where the amplification factor is the point —")
+  note("one upload becoming nine hundred documents — so it is bounded on its")
+  note("own terms rather than by the upload size.")
+  say()
+  for (const key of Object.keys(defaults) as (keyof MboxLimits)[]) {
+    setting(mboxEnvName(key), shownAs(defaults[key], MBOX_SIZES.has(key)), {
+      defaulted: true,
+    })
+  }
+  say()
+  note("The message count is its own number rather than the batch cap — that")
+  note("one is how many files a person may drag in at once, and a mailbox is")
+  note("one file — but it is floored at it either way, so a mailbox can never")
+  note("produce a smaller batch than you could assemble by hand.")
+  say()
+
+  if (await prompt.confirm("Keep these mailbox limits?", true)) return {}
+
+  const chosen: Partial<Record<keyof MboxLimits, string>> = {}
+  for (const key of Object.keys(defaults) as (keyof MboxLimits)[]) {
+    chosen[key] = MBOX_SIZES.has(key)
+      ? await prompt.askSize(mboxEnvName(key), {
+          fallback: defaults[key],
+          unit: `(${MBOX_UNITS[key]})`,
+        })
+      : String(
+          await prompt.askInteger(mboxEnvName(key), {
+            fallback: defaults[key],
+            unit: `(${MBOX_UNITS[key]})`,
+          })
+        )
+  }
+  return chosen
+}
 
 async function askBatchLimits(
   prompt: Prompter,
@@ -649,12 +789,13 @@ function limitGroups(answers: Answers): EnvGroup[] {
       ],
       lines: (Object.keys(DEFAULT_EML_LIMITS) as (keyof EmlLimits)[]).map(
         (key) => {
+          const fallback = shownAs(DEFAULT_EML_LIMITS[key], EML_SIZES.has(key))
           const chosen = answers.eml[key]
           return {
             key: emlEnvName(key),
-            value: String(chosen ?? DEFAULT_EML_LIMITS[key]),
+            value: chosen ?? fallback,
             comment: EML_UNITS[key],
-            commented: chosen === undefined || chosen === DEFAULT_EML_LIMITS[key],
+            commented: chosen === undefined || chosen === fallback,
           }
         }
       ),
@@ -670,13 +811,42 @@ function limitGroups(answers: Answers): EnvGroup[] {
       lines: (
         Object.keys(DEFAULT_EXPANSION_LIMITS) as (keyof ExpansionLimits)[]
       ).map((key) => {
+        const fallback = shownAs(
+          DEFAULT_EXPANSION_LIMITS[key],
+          EXPANSION_SIZES.has(key)
+        )
         const chosen = answers.expansion[key]
         return {
           key: expansionEnvName(key),
-          value: String(chosen ?? DEFAULT_EXPANSION_LIMITS[key]),
+          value: chosen ?? fallback,
           comment: EXPANSION_UNITS[key],
-          commented:
-            chosen === undefined || chosen === DEFAULT_EXPANSION_LIMITS[key],
+          commented: chosen === undefined || chosen === fallback,
+        }
+      }),
+    },
+    {
+      heading: "Mailbox expansion",
+      note: [
+        "An .mbox is not a document, it is hundreds of them: it expands into a",
+        "batch of one document per message and is never redacted as a file. The",
+        "first format where the amplification factor is the point, so it is",
+        "bounded on its own terms. Sizes, not byte counts — 32MB, 512KB, 1GB.",
+        "The message count is floored at the batch cap, so a mailbox can never",
+        "produce a smaller batch than somebody could assemble by hand.",
+      ],
+      lines: (
+        Object.keys(mboxDefaults(answers.profile)) as (keyof MboxLimits)[]
+      ).map((key) => {
+        const fallback = shownAs(
+          mboxDefaults(answers.profile)[key],
+          MBOX_SIZES.has(key)
+        )
+        const chosen = answers.mbox[key]
+        return {
+          key: mboxEnvName(key),
+          value: chosen ?? fallback,
+          comment: MBOX_UNITS[key],
+          commented: chosen === undefined || chosen === fallback,
         }
       }),
     },
@@ -886,8 +1056,7 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
               key: "MISTRAL_OCR_MODEL",
               value: answers.mistralOcrModel,
               comment: `One of: ${MISTRAL_OCR_MODELS.join(", ")}.`,
-              commented:
-                answers.mistralOcrModel === DEFAULT_MISTRAL_OCR_MODEL,
+              commented: answers.mistralOcrModel === DEFAULT_MISTRAL_OCR_MODEL,
             },
           ],
   }
@@ -994,9 +1163,7 @@ function banner(): void {
   rule()
 }
 
-async function choosePorts(
-  prompt: Prompter
-): Promise<Answers["ports"]> {
+async function choosePorts(prompt: Prompter): Promise<Answers["ports"]> {
   const wanted = { app: 3000, postgres: 5432, minio: 9000, minioConsole: 9001 }
 
   const probe = spin("Checking whether those ports are free")
@@ -1013,7 +1180,9 @@ async function choosePorts(
 
   warn(`Something is already listening on: ${taken.join(", ")}.`)
   note("A Postgres already on 5432 is the usual one, and the symptom is")
-  note("confusing: Compose starts fine and the app talks to the wrong database.")
+  note(
+    "confusing: Compose starts fine and the app talks to the wrong database."
+  )
 
   // Nobody to ask, so the warning is the whole contribution. Offering a
   // question whose answer is already known to be the default is noise in a log.
@@ -1101,27 +1270,27 @@ async function main(): Promise<void> {
     const mode: Mode =
       flagged ??
       (await prompt.choose<Mode>(
-            "Choose",
-            [
-              {
-                value: "local",
-                label: "Fully local",
-                detail: [
-                  "Postgres and MinIO through Docker Compose, Tesseract for OCR.",
-                  "No accounts, no API keys, nothing leaves your machine.",
-                ],
-              },
-              {
-                value: "demo",
-                label: "Demo-compatible",
-                detail: [
-                  "The same services as the deployed demo: Neon, Vercel Blob",
-                  "and Mistral OCR. You provide your own keys.",
-                ],
-              },
+        "Choose",
+        [
+          {
+            value: "local",
+            label: "Fully local",
+            detail: [
+              "Postgres and MinIO through Docker Compose, Tesseract for OCR.",
+              "No accounts, no API keys, nothing leaves your machine.",
             ],
-            0
-          ))
+          },
+          {
+            value: "demo",
+            label: "Demo-compatible",
+            detail: [
+              "The same services as the deployed demo: Neon, Vercel Blob",
+              "and Mistral OCR. You provide your own keys.",
+            ],
+          },
+        ],
+        0
+      ))
 
     // 2. Who can reach it. Asked before the limits because it chooses every
     //    default underneath them, and asked separately from the services
@@ -1148,27 +1317,27 @@ async function main(): Promise<void> {
     const profile: Profile =
       flaggedProfile ??
       (await prompt.choose<Profile>(
-      "Choose",
-      [
-        {
-          value: "self-hosted",
-          label: "Just me, or my team on a private network",
-          detail: [
-            "Generous rate limits and no daily quotas at all.",
-            "There is nobody to ration against.",
-          ],
-        },
-        {
-          value: "demo",
-          label: "It is public and shared",
-          detail: [
-            "Strict rate limits and small daily allowances, so one visitor's",
-            "workbook cannot be everyone's budget.",
-          ],
-        },
-      ],
-      0
-    ))
+        "Choose",
+        [
+          {
+            value: "self-hosted",
+            label: "Just me, or my team on a private network",
+            detail: [
+              "Generous rate limits and no daily quotas at all.",
+              "There is nobody to ration against.",
+            ],
+          },
+          {
+            value: "demo",
+            label: "It is public and shared",
+            detail: [
+              "Strict rate limits and small daily allowances, so one visitor's",
+              "workbook cannot be everyone's budget.",
+            ],
+          },
+        ],
+        0
+      ))
 
     // 3. Services.
     step(3, STEPS, "Services")
@@ -1207,7 +1376,9 @@ async function main(): Promise<void> {
     // text: the answer ends up in a compose file, and a typo there is a
     // container that starts and then fails on the first scanned page.
     const tesseractModel =
-      ocr === "tesseract" ? await askTesseractModel(prompt) : DEFAULT_TESSERACT_MODEL
+      ocr === "tesseract"
+        ? await askTesseractModel(prompt)
+        : DEFAULT_TESSERACT_MODEL
     const tesseractLanguage =
       ocr === "tesseract"
         ? await askTesseractLanguage(prompt)
@@ -1239,6 +1410,7 @@ async function main(): Promise<void> {
       : await askSpendCap(prompt)
     const eml = skipLimits ? {} : await askEmlLimits(prompt)
     const expansion = skipLimits ? {} : await askExpansionLimits(prompt)
+    const mbox = skipLimits ? {} : await askMboxLimits(prompt, profile)
     const batch = skipLimits ? {} : await askBatchLimits(prompt, profile)
 
     // 5. Write.
@@ -1294,6 +1466,7 @@ async function main(): Promise<void> {
         rates,
         eml,
         expansion,
+        mbox,
         batch,
       },
       kept
@@ -1325,10 +1498,7 @@ async function main(): Promise<void> {
     say(`  ${paint.bold("What this instance is")}`)
     say()
     setting("Setup", mode === "local" ? "fully local" : "demo-compatible")
-    setting(
-      "Profile",
-      profile === "demo" ? "public and shared" : "self-hosted"
-    )
+    setting("Profile", profile === "demo" ? "public and shared" : "self-hosted")
     setting(
       "OCR",
       ocr === "tesseract"
@@ -1358,7 +1528,10 @@ async function main(): Promise<void> {
         : `${changed} changed from the defaults`,
       { defaulted: changed === 0 }
     )
-    setting("Secrets", kept.size > 0 ? "reused from the previous .env" : "generated")
+    setting(
+      "Secrets",
+      kept.size > 0 ? "reused from the previous .env" : "generated"
+    )
 
     // Read back from the file rather than assumed from the mode: a value
     // carried over from a previous run is not still needed, and listing it as
@@ -1369,9 +1542,7 @@ async function main(): Promise<void> {
       ...(mode === "demo"
         ? [["BLOB_READ_WRITE_TOKEN", "a Vercel Blob token"] as const]
         : []),
-      ...(ocr === "mistral"
-        ? [["MISTRAL_API_KEY", "for OCR"] as const]
-        : []),
+      ...(ocr === "mistral" ? [["MISTRAL_API_KEY", "for OCR"] as const] : []),
     ].filter(([key]) => !written.get(key))
 
     if (missing.length > 0) {
@@ -1386,11 +1557,18 @@ async function main(): Promise<void> {
     // silently doing nothing is exactly what a spend limit must not do.
     if (
       spendCapUsd > 0 &&
-      !(written.get("AI_PRICE_INPUT_PER_MTOK") && written.get("AI_PRICE_OUTPUT_PER_MTOK"))
+      !(
+        written.get("AI_PRICE_INPUT_PER_MTOK") &&
+        written.get("AI_PRICE_OUTPUT_PER_MTOK")
+      )
     ) {
       say()
-      warn(`${SPEND_ENV_NAME} is set but the prices it is computed from are not.`)
-      note("Set AI_PRICE_INPUT_PER_MTOK and AI_PRICE_OUTPUT_PER_MTOK, or the cap")
+      warn(
+        `${SPEND_ENV_NAME} is set but the prices it is computed from are not.`
+      )
+      note(
+        "Set AI_PRICE_INPUT_PER_MTOK and AI_PRICE_OUTPUT_PER_MTOK, or the cap"
+      )
       note("cannot be enforced and the app will say so on every document.")
     }
 

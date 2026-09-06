@@ -28,7 +28,9 @@ import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { ExpansionLimitError } from "@/lib/documents/eml/attachments"
 import { EmlLimitError } from "@/lib/documents/eml/limits"
-import { expandMessageAttachments } from "@/lib/documents/expand"
+import { MboxLimitError } from "@/lib/documents/mbox/limits"
+import { MboxParseError } from "@/lib/documents/mbox/parse"
+import { expandContainer } from "@/lib/documents/expand"
 import { newEventId } from "@/lib/documents/ids"
 import { saveNormalized } from "@/lib/documents/normalized-store"
 import { loadNormalized } from "@/lib/documents/normalized-store"
@@ -225,71 +227,87 @@ async function runIngest(documentId: string): Promise<{ kind: DocumentKind }> {
 }
 
 /**
- * Expansion: a message with attachments becomes a batch.
+ * Expansion: a container becomes a batch.
+ *
+ * Two kinds are containers, at two scales. A message with attachments is one
+ * document plus its enclosures; a mailbox is nothing but documents — hundreds
+ * of messages concatenated, which is the form email actually takes when
+ * somebody exports an archive. Both become a batch, and the difference between
+ * them is only who enumerates the children; see lib/documents/expand.ts.
  *
  * Here rather than at reservation because reservation runs before the browser
  * has uploaded anything — there are no bytes to parse and the declared MIME
  * type is a guess. And before extraction, so the children are already queued
- * while the message itself is still being read: a reviewer opening the batch
- * sees the enclosures arriving rather than appearing at the end.
+ * while the container is still being read: a reviewer opening the batch sees
+ * the messages arriving rather than appearing at the end.
  *
- * Every kind but `eml` falls straight through, and a message with nothing
+ * Every other kind falls straight through, and a message with nothing
  * expandable in it costs one parse.
  */
-async function expandAttachments(
+async function expandContainerStep(
   documentId: string
-): Promise<{ children: number }> {
+): Promise<{ children: number; container: boolean }> {
   "use step"
-  return runExpandAttachments(documentId).catch(paced)
+  return runExpandContainer(documentId).catch(paced)
 }
 
 // A parse, a handful of sealed writes and a run started per child. Storage and
 // the database dominate, so a blip is weather; the verdicts below throw
 // FatalError, which `paced` lets through untouched.
-expandAttachments.maxRetries = 4
+expandContainerStep.maxRetries = 4
 
-async function runExpandAttachments(
+async function runExpandContainer(
   documentId: string
-): Promise<{ children: number }> {
+): Promise<{ children: number; container: boolean }> {
   let summary
   try {
-    summary = await expandMessageAttachments(documentId)
+    summary = await expandContainer(documentId)
   } catch (error) {
-    // A limit — the parser's or expansion's — is a verdict about this message,
-    // not weather. Retrying reads the same bytes and reaches the same number,
-    // and the reviewer deserves the reason rather than four attempts and a
-    // shrug. Refused whole: a partly expanded message would look complete.
-    if (error instanceof EmlLimitError || error instanceof ExpansionLimitError) {
+    // A limit — the MIME parser's, attachment expansion's, or the mailbox's —
+    // is a verdict about this file, not weather. Retrying reads the same bytes
+    // and reaches the same number, and the reviewer deserves the reason rather
+    // than four attempts and a shrug. Refused whole: a partly expanded
+    // container would look complete.
+    if (
+      error instanceof EmlLimitError ||
+      error instanceof ExpansionLimitError ||
+      error instanceof MboxLimitError ||
+      error instanceof MboxParseError
+    ) {
       throw new FatalError(error.message)
     }
     throw error
   }
 
   if (summary.children.length === 0 && summary.carried === 0) {
-    return { children: 0 }
+    return { children: 0, container: summary.container }
   }
 
   // Each child is a first-class document from here on: its own run, its own
   // extraction, its own detectors, its own review, its own export. Nothing
-  // downstream should be able to tell that it arrived inside a message rather
-  // than off a desktop.
+  // downstream should be able to tell that it arrived inside a message or a
+  // mailbox rather than off a desktop.
   for (const child of summary.children) {
     if (!child.processable) continue
     await startChildRun(child.id)
   }
 
-  await emit(documentId, "document.attachments.expanded", {
-    status: "extracting",
-    payload: {
-      // Counts only. A filename here would be document content in an event
-      // stream that is deliberately free of it.
-      children: summary.children.length,
-      carried: summary.carried,
-      batchId: summary.batchId,
-    },
-  })
+  // A pure container says so at the end instead, in `finishContainer`, because
+  // for a mailbox this *is* the run finishing rather than a stage of it.
+  if (!summary.container) {
+    await emit(documentId, "document.attachments.expanded", {
+      status: "extracting",
+      payload: {
+        // Counts only. A filename here would be document content in an event
+        // stream that is deliberately free of it.
+        children: summary.children.length,
+        carried: summary.carried,
+        batchId: summary.batchId,
+      },
+    })
+  }
 
-  return { children: summary.children.length }
+  return { children: summary.children.length, container: summary.container }
 }
 
 /**
@@ -427,6 +445,11 @@ async function extractByKind(
       const { document } = extractPptx(documentId, bytes)
       return document
     }
+    // Unreachable: the orchestrator finishes a container before it gets here.
+    // Named anyway, because "no extractor registered" would be read as a gap
+    // in the register rather than as a pipeline that took a wrong turn.
+    case "mbox":
+      throw new FatalError("A mailbox is expanded rather than extracted")
     default:
       throw new FatalError(`No extractor registered for ${kind}`)
   }
@@ -653,6 +676,39 @@ async function publishStatus(
   await emit(documentId, type, { status, ...extra })
 }
 
+/**
+ * The end of the line for a container.
+ *
+ * A mailbox is not a document that was processed — it is the batch its
+ * messages arrived in, and once they exist there is nothing left for it to do.
+ * It is never normalized, never analyzed and never exported, so running it
+ * through the remaining stages would mean an extractor that does not exist and
+ * a review of nothing.
+ *
+ * `expanded` rather than `ready` or `failed`, because it is neither and saying
+ * so matters in three places at once: the batch export skips it by name rather
+ * than reporting a document that "had not finished processing", the editor
+ * does not offer to open something with no model behind it, and the reviewer
+ * is told what actually happened to the file they uploaded.
+ */
+async function finishContainer(
+  documentId: string,
+  children: number
+): Promise<void> {
+  "use step"
+
+  await setStatus(documentId, "expanded", { error: null, errorCode: null })
+  await emit(documentId, "document.expanded", {
+    status: "expanded",
+    progress: 100,
+    // Counts only, as everywhere on this stream: a subject line or a sender
+    // here would be document content in a record that is deliberately free of
+    // it.
+    payload: { children },
+  })
+  await getWritable().close()
+}
+
 async function finish(
   documentId: string,
   pageCount: number,
@@ -748,7 +804,16 @@ export async function processDocument(documentId: string): Promise<{
       progress: 30,
     })
     await ingestUpload(documentId)
-    await expandAttachments(documentId)
+    const expansion = await expandContainerStep(documentId)
+
+    // A mailbox stops here. Its messages are already queued as documents of
+    // their own, and the container itself has nothing to extract: it is the
+    // batch, not a file in it.
+    if (expansion.container) {
+      await finishContainer(documentId, expansion.children)
+      await admitNext(documentId)
+      return { documentId, status: "expanded" }
+    }
 
     await publishStatus(documentId, "normalizing", "document.normalizing", {
       progress: 55,

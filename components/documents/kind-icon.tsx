@@ -4,6 +4,7 @@ import {
   FileType,
   Image as ImageIcon,
   Mail,
+  Mails,
   Presentation,
   type LucideIcon,
 } from "lucide-react"
@@ -35,4 +36,8 @@ export const KIND_ICONS: Record<DocumentKind, LucideIcon> = {
   rtf: FileType,
   eml: Mail,
   pptx: Presentation,
+  // Deliberately a stack of the eml icon rather than an archive or a folder:
+  // a mailbox is many of exactly that thing, and the list reads better when
+  // the container and its children are visibly the same family.
+  mbox: Mails,
 }

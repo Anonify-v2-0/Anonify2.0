@@ -80,6 +80,13 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
     (document) => document.status === "ready"
   ).length
 
+  // A mailbox is in the batch and is not one of the documents being reviewed:
+  // it is where they came from. Counted separately rather than left out of
+  // both tallies, which would read as one document having gone missing.
+  const containers = batch.documents.filter(
+    (document) => document.status === "expanded"
+  ).length
+
   const removeRule = useCallback(
     async (ruleId: string) => {
       setRemoving(ruleId)
@@ -134,6 +141,9 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <p className="label-micro">
             {batch.documents.length} documents · {ready} ready
+            {containers > 0
+              ? ` · ${containers} mailbox${containers === 1 ? "" : "es"} expanded`
+              : ""}
           </p>
           <BatchDownloadButton
             batchId={batch.id}

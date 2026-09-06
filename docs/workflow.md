@@ -254,6 +254,7 @@ stateDiagram-v2
     [*] --> queued: document.queued
     queued --> extracting: document.extracting
     extracting --> normalizing: document.normalizing
+    extracting --> expanded: document.expanded<br/>(a mailbox: it is the batch)
     normalizing --> analyzing: document.ai.started
     analyzing --> analyzing: document.ai.progress ×N
     analyzing --> ready: document.redaction.created<br/>then document.ready
@@ -261,8 +262,16 @@ stateDiagram-v2
     normalizing --> failed: document.failed
     analyzing --> failed: document.failed
     ready --> [*]
+    expanded --> [*]
     failed --> [*]
 ```
+
+`expanded` is the container's ending, and it is terminal. A mailbox expands
+into one document per message and then has nothing left to do: no model to
+normalize, no suggestions to analyze, no artifact to export. Running it through
+the remaining stages would mean an extractor that does not exist, and finishing
+it as `ready` would put it in the batch export as a document that could not be
+exported. See `lib/documents/mbox/` and docs/pipelines.md.
 
 ### Event shapes
 

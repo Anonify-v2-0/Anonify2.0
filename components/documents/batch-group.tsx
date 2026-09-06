@@ -57,6 +57,11 @@ export function BatchGroup({
   const failed = documents.filter(
     (document) => document.status === "failed"
   ).length
+  // Neither ready nor working nor failed: a mailbox that became the rest of
+  // this batch. Named, so the numbers add up to what the list shows.
+  const containers = documents.filter(
+    (document) => document.status === "expanded"
+  ).length
 
   return (
     <li className="rounded-[12px] border border-border bg-surface-2/40">
@@ -85,6 +90,9 @@ export function BatchGroup({
             {ready} ready
             {working > 0 ? ` · ${working} still processing` : ""}
             {failed > 0 ? ` · ${failed} failed` : ""}
+            {containers > 0
+              ? ` · ${containers} mailbox${containers === 1 ? "" : "es"} expanded`
+              : ""}
           </p>
         </div>
 

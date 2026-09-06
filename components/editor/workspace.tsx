@@ -54,7 +54,10 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
    */
   const refreshedFor = useRef<string | null>(null)
   useEffect(() => {
-    const settled = current.status === "ready" || current.status === "failed"
+    const settled =
+      current.status === "ready" ||
+      current.status === "expanded" ||
+      current.status === "failed"
     if (!settled) return
     if (current.status === summary.status) return
     if (refreshedFor.current === current.status) return

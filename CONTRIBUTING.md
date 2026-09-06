@@ -249,6 +249,32 @@ Only after the invariants hold for it, including an adversarial test suite.
       and that is now stated per attachment rather than as a global caveat.
       `tests/eml-attachments.test.ts` and
       `tests/integration/attachments.integration.test.ts`.
+- [x] ~~**MBOX: a mailbox as a batch.**~~ An `.mbox` expands into one document
+      per message, each sealed under its own key, with its own run, its own
+      quota accounting, its own review and its own export — indistinguishable
+      downstream from the same `.eml` uploaded off a desktop. The mailbox
+      itself is the only pure container in the register (`extractable: false,
+      exportable: false`) and finishes at a terminal status of its own,
+      `expanded`: it did not fail, and it is not ready either, because there is
+      no model to open and no artifact to export. Provenance is the parent
+      document and the message index, which is unique in the database so a
+      retried expansion cannot produce the same child twice. The splitter
+      treats a `From ` line as a seam only when the line before it is blank,
+      the line has the shape of a real one, and the bytes behind it parse as
+      headers — failing any of those merges rather than splits, because an
+      over-merged mailbox is visibly wrong and a fractured one is two plausible
+      documents each missing half the other. Expansion has its own fail-closed,
+      profile-dependent limits — message count, total bytes, largest message,
+      and a mailbox-in-a-mailbox depth counted on the same axis attachment
+      expansion uses — and the message count is floored at the batch cap so a
+      mailbox can never produce a smaller batch than a person could assemble by
+      hand. Each message costs what the same `.eml` would on its own, charged
+      idempotently, and one the allowance does not cover is present, named and
+      explicitly skipped. What is still not claimed: mboxo and mboxrd quoting
+      are not distinguishable from the bytes, so `>From ` is undone as mboxrd;
+      `Content-Length` framing is not trusted; and a whole message quoted into
+      a body after a blank line will split. `tests/mbox.test.ts` and
+      `tests/integration/mailbox.integration.test.ts`.
 - [x] ~~**An export report** — what was removed, by category and count, with the
       checksum — as a separate artifact.~~ `lib/redaction/report.ts`, served by
       the download route as `?part=report`. Counts by category, the style each

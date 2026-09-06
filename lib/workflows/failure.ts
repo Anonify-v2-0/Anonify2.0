@@ -38,6 +38,7 @@ export const FAILURE_CODES = [
   "corrupt-source",
   "missing-upload",
   "too-complex",
+  "empty-container",
   "quota",
   "internal-state",
   "configuration",
@@ -94,7 +95,16 @@ const FAILURES: Record<FailureCode, Omit<DocumentFailure, "code">> = {
   // to prevent. An administrator can raise the limits; see .env.example.
   "too-complex": {
     message:
-      "This message is more than this instance will read or expand: too many parts, too deeply nested, or too much content behind them. It was not processed at all, because a partly processed message would look complete and would not be.",
+      "This file is more than this instance will read or expand: too many messages or parts, too deeply nested, or too much content behind them. It was not processed at all, because a partly processed file would look complete and would not be.",
+    retryable: false,
+  },
+  // A container whose contents could not be found at all. Distinct from an
+  // empty file, which has no bytes: this one has bytes and no messages in
+  // them, and telling somebody their 30 MiB mailbox is empty would send them
+  // looking for the wrong problem.
+  "empty-container": {
+    message:
+      "No messages could be read out of this mailbox, so there was nothing to expand. Check that it is a mailbox export rather than a single message saved with an .mbox name.",
     retryable: false,
   },
   // Not retryable, even though the allowance does eventually reset: a retry
@@ -154,6 +164,7 @@ const MATCHERS: { code: FailureCode; pattern: RegExp }[] = [
   // Both the parser's limits and expansion's, which are worded alike on
   // purpose: to the person holding the message they are one refusal.
   { code: "too-complex", pattern: /exceeds the \w+ (expansion )?limit of/i },
+  { code: "empty-container", pattern: /no messages found in this mailbox/i },
   { code: "missing-upload", pattern: /no upload to ingest|document no longer exists/i },
   { code: "quota", pattern: /daily demo limit reached/i },
   { code: "internal-state", pattern: /has not been (ingested|normalized)/i },

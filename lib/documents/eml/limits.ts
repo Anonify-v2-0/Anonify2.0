@@ -1,3 +1,5 @@
+import { BYTE_SIZE_HINT, parseByteSize } from "@/lib/config/bytes"
+
 /**
  * What a message is allowed to cost us.
  *
@@ -63,6 +65,9 @@ export function envName(limit: keyof EmlLimits): string {
     .toUpperCase()}`
 }
 
+/** The limits that are a size rather than a count; see lib/config/bytes.ts. */
+const SIZES = new Set<keyof EmlLimits>(["maxTextBytes", "maxHeaderBytes"])
+
 /**
  * A malformed override is reported rather than ignored, for the same reason a
  * malformed rate limit is: a limit someone believes they set and which is not
@@ -74,6 +79,17 @@ export function emlLimits(): EmlLimits {
   for (const key of Object.keys(limits) as (keyof EmlLimits)[]) {
     const raw = process.env[envName(key)]?.trim()
     if (!raw) continue
+
+    if (SIZES.has(key)) {
+      const bytes = parseByteSize(raw)
+      if (bytes === null) {
+        throw new Error(
+          `${envName(key)} must be ${BYTE_SIZE_HINT}, got "${raw}"`
+        )
+      }
+      limits[key] = bytes
+      continue
+    }
 
     if (!/^\d+$/.test(raw) || Number(raw) === 0) {
       throw new Error(

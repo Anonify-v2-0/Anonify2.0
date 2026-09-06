@@ -15,6 +15,7 @@ export const DOCUMENT_KINDS = [
   "rtf",
   "eml",
   "pptx",
+  "mbox",
 ] as const
 
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number]
@@ -220,6 +221,14 @@ export type DocumentSummary = {
   reviewable?: boolean
   /** Absent for a document uploaded on its own. */
   batch?: BatchPlacement | null
+  /**
+   * How many documents this one expanded into, for a container.
+   *
+   * Only ever set on a mailbox, which has no pages, no suggestions and no
+   * artifact of its own — this count is the whole of what happened to it, and
+   * without it the screen has nothing to say but "expanded".
+   */
+  expandedChildren?: number | null
   /**
    * The preset the analysis ran with, if the sweep was narrowed. Shown in the
    * editor because a short suggestion list means two very different things

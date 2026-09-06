@@ -101,7 +101,7 @@ An uploaded source document. The stored source bytes are AES-256-GCM encrypted;
 | `mimeType` | `String` | Sniffed MIME type. |
 | `size` | `Int` | Source byte count. |
 | `pageCount` | `Int?` | Filled during extraction; null until known. |
-| `status` | `String` `@default("queued")` | `queued \| extracting \| normalizing \| analyzing \| ready \| failed \| expired`. |
+| `status` | `String` `@default("queued")` | `queued \| extracting \| normalizing \| analyzing \| ready \| expanded \| failed \| expired`. `expanded` is terminal and belongs to a container: a mailbox that became a batch of messages, which is neither ready (there is no model to open and no artifact to export) nor failed. |
 | `preset` | `String?` | Named detector set the analysis ran with. Null means everything was looked for — a missing preset must never narrow the sweep. See `lib/redaction/presets.ts`. |
 | `error` | `String?` | User-facing failure sentence from `lib/workflows/failure.ts`. Never a raw thrown message. |
 | `errorCode` | `String?` | Stable failure code. Retry decisions read this rather than re-parsing the sentence. |

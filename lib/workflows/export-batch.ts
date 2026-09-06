@@ -267,6 +267,10 @@ async function runExportDocument(
   if (!document || document.expiresAt.getTime() <= Date.now()) {
     return skip("not-ready")
   }
+  // A mailbox never becomes ready and never should: it expanded into the very
+  // documents this run is exporting. Checked before the readiness test so it
+  // is reported as what it is rather than as a document still processing.
+  if (document.status === "expanded") return skip("container")
   if (document.status !== "ready") return skip("not-ready")
 
   await patched(exportId, documentId, { state: "exporting" })

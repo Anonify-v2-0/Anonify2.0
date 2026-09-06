@@ -38,7 +38,8 @@ error's text.
 | `too-large` | The file is larger than this instance's upload limit (`MAX_UPLOAD_BYTES`). | No |
 | `corrupt-source` | The stored copy of the file no longer matches the checksum taken when it was uploaded, so it was not read. The user is asked to upload it again. | No |
 | `missing-upload` | The uploaded file is no longer available — the blob was removed before ingest, or the document row is gone. | No |
-| `too-complex` | The message is more than this instance will read or expand: too many parts, too deeply nested, or too much content behind them. Refused whole, because a partly processed message would look complete and would not be. An administrator can raise the limits; see `.env.example`. | No |
+| `too-complex` | The file is more than this instance will read or expand: too many messages or parts, too deeply nested, or too much content behind them. Refused whole, because a partly processed file would look complete and would not be. An administrator can raise the limits; see `.env.example`. | No |
+| `empty-container` | A mailbox with no messages that could be read out of it. Distinct from `empty-file`, which has no bytes at all: this one has bytes and nothing in them, and telling somebody their 30 MiB archive is empty would send them looking for the wrong problem. | No |
 | `quota` | The document needs more of today's allowance than is left. The allowance resets at midnight UTC. Not retryable, even though the allowance does eventually reset: a retry pressed before it does spends a rate-limit token to fail in the same way, which is the whole complaint. | No |
 | `internal-state` | Processing stopped partway through and cannot resume from where it stopped. Also the fallback for an unrecognised `FatalError` the pipeline threw itself — the pipeline only throws one where it has decided retrying is pointless. | No |
 | `configuration` | The instance is not fully configured, so processing could not run. This needs an administrator rather than a retry — a retry loop against a missing environment variable is a shape of failure this codebase has already been bitten by once. | No |
@@ -65,6 +66,7 @@ const MATCHERS: { code: FailureCode; pattern: RegExp }[] = [
   { code: "too-large",         pattern: /file is too large/i },
   { code: "corrupt-source",    pattern: /checksum mismatch/i },
   { code: "too-complex",       pattern: /exceeds the \w+ (expansion )?limit of/i },
+  { code: "empty-container",   pattern: /no messages found in this mailbox/i },
   { code: "missing-upload",    pattern: /no upload to ingest|document no longer exists/i },
   { code: "quota",             pattern: /daily demo limit reached/i },
   { code: "internal-state",    pattern: /has not been (ingested|normalized)/i },
@@ -81,8 +83,9 @@ as storage only once we know it is not one of the specific cases above it. The
 matchers are tried top to bottom and the first hit wins; anything that matches
 none of them falls through to `unknown`.
 
-`too-complex` is worded to cover both the parser's limits and expansion's,
-deliberately: to the person holding the message they are one refusal.
+`too-complex` is worded to cover the MIME parser's limits, attachment
+expansion's and the mailbox's, deliberately: to the person holding the file
+they are one refusal with one remedy.
 
 ### `unwrap` — fatal vs retried
 

@@ -8,12 +8,13 @@ const LABELS: Record<string, string> = {
   analyzing: "Analyzing",
   rendering: "Rendering",
   ready: "Ready",
+  expanded: "Expanded",
   failed: "Failed",
   expired: "Expired",
 }
 
 export function StatusPill({ status }: { status: string }) {
-  const active = !["ready", "failed", "expired"].includes(status)
+  const active = !["ready", "expanded", "failed", "expired"].includes(status)
 
   return (
     <span
@@ -27,7 +28,7 @@ export function StatusPill({ status }: { status: string }) {
       <span
         className={cn(
           "size-1.5 rounded-full",
-          status === "ready"
+          status === "ready" || status === "expanded"
             ? "bg-text-secondary"
             : status === "failed"
               ? "bg-primary"

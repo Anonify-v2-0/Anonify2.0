@@ -4,6 +4,7 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { Check, Loader2 } from "lucide-react"
 
+import { ExpandedNotice } from "@/components/processing/expanded-notice"
 import { FailureNotice } from "@/components/processing/failure-notice"
 import { documentStatusChanged } from "@/store/documentSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
@@ -42,6 +43,12 @@ export function ProcessingScreen({ summary }: { summary: DocumentSummary }) {
   const dispatch = useAppDispatch()
   const router = useRouter()
   const suggestionCount = useAppSelector((state) => state.processing.suggestionCount)
+
+  // A mailbox is finished, not working: it became its messages, and the stage
+  // list below describes a journey it never takes.
+  if (summary.status === "expanded") {
+    return <ExpandedNotice summary={summary} />
+  }
 
   if (summary.status === "failed") {
     return (

@@ -41,6 +41,7 @@ pipeline is argued through in [docs/pipelines.md](docs/pipelines.md).
 | **TSV** | Cells | Same grid model as CSV. |
 | **Plain text (.txt)** | Offsets | Addressed by offset into the source. |
 | **Rich text (.rtf)** | Parsed text | RTF is parsed rather than searched, because a word processor splits a value across formatting groups and the string is often not in the file at all. |
+| **Mailbox (.mbox)** | *Nothing — it is a container* | Split into one document per message, each reviewed and exported on its own. A decision taken on the first message is carried to the nine hundredth. The mailbox is never redacted as a file; the batch archive is the output. |
 | **Images (PNG, JPEG, WebP)** | Pixels | Pixels replaced and the file re-encoded. EXIF and GPS go too. |
 
 Every export is then re-opened and read the way an adversary would. A surviving
@@ -89,8 +90,15 @@ flowchart TD
   every text part, the visible text of every HTML part, quoted replies,
   attachment filenames and nested messages are all reviewable, and the export
   replaces byte ranges in the original so untouched parts come out identical.
-  Attachment *bytes* are carried through unchanged — their filenames are
-  redacted, their contents are not.
+  Attachments in supported formats become child documents of their own, are
+  redacted, and are substituted back into the message.
+- **MBOX** — a mailbox is not a document, it is hundreds of them. It expands
+  into a batch: one document per message, each indistinguishable from the same
+  `.eml` uploaded off a desktop, and the decisions a reviewer makes carry
+  across all of them. That is the point of it — "this recurring name is a
+  colleague, not a subject" answered once and applied to nine hundred
+  messages is work nobody would do by hand. Splitting is bounded and fails
+  closed, and a `From ` line in a message body does not fracture the message.
 - **CSV / TSV** — parsed into a grid and rewritten cell by cell, so a value
   next to a comma inside a quoted field cannot shift every row after it.
 - **TXT / RTF** — addressed by offsets into the source. RTF is parsed rather
@@ -194,7 +202,7 @@ occurrence 2..n costs a string scan, not a request.
 
 | | v1 | v2 |
 | --- | --- | --- |
-| **Formats** | PDF | PDF, DOCX, XLSX, PPTX, EML, CSV, TSV, TXT, RTF, images |
+| **Formats** | PDF | PDF, DOCX, XLSX, PPTX, EML, MBOX, CSV, TSV, TXT, RTF, images |
 | **Fidelity** | Document rebuilt as plain text | Format-native: DOCX edited in place byte-identically, XLSX cells rewritten, only redacted PDF pages rasterized |
 | **Who decides** | High / Med / Low, applied globally | Every suggestion accepted or rejected individually; nothing is removed that a person did not accept |
 | **Manual control** | None | Click a word, drag a region, redact a cell/row/column, apply a rule everywhere |
@@ -301,12 +309,18 @@ and gets your allowances. Answer "just me" and there are no daily quotas at
 all; answer "public and shared" and one visitor's workbook stops being
 everyone's budget.
 
-*Limits* covers the four groups that decide what this instance will accept:
-daily quotas, rate limits, email parser limits, and how far an email's
-attachments are expanded into documents of their own. Every default it prints
-is read from the code that enforces it, so what you see is what is in force,
-and everything you leave alone is written into `.env` as a commented line — so
-the file says what the default is rather than leaving it to be discovered.
+*Limits* covers the groups that decide what this instance will accept: daily
+quotas, rate limits, email parser limits, how far an email's attachments are
+expanded into documents of their own, and how far a mailbox is. Every default it
+prints is read from the code that enforces it, so what you see is what is in
+force, and everything you leave alone is written into `.env` as a commented line
+— so the file says what the default is rather than leaving it to be discovered.
+
+Anything that is a size is asked for and written as a size — `32MB`, `512KB`,
+`1.5GB` — rather than as a byte count. Nobody types `33554432` correctly, and
+the way that goes wrong is not a rejected answer but a plausible number off by a
+factor of a thousand, quietly in force. A plain number is still read as bytes,
+so an existing `.env` keeps working.
 
 ```bash
 pnpm setup --local --defaults --yes   # no questions: local, profile defaults
@@ -612,7 +626,7 @@ The units are not all the same shape, because the work is not:
 | `XLSX_CELLS` | filled cells | XLSX, CSV, TSV |
 | `TEXT_PAGES` | pages of extracted text | TXT, RTF |
 | `PPTX_SLIDES` | slides | PPTX |
-| `EMAIL_KILOBYTES` | KiB of decoded text: headers, every body, every nested message | EML |
+| `EMAIL_KILOBYTES` | KiB of decoded text: headers, every body, every nested message | EML, and every message out of an MBOX |
 | `IMAGES` / `UPLOADS` | one each | all |
 
 An email is charged by the text it actually decoded rather than as a page,
@@ -624,6 +638,32 @@ A message additionally has parser limits of its own — MIME depth, part count,
 decoded text, header size, attachment count, nesting — which are independent of
 the upload ceiling on purpose. Raising the size a file may be must never be the
 same decision as allowing unlimited complexity. See `.env.example`.
+
+A mailbox is charged nothing of its own, because it is never extracted: it
+expands, and each message it produces costs exactly what the same `.eml` would
+have cost uploaded on its own. What it has instead is bounds on the expansion,
+since one upload becoming nine hundred documents is the amplification these
+exist for:
+
+| Limit | Demo | Self-hosted | Bounds |
+| --- | --- | --- | --- |
+| `ANONIFY_MBOX_MAX_MESSAGES` | `200` | `1000` | documents one mailbox may produce |
+| `ANONIFY_MBOX_MAX_TOTAL_BYTES` | `32MB` | `64MB` | content across every message |
+| `ANONIFY_MBOX_MAX_MESSAGE_BYTES` | `12MB` | `25MB` | the largest single message |
+| `ANONIFY_MBOX_MAX_DEPTH` | `2` | `2` | a mailbox reached through a mailbox |
+
+Every size here is written as a size — `32MB`, `512KB`, `1.5GB` — rather
+than as a byte count, and so are the email parser's and expansion's. The
+units are powers of two, so `1KB` is 1024 bytes and `MB` and `MiB` mean the
+same thing, which is what `ls -h` and `docker --memory` already do. A plain
+number is still read as bytes, so an existing `.env` keeps working.
+`pnpm setup` asks for them in the same units and writes back what it would
+have shown.
+
+`MAX_MESSAGES` is its own number rather than `ANONIFY_BATCH_MAX_FILES` — that
+one is how many files a person may drag in at once, and a mailbox is one file —
+but it is floored at it, so a mailbox can never produce a smaller batch than
+the same person could have assembled by hand.
 
 Spreadsheet cells are counted as cells that hold something, not as the area of
 the used range — a sheet with three filled columns and one stray value out in

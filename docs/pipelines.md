@@ -1,6 +1,6 @@
 # The document pipelines
 
-`lib/documents/{pdf,docx,xlsx,image,delimited,text,rtf,eml,pptx}`
+`lib/documents/{pdf,docx,xlsx,image,delimited,text,rtf,eml,pptx,mbox}`
 
 Each format hides sensitive text somewhere different, so each pipeline is built
 around the specific way that format can betray you. This document is about those
@@ -34,11 +34,14 @@ adding a kind without registering it does not compile.
 | **RTF** | parsed text replacement | RTF reparse |
 | **EML** | headers/MIME text replacement, attachments as child documents | MIME reparse and scan, per-attachment checksum |
 | **PPTX** | OOXML text replacement | package-wide scan |
+| **MBOX** | *none — a container.* Expands into one document per message | byte conservation across the split, both MIME parsers per message |
 
 Quota units differ because the work does. Pages for PDF and DOCX; filled cells
 for XLSX, CSV and TSV; pages of extracted text for TXT and RTF; slides for
 PPTX; kibibytes of decoded text for EML; one per image. Counting an email as a
-page would charge a one-line reply the same as a forwarded thread.
+page would charge a one-line reply the same as a forwarded thread. A mailbox is
+charged nothing of its own — it is never extracted — and each message it
+produces costs exactly what the same `.eml` would have cost on its own.
 
 The shape every one of them shares:
 
@@ -51,6 +54,7 @@ flowchart TB
     KIND --> TXT["txt · rtf<br/>offsets into an atom map"]
     KIND --> EML["eml<br/>headers, every body, nested messages"]
     KIND --> IMG["png · jpeg · webp<br/>pixels and metadata"]
+    KIND --> MBX["mbox<br/>a container: expands into a batch,<br/>never normalized itself"]
     PDF --> NORM
     OOX --> NORM
     GRD --> NORM
@@ -587,6 +591,203 @@ work with its own parser is grading its own homework, and the failure that
 matters is an output only this code can read. `postal-mime` is the independent
 reader: if it cannot parse the export, the export failed, whatever happened to
 the sensitive string.
+
+---
+
+## MBOX — a mailbox is a batch
+
+### The problem
+
+Everything above processes one document at a time, and an email archive is not
+one document. It is hundreds of them, concatenated with `From ` separator
+lines, and it is the form email actually takes the moment somebody exports a
+folder out of Thunderbird, Apple Mail or `getmail`. A tool that reads a single
+`.eml` beautifully and has nowhere to put an `.mbox` has solved the demo and
+not the job.
+
+It is also the case where the machinery this codebase already has stops being a
+convenience and starts being the point. A batch carries a reviewer's decisions
+across its documents: "this recurring name is a colleague, not a subject",
+answered once, applies everywhere. On four files that is a nicety. On nine
+hundred messages it is the difference between a review that is possible and one
+that is not — and a name that is a person in one thread and a project codename
+in another is exactly the thing a reviewer wants to settle globally and watch
+propagate.
+
+### The shape: split the container, reuse everything else
+
+**A mailbox is not a new MIME problem.** Each message between the separators is
+an ordinary RFC 822 message, and the parser for it already exists. So the whole
+of `lib/documents/mbox/` is a splitter and a set of limits:
+
+| File | What it does |
+| --- | --- |
+| `parse.ts` | finds the seams, unwraps each message, undoes `>From ` quoting |
+| `limits.ts` | `MboxLimits` — message count, total bytes, largest message, depth |
+| `messages.ts` | what each message becomes, and what it is called |
+| `validate.ts` | conservation: every byte accounted for, every message reparses |
+
+There is no `redact.ts` and no `extract.ts`, because **the mailbox itself is
+never reviewed.** It is `extractable: false, exportable: false` in the register
+— the only entry that is — and its whole pipeline is expansion. The messages
+are what get extracted, analyzed, reviewed and exported, and the batch archive
+at the end is the output, exactly as for a batch a person uploads directly.
+
+```mermaid
+flowchart TB
+    MBOX["archive.mbox — one upload"] --> SPLIT["splitMailbox()<br/>From-line seams, quoting undone"]
+    SPLIT --> PLAN["planMailbox()<br/>one verdict per message"]
+    PLAN --> C1["message-0001.eml"]
+    PLAN --> C2["message-0002.eml"]
+    PLAN --> CN["… message-0900.eml"]
+    C1 --> RUN["each its own run:<br/>extract · analyze · review · export"]
+    C2 --> RUN
+    CN --> RUN
+    MBOX -.->|status: expanded| DONE["never extracted,<br/>never exported"]
+    RUN --> ARCHIVE["one batch archive"]
+```
+
+### Finding the seams, which is the entire difficulty
+
+The separator is a line beginning `From `. So is "From the top", "From what I
+can tell", and a raw mailbox header somebody pasted into a reply. Producers
+escape body lines as `>From `, but that is a convention rather than a
+guarantee, and a splitter that fractures a message on a body line hands the
+reviewer two half-messages: the first missing its ending, the second with a
+body where its headers should be and no `From:` header at all. Nothing
+downstream refuses either. Both look like documents.
+
+A candidate therefore has to pass three tests, not one, and is treated as body
+text unless all three hold:
+
+1. it is at the start of the file, or the line before it is blank — which is
+   what the format actually specifies;
+2. the line has the shape of a real `From ` line, envelope sender and asctime
+   date and all, rather than merely the first five characters;
+3. the bytes immediately after it parse as a message header block.
+
+Failing any of them **merges rather than splits**, and that direction is chosen
+deliberately: an over-merged mailbox is one visibly enormous message a reviewer
+can see is wrong, and a fractured one is two plausible documents each quietly
+missing half of the other.
+
+### Naming, and why it is not the subject
+
+A message is called `message-0007.eml` — its position, zero-padded, and nothing
+else. Not the subject, because a filename ends up in an archive entry name, in
+an export report and on somebody's disk, and a subject line is document
+content. Not the `Message-ID`, because that is a stranger's input: real archives
+carry duplicates — the same message filed twice, a thread saved from two
+folders — and plenty of messages carry none at all.
+
+The provenance columns are the parent document and `msg-<index>` as the part
+path. The index rather than anything the message chose, because
+`(parentDocumentId, sourcePartPath)` is unique in the database and that is what
+stops a retry, which re-splits the mailbox from scratch, producing a second copy
+of a message it already made.
+
+### Its own resource limits
+
+A mailbox is the first format where the amplification factor *is* the point: one
+40 MiB upload is nine hundred documents, nine hundred runs, nine hundred
+extractions. `emlLimits` bounds reading one message and says nothing about how
+many of them there are, so `MboxLimits` is a separate set of numbers about a
+separate cost — same fail-closed style, same environment overrides, and by
+deployment profile because a shared demo and somebody's laptop are not answering
+the same question.
+
+| Limit | Demo | Self-hosted | Bounds |
+| --- | --- | --- | --- |
+| `maxMessages` | 200 | 1000 | documents one mailbox may produce |
+| `maxTotalBytes` | `32MB` | `64MB` | content across every message |
+| `maxMessageBytes` | `12MB` | `25MB` | the largest single message |
+| `maxDepth` | 2 | 2 | a mailbox reached through a mailbox |
+
+The two sizes are read as sizes — `ANONIFY_MBOX_MAX_TOTAL_BYTES=32MB` — for
+the reason in `lib/config/bytes.ts`: `33554432` is not a number anybody
+types correctly, and the way it goes wrong is not a rejected value but a
+plausible one off by a factor of a thousand, silently in force until a file
+somebody expected to work is refused. The same is true of the email
+parser's and expansion's byte limits, which read the same way. A plain
+number still means bytes.
+
+`maxMessages` is deliberately **not** `MAX_BATCH_FILES`, which is what the EML
+expansion's `maxChildren` uses. Those answer different questions: `maxBatchFiles`
+is how many files a person may drag into the upload panel at once, and a mailbox
+is one file. Tying them would refuse a nine hundred message archive on a cap
+chosen for a drag-and-drop, which is the entire use case. What *is* reconciled is
+the direction that would surprise somebody: `mboxLimits()` floors `maxMessages`
+at `maxBatchFiles()`, so a mailbox can never silently produce a smaller batch
+than the same person could have assembled by hand.
+
+`maxDepth` is counted on the same axis attachment expansion uses, so one number
+bounds the whole chain however it was reached. A mailbox somebody uploaded sits
+at depth zero and expands; a mailbox forwarded inside a message inside another
+mailbox sits at two and is refused — present in the batch, named, explicitly not
+expanded.
+
+Exceeding a whole-mailbox limit refuses the mailbox with a reason and builds
+nothing. A per-message limit does not: an oversized message is one child that is
+present, named and skipped, and the other eight hundred and ninety-nine are
+documents.
+
+### Quota
+
+A message costs what the same `.eml` would cost uploaded on its own — one
+`uploads` count when it becomes a document, plus its own `emailKilobytes`
+allowance when its extraction knows the real size, through the same
+`chargeDocumentUsage` path everything else uses. The mailbox is not a discount,
+for the same reason a batch is not one. The charge and the child row are written
+in one transaction, so a retried expansion cannot bill the same message twice.
+
+A message the allowance does not stretch to is **present, named and explicitly
+skipped**, carrying the reason the reviewer would have got at upload time. At
+this scale that matters more than anywhere else in the codebase: nobody scrolls
+a nine-hundred-row batch counting, so a message missing with no row for it is a
+reviewer believing they have seen everything at the one moment they cannot
+check.
+
+### The container's own ending
+
+A mailbox never becomes `ready`. It finishes at a status of its own, `expanded`,
+which is terminal and is neither ready nor failed: it did not fail, and there is
+no model to open and no artifact to export because it is the batch rather than a
+file in it. That distinction is load-bearing in three places at once — the batch
+export skips it by name rather than reporting a document that "had not finished
+processing", the editor says what happened instead of rendering an editor over
+nothing, and the reviewer is told what became of the file they uploaded.
+
+### Verified by
+
+**Conservation, not absence.** Every other pipeline here asks "is the value gone
+from the artifact?". A mailbox has no artifact, and its failure mode is
+arithmetic: a splitter that quietly drops the messages it does not recognise
+produces a batch that looks entirely normal and is missing exactly the unusual
+ones — which are the ones worth reviewing. So `validate.ts` asks three different
+questions: is every byte of the file either inside a message or a separator
+line, does every message still parse under both MIME parsers, and did any
+message keep a `From ` line it should have lost.
+
+### What is not claimed
+
+- **mboxo versus mboxrd.** `>From ` quoting is undone by removing one `>` from
+  the run, the reversible mboxrd convention. The older mboxo convention escapes
+  only `From ` and leaves `>From ` alone, and the two are not distinguishable
+  from the bytes: `>>From ` is genuinely twice-quoted under one and once-quoted
+  under the other. When the guess is wrong the cost is one `>` in quoted text,
+  and it cannot cause a value to be missed — the unquoted text is what the
+  detectors read either way.
+- **A whole message can be pasted into a body.** A body that quotes a complete
+  message after a blank line — headers and all — is indistinguishable from a
+  real seam and will split. The three tests above make this rare rather than
+  impossible.
+- **`Content-Length` framing.** Some producers write `mboxcl`, which frames
+  messages by a declared length rather than by seams. That header is a
+  stranger's claim about where a message ends and is not trusted here; those
+  mailboxes are split by their `From ` lines like any other.
+- **A `.eml` file that kept its `From ` line** is a one-message mailbox by these
+  tests, and is refused for the mismatch between its bytes and its extension, as
+  any other mismatch is.
 
 ---
 

@@ -3,11 +3,17 @@ import { prisma } from "@/lib/database/prisma"
 import { decodeEml } from "@/lib/documents/eml/parse"
 import {
   planExpansion,
-  type AttachmentPlan,
   type AttachmentRefusal,
   type ExpansionLimits,
 } from "@/lib/documents/eml/attachments"
+import { isPureContainer } from "@/lib/documents/formats"
 import { newBatchId, newDocumentId, newUsageId } from "@/lib/documents/ids"
+import type { MboxLimits } from "@/lib/documents/mbox/limits"
+import {
+  messagePartPath,
+  planMailbox,
+  type MessageRefusal,
+} from "@/lib/documents/mbox/messages"
 import { checkQuota, quotaMessage } from "@/lib/security/usage"
 import { getObject, putObject, sourceKey } from "@/lib/storage/blob"
 import { decryptDocument, encryptDocument } from "@/lib/storage/encryption"
@@ -16,25 +22,32 @@ import { failureForCode } from "@/lib/workflows/failure"
 import type { DocumentKind } from "@/types/document"
 
 /**
- * Turning a message's attachments into documents.
+ * Turning a container into a batch.
  *
  * A batch already means the right thing: several documents reviewed as one
  * pass, decisions carried across them, one archive at the end, each keeping
  * its own run and its own failure so one document failing leaves the others
- * alone. That is precisely the relationship between a message and the files
- * inside it — and here the carried decisions are a genuine win rather than a
- * convenience, because "this recurring name is a colleague, not a subject",
- * answered in the covering letter, is the same answer in the enclosure.
+ * alone. Two things in this pipeline are containers in exactly that sense, and
+ * they are the same relationship at two scales:
  *
- * So a message that carries attachments in supported formats is expanded into
- * a batch. The message is one document; each supported attachment is another.
- * If the `.eml` arrived on its own, a batch is created for it; if it arrived in
- * a batch already, the children join that one.
+ *   - **a message with attachments.** The carried decisions are a genuine win
+ *     rather than a convenience, because "this recurring name is a colleague,
+ *     not a subject", answered in the covering letter, is the same answer in
+ *     the enclosure.
+ *   - **a mailbox.** Here they are the entire point. A decision taken on the
+ *     first message reaching all nine hundred is work nobody would do by hand,
+ *     and it is the reason this format is worth supporting at all.
+ *
+ * The difference between the two is only which planner enumerates the
+ * children. Everything after that — the batch, the sealed bytes, the charge,
+ * the idempotency, the refusals that are rows rather than silence — is one
+ * piece of code, because a child that arrived out of a mailbox and a child
+ * that arrived out of a message must be the same kind of thing.
  *
  * **This is not reservation.** `reserveDocument` runs before the browser has
  * uploaded anything: there are no bytes to parse and the declared MIME type is
- * a guess. The tree is not knowable until ingest holds the real bytes, which is
- * why this is a step of its own between ingest and extraction.
+ * a guess. The container is not knowable until ingest holds the real bytes,
+ * which is why this is a step of its own between ingest and extraction.
  *
  * From here on nothing downstream can tell the difference. A child gets its own
  * workflow run, its own extraction, its own detectors, its own review and its
@@ -53,10 +66,44 @@ export type ExpandedChild = {
 export type ExpansionSummary = {
   batchId: string | null
   children: ExpandedChild[]
-  /** Attachments in formats this cannot read, left exactly as they arrived. */
+  /** Parts in formats this cannot read, left exactly as they arrived. */
   carried: number
   /** True when the work happened on this call rather than on an earlier one. */
   expanded: boolean
+  /**
+   * True when the document is only a container — a mailbox — so there is
+   * nothing left to extract, analyze or export once its children exist.
+   */
+  container: boolean
+}
+
+/** Why a child is a row and a sentence rather than a document. */
+type ChildRefusal = AttachmentRefusal | MessageRefusal
+
+/**
+ * One child a container will produce, whichever container it came out of.
+ *
+ * The two planners disagree about almost everything — a MIME path against a
+ * message index, a declared filename against a generated one — and agree about
+ * this, which is the only shape the work below needs.
+ */
+type PlannedChild = {
+  /** Unique and stable within the parent; the database enforces both. */
+  partPath: string
+  name: string
+  kind: DocumentKind
+  mimeType: string
+  bytes: Uint8Array
+  /** Null for a child that becomes a document. */
+  refusal: ChildRefusal | null
+  /** Recorded on the child so where it came from can be read back. */
+  provenance: Record<string, unknown>
+}
+
+type ContainerPlan = {
+  children: PlannedChild[]
+  /** Parts left exactly as they arrived, which produce no child at all. */
+  carried: number
 }
 
 /** What the parent's metadata records once expansion has run. */
@@ -67,7 +114,7 @@ type ExpansionMark = {
   depth: number
 }
 
-/** How deep in a chain of messages this document sits; zero if uploaded. */
+/** How deep in a chain of containers this document sits; zero if uploaded. */
 export function expansionDepth(metadata: unknown): number {
   const record = asRecord(asRecord(metadata)?.expansion)
   const depth = record?.depth
@@ -75,10 +122,10 @@ export function expansionDepth(metadata: unknown): number {
 }
 
 /**
- * Expands a message, once.
+ * Expands a container, once.
  *
  * Idempotent in two independent ways, because the step that calls it is
- * retried and re-parses the message from scratch each time:
+ * retried and re-parses the source from scratch each time:
  *
  *   - the parent carries a mark once the pass has finished, which is the fast
  *     path and the record that it happened at all;
@@ -91,9 +138,9 @@ export function expansionDepth(metadata: unknown): number {
  * it becomes a document — a crash between the two leaves neither, and a retry
  * that finds the row skips both.
  */
-export async function expandMessageAttachments(
+export async function expandContainer(
   documentId: string,
-  options: { limits?: ExpansionLimits } = {}
+  options: { limits?: ExpansionLimits; mboxLimits?: MboxLimits } = {}
 ): Promise<ExpansionSummary> {
   const document = await prisma.document.findUnique({
     where: { id: documentId },
@@ -115,19 +162,32 @@ export async function expandMessageAttachments(
 
   if (!document) throw new Error("Document no longer exists")
 
-  // Only a message has attachments. Everything else takes the cheap road out
-  // rather than the caller having to know which kinds expand.
-  if (document.kind !== "eml") {
-    return { batchId: document.batchId, children: [], carried: 0, expanded: false }
+  const kind = document.kind as DocumentKind
+  const container = isPureContainer(kind)
+
+  // Only a message and a mailbox hold other documents. Everything else takes
+  // the cheap road out rather than the caller having to know which kinds
+  // expand.
+  if (kind !== "eml" && kind !== "mbox") {
+    return {
+      batchId: document.batchId,
+      children: [],
+      carried: 0,
+      expanded: false,
+      container,
+    }
   }
 
-  const existingMark = asRecord(asRecord(document.metadata)?.attachmentsExpanded)
+  const existingMark = asRecord(
+    asRecord(document.metadata)?.attachmentsExpanded
+  )
   if (existingMark) {
     return {
       batchId: document.batchId,
       children: await recordedChildren(documentId),
       carried: Number(existingMark.carried ?? 0),
       expanded: false,
+      container,
     }
   }
 
@@ -138,34 +198,41 @@ export async function expandMessageAttachments(
   const sealed = await getObject(document.sourceBlobKey)
   const source = decodeEml(decryptDocument(sealed, document.encryptionKey))
   const depth = expansionDepth(document.metadata)
-  const plan = planExpansion(source, { depth, limits: options.limits })
 
-  const wanted = plan.entries.filter((entry) => entry.action !== "carry")
-  const carried = plan.entries.length - wanted.length
+  const plan =
+    kind === "mbox"
+      ? planMailboxChildren(source, depth, options.mboxLimits)
+      : planAttachmentChildren(source, depth, options.limits)
 
-  if (wanted.length === 0) {
+  if (plan.children.length === 0) {
     await mark(documentId, document.metadata, {
       at: new Date().toISOString(),
       children: 0,
-      carried,
+      carried: plan.carried,
       depth,
     })
-    return { batchId: document.batchId, children: [], carried, expanded: true }
+    return {
+      batchId: document.batchId,
+      children: [],
+      carried: plan.carried,
+      expanded: true,
+      container,
+    }
   }
 
-  // A message with attachments is a batch, so one is created for a message
-  // that arrived on its own. A message that arrived inside a batch keeps that
-  // one: the reviewer's decisions already span it, and a second batch would
-  // stop them reaching the enclosures.
+  // A container is a batch, so one is created for a document that arrived on
+  // its own. A document that arrived inside a batch keeps that one: the
+  // reviewer's decisions already span it, and a second batch would stop them
+  // reaching what came out of this.
   const batchId =
     document.batchId ??
     (await createBatch(documentId, document.userFingerprint))
 
   const children: ExpandedChild[] = []
 
-  for (const entry of wanted) {
+  for (const planned of plan.children) {
     const child = await materialize({
-      entry,
+      planned,
       parent: {
         id: documentId,
         batchId,
@@ -183,11 +250,94 @@ export async function expandMessageAttachments(
   await mark(documentId, document.metadata, {
     at: new Date().toISOString(),
     children: children.length,
-    carried,
+    carried: plan.carried,
     depth,
   })
 
-  return { batchId, children, carried, expanded: true }
+  return {
+    batchId,
+    children,
+    carried: plan.carried,
+    expanded: true,
+    container,
+  }
+}
+
+/**
+ * The attachments of a message, in the shape the work below takes.
+ *
+ * A carried attachment — one in a format this pipeline cannot read — produces
+ * no child at all, which is the one difference from a mailbox: every message
+ * in a mailbox is a message, so there is nothing to carry.
+ */
+function planAttachmentChildren(
+  source: string,
+  depth: number,
+  limits: ExpansionLimits | undefined
+): ContainerPlan {
+  const plan = planExpansion(source, { depth, limits })
+
+  const children: PlannedChild[] = []
+
+  for (const entry of plan.entries) {
+    if (entry.action === "carry") continue
+    children.push({
+      partPath: entry.attachment.path,
+      name: entry.name,
+      kind: entry.kind,
+      mimeType: entry.mimeType,
+      bytes: entry.attachment.bytes,
+      refusal: entry.action === "refuse" ? entry.reason : null,
+      provenance: {
+        partPath: entry.attachment.path,
+        contentId: entry.attachment.contentId,
+        inline: entry.attachment.inline,
+      },
+    })
+  }
+
+  return { children, carried: plan.entries.length - children.length }
+}
+
+/** The messages of a mailbox, in the same shape. */
+function planMailboxChildren(
+  source: string,
+  depth: number,
+  limits: MboxLimits | undefined
+): ContainerPlan {
+  const plan = planMailbox(source, { depth, limits })
+
+  return {
+    children: plan.entries.map((entry) => ({
+      partPath: messagePartPath(entry.entry.index),
+      name: entry.name,
+      kind: entry.kind,
+      mimeType: entry.mimeType,
+      bytes: entry.entry.bytes,
+      refusal: entry.action === "refuse" ? entry.reason : null,
+      provenance: {
+        // The position in the mailbox, which is what provenance means here.
+        // The `From ` line is not recorded: it carries the envelope sender,
+        // which is document content, and this column is not a place for it.
+        messageIndex: entry.entry.index,
+        messages: plan.entries.length,
+      },
+    })),
+    // Every message in a mailbox is a message. Nothing is carried through,
+    // because there is no third thing for one to be.
+    carried: 0,
+  }
+}
+
+/**
+ * How many documents a container produced.
+ *
+ * Refusals included, because they are documents in the batch: a message the
+ * allowance did not stretch to is a row the reviewer has to see, and counting
+ * only the successes would tell them the mailbox was smaller than it was.
+ */
+export async function expandedChildCount(documentId: string): Promise<number> {
+  return prisma.document.count({ where: { parentDocumentId: documentId } })
 }
 
 /** The children an earlier pass already created, for a replaying step. */
@@ -234,20 +384,20 @@ type ParentContext = {
 }
 
 /**
- * One attachment, as a row and as sealed bytes.
+ * One child, as a row and as sealed bytes.
  *
  * Returns null only when the part already has a child — a retry landing on
  * work a previous attempt finished. Everything else produces a document, even
- * the refusals: an attachment missing from the batch with no row for it is a
- * reviewer believing they have seen everything.
+ * the refusals: a part missing from the batch with no row for it is a reviewer
+ * believing they have seen everything.
  */
 async function materialize(input: {
-  entry: Exclude<AttachmentPlan, { action: "carry" }>
+  planned: PlannedChild
   parent: ParentContext
   depth: number
 }): Promise<ExpandedChild | null> {
-  const { entry, parent, depth } = input
-  const partPath = entry.attachment.path
+  const { planned, parent, depth } = input
+  const partPath = planned.partPath
 
   const existing = await prisma.document.findUnique({
     where: {
@@ -272,21 +422,18 @@ async function materialize(input: {
   // than leaving a document nothing can ever process.
   if (existing) await prisma.document.delete({ where: { id: existing.id } })
 
-  const bytes = entry.attachment.bytes
+  const bytes = planned.bytes
   // A refusal decided from the bytes is free; only a document that will
   // actually be processed spends an upload. The allowance exists to bound
   // work, and a child that is a row and a sentence is not work.
-  const refusal =
-    entry.action === "refuse"
-      ? entry.reason
-      : await quotaRefusal(parent.quotaKey)
+  const refusal = planned.refusal ?? (await quotaRefusal(parent.quotaKey))
 
   const documentId = newDocumentId()
   const common = {
     id: documentId,
-    originalName: entry.name,
-    kind: entry.kind,
-    mimeType: entry.mimeType,
+    originalName: planned.name,
+    kind: planned.kind,
+    mimeType: planned.mimeType,
     size: bytes.byteLength,
     preset: parent.preset,
     userFingerprint: parent.userFingerprint,
@@ -295,17 +442,15 @@ async function materialize(input: {
     parentDocumentId: parent.id,
     sourcePartPath: partPath,
     ttlSeconds: parent.ttlSeconds,
-    // The same clock as the message it came out of. A child that outlived its
-    // parent would be an orphan nobody can place; one that died first would
-    // leave a message whose export cannot be rebuilt.
+    // The same clock as the container it came out of. A child that outlived
+    // its parent would be an orphan nobody can place; one that died first
+    // would leave a container whose export cannot be rebuilt.
     expiresAt: parent.expiresAt,
     metadata: {
       expansion: {
         depth,
         parentDocumentId: parent.id,
-        partPath,
-        contentId: entry.attachment.contentId,
-        inline: entry.attachment.inline,
+        ...planned.provenance,
       },
     } as Prisma.InputJsonValue,
   }
@@ -317,11 +462,13 @@ async function materialize(input: {
         ...common,
         status: "failed",
         error:
-          refusal === "quota" ? await quotaSentence(parent.quotaKey) : failure.message,
+          refusal === "quota"
+            ? await quotaSentence(parent.quotaKey)
+            : failure.message,
         errorCode: refusal,
       },
     })
-    return { id: documentId, partPath, kind: entry.kind, processable: false }
+    return { id: documentId, partPath, kind: planned.kind, processable: false }
   }
 
   // The charge and the claim, together. Either the batch gained a document and
@@ -342,27 +489,27 @@ async function materialize(input: {
     },
   })
 
-  return { id: documentId, partPath, kind: entry.kind, processable: true }
+  return { id: documentId, partPath, kind: planned.kind, processable: true }
 }
 
 /**
  * Whether the upload allowance covers one more document.
  *
- * An attachment costs what the same file would cost uploaded on its own: one
+ * A child costs what the same file would cost uploaded on its own: one
  * `uploads` count here, plus its own per-kind allowance charged later, when its
  * extraction knows the real size, through the same `chargeDocumentUsage` path
- * everything else uses. A message is not a discount, for the same reason a
- * batch is not one.
+ * everything else uses. A message is not a discount and neither is a mailbox,
+ * for the same reason a batch is not one.
  *
  * The difference from an ordinary upload is that the `uploads` charge is a
  * pre-check at reservation, and here there is nothing to refuse in advance —
- * the bytes already exist. So an attachment the allowance does not cover
- * becomes a child that is present, named and explicitly skipped, carrying the
- * reason the reviewer would have been given at upload time.
+ * the bytes already exist. So a child the allowance does not cover is present,
+ * named and explicitly skipped, carrying the reason the reviewer would have
+ * been given at upload time.
  */
 async function quotaRefusal(
   quotaKey: string | null
-): Promise<AttachmentRefusal | null> {
+): Promise<ChildRefusal | null> {
   if (!quotaKey) return null
   const quota = await checkQuota(quotaKey, "uploads")
   return quota.allowed ? null : "quota"

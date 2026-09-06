@@ -12,6 +12,7 @@ import { extractPptx } from "@/lib/documents/pptx/extract"
 import { extractRtf } from "@/lib/documents/rtf/extract"
 import { extractText } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
+import { FORMAT_LIST } from "@/lib/documents/formats"
 import { detectPatterns } from "@/lib/redaction/detectors"
 import { exportRedacted } from "@/lib/redaction/export"
 import { surrogateCarrier } from "@/lib/redaction/methods"
@@ -501,26 +502,34 @@ describe("adversarial verification, every format", () => {
 
   it("covers every kind that can be exported", () => {
     // The list above is hand-written, so this is what stops a new format being
-    // added without an adversarial case: the register knows what exists.
+    // added without an adversarial case: the register knows what exists, and
+    // the expectation is read from it rather than written out beside it. A
+    // second hand-written list would be a second thing to forget.
     const covered = new Set(CASES.map((testCase) => testCase.kind))
     // Images carry no strings, and are verified by sampling pixels in
     // tests/image.test.ts instead.
     covered.add("image")
 
-    expect([...covered].sort()).toEqual(
-      [
-        "csv",
-        "docx",
-        "eml",
-        "image",
-        "pdf",
-        "pptx",
-        "rtf",
-        "tsv",
-        "txt",
-        "xlsx",
-      ].sort()
+    const exportable = FORMAT_LIST.filter((format) => format.exportable).map(
+      (format) => format.kind
     )
+
+    expect([...covered].sort()).toEqual([...exportable].sort())
+  })
+
+  it("leaves a container out, and says where it is covered instead", () => {
+    // A pure container has no artifact to read back, so the pass above has
+    // nothing to assert on it. That is not a gap: what a mailbox has to get
+    // right is conservation — every message out, every byte accounted for,
+    // no message fractured on a body line — and that is asserted against the
+    // splitter in tests/mbox.test.ts.
+    const containers = FORMAT_LIST.filter((format) => !format.extractable)
+
+    expect(containers.map((format) => format.kind)).toEqual(["mbox"])
+    for (const format of containers) {
+      expect(format.exportable).toBe(false)
+      expect(CASES.some((testCase) => testCase.kind === format.kind)).toBe(false)
+    }
   })
 
   describe("what the detectors actually find", () => {

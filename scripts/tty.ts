@@ -17,6 +17,8 @@
 
 import { createInterface, type Interface } from "node:readline/promises"
 
+import { formatByteSize, parseByteSize } from "@/lib/config/bytes"
+
 // --- colour -----------------------------------------------------------------
 
 /**
@@ -24,7 +26,9 @@ import { createInterface, type Interface } from "node:readline/promises"
  * says it can do. `FORCE_COLOR` is the other direction, for CI logs that render
  * ANSI perfectly well while reporting no TTY.
  */
-export function colorEnabled(stream: NodeJS.WriteStream = process.stdout): boolean {
+export function colorEnabled(
+  stream: NodeJS.WriteStream = process.stdout
+): boolean {
   if (process.env.NO_COLOR) return false
   if (process.env.FORCE_COLOR) return process.env.FORCE_COLOR !== "0"
   if (process.env.TERM === "dumb") return false
@@ -267,7 +271,9 @@ export class Prompter {
     say()
     for (const [index, choice] of choices.entries()) {
       const marker = index === fallbackIndex ? paint.cyan("›") : " "
-      say(`  ${marker} ${paint.bold(`${index + 1}.`)} ${paint.bold(choice.label)}`)
+      say(
+        `  ${marker} ${paint.bold(`${index + 1}.`)} ${paint.bold(choice.label)}`
+      )
       for (const line of choice.detail ?? []) say(`       ${paint.gray(line)}`)
       if (spaced) say()
     }
@@ -362,6 +368,48 @@ export class Prompter {
         continue
       }
       return value
+    }
+  }
+
+  /**
+   * A size, in the units people actually write sizes in.
+   *
+   * Not `askInteger`, because the honest answer to "how much decoded text may
+   * one message hold" is 16 MB and the byte count for it is 16777216. Asking
+   * for the second is asking somebody to do a power-of-two multiplication at a
+   * prompt, and the way that goes wrong is not a syntax error — it is a
+   * plausible number off by a factor of a thousand, accepted, written to
+   * `.env` and in force until a file somebody expected to work is refused.
+   *
+   * A plain number is still bytes, so anything already in a `.env` reads back
+   * unchanged and anyone who thinks in bytes can keep doing so.
+   */
+  async askSize(
+    question: string,
+    options: { fallback: number; unit?: string }
+  ): Promise<string> {
+    const shown = formatByteSize(options.fallback)
+
+    if (!this.interactive) {
+      this.echo(question, shown)
+      return shown
+    }
+
+    for (;;) {
+      const unit = options.unit ? paint.gray(` ${options.unit}`) : ""
+      const answer = await this.read(
+        `    ${question}${unit} ${paint.gray(`[${shown}]`)}: `
+      )
+      if (!answer) return shown
+
+      const bytes = parseByteSize(answer)
+      if (bytes === null) {
+        warn(`  "${answer}" is not a size. Try 32MB, 512KB or 1GB.`)
+        continue
+      }
+      // Echoed back in canonical form, so what lands in `.env` is what this
+      // script would have printed as a default — `32MB`, never `32 mb`.
+      return formatByteSize(bytes)
     }
   }
 
