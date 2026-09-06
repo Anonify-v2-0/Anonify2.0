@@ -1,4 +1,3 @@
-import { start } from "workflow/api"
 
 import {
   errorResponse,
@@ -11,7 +10,8 @@ import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { failureForCode, isRetryable } from "@/lib/workflows/failure"
-import { processDocument } from "@/lib/workflows/process-document"
+import { admitQueued } from "@/lib/documents/admission"
+import { startProcessing } from "@/lib/workflows/start-processing"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -104,11 +104,14 @@ export async function POST(
       },
     })
 
-    const run = await start(processDocument, [document.id])
+    // Through the same admission as a first attempt. A retry that started its
+    // own run would be a way around the concurrency limit, and the obvious
+    // moment to press retry is while several other documents are still going.
+    await admitQueued(document.userFingerprint, startProcessing)
 
-    await prisma.document.update({
+    const admitted = await prisma.document.findUnique({
       where: { id: document.id },
-      data: { workflowRunId: run.runId },
+      select: { workflowRunId: true },
     })
 
     console.log(
@@ -116,11 +119,18 @@ export async function POST(
         level: "info",
         context: "documents.retry",
         documentId: document.id,
-        workflowId: run.runId,
+        workflowId: admitted?.workflowRunId ?? null,
+        started: Boolean(admitted?.workflowRunId),
       })
     )
 
-    return jsonResponse({ runId: run.runId }, 202)
+    return jsonResponse(
+      {
+        runId: admitted?.workflowRunId ?? null,
+        queued: !admitted?.workflowRunId,
+      },
+      202
+    )
   } catch (error) {
     return handleRouteError(error, "documents.retry")
   }

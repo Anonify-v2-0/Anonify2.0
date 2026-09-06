@@ -7,12 +7,9 @@ import {
   readJson,
 } from "@/lib/api/http"
 import { describeWait } from "@/lib/api/http"
-import {
-  ALLOWED_TTL_SECONDS,
-  MAX_BATCH_FILES,
-  MAX_UPLOAD_BYTES,
-} from "@/lib/config"
+import { ALLOWED_TTL_SECONDS, MAX_UPLOAD_BYTES } from "@/lib/config"
 import { prisma } from "@/lib/database/prisma"
+import { maxBatchFiles } from "@/lib/documents/batch-config"
 import { newBatchId } from "@/lib/documents/ids"
 import { reserveDocument } from "@/lib/documents/reserve"
 import { isPresetId } from "@/lib/redaction/presets"
@@ -32,8 +29,10 @@ const createSchema = z.object({
         contentType: z.string().max(200).optional(),
       })
     )
-    .min(1)
-    .max(MAX_BATCH_FILES),
+    // Bounded by what this deployment is configured for, read per request
+    // rather than compiled in: the schema is built here so an operator raising
+    // ANONIFY_BATCH_MAX_FILES does not have to rebuild to be believed.
+    .min(1),
   /** One preset for the batch: a review pass is one question, asked once. */
   preset: z.string().max(60).optional(),
   ttlSeconds: z
@@ -67,6 +66,14 @@ export async function POST(request: Request) {
     }
 
     const { files, ttlSeconds, preset } = parsed.data
+
+    const maxFiles = maxBatchFiles()
+    if (files.length > maxFiles) {
+      return errorResponse(
+        `A batch takes up to ${maxFiles} ${maxFiles === 1 ? "file" : "files"}.`,
+        400
+      )
+    }
 
     if (preset && !isPresetId(preset)) {
       return errorResponse("Unknown preset", 400)

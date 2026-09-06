@@ -709,9 +709,17 @@ configuration with everything full and no database work.
 
 - **Auth:** session (optional; absent ⇒ full limits, empty quotas)
 - **Params:** none
-- **Response `200`:** `LimitsReport` — `{ profile, rateLimits[], quotas }`.
+- **Response `200`:** `LimitsReport` — `{ profile, rateLimits[], quotas, batch }`.
   Each `rateLimits` entry is `{ name, limit, windowSeconds, remaining,
   resetAt }` (`resetAt` is `null` while `allowed`).
+
+  `batch` is `{ maxFiles, processing, exporting }`: how many documents one
+  batch may hold, how many of this caller's may process at once, and how many a
+  batch export works on at once. A rate limit says how often work may *start*
+  and these say how much may be *in flight* — the second is what actually
+  bounds memory and model spend, and only one of them existed until recently.
+  Reported here because a browser bundle cannot read a server environment
+  variable, and the upload panel needs to know what this deployment takes.
 
 ### `GET /api/usage`
 

@@ -35,6 +35,13 @@ import { createConnection } from "node:net"
 import path from "node:path"
 
 import {
+  batchDefaultsFor as batchDefaults,
+  batchEnvName,
+  BATCH_LIMIT_KEYS,
+  type BatchLimitKey,
+  type BatchLimits,
+} from "@/lib/documents/batch-config"
+import {
   DEFAULT_EXPANSION_LIMITS,
   expansionEnvName,
   type ExpansionLimits,
@@ -126,6 +133,15 @@ type Answers = {
   rates: Partial<Record<RateLimitName, string>>
   eml: Partial<EmlLimits>
   expansion: Partial<ExpansionLimits>
+  batch: Partial<BatchLimits>
+}
+
+
+/** What each concurrency setting bounds, since none of them is a rate. */
+const BATCH_UNITS: Record<BatchLimitKey, string> = {
+  maxFiles: "documents in one batch",
+  processing: "of your documents processing at once",
+  exporting: "documents exported at once, within one batch export",
 }
 
 /** What each allowance counts, since they are not all the same shape. */
@@ -293,6 +309,38 @@ async function askExpansionLimits(
   return chosen
 }
 
+
+async function askBatchLimits(
+  prompt: Prompter,
+  profile: Profile
+): Promise<Partial<BatchLimits>> {
+  const defaults = batchDefaults(profile)
+
+  say()
+  say(`  ${paint.bold("Batch size and concurrency")}`)
+  say()
+  note("How much happens at once, which is a different question from how often")
+  note("it may start. A rate limit refills while work is still running; these")
+  note("are what actually bound memory, database connections and model spend.")
+  note("A document waiting for a slot shows as queued and starts on its own.")
+  say()
+  for (const key of BATCH_LIMIT_KEYS) {
+    setting(batchEnvName(key), String(defaults[key]), { defaulted: true })
+  }
+  say()
+
+  if (await prompt.confirm("Keep these batch limits?", true)) return {}
+
+  const chosen: Partial<BatchLimits> = {}
+  for (const key of BATCH_LIMIT_KEYS) {
+    chosen[key] = await prompt.askInteger(batchEnvName(key), {
+      fallback: defaults[key],
+      unit: `(${BATCH_UNITS[key]})`,
+    })
+  }
+  return chosen
+}
+
 // --- assembling the file ----------------------------------------------------
 
 function limitGroups(answers: Answers): EnvGroup[] {
@@ -370,6 +418,25 @@ function limitGroups(answers: Answers): EnvGroup[] {
           comment: EXPANSION_UNITS[key],
           commented:
             chosen === undefined || chosen === DEFAULT_EXPANSION_LIMITS[key],
+        }
+      }),
+    },
+    {
+      heading: "Batch size and concurrency",
+      note: [
+        "How much happens at once, as opposed to how often it may start. A rate",
+        "limit refills while work is still running; these bound what is in",
+        "flight. A document waiting for a slot reads as queued and starts by",
+        "itself when one frees up.",
+      ],
+      lines: BATCH_LIMIT_KEYS.map((key) => {
+        const fallback = batchDefaults(answers.profile)[key]
+        const chosen = answers.batch[key]
+        return {
+          key: batchEnvName(key),
+          value: String(chosen ?? fallback),
+          comment: BATCH_UNITS[key],
+          commented: chosen === undefined || chosen === fallback,
         }
       }),
     },
@@ -837,6 +904,7 @@ async function main(): Promise<void> {
     const rates = skipLimits ? {} : await askRates(prompt, profile)
     const eml = skipLimits ? {} : await askEmlLimits(prompt)
     const expansion = skipLimits ? {} : await askExpansionLimits(prompt)
+    const batch = skipLimits ? {} : await askBatchLimits(prompt, profile)
 
     // 5. Write.
     step(5, STEPS, "Writing .env")
@@ -876,7 +944,7 @@ async function main(): Promise<void> {
     }
 
     const contents = buildEnv(
-      { mode, profile, ports, ocr, quotas, rates, eml, expansion },
+      { mode, profile, ports, ocr, quotas, rates, eml, expansion, batch },
       kept
     )
 

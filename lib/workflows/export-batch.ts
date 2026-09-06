@@ -17,6 +17,7 @@ import {
   type BatchExportProgress,
   type BatchExportStatus,
 } from "@/lib/documents/batch-exports"
+import { exportConcurrency } from "@/lib/documents/batch-config"
 import { listBatchDocuments } from "@/lib/documents/listing"
 import type { SkipReason } from "@/lib/redaction/archive"
 import { exportAndStore } from "@/lib/redaction/deliver"
@@ -110,12 +111,14 @@ async function report(
  */
 async function planExport(
   exportId: string
-): Promise<{ documentIds: string[] }> {
+): Promise<{ documentIds: string[]; width: number }> {
   "use step"
   return runPlan(exportId).catch(paced)
 }
 
-async function runPlan(exportId: string): Promise<{ documentIds: string[] }> {
+async function runPlan(
+  exportId: string
+): Promise<{ documentIds: string[]; width: number }> {
   const record = await prisma.batchExport.findUnique({
     where: { id: exportId },
     select: { batchId: true, documents: true, status: true },
@@ -131,7 +134,10 @@ async function runPlan(exportId: string): Promise<{ documentIds: string[] }> {
       data: { status: "running" },
     })
     await report(progressOf(planned), "running")
-    return { documentIds: planned.map((document) => document.id) }
+    return {
+      documentIds: planned.map((document) => document.id),
+      width: exportConcurrency(),
+    }
   }
 
   const documents = await listBatchDocuments(record.batchId)
@@ -157,7 +163,13 @@ async function runPlan(exportId: string): Promise<{ documentIds: string[] }> {
   })
 
   await report(progressOf(rows), "running")
-  return { documentIds: rows.map((row) => row.id) }
+
+  // Read once, inside the step, and carried through the run. A workflow
+  // function replays, so reading configuration there would let a value changed
+  // mid-run reshape the waves on the replay and re-export documents that were
+  // already done. It is also a plain environment read, which is not a thing a
+  // workflow function may do.
+  return { documentIds: rows.map((row) => row.id), width: exportConcurrency() }
 }
 
 /** The totals a list of documents already implies. */
@@ -442,14 +454,40 @@ export async function exportBatch(
   "use workflow"
 
   try {
-    const { documentIds } = await planExport(exportId)
+    const { documentIds, width } = await planExport(exportId)
 
-    for (const documentId of documentIds) {
-      const outcome = await exportDocument(exportId, documentId)
-      if (outcome.stop) {
+    // A wave at a time rather than one document at a time.
+    //
+    // It used to be one, and that was never a decision about throughput — it
+    // was the only shape the progress row could survive, because the row is a
+    // single JSON column that every document rewrites. Two documents finishing
+    // together would each add their own result to the copy they had read, and
+    // the later write would erase the earlier one. `patchDocumentState` now
+    // takes a row lock, so the reason is gone and the cost is not: a dozen
+    // documents exported strictly in turn is a reviewer waiting for the sum of
+    // twelve exports when the host could have been doing several at once.
+    //
+    // Bounded rather than unbounded, because every one of these rasterises
+    // pages and holds a document in memory. `exportConcurrency()` is per
+    // deployment profile and settable from the environment, and a wave is a
+    // simple bound that keeps the stop semantics below honest: nothing after a
+    // wave starts until every document in it has finished, so a cancel or an
+    // exhausted allowance stops the run within one wave rather than after
+    // however many were already in flight.
+    for (let index = 0; index < documentIds.length; index += width) {
+      const wave = documentIds.slice(index, index + width)
+
+      const outcomes = await Promise.all(
+        wave.map((documentId) => exportDocument(exportId, documentId))
+      )
+
+      // The first stop in the wave, in the plan's order, so the reason a run
+      // stopped does not depend on which document happened to finish first.
+      const stopped = outcomes.find((outcome) => outcome.stop)
+      if (stopped?.stop) {
         // Everything left inherits the reason the run stopped, rather than
         // being left "pending" on a row that has finished moving.
-        await settleRemaining(exportId, outcome.reason)
+        await settleRemaining(exportId, stopped.reason)
         break
       }
     }

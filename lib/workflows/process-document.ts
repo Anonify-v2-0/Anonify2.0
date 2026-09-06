@@ -10,6 +10,7 @@ import { analyzeDocument, analyzeImageRegions } from "@/lib/ai/analyze"
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
 import { MAX_UPLOAD_BYTES } from "@/lib/config"
+import { admitAfter } from "@/lib/documents/admission"
 import { extractDelimited } from "@/lib/documents/delimited/extract"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { extractPdf } from "@/lib/documents/pdf/extract"
@@ -650,6 +651,28 @@ async function finish(
  * could take that path — a driver or parser message is not guaranteed to be
  * free of document content, which invariant 6 does not allow us to keep.
  *
+/**
+ * Lets the next of this owner's documents start.
+ *
+ * A step of its own, so it is recorded and not repeated on a replay, and so a
+ * failure to admit cannot undo the run that just succeeded — `admitAfter`
+ * swallows its own errors for that reason, and the cleanup sweep is what
+ * catches whatever this misses.
+ *
+ * This is the piece that makes the processing limit a queue rather than a
+ * throttle: without it, a document that arrived while the owner was at their
+ * limit would sit at "queued" until they happened to upload something else.
+ */
+async function admitNext(documentId: string): Promise<void> {
+  "use step"
+  // Imported inside the step rather than at the top of the file: this module
+  // is the workflow that module starts, and a top-level import would be a
+  // cycle the compiler follows out of a workflow function.
+  const { startProcessing } = await import("@/lib/workflows/start-processing")
+  await admitAfter(documentId, startProcessing)
+}
+
+/**
  * Classification happens in the step rather than the orchestrator so the
  * workflow function stays pure sequencing.
  */
@@ -710,10 +733,15 @@ export async function processDocument(documentId: string): Promise<{
     await carryDecisions(documentId)
 
     await finish(documentId, pageCount, suggestions)
+    // This document's slot is free; whatever was waiting behind it starts now.
+    await admitNext(documentId)
     return { documentId, status: "ready" }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     await fail(documentId, message)
+    // A failure frees the slot exactly as a success does. Forgetting this is
+    // how a queue drains only when everything goes right.
+    await admitNext(documentId)
     return { documentId, status: "failed" }
   }
 }

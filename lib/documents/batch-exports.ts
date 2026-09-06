@@ -253,33 +253,56 @@ async function writeProgress(
 /**
  * Records one document's outcome.
  *
- * The whole list is rewritten rather than patched in place: the steps that call
- * this run one at a time — a batch export is deliberately sequential, so each
- * document is charged the export allowance it would have been charged on its
- * own — so there is no concurrent writer to lose an update to.
+ * The whole list is rewritten rather than patched in place, because it is one
+ * JSON column rather than a row per document. That was safe while a batch
+ * export was sequential and stopped being safe the moment it was not: two
+ * documents finishing together would both read the list, both add their own
+ * result to the copy they read, and the second write would erase the first.
+ * The document would sit at "exporting" forever on a run that had finished
+ * with it, which is the failure a progress row exists to prevent.
+ *
+ * So the read and the write happen inside one transaction, with the row locked
+ * for the duration. `SELECT ... FOR UPDATE` rather than a serializable
+ * isolation level: the contention here is a handful of writers on one known
+ * row, which a lock handles without the retry loop a serialization failure
+ * would need.
  */
 export async function patchDocumentState(
   exportId: string,
   documentId: string,
   next: Omit<BatchExportDocument, "id" | "name">
 ): Promise<BatchExportProgress | null> {
-  const record = await prisma.batchExport.findUnique({
-    where: { id: exportId },
-    select: { documents: true },
+  return prisma.$transaction(async (tx) => {
+    // Taken first, and held until this transaction commits. Every other writer
+    // of this row waits here rather than reading a list that is about to be
+    // stale.
+    const locked = await tx.$queryRaw<
+      { documents: Prisma.JsonValue | null }[]
+    >`SELECT "documents" FROM "BatchExport" WHERE "id" = ${exportId} FOR UPDATE`
+
+    const row = locked[0]
+    if (!row) return null
+
+    const progress = applyDocumentState(
+      readDocuments(row.documents),
+      documentId,
+      next
+    )
+
+    await tx.batchExport.update({
+      where: { id: exportId },
+      data: {
+        documents: progress.documents as unknown as Prisma.InputJsonValue,
+        completed: progress.completed,
+        exported: progress.exported,
+      },
+    })
+
+    // Returned so the caller can report it without reading the row back:
+    // this is what the run writes to its stream, and a second query for what
+    // was just computed would be the polling this exists to replace.
+    return progress
   })
-  if (!record) return null
-
-  const progress = applyDocumentState(
-    readDocuments(record.documents),
-    documentId,
-    next
-  )
-  await writeProgress(exportId, progress)
-
-  // Returned so the caller can report it without reading the row back: this is
-  // what the run writes to its stream, and a second query for what we just
-  // computed would be the polling this exists to replace.
-  return progress
 }
 
 /** Names every document the run never reached, in one write. */

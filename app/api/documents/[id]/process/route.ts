@@ -1,5 +1,4 @@
 import { z } from "zod"
-import { start } from "workflow/api"
 
 import {
   errorResponse,
@@ -12,7 +11,8 @@ import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
-import { processDocument } from "@/lib/workflows/process-document"
+import { admitQueued } from "@/lib/documents/admission"
+import { startProcessing } from "@/lib/workflows/start-processing"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -74,16 +74,20 @@ export async function POST(
       return errorResponse("Invalid process request", 400)
     }
 
+    // Queued, not started. Whether it starts now is a question about how much
+    // of this owner's work is already in flight, and lib/documents/admission.ts
+    // is the one place that answers it — a route that started its own run
+    // would be the twentieth concurrent extraction this exists to prevent.
     await prisma.document.update({
       where: { id: document.id },
       data: { uploadBlobKey: parsed.data.blobUrl, status: "queued" },
     })
 
-    const run = await start(processDocument, [document.id])
+    await admitQueued(document.userFingerprint, startProcessing)
 
-    await prisma.document.update({
+    const admitted = await prisma.document.findUnique({
       where: { id: document.id },
-      data: { workflowRunId: run.runId },
+      select: { workflowRunId: true },
     })
 
     console.log(
@@ -91,11 +95,22 @@ export async function POST(
         level: "info",
         context: "documents.process",
         documentId: document.id,
-        workflowId: run.runId,
+        workflowId: admitted?.workflowRunId ?? null,
+        // False means it is waiting behind this owner's other documents, which
+        // is a normal state rather than a failure: the run that frees a slot
+        // admits it, and the cleanup sweep is the backstop.
+        started: Boolean(admitted?.workflowRunId),
       })
     )
 
-    return jsonResponse({ runId: run.runId, resumed: false }, 202)
+    return jsonResponse(
+      {
+        runId: admitted?.workflowRunId ?? null,
+        resumed: false,
+        queued: !admitted?.workflowRunId,
+      },
+      202
+    )
   } catch (error) {
     return handleRouteError(error, "documents.process")
   }

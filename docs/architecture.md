@@ -245,3 +245,86 @@ Worth knowing before trusting this with something that matters:
   reviewer is the control, which is why the UI never implies completeness.
 - **The demo is anonymous.** Anyone with the session cookie is the owner. That is
   appropriate for a temporary demo and not for a multi-tenant product.
+- **A batch is processed a few documents at a time.** How many is configurable
+  and bounded, so a document in a large batch waits its turn rather than
+  starting immediately. It shows as queued and starts on its own — see §8.
+
+## 8. How much happens at once
+
+`lib/documents/batch-config.ts`, `lib/documents/admission.ts`
+
+Three numbers, and until recently two of them did not exist.
+
+| Setting | Env | Demo | Self-hosted | What it bounds |
+| --- | --- | --- | --- | --- |
+| `maxFiles` | `ANONIFY_BATCH_MAX_FILES` | 20 | 50 | documents in one batch |
+| `processing` | `ANONIFY_BATCH_PROCESSING` | 3 | 6 | one owner's documents processing at once |
+| `exporting` | `ANONIFY_BATCH_EXPORTING` | 2 | 4 | documents exported at once inside one batch export |
+
+Defaults come from the deployment profile and an environment variable overrides
+them, the way rate limits and quotas already work. A malformed override throws
+rather than being ignored — a limit somebody believes they set and which is not
+in force is worse than no setting at all.
+
+### Rate is not concurrency
+
+The rate limiter looked like it bounded how much work happens at once, and
+never did. It bounds how often work may *start*: a bucket permitting thirty
+processing requests a minute refills while all thirty runs are still going. A
+reviewer dropping twenty files in started twenty durable runs, so twenty
+extractions, OCR passes and model calls ran together — not because anyone chose
+that number, but because nothing had ever said otherwise.
+
+Only concurrency bounds memory, database connections and spend at a model
+provider. The two limits are complementary, and this codebase now has both.
+
+### The processing queue
+
+A document is *queued* rather than started, and admitted when its owner has
+room. The queue is not a table: a document with `status: "queued"` and no
+`workflowRunId` is one waiting to start, which is a state the schema already had
+and the interface already draws as in-progress — because it is.
+
+Admission happens at three moments, and the third is what makes it a queue
+rather than a throttle:
+
+- the process route, when the bytes have just landed;
+- the retry route, so pressing retry is not a way around the limit;
+- the end of a processing run, success or failure alike, which is what admits
+  the next document.
+
+A fourth is the backstop: the cleanup cron sweeps for owners with something
+waiting. Admission is event-driven, and an event that never arrives — a run
+killed mid-flight, a deploy in the middle of a batch — would otherwise leave a
+document queued behind a slot nothing will ever free.
+
+It is bounded per owner rather than globally. A global bound would let one
+reviewer's twenty-file batch stall everybody else's single document; the thing
+being rationed is one person's share, and the host's own ceiling is the rate
+limit above it.
+
+Two admissions arriving together can start one document more than the limit
+says, because counting and starting are not one atomic act. That is deliberate:
+the alternative holds a database lock across a network call to the workflow
+runtime, and this is a bound on sustained concurrency rather than a mutex.
+
+### Why the batch export used to be sequential
+
+It exported one document at a time, and that was a bug wearing a policy's
+clothes. The progress row is a single JSON column that every document rewrites,
+so two finishing together would each add their result to the copy they had read,
+and the later write would erase the earlier — leaving a document at "exporting"
+on a run that had finished with it. Running them strictly in turn was the only
+shape that survived.
+
+`patchDocumentState` now does the read and the write inside one transaction with
+`SELECT ... FOR UPDATE` on the row, so the clash cannot happen, and the export
+runs a wave of `exporting` documents at a time.
+
+A wave rather than a rolling window, because it keeps the stop semantics honest:
+nothing after a wave begins until every document in it has finished, so a
+cancellation or an exhausted allowance stops the run within one wave rather than
+after however many happened to be in flight. The width is read once, inside the
+planning step, and carried through the run — a workflow function replays, and
+configuration read there would let a value changed mid-run reshape the waves on
+the replay.
