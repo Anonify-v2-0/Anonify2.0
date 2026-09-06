@@ -8,6 +8,7 @@ import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import {
+  REDACTION_METHODS,
   REDACTION_SOURCES,
   REDACTION_STATUSES,
   REDACTION_TYPES,
@@ -37,12 +38,33 @@ const createSchema = z.object({
   row: z.number().int().positive().optional(),
   column: z.number().int().positive().optional(),
   reason: z.string().max(300).optional(),
+  method: z.enum(REDACTION_METHODS).optional(),
 })
 
-const patchSchema = z.object({
-  ids: z.array(z.string().min(1)).min(1).max(2000),
-  status: z.enum(REDACTION_STATUSES),
-})
+/**
+ * Accept, reject, or change what accepting does.
+ *
+ * Both fields are optional and either can arrive alone: setting a method is
+ * not a decision about whether to redact, and a reviewer who picks
+ * "pseudonymize" on a suggestion they have not accepted yet has said something
+ * meaningful about what should happen if they do.
+ *
+ * Nothing is validated against the category here. Whether a method is allowed
+ * is decided in lib/redaction/methods.ts, and asked again at export time
+ * against the redaction as it stands then — so a stored method that stops
+ * being defensible resolves to a mask rather than being honoured because it
+ * was legal when it was saved.
+ */
+const patchSchema = z
+  .object({
+    ids: z.array(z.string().min(1)).min(1).max(2000),
+    status: z.enum(REDACTION_STATUSES).optional(),
+    method: z.enum(REDACTION_METHODS).optional(),
+  })
+  .refine(
+    (value) => value.status !== undefined || value.method !== undefined,
+    "Nothing to change"
+  )
 
 /** Lists the document's redactions, suggestions and accepted alike. */
 export async function GET(
@@ -116,7 +138,10 @@ export async function PATCH(
 
     const result = await prisma.redaction.updateMany({
       where: { documentId: document.id, id: { in: parsed.data.ids } },
-      data: { status: parsed.data.status },
+      data: {
+        ...(parsed.data.status ? { status: parsed.data.status } : {}),
+        ...(parsed.data.method ? { method: parsed.data.method } : {}),
+      },
     })
 
     return jsonResponse({ updated: result.count })

@@ -13,7 +13,14 @@ import {
   selectCounts,
   selectOccurrenceGroups,
 } from "@/store/selectors"
-import { confidenceBand, type RedactionSource } from "@/types/redaction"
+import { methodsFor } from "@/lib/redaction/methods"
+import {
+  confidenceBand,
+  DEFAULT_METHOD,
+  type Redaction,
+  type RedactionMethod,
+  type RedactionSource,
+} from "@/types/redaction"
 
 /**
  * The redaction inspector.
@@ -40,11 +47,82 @@ const BAND_STYLES = {
 export type InspectorActions = {
   accept: (ids: string[]) => void
   reject: (ids: string[]) => void
+  /** What accepting these will do to the bytes. Not itself an accept. */
+  setMethod?: (ids: string[], method: RedactionMethod) => void
   applyGlobalRule: (
     pattern: string,
     category: string,
     scope?: "document" | "batch"
   ) => void
+}
+
+/**
+ * What each method is called, and what it says it does.
+ *
+ * The label names the operation, never the outcome: "Pseudonymize", not
+ * "Anonymize". The same rule the presets are held to, and for the same reason
+ * — a reviewer who reads "anonymize" believes something about their
+ * obligations that nothing here can support. See lib/redaction/presets.ts.
+ */
+const METHOD_LABELS: Record<RedactionMethod, string> = {
+  mask: "Mask",
+  pseudonymize: "Pseudonym",
+  tokenize: "Token",
+  encrypt: "Encrypt",
+}
+
+const METHOD_HINTS: Record<RedactionMethod, string> = {
+  mask: "Removed. Nothing stands in its place.",
+  pseudonymize:
+    "Replaced with a stable surrogate. Not reversible by anyone, including you.",
+  tokenize: "Replaced with a token you can reverse using the vault you download.",
+  encrypt: "Replaced with ciphertext you can reverse using the key you download.",
+}
+
+/**
+ * The method a value is exported with, chosen once for the whole document.
+ *
+ * Rendered only where there is a choice to make. A face, a whole column, a
+ * government ID and a region OCR found nothing behind all offer masking and
+ * nothing else — see lib/redaction/methods.ts — and a control with one option
+ * is a control that implies the others were available and declined.
+ */
+function MethodPicker({
+  members,
+  onChoose,
+}: {
+  members: Redaction[]
+  onChoose: (method: RedactionMethod) => void
+}) {
+  const available = methodsFor(members[0])
+  if (available.length < 2) return null
+
+  const current = members[0].method ?? DEFAULT_METHOD
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1">
+      {available.map((method) => (
+        <button
+          key={method}
+          type="button"
+          title={METHOD_HINTS[method]}
+          aria-pressed={current === method}
+          onClick={(event) => {
+            event.stopPropagation()
+            onChoose(method)
+          }}
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] tracking-wide uppercase transition-colors",
+            current === method
+              ? "border-red-border text-primary"
+              : "border-border text-text-muted hover:text-white"
+          )}
+        >
+          {METHOD_LABELS[method]}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 /** Desktop rail. The same body is reused by the mobile sheet below. */
@@ -245,6 +323,18 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
                   <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
                     {first.reason}
                   </p>
+                ) : null}
+
+                {actions?.setMethod ? (
+                  <MethodPicker
+                    members={group.members}
+                    onChoose={(method) =>
+                      actions.setMethod?.(
+                        group.members.map((member) => member.id),
+                        method
+                      )
+                    }
+                  />
                 ) : null}
 
                 {actions ? (

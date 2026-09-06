@@ -3,6 +3,7 @@ import { createSlice, current, type PayloadAction } from "@reduxjs/toolkit"
 import type {
   GlobalRule,
   Redaction,
+  RedactionMethod,
   RedactionSource,
   RedactionStatus,
 } from "@/types/redaction"
@@ -132,6 +133,28 @@ const redactionSlice = createSlice({
         state.entities[id].status = action.payload.status
       }
     },
+    /**
+     * What accepting these will do to the bytes.
+     *
+     * Separate from the status because they are separate decisions: choosing
+     * to pseudonymise a name is not choosing to redact it, and a reviewer
+     * regularly does the first while still thinking about the second.
+     */
+    redactionMethodSet(
+      state,
+      action: PayloadAction<{ ids: string[]; method: RedactionMethod }>
+    ) {
+      const changing = action.payload.ids.filter(
+        (id) =>
+          state.entities[id] && state.entities[id].method !== action.payload.method
+      )
+      if (changing.length === 0) return
+
+      remember(state)
+      for (const id of changing) {
+        state.entities[id].method = action.payload.method
+      }
+    },
     undone(state) {
       const previous = state.past.pop()
       if (!previous) return
@@ -189,6 +212,7 @@ export const {
   redactionUpdated,
   redactionRemoved,
   redactionStatusSet,
+  redactionMethodSet,
   undone,
   redone,
   redactionSelected,

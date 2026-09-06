@@ -169,6 +169,24 @@ export function isMethodAllowed(
 export type MethodOverrides = Partial<Record<RedactionCategory, RedactionMethod>>
 
 /**
+ * Every category that would honour this method, as an override map.
+ *
+ * What "make me a tokenised copy" has to mean. A reviewer asking for one is
+ * not asking for a tokenised bank account — that category permits nothing but
+ * removal and would ignore the override anyway — so the map is built from the
+ * table rather than from the whole category list, and the reviewer is told
+ * which categories it reached rather than being left to infer it from the
+ * export report.
+ */
+export function categoriesAllowing(method: RedactionMethod): MethodOverrides {
+  const overrides: MethodOverrides = {}
+  for (const category of REDACTION_CATEGORIES) {
+    if (CATEGORY_METHODS[category].includes(method)) overrides[category] = method
+  }
+  return overrides
+}
+
+/**
  * The method this redaction is exported with.
  *
  * Asked at export time, not read from the record: a method that was valid when
