@@ -474,10 +474,26 @@ describe("configuring the limits", () => {
     const name = mboxEnvName("maxTotalBytes")
     expect(name).toBe("ANONIFY_MBOX_MAX_TOTAL_BYTES")
 
-    process.env[name] = "4096"
+    // A size, because nobody types 33554432 correctly and the way that goes
+    // wrong is a plausible number off by a thousand rather than a rejection.
+    // See tests/byte-size.test.ts for the parsing itself.
+    process.env[name] = "48MB"
     try {
-      expect(mboxLimits().maxTotalBytes).toBe(4096)
+      expect(mboxLimits().maxTotalBytes).toBe(48 * 1024 * 1024)
       process.env[name] = "plenty"
+      expect(() => mboxLimits()).toThrow(/must be a size/)
+      process.env[name] = "0"
+      expect(() => mboxLimits()).toThrow(/must be a size/)
+    } finally {
+      delete process.env[name]
+    }
+  })
+
+  it("still reports a malformed count as a count", () => {
+    const name = mboxEnvName("maxMessages")
+
+    process.env[name] = "lots"
+    try {
       expect(() => mboxLimits()).toThrow(/positive whole number/)
       process.env[name] = "0"
       expect(() => mboxLimits()).toThrow(/positive whole number/)

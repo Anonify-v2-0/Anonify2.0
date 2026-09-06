@@ -309,12 +309,18 @@ and gets your allowances. Answer "just me" and there are no daily quotas at
 all; answer "public and shared" and one visitor's workbook stops being
 everyone's budget.
 
-*Limits* covers the four groups that decide what this instance will accept:
-daily quotas, rate limits, email parser limits, and how far an email's
-attachments are expanded into documents of their own. Every default it prints
-is read from the code that enforces it, so what you see is what is in force,
-and everything you leave alone is written into `.env` as a commented line — so
-the file says what the default is rather than leaving it to be discovered.
+*Limits* covers the groups that decide what this instance will accept: daily
+quotas, rate limits, email parser limits, how far an email's attachments are
+expanded into documents of their own, and how far a mailbox is. Every default it
+prints is read from the code that enforces it, so what you see is what is in
+force, and everything you leave alone is written into `.env` as a commented line
+— so the file says what the default is rather than leaving it to be discovered.
+
+Anything that is a size is asked for and written as a size — `32MB`, `512KB`,
+`1.5GB` — rather than as a byte count. Nobody types `33554432` correctly, and
+the way that goes wrong is not a rejected answer but a plausible number off by a
+factor of a thousand, quietly in force. A plain number is still read as bytes,
+so an existing `.env` keeps working.
 
 ```bash
 pnpm setup --local --defaults --yes   # no questions: local, profile defaults
@@ -641,10 +647,18 @@ exist for:
 
 | Limit | Demo | Self-hosted | Bounds |
 | --- | --- | --- | --- |
-| `ANONIFY_MBOX_MAX_MESSAGES` | 200 | 1000 | documents one mailbox may produce |
-| `ANONIFY_MBOX_MAX_TOTAL_BYTES` | 32 MiB | 64 MiB | content across every message |
-| `ANONIFY_MBOX_MAX_MESSAGE_BYTES` | 12 MiB | 25 MiB | the largest single message |
-| `ANONIFY_MBOX_MAX_DEPTH` | 2 | 2 | a mailbox reached through a mailbox |
+| `ANONIFY_MBOX_MAX_MESSAGES` | `200` | `1000` | documents one mailbox may produce |
+| `ANONIFY_MBOX_MAX_TOTAL_BYTES` | `32MB` | `64MB` | content across every message |
+| `ANONIFY_MBOX_MAX_MESSAGE_BYTES` | `12MB` | `25MB` | the largest single message |
+| `ANONIFY_MBOX_MAX_DEPTH` | `2` | `2` | a mailbox reached through a mailbox |
+
+Every size here is written as a size — `32MB`, `512KB`, `1.5GB` — rather
+than as a byte count, and so are the email parser's and expansion's. The
+units are powers of two, so `1KB` is 1024 bytes and `MB` and `MiB` mean the
+same thing, which is what `ls -h` and `docker --memory` already do. A plain
+number is still read as bytes, so an existing `.env` keeps working.
+`pnpm setup` asks for them in the same units and writes back what it would
+have shown.
 
 `MAX_MESSAGES` is its own number rather than `ANONIFY_BATCH_MAX_FILES` — that
 one is how many files a person may drag in at once, and a mailbox is one file —

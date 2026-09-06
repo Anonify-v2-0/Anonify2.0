@@ -1,5 +1,9 @@
+import { BYTE_SIZE_HINT, parseByteSize } from "@/lib/config/bytes"
 import { MAX_BATCH_FILES } from "@/lib/config"
-import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
+import {
+  detectDocumentType,
+  extensionMatchesKind,
+} from "@/lib/documents/detect"
 import { emlLimits, type EmlLimits } from "@/lib/documents/eml/limits"
 import {
   decodeTransfer,
@@ -99,6 +103,12 @@ export function expansionEnvName(limit: keyof ExpansionLimits): string {
     .toUpperCase()}`
 }
 
+/** The limits that are a size rather than a count; see lib/config/bytes.ts. */
+const SIZES = new Set<keyof ExpansionLimits>([
+  "maxExpandedBytes",
+  "maxAttachmentBytes",
+])
+
 /**
  * A malformed override is reported rather than ignored, for the same reason
  * the parser's are: a limit somebody believes they set and which is not in
@@ -110,6 +120,17 @@ export function expansionLimits(): ExpansionLimits {
   for (const key of Object.keys(limits) as (keyof ExpansionLimits)[]) {
     const raw = process.env[expansionEnvName(key)]?.trim()
     if (!raw) continue
+
+    if (SIZES.has(key)) {
+      const bytes = parseByteSize(raw)
+      if (bytes === null) {
+        throw new Error(
+          `${expansionEnvName(key)} must be ${BYTE_SIZE_HINT}, got "${raw}"`
+        )
+      }
+      limits[key] = bytes
+      continue
+    }
 
     if (!/^\d+$/.test(raw) || Number(raw) === 0) {
       throw new Error(

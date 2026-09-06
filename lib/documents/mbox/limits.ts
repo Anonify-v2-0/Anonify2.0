@@ -1,3 +1,4 @@
+import { BYTE_SIZE_HINT, parseByteSize } from "@/lib/config/bytes"
 import { activeProfile, type Profile } from "@/lib/config/profile"
 import { maxBatchFiles } from "@/lib/documents/batch-config"
 
@@ -41,9 +42,14 @@ export type MboxLimits = {
    * assembled by hand.
    */
   maxMessages: number
-  /** Total bytes across every message expanded out of one mailbox. */
+  /**
+   * Total bytes across every message expanded out of one mailbox.
+   *
+   * Written as a size — `32MB`, `512KB`, or a plain number of bytes. See
+   * lib/config/bytes.ts for why a raw byte count was not good enough.
+   */
   maxTotalBytes: number
-  /** The largest single message that will be expanded. */
+  /** The largest single message that will be expanded, as a size. */
   maxMessageBytes: number
   /**
    * How deep expansion may recurse through mailboxes.
@@ -107,11 +113,23 @@ export function mboxEnvName(limit: keyof MboxLimits): string {
 }
 
 /**
+ * The two limits that are a size rather than a count.
+ *
+ * They are read as sizes — `32MB`, `512KB`, or a plain number of bytes — for
+ * the reason in lib/config/bytes.ts: nobody types `33554432` correctly, and
+ * the way that goes wrong is a plausible number off by a factor of a thousand,
+ * silently in force.
+ */
+const SIZES = new Set<keyof MboxLimits>(["maxTotalBytes", "maxMessageBytes"])
+
+/**
  * The limits in force.
  *
  * A malformed override is reported rather than ignored, for the same reason
  * the parser's and the rate limiter's are: a limit somebody believes they set
- * and which is not in force is worse than no setting at all.
+ * and which is not in force is worse than no setting at all. That holds for a
+ * size written in a unit nobody recognises exactly as it does for a count that
+ * is not a number.
  */
 export function mboxLimits(profile: Profile = activeProfile()): MboxLimits {
   const limits = mboxDefaultsFor(profile)
@@ -119,6 +137,17 @@ export function mboxLimits(profile: Profile = activeProfile()): MboxLimits {
   for (const key of Object.keys(limits) as (keyof MboxLimits)[]) {
     const raw = process.env[mboxEnvName(key)]?.trim()
     if (!raw) continue
+
+    if (SIZES.has(key)) {
+      const bytes = parseByteSize(raw)
+      if (bytes === null) {
+        throw new Error(
+          `${mboxEnvName(key)} must be ${BYTE_SIZE_HINT}, got "${raw}"`
+        )
+      }
+      limits[key] = bytes
+      continue
+    }
 
     if (!/^\d+$/.test(raw) || Number(raw) === 0) {
       throw new Error(

@@ -699,9 +699,17 @@ the same question.
 | Limit | Demo | Self-hosted | Bounds |
 | --- | --- | --- | --- |
 | `maxMessages` | 200 | 1000 | documents one mailbox may produce |
-| `maxTotalBytes` | 32 MiB | 64 MiB | content across every message |
-| `maxMessageBytes` | 12 MiB | 25 MiB | the largest single message |
+| `maxTotalBytes` | `32MB` | `64MB` | content across every message |
+| `maxMessageBytes` | `12MB` | `25MB` | the largest single message |
 | `maxDepth` | 2 | 2 | a mailbox reached through a mailbox |
+
+The two sizes are read as sizes — `ANONIFY_MBOX_MAX_TOTAL_BYTES=32MB` — for
+the reason in `lib/config/bytes.ts`: `33554432` is not a number anybody
+types correctly, and the way it goes wrong is not a rejected value but a
+plausible one off by a factor of a thousand, silently in force until a file
+somebody expected to work is refused. The same is true of the email
+parser's and expansion's byte limits, which read the same way. A plain
+number still means bytes.
 
 `maxMessages` is deliberately **not** `MAX_BATCH_FILES`, which is what the EML
 expansion's `maxChildren` uses. Those answer different questions: `maxBatchFiles`
