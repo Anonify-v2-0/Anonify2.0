@@ -6,7 +6,9 @@ import { requireBatch } from "@/lib/documents/batches"
 import { peekIdentity } from "@/lib/security/fingerprint"
 
 export const runtime = "nodejs"
-export const maxDuration = 900
+// See app/api/documents/[id]/stream/route.ts: 300s is the Hobby ceiling, and
+// this stream is resumable, so being cut at it costs a reconnect.
+export const maxDuration = 300
 
 const ACTIVE = new Set(["queued", "running"])
 

@@ -1,4 +1,4 @@
-import { errorResponse, handleRouteError } from "@/lib/api/http"
+import { errorResponse, fileResponse, handleRouteError } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import { requireBatch } from "@/lib/documents/batches"
 import { listBatchDocuments } from "@/lib/documents/listing"
@@ -172,14 +172,11 @@ export async function GET(
 
     const archive = buildArchive(files)
 
-    return new Response(new Uint8Array(archive), {
-      headers: {
-        "content-type": "application/zip",
-        "content-length": String(archive.byteLength),
-        "content-disposition": `attachment; filename="anonify-batch-redacted.zip"`,
-        "cache-control": "no-store, private",
-        "x-content-type-options": "nosniff",
-      },
+    return fileResponse(new Uint8Array(archive), {
+      "content-type": "application/zip",
+      "content-disposition": `attachment; filename="anonify-batch-redacted.zip"`,
+      "cache-control": "no-store, private",
+      "x-content-type-options": "nosniff",
     })
   } catch (error) {
     return handleRouteError(error, "batches.download")

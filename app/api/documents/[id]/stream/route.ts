@@ -6,7 +6,11 @@ import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 
 export const runtime = "nodejs"
-export const maxDuration = 900
+// 300s is the ceiling a Vercel Hobby function can be given; it is also the
+// default there, so this export is what keeps every other platform at the same
+// number rather than at Next's own. A reconnecting client resumes from its last
+// event index, so a stream cut at the limit costs a reconnect and nothing else.
+export const maxDuration = 300
 
 /**
  * Server-sent events carrying the workflow run's progress.
