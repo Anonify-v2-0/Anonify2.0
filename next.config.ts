@@ -83,6 +83,7 @@ const bundlesTesseract =
   (process.env.OCR_PROVIDER?.trim().toLowerCase() || "tesseract") === "tesseract"
 
 const nextConfig: NextConfig = {
+  reactCompiler: true,
   // Emits a self-contained server with only the traced dependencies, so the
   // container does not ship a 2 GB node_modules.
   output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
