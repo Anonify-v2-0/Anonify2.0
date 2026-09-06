@@ -111,6 +111,7 @@ export function BatchDownloadButton({
       <BatchDownloadDialog
         open={open}
         onOpenChange={setOpen}
+        batchId={batchId}
         controls={controls}
         documentCount={documentCount}
       />

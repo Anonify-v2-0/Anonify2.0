@@ -258,6 +258,17 @@ model ExportArtifact {
   /// artifacts exported before reports existed.
   reportBlobKey     String?
   reportChecksum    String?
+  /// The token vault for this artifact, when a batch produced one.
+  ///
+  /// Only ever written by a batch export. A single-document export hands its
+  /// vault straight back in the response and stores nothing, which is what
+  /// makes an `encrypt` export unreversible by this tool — a batch has no
+  /// response to hand it back in, so it is sealed under the same per-document
+  /// key as the artifact and dies with the document. During that window the
+  /// source itself is already in the same bucket under the same key, so this
+  /// adds no capability that was not already there.
+  vaultBlobKey      String?
+  vaultChecksum     String?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 

@@ -76,6 +76,18 @@ export function reportKey(documentId: string, artifactId: string): string {
   return `documents/${documentId}/report.${artifactId}.json.bin`
 }
 
+/**
+ * The token vault for one artifact, written only by a batch export.
+ *
+ * Sealed under the same per-document key as the artifact it opens, and purged
+ * by the same sweep, because it is the one derived artifact that carries the
+ * values back. See lib/redaction/deliver.ts for why a single export never
+ * writes one.
+ */
+export function vaultKey(documentId: string, artifactId: string): string {
+  return `documents/${documentId}/vault.${artifactId}.json.bin`
+}
+
 export function renderKey(documentId: string, name: string): string {
   return `documents/${documentId}/render/${name}.bin`
 }

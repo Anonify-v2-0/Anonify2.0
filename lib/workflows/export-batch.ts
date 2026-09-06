@@ -12,6 +12,7 @@ import {
   readDocuments,
   settlePending,
   type BatchExportDocument,
+  batchMethodFor,
   type BatchExportOptions,
   type BatchExportProgress,
   type BatchExportStatus,
@@ -19,6 +20,7 @@ import {
 import { listBatchDocuments } from "@/lib/documents/listing"
 import type { SkipReason } from "@/lib/redaction/archive"
 import { exportAndStore } from "@/lib/redaction/deliver"
+import { categoriesAllowing } from "@/lib/redaction/methods"
 import { defaultVariant } from "@/lib/redaction/variants"
 import { ExportVerificationError } from "@/lib/redaction/export"
 import { ReportLeakError } from "@/lib/redaction/report"
@@ -278,14 +280,27 @@ async function runExportDocument(
   const options = (record.options ?? {}) as BatchExportOptions
 
   try {
-    const outcome = await exportAndStore(documentId, [
-      defaultVariant({
-        addLabels: options.addLabels ?? false,
-        sanitizeMetadata: options.sanitizeMetadata ?? true,
-        imageStyle: options.imageStyle ?? "solid",
-        methods: options.methods,
-      }),
-    ])
+    // One variant, chosen for this file. The reviewer picked it per document,
+    // and the categories it reaches are decided by what is defensible for each
+    // rather than by the pick — asking for a tokenized government id still
+    // produces a mask, here as everywhere.
+    const method = batchMethodFor(options, documentId)
+
+    const outcome = await exportAndStore(
+      documentId,
+      [
+        defaultVariant({
+          addLabels: options.addLabels ?? false,
+          sanitizeMetadata: options.sanitizeMetadata ?? true,
+          imageStyle: options.imageStyle ?? "solid",
+          methods: categoriesAllowing(method),
+        }),
+      ],
+      // A batch is collected as a zip long after the run, so there is no
+      // response to hand a vault back in. It is sealed beside the artifact and
+      // purged with the document; see DeliveryOptions.storeVault.
+      { storeVault: true }
+    )
 
     if (!outcome.ok) return skip("not-ready")
 

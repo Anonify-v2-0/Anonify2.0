@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { readFailure } from "@/lib/api/errors"
 import type { BatchExportView } from "@/lib/documents/batch-exports"
 import { decodeBatchExportEvent } from "@/lib/workflows/batch-export-events"
+import type { RedactionMethod } from "@/types/redaction"
 
 /**
  * One batch export, watched from anywhere.
@@ -42,13 +43,25 @@ export function isActiveExport(state: BatchExportView | null): boolean {
   return state !== null && ACTIVE.has(state.status)
 }
 
+/**
+ * What the reviewer decided before pressing the button.
+ *
+ * A batch produces one artifact per document, so there is one method per file
+ * rather than a set of variants — `method` covers everything the reviewer did
+ * not single out, and `methodByDocument` names the ones they did.
+ */
+export type BatchStartOptions = {
+  method?: RedactionMethod
+  methodByDocument?: Record<string, RedactionMethod>
+}
+
 export type BatchExportControls = {
   state: BatchExportView | null
   /** True until the first read lands, so nothing renders a wrong idle state. */
   loading: boolean
   starting: boolean
   cancelling: boolean
-  start: () => Promise<void>
+  start: (options?: BatchStartOptions) => Promise<void>
   cancel: () => Promise<void>
 }
 
@@ -239,13 +252,17 @@ export function useBatchExport(batchId: string): BatchExportControls {
     }
   }, [read, batchId, generation])
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (options: BatchStartOptions = {}) => {
     setStarting(true)
     try {
       const response = await fetch(`/api/batches/${batchId}/export`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sanitizeMetadata: true, addLabels: false }),
+        body: JSON.stringify({
+          sanitizeMetadata: true,
+          addLabels: false,
+          ...options,
+        }),
       })
 
       if (!response.ok) {

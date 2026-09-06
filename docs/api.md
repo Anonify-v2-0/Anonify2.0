@@ -547,6 +547,13 @@ against its recorded checksum. An artifact that fails is left out and named
 in the batch report rather than failing the whole archive. Assembled in
 memory with a 150 MiB ceiling; what does not fit is named as skipped.
 
+A document the reviewer had tokenized or encrypted also gets its vault, as
+`<name>-vault.json`. **That means the archive holds both the reversible file
+and the thing that reverses it**, which the batch report says in as many words:
+separate them before sharing either. A vault whose checksum does not match is
+left out rather than shipped — half a mapping restores half a document — while
+the file itself still goes in, having been verified on its own.
+
 - **Auth:** signed batch token (`?token=`) **plus** session ownership
 - **Path params:** `id`
 - **Query params:** `token` — signed batch token (required)
@@ -594,8 +601,26 @@ single export would be.
 - **Path params:** `id`
 - **Body** (all optional, defaults shown):
   ```json
-  { "addLabels": false, "sanitizeMetadata": true, "imageStyle": "solid" }
+  {
+    "addLabels": false,
+    "sanitizeMetadata": true,
+    "imageStyle": "solid",
+    "method": "mask",
+    "methodByDocument": { "doc_...": "tokenize" }
+  }
   ```
+  A batch produces **one artifact per document**, so it takes one method per
+  file rather than the `variants` a single export accepts — see
+  [the pipelines doc](./pipelines.md#a-batch-gets-a-method-per-file-not-variants-per-file)
+  for why. `method` covers every file the reviewer did not single out;
+  `methodByDocument` names the ones they did. An id that is not in this batch
+  is ignored rather than refused: the run resolves the method per document it
+  actually reaches, so a stale id from a document deleted between opening the
+  dialog and pressing the button decides nothing.
+
+  A file marked `tokenize` or `encrypt` still gets its government ids, bank and
+  card numbers, API keys and faces removed — the category table in
+  `lib/redaction/methods.ts` decides that, not the pick.
 - **Response `202`:** `{ "export": BatchExportView }` (the newly created row,
   with a `downloadUrl` once deliverable).
 - **Errors:** `404` batch not found / foreign; `409` batch has no documents

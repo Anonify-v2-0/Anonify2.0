@@ -1,7 +1,7 @@
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
 import type { SkipReason } from "@/lib/redaction/archive"
-import type { MethodOverrides } from "@/lib/redaction/methods"
+import { DEFAULT_METHOD, type RedactionMethod } from "@/types/redaction"
 
 /**
  * The state of a batch export, as a record rather than a response.
@@ -56,15 +56,38 @@ export type BatchExportOptions = {
   sanitizeMetadata: boolean
   imageStyle: "solid" | "blur" | "pixelate"
   /**
-   * Methods asked for by category, applied to every document in the batch.
+   * What happens to the values in each file, chosen per file.
    *
-   * One spec rather than the list of variants a single export accepts. A batch
-   * is already one full pass per document, and multiplying that by variants
-   * turns a run measured in minutes into one measured in tens of them — so the
-   * per-category policy travels, and asking for a second output of the same
-   * batch means running the export again with a different policy.
+   * A batch produces one artifact per document — not one per document per
+   * variant — and that is a deliberate limit rather than a missing feature.
+   * Every variant is a full pass over the document, so offering four of them
+   * across a dozen files turns a run measured in minutes into one measured in
+   * tens, for outputs most reviewers will never open. A reviewer who wants a
+   * second form of one file opens that file and exports it again, where
+   * variants do exist.
+   *
+   * What they get instead is per-file choice, which is the more useful half:
+   * the contract tokenized, the invoices masked, the spreadsheet encrypted, in
+   * one run. A file nobody decided about takes `method`.
    */
-  methods?: MethodOverrides
+  method?: RedactionMethod
+  /** Per-document override of `method`, keyed by document id. */
+  methodByDocument?: Record<string, RedactionMethod>
+}
+
+/**
+ * The method one document in a batch is exported with.
+ *
+ * Resolved here rather than in the workflow step so the UI, the API and the run
+ * agree by construction about what a missing entry means.
+ */
+export function batchMethodFor(
+  options: BatchExportOptions,
+  documentId: string
+): RedactionMethod {
+  return (
+    options.methodByDocument?.[documentId] ?? options.method ?? DEFAULT_METHOD
+  )
 }
 
 /** A run that has not finished, and so must not be started a second time. */

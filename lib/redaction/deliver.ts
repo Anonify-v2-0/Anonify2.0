@@ -16,9 +16,20 @@ import {
   serializeExportReport,
   type ExportReport,
 } from "@/lib/redaction/report"
-import { newValueKey, buildVault, type TokenVault } from "@/lib/redaction/vault"
+import {
+  newValueKey,
+  buildVault,
+  serializeVault,
+  type TokenVault,
+} from "@/lib/redaction/vault"
 import type { ExportVariant } from "@/lib/redaction/variants"
-import { getObject, processedKey, putObject, reportKey } from "@/lib/storage/blob"
+import {
+  getObject,
+  processedKey,
+  putObject,
+  reportKey,
+  vaultKey,
+} from "@/lib/storage/blob"
 import { decryptDocument, encryptWithDocumentKey } from "@/lib/storage/encryption"
 import { sha256 } from "@/lib/storage/integrity"
 import type { DocumentKind } from "@/types/document"
@@ -86,16 +97,35 @@ export type ExportOutcome =
   /** No normalized model or no sealed source: there is nothing to export yet. */
   | { ok: false; reason: "not-ready" }
 
-export async function exportAndStore(
-  documentId: string,
-  variants: ExportVariant[],
+export type DeliveryOptions = {
   /**
    * The key `encrypt` uses, when this export has to share one with another.
    * Only a message passes it: its attachments are exported separately and
    * downloaded together, so one key has to open all of them.
    */
   sharedKey?: Buffer
+  /**
+   * Whether to seal the vault beside the artifact.
+   *
+   * False everywhere except a batch, and the asymmetry is the point. A single
+   * export hands its vault back in the response and writes nothing, which is
+   * what makes an `encrypt` export unreversible by this tool. A batch run
+   * finishes minutes after the request that started it and is collected as a
+   * zip later, so there is no response to hand anything back in — the vault is
+   * sealed under the same per-document key as the artifact and purged by the
+   * same sweep. Within that window the source document is already in the same
+   * bucket under the same key, so this grants nothing that was not already
+   * available; past it, both are gone.
+   */
+  storeVault?: boolean
+}
+
+export async function exportAndStore(
+  documentId: string,
+  variants: ExportVariant[],
+  delivery: DeliveryOptions = {}
 ): Promise<ExportOutcome> {
+  const { sharedKey, storeVault = false } = delivery
   const document = await prisma.document.findUnique({
     where: { id: documentId },
     select: {
@@ -217,6 +247,40 @@ export async function exportAndStore(
       encryptWithDocumentKey(reportBytes, document.encryptionKey)
     )
 
+    const vaultEntries = [
+      ...result.surrogates.vaultEntries,
+      ...resolved.vaultEntries,
+    ]
+    // The key is reported if this document encrypted anything *or* one of its
+    // enclosures did — they share it, and the reviewer gets one download.
+    const key =
+      result.surrogates.key ??
+      (resolved.vaultKeyUsed ? (options.valueKey as Buffer) : null)
+
+    const vault =
+      vaultEntries.length > 0 || key
+        ? buildVault({
+            documentId: document.id,
+            artifactChecksum: result.checksum,
+            key,
+            entries: vaultEntries,
+          })
+        : null
+
+    // Sealed only when the caller asked for it, which is only ever a batch.
+    // Everywhere else the vault exists in this function's return value and
+    // nowhere on disk.
+    const storedVault =
+      vault && storeVault
+        ? await putObject(
+            vaultKey(document.id, artifactId),
+            encryptWithDocumentKey(
+              serializeVault(vault),
+              document.encryptionKey
+            )
+          )
+        : null
+
     await prisma.exportArtifact.create({
       data: {
         id: artifactId,
@@ -232,18 +296,10 @@ export async function exportAndStore(
         labelsAdded: options.addLabels,
         reportBlobKey: storedReport.key,
         reportChecksum: sha256(reportBytes),
+        vaultBlobKey: storedVault?.key ?? null,
+        vaultChecksum: vault ? sha256(serializeVault(vault)) : null,
       },
     })
-
-    const vaultEntries = [
-      ...result.surrogates.vaultEntries,
-      ...resolved.vaultEntries,
-    ]
-    // The key is reported if this document encrypted anything *or* one of its
-    // enclosures did — they share it, and the reviewer gets one download.
-    const key =
-      result.surrogates.key ??
-      (resolved.vaultKeyUsed ? (options.valueKey as Buffer) : null)
 
     artifacts.push({
       artifactId,
@@ -257,15 +313,7 @@ export async function exportAndStore(
       appliedRedactions: result.appliedRedactions,
       verifiedValues: result.verification.checkedValues,
       report,
-      vault:
-        vaultEntries.length > 0 || key
-          ? buildVault({
-              documentId: document.id,
-              artifactChecksum: result.checksum,
-              key,
-              entries: vaultEntries,
-            })
-          : null,
+      vault,
     })
   }
 
@@ -316,7 +364,12 @@ async function exportChild(
   vaultKeyUsed: boolean
 } | null> {
   try {
-    const outcome = await exportAndStore(childDocumentId, [variant], valueKey)
+    // The child never seals a vault of its own, even inside a batch: its
+    // entries come back here and are merged into the message's, so one vault
+    // opens the whole download rather than one per enclosure.
+    const outcome = await exportAndStore(childDocumentId, [variant], {
+      sharedKey: valueKey,
+    })
     if (!outcome.ok) return null
 
     const { primary } = outcome.delivered

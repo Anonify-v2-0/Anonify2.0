@@ -367,6 +367,8 @@ A generated export. Kept encrypted, addressed only by signed token.
 | `labelsAdded` | `Boolean` `@default(false)` | Whether redaction labels were added to the output. |
 | `variant` | `String?` | Which output of one review this is, when the reviewer asked for more than one. Null means the single default output. The name is derived from the methods the variant applied, never typed by the reviewer — it reaches the export report, which must carry no free strings. See `lib/redaction/variants.ts`. |
 | `reportBlobKey` | `String?` | The export report generated with this artifact: counts, styles and both checksums, stored encrypted beside the file it describes. Null for artifacts exported before reports existed. |
+| `vaultBlobKey` | `String?` | The token vault for this artifact, **written only by a batch export**. A single export hands its vault back in the response and stores nothing, which is what makes an `encrypt` export unreversible by this tool; a batch run is collected as a zip minutes later and has no response to hand it back in, so the vault is sealed under the same per-document key and purged by the same sweep. Within that window the source document is already in the same bucket under the same key, so this grants nothing that was not already available. |
+| `vaultChecksum` | `String?` | SHA-256 of the vault blob. Re-checked when the archive is assembled; a mismatch leaves the vault out rather than shipping half a mapping. |
 | `reportChecksum` | `String?` | SHA-256 of the report blob. |
 | `document` | `Document` | Relation via `documentId`, `onDelete: Cascade`. |
 

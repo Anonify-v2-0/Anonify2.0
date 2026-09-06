@@ -760,9 +760,57 @@ Variant names are derived from the methods a variant applies rather than typed
 by the reviewer — the name reaches the report, and the report is the artifact
 that must never carry a free string.
 
-Batch export carries the per-category methods but produces one artifact per
-document. A batch is already a full pass per document; multiplying that by
-variants turns a run measured in minutes into one measured in tens.
+### A batch gets a method per file, not variants per file
+
+A batch produces **one artifact per document**, and the reviewer chooses what
+that artifact does to the values — per file. The contract tokenized, the
+invoices masked, the spreadsheet encrypted, in one run.
+
+Not one artifact per document per variant, and the reason is worth stating
+because it looks like a missing feature. Every variant is a full pass over the
+document, so four of them across a dozen files is forty-eight exports, for
+outputs most reviewers will never open. Worse, the archive names entries after
+the document (`contract-redacted.pdf`), so four variants would collide into
+`contract-redacted-2.pdf` and up — names that tell a reader nothing about which
+is the tokenized one — and `BatchReport.documents[]` is one row per document
+with one artifact checksum, so per-document totals would double-count.
+
+A reviewer who wants a second form of one file opens that file and exports it
+again, where variants do exist. That is cheaper for them and honest about what
+the archive can describe.
+
+`batchMethodFor()` in `lib/documents/batch-exports.ts` is the one place that
+resolves a document's method: its per-file entry, else the run's default, else
+`mask`. The run expands that into per-category overrides with
+`categoriesAllowing()`, so a file marked "tokenize" still gets its government
+ids removed — the category table wins, here as everywhere.
+
+### The one place a vault is stored
+
+A batch is the exception to "the vault is never written down", and the
+asymmetry is deliberate rather than an oversight.
+
+A single export hands the vault back in the response and stores nothing, which
+is what makes an `encrypt` export unreversible by this tool. A batch run
+finishes minutes after the request that started it and is collected as a zip
+later, so there is no response to hand anything back in. The vault is therefore
+sealed under the same per-document key as the artifact and its report
+(`vaultBlobKey` on `ExportArtifact`), shipped in the archive as
+`<name>-vault.json`, and purged by the same sweep that purges the document.
+
+The argument for accepting that: within the retention window the **source
+document itself** is already in that bucket under that key, so anyone who could
+read the vault could already read the original. Storing it grants no capability
+that was not already there, and past the window both are gone. What it does
+change is that the batch archive contains both the reversible file and the
+thing that reverses it, so the batch report says so in as many words and the
+export dialog says it before the run starts.
+
+A vault that fails its checksum at download time is left out of the archive
+rather than shipped: half a mapping restores half a document and a reviewer
+would have no way to tell which half. The file still goes in — it was verified
+on its own — and the batch report records which documents ended up with a
+vault.
 
 ### What verification had to learn
 

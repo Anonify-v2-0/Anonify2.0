@@ -3,6 +3,7 @@ import { zipSync } from "fflate"
 import {
   REPORT_VERSION,
   type ExportReport,
+  type MethodCounts,
   type RemovalStyle,
   type StyleCounts,
 } from "@/lib/redaction/report"
@@ -78,6 +79,17 @@ export type BatchReport = {
     sourceChecksum: string
     artifactChecksum: string
     removed: number
+    /**
+     * How the values in this file were treated, and whether the archive
+     * carries a vault that reverses it.
+     *
+     * A batch of files handled different ways is exactly the case where a
+     * reader cannot assume: one document's counts say nothing about the next
+     * one's, and "12 documents redacted" would hide that three of them are
+     * reversible by whoever holds the zip.
+     */
+    methods: MethodCounts
+    vault: boolean
   }[]
   /**
    * Documents that are not in the archive, and why. A batch report that lists
@@ -108,6 +120,8 @@ export function buildBatchReport(input: {
   batchId: string
   reports: ExportReport[]
   skipped: { documentId: string; reason: SkipReason }[]
+  /** Document ids whose vault is in the archive. */
+  vaulted?: Set<string>
   generatedAt?: Date
 }): BatchReport {
   const byCategory = new Map<string, number>()
@@ -137,6 +151,24 @@ export function buildBatchReport(input: {
     "Each document was verified against its own exported bytes. A document that failed verification is listed as skipped rather than included.",
   ]
 
+  const reversible = input.reports.filter(
+    (report) => report.removed.byMethod.tokenize || report.removed.byMethod.encrypt
+  ).length
+  if (reversible > 0) {
+    notes.push(
+      `${reversible} ${reversible === 1 ? "document is" : "documents are"} reversible by whoever holds the vault beside ${reversible === 1 ? "it" : "them"} in this archive. Separate the vaults from the files before sharing either.`
+    )
+  }
+
+  const pseudonymized = input.reports.filter(
+    (report) => report.removed.byMethod.pseudonymize
+  ).length
+  if (pseudonymized > 0) {
+    notes.push(
+      `${pseudonymized} ${pseudonymized === 1 ? "document keeps" : "documents keep"} stable surrogates in place of values. Nothing reverses those, but a surrogate consistent across a file still preserves the equality somebody could re-identify by.`
+    )
+  }
+
   for (const skip of input.skipped) {
     notes.push(`One document ${SKIP_SENTENCES[skip.reason]}.`)
   }
@@ -153,6 +185,8 @@ export function buildBatchReport(input: {
       sourceChecksum: report.document.sourceChecksum,
       artifactChecksum: report.artifact.checksum,
       removed: report.removed.total,
+      methods: report.removed.byMethod,
+      vault: input.vaulted?.has(report.document.id) ?? false,
     })),
     skipped: input.skipped,
     totals: {
@@ -186,6 +220,19 @@ export function artifactName(
 export function reportName(originalName: string): string {
   const base = originalName.replace(/\.[^.]+$/, "") || "document"
   return `${safeName(base)}-redaction-report.json`
+}
+
+/**
+ * The vault that opens one file in the archive.
+ *
+ * Named after the file rather than after the batch, because it opens that file
+ * and no other — a reviewer holding a zip of twelve documents needs to be able
+ * to tell at a glance which vault belongs to which, and a single
+ * `batch-vault.json` would suggest one key for the lot.
+ */
+export function vaultName(originalName: string): string {
+  const base = originalName.replace(/\.[^.]+$/, "") || "document"
+  return `${safeName(base)}-vault.json`
 }
 
 /**
