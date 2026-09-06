@@ -73,7 +73,7 @@ describe("xlsx redaction", () => {
       cells: [{ sheet: "Customers", row: 2, column: 3 }],
       rows: [],
       columns: [],
-      values: [SENSITIVE.account],
+      values: [{ value: SENSITIVE.account }],
       label: null,
       sanitizeMetadata: false,
     })
@@ -124,7 +124,7 @@ describe("xlsx redaction", () => {
       cells: [{ sheet: "Customers", row: 2, column: 2 }],
       rows: [],
       columns: [],
-      values: [SENSITIVE.email],
+      values: [{ value: SENSITIVE.email }],
       label: null,
       sanitizeMetadata: false,
     })
@@ -140,7 +140,7 @@ describe("xlsx redaction", () => {
       cells: [],
       rows: [],
       columns: [],
-      values: [SENSITIVE.person, SENSITIVE.email],
+      values: [{ value: SENSITIVE.person }, { value: SENSITIVE.email }],
       label: null,
       sanitizeMetadata: false,
     })
@@ -155,7 +155,7 @@ describe("xlsx redaction", () => {
       cells: [{ sheet: "Customers", row: 2, column: 1 }],
       rows: [],
       columns: [],
-      values: [SENSITIVE.person],
+      values: [{ value: SENSITIVE.person }],
       label: "[REDACTED]",
       sanitizeMetadata: false,
     })
@@ -237,7 +237,7 @@ describe("xlsx export verification", () => {
       { addLabels: false, sanitizeMetadata: false }
     )
 
-    expect(plan.values).toContain(SENSITIVE.email)
+    expect(plan.values.map((entry) => entry.value)).toContain(SENSITIVE.email)
   })
 
   it("survives verification with a column accepted, end to end", async () => {

@@ -183,6 +183,10 @@ model Redaction {
   category    String
   confidence  Float?
   status      String   @default("suggested")
+  /// What accepting this does to the bytes. Null means mask, which is what
+  /// every redaction taken before methods existed did. See
+  /// lib/redaction/methods.ts for which categories permit which.
+  method      String?
 
   page        Int?
   text        String?

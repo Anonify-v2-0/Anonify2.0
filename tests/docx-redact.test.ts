@@ -50,7 +50,7 @@ describe("docx redaction", () => {
     const bytes = await makeDocxFixture()
     const output = redactDocx(bytes, {
       runEdits: runEditsFor(bytes, SENSITIVE.email),
-      values: [SENSITIVE.email],
+      values: [{ value: SENSITIVE.email }],
       label: null,
       sanitizeMetadata: false,
     })
@@ -64,7 +64,7 @@ describe("docx redaction", () => {
     const bytes = await makeDocxFixture()
     const output = redactDocx(bytes, {
       runEdits: runEditsFor(bytes, SENSITIVE.account),
-      values: [SENSITIVE.account],
+      values: [{ value: SENSITIVE.account }],
       label: null,
       sanitizeMetadata: false,
     })
@@ -80,7 +80,7 @@ describe("docx redaction", () => {
 
     const output = redactDocx(bytes, {
       runEdits: {},
-      values: [SENSITIVE.person],
+      values: [{ value: SENSITIVE.person }],
       label: null,
       sanitizeMetadata: false,
     })
@@ -92,7 +92,7 @@ describe("docx redaction", () => {
     const bytes = await makeDocxFixture()
     const output = redactDocx(bytes, {
       runEdits: runEditsFor(bytes, SENSITIVE.email),
-      values: [SENSITIVE.email],
+      values: [{ value: SENSITIVE.email }],
       label: "[REDACTED]",
       sanitizeMetadata: false,
     })
@@ -148,7 +148,7 @@ describe("docx redaction", () => {
     const bytes = await makeDocxFixture()
     const output = redactDocx(bytes, {
       runEdits: runEditsFor(bytes, SENSITIVE.email),
-      values: [SENSITIVE.email],
+      values: [{ value: SENSITIVE.email }],
       label: null,
       sanitizeMetadata: false,
     })
@@ -186,7 +186,7 @@ describe("docx redaction", () => {
     const bytes = await makeDocxFixture()
     const output = redactDocx(bytes, {
       runEdits: runEditsFor(bytes, SENSITIVE.email),
-      values: [SENSITIVE.email],
+      values: [{ value: SENSITIVE.email }],
       label: null,
       sanitizeMetadata: true,
     })

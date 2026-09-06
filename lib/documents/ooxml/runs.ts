@@ -4,12 +4,15 @@ import {
   mergeRanges,
   scanElements,
   scanTextNodes,
-  type CharRange,
   type ElementRange,
   type TextEdit,
   type TextNode,
 } from "@/lib/documents/ooxml/xml-text"
-import { valueMatcher } from "@/lib/documents/shared/text"
+import {
+  valueMatcher,
+  type ReplacementRange,
+  type ValueReplacement,
+} from "@/lib/documents/shared/text"
 
 /**
  * Editing the runs of an OOXML part.
@@ -72,9 +75,9 @@ export type OoxmlRunPlan = {
    * qualified, e.g. `word/header1.xml#p3r1` or `ppt/slides/slide2.xml#p0r1`,
    * because each part has its own paragraph numbering.
    */
-  runEdits: Record<string, CharRange[]>
-  /** Accepted values, removed wherever else they appear in the package. */
-  values: string[]
+  runEdits: Record<string, ReplacementRange[]>
+  /** Accepted values, replaced wherever else they appear in the package. */
+  values: ValueReplacement[]
   /** Visible marker left behind, or null to close the gap silently. */
   label: string | null
   sanitizeMetadata: boolean
@@ -107,10 +110,10 @@ export function parseSpanAddress(
  * it, and those documents are still in storage.
  */
 export function groupEditsByPart(
-  runEdits: Record<string, CharRange[]>,
+  runEdits: Record<string, ReplacementRange[]>,
   fallbackPart: string
-): Map<string, Record<string, CharRange[]>> {
-  const grouped = new Map<string, Record<string, CharRange[]>>()
+): Map<string, Record<string, ReplacementRange[]>> {
+  const grouped = new Map<string, Record<string, ReplacementRange[]>>()
 
   for (const [address, ranges] of Object.entries(runEdits)) {
     const parsed = parseSpanAddress(address)
@@ -123,10 +126,6 @@ export function groupEditsByPart(
   }
 
   return grouped
-}
-
-function replacementFor(label: string | null): (length: number) => string {
-  return () => label ?? ""
 }
 
 /** One piece of a run: either a real text node or a synthesized character. */
@@ -212,18 +211,27 @@ export function segmentsOfRun(
     .map((piece) => piece.segment)
 }
 
-/** Maps ranges expressed over concatenated segment text back onto text nodes. */
+/**
+ * Maps ranges expressed over concatenated segment text back onto text nodes.
+ *
+ * What goes in each range's place comes from the range itself, falling back to
+ * the plan's label — which is how a mask and a surrogate travel the same path.
+ * Either way it is written *once* per range rather than once per run the range
+ * spans: a name Word split across three runs is one value, and three copies of
+ * `[REDACTED]`, or of `PERSON_001`, would say it was three.
+ */
 export function editsForSegments(
   segments: RunSegment[],
-  ranges: CharRange[],
+  ranges: ReplacementRange[],
   label: string | null
 ): TextEdit[] {
   const merged = mergeRanges(ranges)
   if (merged.length === 0) return []
 
   const edits: TextEdit[] = []
+  /** Merged ranges whose replacement has already been written out. */
+  const placed = new Set<number>()
   let offset = 0
-  let labelPlaced = false
 
   for (const segment of segments) {
     const segmentStart = offset
@@ -232,22 +240,26 @@ export function editsForSegments(
 
     if (!segment.node) continue
 
-    const local = merged
-      .filter((range) => range.start < segmentEnd && range.end > segmentStart)
-      .map((range) => ({
+    const local: ReplacementRange[] = []
+
+    merged.forEach((range, index) => {
+      if (range.start >= segmentEnd || range.end <= segmentStart) return
+
+      const first = !placed.has(index)
+      placed.add(index)
+
+      local.push({
         start: Math.max(0, range.start - segmentStart),
         end: Math.min(segment.text.length, range.end - segmentStart),
-      }))
+        replacement: first ? (range.replacement ?? label ?? "") : "",
+      })
+    })
 
     if (local.length === 0) continue
 
-    // The marker is written once per redaction, not once per run it spans.
-    const marker = label && !labelPlaced ? label : null
-    if (marker) labelPlaced = true
-
     edits.push({
       node: segment.node,
-      text: cutRanges(segment.text, local, replacementFor(marker)),
+      text: cutRanges(segment.text, local, () => ""),
     })
   }
 
@@ -262,7 +274,7 @@ export function editsForSegments(
  */
 export function applyRunEdits(
   xml: string,
-  localEdits: Record<string, CharRange[]>,
+  localEdits: Record<string, ReplacementRange[]>,
   label: string | null,
   schema: OoxmlTextSchema
 ): string {
@@ -283,7 +295,7 @@ export function applyRunEdits(
     // marker: `[REDACTED][REDACTED][REDACTED]` where one value used to be,
     // because each run believed it was the first to place one.
     const segments: RunSegment[] = []
-    const ranges: CharRange[] = []
+    const ranges: ReplacementRange[] = []
     let offset = 0
 
     inside.forEach((run, runIndex) => {
@@ -294,7 +306,11 @@ export function applyRunEdits(
       )
 
       for (const range of localEdits[`p${paragraphIndex}r${runIndex}`] ?? []) {
-        ranges.push({ start: offset + range.start, end: offset + range.end })
+        ranges.push({
+          start: offset + range.start,
+          end: offset + range.end,
+          replacement: range.replacement,
+        })
       }
 
       segments.push(...runSegments)
@@ -318,7 +334,7 @@ export function applyRunEdits(
  */
 export function sweepValues(
   xml: string,
-  values: string[],
+  values: ValueReplacement[],
   label: string | null,
   schema: OoxmlTextSchema
 ): string {

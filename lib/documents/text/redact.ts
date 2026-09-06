@@ -6,7 +6,8 @@ import {
 import {
   cutRanges,
   valueMatcher,
-  type CharRange,
+  type ReplacementRange,
+  type ValueReplacement,
 } from "@/lib/documents/shared/text"
 
 /**
@@ -23,10 +24,14 @@ import {
  */
 
 export type TextRedactionPlan = {
-  /** Absolute character ranges in the decoded source. */
-  ranges: CharRange[]
-  /** Accepted values, removed wherever else they appear. */
-  values: string[]
+  /**
+   * Absolute character ranges in the decoded source, each with what goes in
+   * its place. A range with no replacement takes the label, which is what a
+   * mask is.
+   */
+  ranges: ReplacementRange[]
+  /** Accepted values, replaced wherever else they appear. */
+  values: ValueReplacement[]
   label: string | null
 }
 

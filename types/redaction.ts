@@ -43,6 +43,33 @@ export const REDACTION_CATEGORIES = [
 
 export type RedactionCategory = (typeof REDACTION_CATEGORIES)[number]
 
+/**
+ * What an accepted redaction does to the bytes it covers.
+ *
+ * `mask` is removal — the value is replaced by a label or by nothing, and
+ * there is no way back. It is the default and the only method that needs no
+ * further trust, which is why every category permits it and why the categories
+ * where removal is the whole point permit nothing else.
+ *
+ * The other three replace the value with something derived from it. They are
+ * not weaker removals: the accepted value is still absent from the artifact.
+ * What they add is a shape the reader can still work with — a surrogate that
+ * joins, a token the reviewer can reverse with a vault they hold, a ciphertext
+ * they can reverse with a key they hold. Which of them a redaction may be
+ * given is decided in lib/redaction/methods.ts, by its category and by whether
+ * the format can actually carry a surrogate.
+ */
+export const REDACTION_METHODS = [
+  "mask",
+  "pseudonymize",
+  "tokenize",
+  "encrypt",
+] as const
+
+export type RedactionMethod = (typeof REDACTION_METHODS)[number]
+
+export const DEFAULT_METHOD: RedactionMethod = "mask"
+
 export type Redaction = {
   id: string
   documentId: string
@@ -51,6 +78,11 @@ export type Redaction = {
   category: string
   confidence?: number
   status: RedactionStatus
+  /**
+   * What happens to the bytes when this redaction is accepted. Absent means
+   * `mask`, which is what every redaction taken before methods existed did.
+   */
+  method?: RedactionMethod
 
   /** 1-based page number for page-oriented documents. */
   page?: number

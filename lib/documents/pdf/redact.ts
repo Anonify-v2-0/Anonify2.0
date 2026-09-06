@@ -7,6 +7,8 @@ import {
   renderPage,
   RENDER_SCALE,
 } from "@/lib/documents/pdf/render"
+import type { SKRSContext2D } from "@napi-rs/canvas"
+
 import type { BoundingBox } from "@/types/document"
 
 /**
@@ -23,9 +25,20 @@ import type { BoundingBox } from "@/types/document"
  * document with one redacted page keeps ninety-nine pages of selectable text.
  */
 
+/**
+ * A box to remove, and what to paint on the strip that replaces it.
+ *
+ * `label` is the whole of the substitution story for a PDF. A page carrying a
+ * redaction is rasterised, so there is no text stream left to write a
+ * pseudonym into — but the strip is a rectangle this code draws, and drawing
+ * it with `PERSON_014` on it puts the surrogate exactly where the value was.
+ * A box with no label is a plain removal and falls back to the plan's marker.
+ */
+export type LabeledBox = BoundingBox & { label?: string }
+
 export type PdfRedactionPlan = {
   /** Boxes to remove, in PDF user-space units with a top-left origin. */
-  boxesByPage: Map<number, BoundingBox[]>
+  boxesByPage: Map<number, LabeledBox[]>
   label: string | null
   sanitizeMetadata: boolean
   /** Raster resolution for redacted pages. */
@@ -34,12 +47,14 @@ export type PdfRedactionPlan = {
 
 const LABEL_FONT_RATIO = 0.6
 const MIN_LABEL_HEIGHT = 8
+/** Below this the glyphs stop being glyphs, and a smear is worse than nothing. */
+const MIN_LABEL_PX = 6
 
 /** Renders one page to PNG with the redacted areas already burned in. */
 async function renderRedactedPage(
   pdf: PDFDocumentProxy,
   pageNumber: number,
-  boxes: BoundingBox[],
+  boxes: LabeledBox[],
   label: string | null,
   scale: number
 ): Promise<{ png: Buffer; width: number; height: number }> {
@@ -57,14 +72,12 @@ async function renderRedactedPage(
     context.fillStyle = "#000000"
     context.fillRect(x, y, width, height)
 
-    if (label && height >= MIN_LABEL_HEIGHT) {
-      context.fillStyle = "#ffffff"
-      context.font = `${Math.max(6, height * LABEL_FONT_RATIO)}px sans-serif`
-      context.textBaseline = "middle"
-      const metrics = context.measureText(label)
-      if (metrics.width < width) {
-        context.fillText(label, x + (width - metrics.width) / 2, y + height / 2)
-      }
+    // A box's own label is a surrogate and outranks the plan's marker: the
+    // marker says something was removed, the surrogate says what stands in
+    // its place, and only one of them can be painted in the space available.
+    const marker = box.label ?? label
+    if (marker && height >= MIN_LABEL_HEIGHT) {
+      drawStripText(context, marker, { x, y, width, height })
     }
   }
 
@@ -74,6 +87,42 @@ async function renderRedactedPage(
     png: canvas.toBuffer("image/png"),
     width: rendered.width,
     height: rendered.height,
+  }
+}
+
+/**
+ * Paints a marker onto a strip, shrinking it until it fits.
+ *
+ * A strip is exactly as wide as the value it covers, and a surrogate is rarely
+ * the same length as what it replaces, so "draw it at the obvious size" is not
+ * an option. The type shrinks until the string fits or until it stops being
+ * readable, and below that nothing is drawn: a strip with an illegible smear
+ * on it reads as a rendering fault, while a plain strip reads as a redaction,
+ * which is what it is. The vault still names what the strip stood for.
+ */
+function drawStripText(
+  context: SKRSContext2D,
+  marker: string,
+  box: { x: number; y: number; width: number; height: number }
+): void {
+  context.fillStyle = "#ffffff"
+  context.textBaseline = "middle"
+
+  let size = Math.max(MIN_LABEL_PX, box.height * LABEL_FONT_RATIO)
+
+  for (;;) {
+    context.font = `${size}px sans-serif`
+    const metrics = context.measureText(marker)
+    if (metrics.width < box.width) {
+      context.fillText(
+        marker,
+        box.x + (box.width - metrics.width) / 2,
+        box.y + box.height / 2
+      )
+      return
+    }
+    if (size <= MIN_LABEL_PX) return
+    size = Math.max(MIN_LABEL_PX, size - 1)
   }
 }
 

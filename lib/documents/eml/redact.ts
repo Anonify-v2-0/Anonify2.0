@@ -20,7 +20,8 @@ import {
   cutRanges,
   mergeRanges,
   valueMatcher,
-  type CharRange,
+  type ReplacementRange,
+  type ValueReplacement,
   type ValueMatcher,
 } from "@/lib/documents/shared/text"
 
@@ -62,18 +63,18 @@ import {
 
 export type EmlRedactionPlan = {
   /** Ranges within each part's decoded text, keyed by MIME path. */
-  bodies: Record<string, CharRange[]>
+  bodies: Record<string, ReplacementRange[]>
   /** Ranges within a header's decoded value, keyed by `path|name|index`. */
-  headers: Record<string, CharRange[]>
+  headers: Record<string, ReplacementRange[]>
   /** Ranges within an attachment filename, keyed by MIME path. */
-  filenames: Record<string, CharRange[]>
+  filenames: Record<string, ReplacementRange[]>
   /**
    * What to do with each attachment part's body, keyed by MIME path. A part
    * with no entry is carried through exactly as it arrived.
    */
   attachments: Record<string, AttachmentAction>
-  /** Accepted values, removed wherever else they appear in the message. */
-  values: string[]
+  /** Accepted values, replaced wherever else they appear in the message. */
+  values: ValueReplacement[]
   label: string | null
 }
 
@@ -116,9 +117,18 @@ function eolOf(source: string): string {
   return source.includes("\r\n") ? "\r\n" : "\n"
 }
 
+/**
+ * Cuts ranges out of one header value, filename or body line.
+ *
+ * A range carrying a surrogate writes it — every occurrence, because two
+ * occurrences of a value are two places the reader needs the same stand-in.
+ * The plain label is different: it is written once per value and left off the
+ * rest, so a header holding an address twice does not read
+ * `[REDACTED][REDACTED]`.
+ */
 function cut(
   value: string,
-  ranges: CharRange[],
+  ranges: ReplacementRange[],
   label: string | null
 ): string {
   const merged = mergeRanges(ranges)
@@ -171,7 +181,7 @@ function rewriteHeader(
  */
 function redactPartText(
   node: MimeNode,
-  ranges: CharRange[],
+  ranges: ReplacementRange[],
   matcher: ValueMatcher,
   label: string | null
 ): string | null {

@@ -1,4 +1,8 @@
-import { mergeRanges, type CharRange } from "@/lib/documents/shared/text"
+import {
+  mergeRanges,
+  type CharRange,
+  type ReplacementRange,
+} from "@/lib/documents/shared/text"
 
 /**
  * Mapping visible text back to the bytes that produced it.
@@ -44,13 +48,14 @@ export type SourceAtom = {
  * written once for the value, not once per fragment it was split into.
  */
 export type SourceCut = {
-  textRange: CharRange
+  /** Carries what goes in its place, so a cut knows its own replacement. */
+  textRange: ReplacementRange
   ranges: CharRange[]
 }
 
 export function sourceCutsFor(
   atoms: SourceAtom[],
-  textRanges: CharRange[]
+  textRanges: ReplacementRange[]
 ): SourceCut[] {
   const wanted = mergeRanges(textRanges)
   if (wanted.length === 0) return []
@@ -103,19 +108,30 @@ export function sourceCutsFor(
 /**
  * Applies cuts to the source, writing each removal's marker at its first
  * fragment. Edits go back to front so the offsets ahead of each stay valid.
+ *
+ * A cut carrying its own replacement — a pseudonym, a token, a ciphertext —
+ * writes that instead of the label, passed through `encode` first. The label
+ * arrives already encoded, because the caller knew whether it had one; a
+ * replacement cannot, because it is decided per value.
  */
 export function applyCuts(
   source: string,
   cuts: SourceCut[],
-  label: string
+  label: string,
+  encode: (value: string) => string = (value) => value
 ): string {
   const edits = cuts
-    .flatMap((cut) =>
-      cut.ranges.map((range, index) => ({
+    .flatMap((cut) => {
+      const marker =
+        cut.textRange.replacement === undefined
+          ? label
+          : encode(cut.textRange.replacement)
+
+      return cut.ranges.map((range, index) => ({
         range,
-        text: index === 0 ? label : "",
+        text: index === 0 ? marker : "",
       }))
-    )
+    })
     .sort((a, b) => a.range.start - b.range.start)
 
   // Assembled in one forward pass. Splicing the string once per edit copies

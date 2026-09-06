@@ -1,5 +1,6 @@
 import type ExcelJS from "exceljs"
 
+import type { ValueReplacement } from "@/lib/documents/shared/text"
 import { cellText, loadWorkbook } from "@/lib/documents/xlsx/extract"
 
 /**
@@ -14,21 +15,29 @@ import { cellText, loadWorkbook } from "@/lib/documents/xlsx/extract"
 export type CellAddress = { sheet: string; row: number; column: number }
 
 export type XlsxRedactionPlan = {
-  cells: CellAddress[]
+  /** Cells, each with what the cell becomes; no replacement means the label. */
+  cells: (CellAddress & { replacement?: string })[]
+  /** Whole rows and columns are emptied by position, so always masked. */
   rows: { sheet: string; row: number }[]
   columns: { sheet: string; column: number }[]
-  /** Values removed wherever they appear, including hidden sheets. */
-  values: string[]
+  /** Values replaced wherever they appear, including hidden sheets. */
+  values: ValueReplacement[]
   label: string | null
   sanitizeMetadata: boolean
 }
 
 const REDACTED = "[REDACTED]"
 
-function blankCell(cell: ExcelJS.Cell, label: string | null): void {
+function blankCell(
+  cell: ExcelJS.Cell,
+  label: string | null,
+  replacement?: string
+): void {
   // Assigning a plain value drops any formula that produced the old one, so
-  // the original cannot be recomputed or read from a cached result.
-  cell.value = label ?? null
+  // the original cannot be recomputed or read from a cached result. A
+  // surrogate goes in the same way, for the same reason: a formula that
+  // recomputed the cell would put the original straight back.
+  cell.value = replacement ?? label ?? null
 }
 
 function sheetOf(
@@ -111,7 +120,7 @@ export async function redactXlsx(
     const worksheet = sheetOf(workbook, target.sheet)
     if (!worksheet) continue
     const cell = worksheet.getRow(target.row).getCell(target.column)
-    blankCell(cell, label)
+    blankCell(cell, label, target.replacement)
     markRedacted(target.sheet, cell)
   }
 
@@ -123,16 +132,21 @@ export async function redactXlsx(
         row.eachCell({ includeEmpty: false }, (cell) => {
           const text = cellText(cell.value)
           if (!text) return
-          const hit = plan.values.some((value) =>
-            text.toLowerCase().includes(value.toLowerCase())
+          const hit = plan.values.some((entry) =>
+            text.toLowerCase().includes(entry.value.toLowerCase())
           )
           if (!hit) return
 
+          // Each value takes its own replacement, so a name swept out of a
+          // hidden sheet gets the pseudonym the reviewed occurrence got.
           const cleaned = plan.values.reduce(
-            (accumulator, value) =>
+            (accumulator, entry) =>
               accumulator.replace(
-                new RegExp(escapeRegExp(value), "gi"),
-                label ?? ""
+                new RegExp(escapeRegExp(entry.value), "gi"),
+                // `$` in a surrogate would be read as a capture reference by
+                // `replace`; there are none today, and escaping it here means
+                // there never can be.
+                (entry.replacement ?? label ?? "").replace(/\$/g, "$$$$")
               ),
             text
           )

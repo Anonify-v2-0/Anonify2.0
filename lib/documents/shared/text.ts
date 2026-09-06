@@ -49,22 +49,38 @@ export function normalizeValue(value: string): string {
 export type CharRange = { start: number; end: number }
 
 /**
+ * A range plus what goes in its place.
+ *
+ * Redaction used to be one operation with one outcome, so a plan carried
+ * ranges and a single label. It no longer does: an accepted redaction can be
+ * masked, pseudonymised, tokenised or encrypted, and which of those it is
+ * belongs to the range rather than to the export. `replacement` left undefined
+ * means "whatever the plan's label says", which is what every mask still wants
+ * and what keeps the older call sites honest.
+ */
+export type ReplacementRange = CharRange & { replacement?: string }
+
+/** One accepted value and the string that stands in for it. */
+export type ValueReplacement = { value: string; replacement?: string }
+
+/**
  * Overlapping ranges collapsed into disjoint ones, in order.
  *
  * Two detectors finding the same value, or a value inside a longer one, both
  * produce overlapping ranges; cutting them one at a time would remove the
  * overlap twice and shift everything after it.
  */
-export function mergeRanges(ranges: CharRange[]): CharRange[] {
+export function mergeRanges<T extends CharRange>(ranges: T[]): T[] {
   const sorted = [...ranges]
     .filter((range) => range.end > range.start)
     .sort((a, b) => a.start - b.start)
 
-  const merged: CharRange[] = []
+  const merged: T[] = []
   for (const range of sorted) {
     const last = merged[merged.length - 1]
     if (last && range.start <= last.end) {
       last.end = Math.max(last.end, range.end)
+      mergeReplacement(last, range)
     } else {
       merged.push({ ...range })
     }
@@ -72,10 +88,35 @@ export function mergeRanges(ranges: CharRange[]): CharRange[] {
   return merged
 }
 
-/** Removes (or replaces) character ranges from a string. */
+/**
+ * What a merged range is replaced with when the ranges disagreed.
+ *
+ * Two redactions overlapping with different methods is rare but not
+ * impossible — a name inside an address, say, accepted separately. The merged
+ * range takes the *stronger* of the two, and removal is always the stronger:
+ * emitting a surrogate over characters something else asked to be deleted
+ * would substitute where the reviewer asked to remove. The reverse mistake is
+ * only ever a lost pseudonym.
+ */
+function mergeReplacement(into: CharRange, from: CharRange): void {
+  const target = into as ReplacementRange
+  const source = from as ReplacementRange
+  if (target.replacement === undefined) return
+  if (source.replacement === undefined || source.replacement.length === 0) {
+    target.replacement = source.replacement
+  }
+}
+
+/**
+ * Removes (or replaces) character ranges from a string.
+ *
+ * A range carrying its own `replacement` uses it; one that does not falls back
+ * to the caller's function, which is where a plan-wide label or a plain
+ * deletion comes from.
+ */
 export function cutRanges(
   text: string,
-  ranges: CharRange[],
+  ranges: ReplacementRange[],
   replacement: (length: number) => string
 ): string {
   const merged = mergeRanges(ranges)
@@ -87,7 +128,7 @@ export function cutRanges(
     const end = Math.max(start, Math.min(range.end, text.length))
     if (end <= cursor) continue
     result += text.slice(cursor, start)
-    result += replacement(end - start)
+    result += range.replacement ?? replacement(end - start)
     cursor = end
   }
 
@@ -132,10 +173,16 @@ export function findOccurrences(
  * occurrence overlapping another is reported rather than skipped — that can
  * only widen what gets removed, never narrow it, and the ranges are merged
  * before anything is cut.
+ *
+ * Each match carries the replacement its value was given, so a sweep can
+ * substitute rather than only delete: the occurrence of a name in a hidden
+ * sheet gets the same pseudonym as the occurrence the reviewer looked at, and
+ * a document does not end up with the value replaced in one place and removed
+ * in another.
  */
 export type ValueMatcher = {
   /** Every range in `haystack` covered by one of the values. */
-  find(haystack: string): CharRange[]
+  find(haystack: string): ReplacementRange[]
   /** How many distinct values are compiled in. */
   readonly size: number
 }
@@ -145,14 +192,23 @@ const EMPTY_MATCHER: ValueMatcher = {
   size: 0,
 }
 
-export function valueMatcher(values: string[]): ValueMatcher {
-  const needles = [
-    ...new Set(
-      values
-        .map((value) => value.toLowerCase())
-        .filter((value) => value.length > 0)
-    ),
-  ]
+export function valueMatcher(
+  values: (string | ValueReplacement)[]
+): ValueMatcher {
+  // Folded to lower case and de-duplicated, keeping the first replacement seen
+  // for each: two entries that differ only in case are the same value, and the
+  // caller decided its replacement once.
+  const byNeedle = new Map<string, string | undefined>()
+  for (const entry of values) {
+    const value = typeof entry === "string" ? entry : entry.value
+    const replacement = typeof entry === "string" ? undefined : entry.replacement
+    const needle = value.toLowerCase()
+    if (needle.length === 0 || byNeedle.has(needle)) continue
+    byNeedle.set(needle, replacement)
+  }
+
+  const needles = [...byNeedle.keys()]
+  const replacements = [...byNeedle.values()]
 
   if (needles.length === 0) return EMPTY_MATCHER
 
@@ -164,12 +220,14 @@ export function valueMatcher(values: string[]): ValueMatcher {
   const transitions = new Map<number, number>()
   const children: number[][][] = [[]]
   const lengths: number[] = [0]
+  /** Which value ends at this node, so a match knows what replaces it. */
+  const valueAt: number[] = [-1]
 
   const key = (node: number, code: number) => node * 0x110000 + code
 
   let nodeCount = 1
 
-  for (const needle of needles) {
+  for (const [needleIndex, needle] of needles.entries()) {
     let node = 0
     for (let index = 0; index < needle.length; index++) {
       const code = needle.charCodeAt(index)
@@ -180,6 +238,7 @@ export function valueMatcher(values: string[]): ValueMatcher {
         children[node].push([code, nodeCount])
         children.push([])
         lengths.push(0)
+        valueAt.push(-1)
         node = nodeCount
         nodeCount += 1
       } else {
@@ -187,6 +246,7 @@ export function valueMatcher(values: string[]): ValueMatcher {
       }
     }
     lengths[node] = needle.length
+    valueAt[node] = needleIndex
   }
 
   // Failure links, breadth first, plus a link straight to the nearest node
@@ -225,9 +285,9 @@ export function valueMatcher(values: string[]): ValueMatcher {
 
   return {
     size: needles.length,
-    find(haystack: string): CharRange[] {
+    find(haystack: string): ReplacementRange[] {
       const source = haystack.toLowerCase()
-      const ranges: CharRange[] = []
+      const ranges: ReplacementRange[] = []
 
       let node = 0
       for (let index = 0; index < source.length; index++) {
@@ -248,7 +308,11 @@ export function valueMatcher(values: string[]): ValueMatcher {
           match > 0;
           match = dictionary[match]
         ) {
-          ranges.push({ start: index + 1 - lengths[match], end: index + 1 })
+          ranges.push({
+            start: index + 1 - lengths[match],
+            end: index + 1,
+            replacement: replacements[valueAt[match]],
+          })
         }
       }
 

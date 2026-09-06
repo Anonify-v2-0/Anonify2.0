@@ -20,6 +20,16 @@ export type RedactionStyle = "solid" | "blur" | "pixelate"
 export type ImageRegionRedaction = {
   boundingBox: BoundingBox
   style?: RedactionStyle
+  /**
+   * A surrogate painted onto the region once it has been obscured.
+   *
+   * An image has no text layer to substitute into, so this is where a
+   * pseudonym or a token goes: the fill is drawn first and destroys the
+   * pixels, then the label is composited on top of the fill. It only ever
+   * appears where OCR recognised a value — a face has nothing to stand in for
+   * it, and gets a plain region as it always did.
+   */
+  label?: string
 }
 
 export type ImageRedactionPlan = {
@@ -32,6 +42,12 @@ export type ImageRedactionPlan = {
 /** Pixelation block size as a fraction of the region's shorter side. */
 const PIXELATE_DIVISOR = 8
 const MIN_REGION_PX = 2
+
+/** Label geometry, matching the PDF strips so the two read as one tool. */
+const LABEL_FONT_RATIO = 0.6
+const MIN_LABEL_PX = 6
+/** Rough advance width per point of a sans-serif digit or capital. */
+const LABEL_ADVANCE_RATIO = 0.6
 
 function clampRegion(
   box: BoundingBox,
@@ -101,6 +117,44 @@ async function obscuredRegion(
     .toBuffer()
 }
 
+/**
+ * A label drawn onto a region, as an SVG layer the size of the region.
+ *
+ * SVG rather than a font-rendering dependency: sharp already rasterises SVG,
+ * and the alternative is shipping a second text stack to draw twelve
+ * characters. The width is estimated rather than measured — there is no metrics
+ * API here — so the estimate is deliberately generous, and a string that would
+ * not fit is dropped rather than clipped. A strip with half a pseudonym on it
+ * says something false about what is underneath it.
+ *
+ * Returns null when there is no room, which leaves the region exactly as the
+ * fill left it. What the strip stood for is still in the vault.
+ */
+function labelOverlay(
+  label: string,
+  box: BoundingBox
+): OverlayOptions | null {
+  const size = Math.max(MIN_LABEL_PX, Math.floor(box.height * LABEL_FONT_RATIO))
+  const estimated = label.length * size * LABEL_ADVANCE_RATIO
+  if (estimated >= box.width || size < MIN_LABEL_PX) return null
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${box.width}" height="${box.height}"><text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-family="sans-serif" font-size="${size}" fill="#ffffff">${escapeXml(label)}</text></svg>`
+
+  return {
+    input: Buffer.from(svg, "utf8"),
+    left: box.x,
+    top: box.y,
+  }
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+}
+
 export async function redactImage(
   bytes: Uint8Array,
   plan: ImageRedactionPlan
@@ -136,14 +190,21 @@ export async function redactImage(
         left: box.x,
         top: box.y,
       })
-      continue
+    } else {
+      composites.push({
+        input: await obscuredRegion(source, box, style),
+        left: box.x,
+        top: box.y,
+      })
     }
 
-    composites.push({
-      input: await obscuredRegion(source, box, style),
-      left: box.x,
-      top: box.y,
-    })
+    // Composited after the fill, so it sits on top of it. sharp applies
+    // overlays in order, and a label under the black rectangle would be a
+    // surrogate nobody can read.
+    if (region.label) {
+      const overlay = labelOverlay(region.label, box)
+      if (overlay) composites.push(overlay)
+    }
   }
 
   // Re-encoding from the composited pixels is what makes this irreversible:

@@ -4,15 +4,20 @@ import {
   headerKey,
   type EmlRedactionPlan,
 } from "@/lib/documents/eml/redact"
-import type { CharRange } from "@/lib/documents/shared/text"
+import type {
+  CharRange,
+  ReplacementRange,
+  ValueReplacement,
+} from "@/lib/documents/shared/text"
 import type { DocxRedactionPlan } from "@/lib/documents/docx/redact"
 import type { ImageRedactionPlan, RedactionStyle } from "@/lib/documents/image/redact"
-import type { PdfRedactionPlan } from "@/lib/documents/pdf/redact"
+import type { LabeledBox, PdfRedactionPlan } from "@/lib/documents/pdf/redact"
 import { parseTextAddress } from "@/lib/documents/text/extract"
 import type { TextRedactionPlan } from "@/lib/documents/text/redact"
 import type { XlsxRedactionPlan } from "@/lib/documents/xlsx/redact"
 import { boxesForRedaction, padBox } from "@/lib/redaction/geometry"
 import { acceptedValues, isAccepted } from "@/lib/redaction/model"
+import { NO_SURROGATES, type Surrogates } from "@/lib/redaction/surrogates"
 import type { BoundingBox, NormalizedDocument, TextSpan } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
 
@@ -31,12 +36,45 @@ export type ExportOptions = {
   sanitizeMetadata: boolean
   /** Appearance for image regions. */
   imageStyle?: RedactionStyle
+  /**
+   * What stands in for each accepted value.
+   *
+   * Absent means every accepted redaction masks, which is what an export
+   * asked for before methods existed and what every per-format test still
+   * asks for. When present, a redaction whose value was given a method
+   * carries its surrogate on the ranges it produced, and the safety sweep
+   * carries the same surrogate for the occurrences nobody reviewed — see
+   * lib/redaction/surrogates.ts for why that has to be the same string.
+   */
+  surrogates?: Surrogates
 }
 
 export const DEFAULT_LABEL = "[REDACTED]"
 
 function labelFor(options: ExportOptions): string | null {
   return options.addLabels ? DEFAULT_LABEL : null
+}
+
+function surrogatesFor(options: ExportOptions): Surrogates {
+  return options.surrogates ?? NO_SURROGATES
+}
+
+/**
+ * The values the package-wide sweep looks for, each with what replaces it.
+ *
+ * A value with no replacement is masked, and `undefined` is how that is said:
+ * `cutRanges` falls back to the plan's label, and a range with no replacement
+ * beats one with a surrogate when the two overlap.
+ */
+function sweepValues(
+  redactions: Redaction[],
+  options: ExportOptions
+): ValueReplacement[] {
+  const surrogates = surrogatesFor(options)
+  return acceptedValues(redactions).map((value) => ({
+    value,
+    replacement: surrogates.forValue(value),
+  }))
 }
 
 /** Character range of a redaction, expressed within one span's own text. */
@@ -62,7 +100,8 @@ export function buildDocxPlan(
   redactions: Redaction[],
   options: ExportOptions
 ): DocxRedactionPlan {
-  const runEdits: Record<string, CharRange[]> = {}
+  const runEdits: Record<string, ReplacementRange[]> = {}
+  const surrogates = surrogatesFor(options)
 
   for (const redaction of redactions) {
     if (!isAccepted(redaction)) continue
@@ -73,17 +112,19 @@ export function buildDocxPlan(
     )
     if (!page) continue
 
+    const replacement = surrogates.forRedaction(redaction)
+
     for (const span of page.spans) {
       if (span.end <= redaction.start || span.start >= redaction.end) continue
       const range = rangeWithinSpan(span, redaction.start, redaction.end)
       if (!range) continue
-      runEdits[span.id] = [...(runEdits[span.id] ?? []), range]
+      runEdits[span.id] = [...(runEdits[span.id] ?? []), { ...range, replacement }]
     }
   }
 
   return {
     runEdits,
-    values: acceptedValues(redactions),
+    values: sweepValues(redactions, options),
     label: labelFor(options),
     sanitizeMetadata: options.sanitizeMetadata,
   }
@@ -94,13 +135,19 @@ export function buildDocxPlan(
  *
  * The geometry itself lives in lib/redaction/geometry.ts, shared with the
  * canvas — the preview and the export must agree about where a box goes.
+ *
+ * A page carrying a redaction is rasterised, so there is no text stream left
+ * to substitute into. The surrogate is painted onto the strip instead — the
+ * strip is a rectangle this pipeline draws, and it can be drawn with a name on
+ * it. That is why a scanned contract gets the same methods a DOCX does.
  */
 export function buildPdfPlan(
   model: NormalizedDocument,
   redactions: Redaction[],
   options: ExportOptions
 ): PdfRedactionPlan {
-  const boxesByPage = new Map<number, BoundingBox[]>()
+  const boxesByPage = new Map<number, LabeledBox[]>()
+  const surrogates = surrogatesFor(options)
 
   for (const redaction of redactions) {
     if (!isAccepted(redaction)) continue
@@ -111,9 +158,11 @@ export function buildPdfPlan(
     const boxes = boxesForRedaction(page ?? { spans: [] }, redaction)
     if (boxes.length === 0) continue
 
+    const label = surrogates.forRedaction(redaction)
+
     boxesByPage.set(pageNumber, [
       ...(boxesByPage.get(pageNumber) ?? []),
-      ...boxes.map((box) => padBox(box)),
+      ...boxes.map((box) => ({ ...padBox(box), label })),
     ])
   }
 
@@ -131,6 +180,7 @@ export function buildXlsxPlan(
   const cells: XlsxRedactionPlan["cells"] = []
   const rows: XlsxRedactionPlan["rows"] = []
   const columns: XlsxRedactionPlan["columns"] = []
+  const surrogates = surrogatesFor(options)
 
   for (const redaction of redactions) {
     if (!isAccepted(redaction)) continue
@@ -138,6 +188,9 @@ export function buildXlsxPlan(
     if (!sheet) continue
 
     switch (redaction.type) {
+      // A row or a column is emptied by position and carries no value to
+      // substitute, so it is masked whatever method was asked for — which is
+      // what `methodsFor()` already told the reviewer.
       case "column":
         if (redaction.column) columns.push({ sheet, column: redaction.column })
         break
@@ -146,7 +199,12 @@ export function buildXlsxPlan(
         break
       default:
         if (redaction.row && redaction.column) {
-          cells.push({ sheet, row: redaction.row, column: redaction.column })
+          cells.push({
+            sheet,
+            row: redaction.row,
+            column: redaction.column,
+            replacement: surrogates.forRedaction(redaction),
+          })
         }
     }
   }
@@ -155,7 +213,7 @@ export function buildXlsxPlan(
     cells,
     rows,
     columns,
-    values: acceptedValues(redactions),
+    values: sweepValues(redactions, options),
     label: labelFor(options),
     sanitizeMetadata: options.sanitizeMetadata,
   }
@@ -185,14 +243,21 @@ export function buildImagePlan(
 ): ImageRedactionPlan {
   const regions: ImageRedactionPlan["regions"] = []
   const page = model.pages[0]
+  const surrogates = surrogatesFor(options)
 
   for (const redaction of redactions) {
     if (!isAccepted(redaction)) continue
+
+    // A surrogate is painted onto the strip, so it only exists where OCR
+    // recognised something to substitute. A face, or a region with nothing
+    // behind it, has no label and gets the fill it always got.
+    const label = surrogates.forRedaction(redaction)
 
     if (redaction.boundingBox) {
       regions.push({
         boundingBox: padBox(redaction.boundingBox),
         style: regionStyle(redaction, options),
+        label,
       })
       continue
     }
@@ -201,10 +266,17 @@ export function buildImagePlan(
     // is padded for the same reason the PDF plan pads: an OCR word box is drawn
     // tight around the glyphs, and a fill exactly that size can leave a legible
     // hairline of ascender or descender behind.
+    //
+    // The label goes on the first box only: a name split across two OCR words
+    // is one value, and painting the surrogate twice would say it was two.
     if (page) {
-      for (const box of boxesForRedaction(page, redaction)) {
-        regions.push({ boundingBox: padBox(box), style: "solid" })
-      }
+      boxesForRedaction(page, redaction).forEach((box, index) => {
+        regions.push({
+          boundingBox: padBox(box),
+          style: "solid",
+          label: index === 0 ? label : undefined,
+        })
+      })
     }
   }
 
@@ -229,6 +301,7 @@ export function buildDelimitedPlan(
   const cells: DelimitedRedactionPlan["cells"] = []
   const rows: number[] = []
   const columns: number[] = []
+  const surrogates = surrogatesFor(options)
 
   for (const redaction of redactions) {
     if (!isAccepted(redaction)) continue
@@ -242,7 +315,11 @@ export function buildDelimitedPlan(
         break
       default:
         if (redaction.row && redaction.column) {
-          cells.push({ row: redaction.row, column: redaction.column })
+          cells.push({
+            row: redaction.row,
+            column: redaction.column,
+            replacement: surrogates.forRedaction(redaction),
+          })
         }
     }
   }
@@ -251,7 +328,7 @@ export function buildDelimitedPlan(
     cells,
     rows,
     columns,
-    values: acceptedValues(redactions),
+    values: sweepValues(redactions, options),
     label: labelFor(options),
   }
 }
@@ -270,7 +347,8 @@ export function buildTextPlan(
   redactions: Redaction[],
   options: ExportOptions
 ): TextRedactionPlan {
-  const ranges: CharRange[] = []
+  const ranges: ReplacementRange[] = []
+  const surrogates = surrogatesFor(options)
 
   for (const redaction of redactions) {
     if (!isAccepted(redaction)) continue
@@ -280,6 +358,8 @@ export function buildTextPlan(
       (candidate) => candidate.number === (redaction.page ?? 1)
     )
     if (!page) continue
+
+    const replacement = surrogates.forRedaction(redaction)
 
     for (const span of page.spans) {
       if (span.end <= redaction.start || span.start >= redaction.end) continue
@@ -295,13 +375,14 @@ export function buildTextPlan(
       ranges.push({
         start: sourceStart + within.start,
         end: sourceStart + within.end,
+        replacement,
       })
     }
   }
 
   return {
     ranges,
-    values: acceptedValues(redactions),
+    values: sweepValues(redactions, options),
     label: labelFor(options),
   }
 }
@@ -337,10 +418,12 @@ export function buildEmlPlan(
   const headers: EmlRedactionPlan["headers"] = {}
   const filenames: EmlRedactionPlan["filenames"] = {}
 
+  const surrogates = surrogatesFor(options)
+
   const add = (
-    into: Record<string, CharRange[]>,
+    into: Record<string, ReplacementRange[]>,
     key: string,
-    range: CharRange
+    range: ReplacementRange
   ) => {
     into[key] = [...(into[key] ?? []), range]
   }
@@ -354,6 +437,12 @@ export function buildEmlPlan(
     )
     if (!page) continue
 
+    // A header value, a body line and a filename are all text this pipeline
+    // rewrites, so all three take a surrogate where the value used to be —
+    // pseudonymising a sender is the same operation as redacting one, with a
+    // different string going in.
+    const replacement = surrogates.forRedaction(redaction)
+
     for (const span of page.spans) {
       if (span.end <= redaction.start || span.start >= redaction.end) continue
 
@@ -365,11 +454,10 @@ export function buildEmlPlan(
 
       switch (address.kind) {
         case "header":
-          add(
-            headers,
-            headerKey(address.path, address.name, address.index),
-            within
-          )
+          add(headers, headerKey(address.path, address.name, address.index), {
+            ...within,
+            replacement,
+          })
           break
         case "body":
           // The span is one line of the part; its address is where that line
@@ -377,10 +465,11 @@ export function buildEmlPlan(
           add(bodies, address.path, {
             start: address.offset + within.start,
             end: address.offset + within.end,
+            replacement,
           })
           break
         case "filename":
-          add(filenames, address.path, within)
+          add(filenames, address.path, { ...within, replacement })
           break
       }
     }
@@ -391,7 +480,7 @@ export function buildEmlPlan(
     headers,
     filenames,
     attachments,
-    values: acceptedValues(redactions),
+    values: sweepValues(redactions, options),
     label: labelFor(options),
   }
 }
