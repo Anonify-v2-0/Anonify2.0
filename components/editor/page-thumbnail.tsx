@@ -190,7 +190,12 @@ export function PageThumbnail({
       aria-label={`Page ${pageNumber}${
         accepted.length > 0 ? `, ${accepted.length} redacted` : ""
       }${suggested.length > 0 ? `, ${suggested.length} to review` : ""}`}
-      className="group flex flex-col items-center gap-1.5 focus-visible:outline-none"
+      // `w-full` is load-bearing. A button's `width: auto` is shrink-to-fit,
+      // not fill, so without this the button collapses to the width of the
+      // page number under it — and the tile inside, being `w-full` of *that*,
+      // collapsed with it. Every thumbnail in the rail was a three-pixel dot,
+      // faithfully rendered.
+      className="group flex w-full flex-col items-center gap-1.5 focus-visible:outline-none"
     >
       <span
         ref={tile}
