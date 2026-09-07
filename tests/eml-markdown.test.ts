@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 
 import { extractEml } from "@/lib/documents/eml/extract"
 import {
+  activeBodyId,
+  bodySections,
   cellsOf,
   inlineRuns,
   linesOf,
@@ -37,30 +39,56 @@ function textOf(line: MarkdownLine): string {
   return line.pieces.map((piece) => piece.text).join("")
 }
 
-describe("splitting a page into markdown and flat stream", () => {
-  it("leaves a message with no HTML entirely flat", () => {
-    const page = pageOf(simpleEml())
-    const sections = sectionsOf(page)
+describe("the sections of a page", () => {
+  it("leaves a message with no HTML with nothing to draw as markdown", () => {
+    const sections = sectionsOf(pageOf(simpleEml()))
 
+    expect(sections.map((section) => section.kind)).toEqual(["headers", "text"])
     expect(sections.every((section) => !section.markdown)).toBe(true)
-    // Whatever the split, it covers the page exactly once and in order.
-    expect(sections.map((section) => section.end).at(-1)).toBe(page.text.length)
   })
 
-  it("covers the page exactly, with the headers outside the markdown", () => {
+  it("puts the headers in their own section, ahead of the body", () => {
     const page = pageOf(richHtmlEml())
     const sections = sectionsOf(page)
 
+    const [first] = sections
+    expect(first.kind).toBe("headers")
+    expect(first.markdown).toBeFalsy()
+    expect(page.text.slice(first.start, first.end)).toContain("Subject:")
+
+    const html = sections.find((section) => section.kind === "html")!
+    expect(html.start).toBeGreaterThanOrEqual(first.end)
+    expect(page.text.slice(html.start, html.end)).not.toContain("Subject:")
+  })
+
+  it("leaves nothing but blank lines between one section and the next", () => {
+    const page = pageOf(richHtmlEml())
+
     let cursor = 0
-    for (const section of sections) {
-      expect(section.start).toBe(cursor)
+    for (const section of sectionsOf(page)) {
+      // Sections are ranges rather than a partition: what falls between them
+      // is the separator, and a viewer that draws only sections must not be
+      // dropping content by doing so.
+      expect(page.text.slice(cursor, section.start).trim()).toBe("")
       cursor = section.end
     }
-    expect(cursor).toBe(page.text.length)
+    expect(page.text.slice(cursor).trim()).toBe("")
+  })
 
-    const first = sections[0]
-    expect(first.markdown).toBe(false)
-    expect(page.text.slice(first.start, first.end)).toContain("Subject:")
+  it("says which body a reviewer should be looking at", () => {
+    // An HTML alternative and the text/plain it duplicates are the same
+    // message twice; the HTML is the one the recipient saw.
+    const withHtml = pageOf(richHtmlEml())
+    expect(bodySections(withHtml).map((section) => section.kind)).toEqual(["html"])
+    expect(activeBodyId(withHtml)).toBe(
+      bodySections(withHtml).find((section) => section.kind === "html")!.id
+    )
+
+    // With no HTML part, the plain body is the one that opens.
+    const plain = pageOf(simpleEml())
+    const body = bodySections(plain)[0]
+    expect(body.kind).toBe("text")
+    expect(activeBodyId(plain)).toBe(body.id)
   })
 })
 

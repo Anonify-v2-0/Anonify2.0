@@ -250,7 +250,12 @@ export function DocumentCanvas({
         // A message is a flat stream *and*, where it carried an HTML body, a
         // document with headings and tables. Its viewer draws both, which the
         // fixed-width one cannot.
-        <EmlViewer page={page} zoom={zoom} renderSpan={renderSpan} />
+        <EmlViewer
+          page={page}
+          zoom={zoom}
+          renderSpan={renderSpan}
+          redactions={pageRedactions}
+        />
       ) : (summary.kind === "txt" ||
           summary.kind === "rtf" ||
           summary.kind === "pptx") &&

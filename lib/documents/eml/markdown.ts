@@ -1,4 +1,4 @@
-import type { NormalizedPage, TextSpan } from "@/types/document"
+import type { NormalizedPage, PageSection, TextSpan } from "@/types/document"
 
 /**
  * Reading back the markdown an email body was extracted as.
@@ -56,8 +56,37 @@ export type MarkdownLine = {
   pieces: MarkdownPiece[]
 }
 
-/** A stretch of the page, and whether it is markdown or the flat stream. */
-export type MarkdownSection = { markdown: boolean; start: number; end: number }
+/**
+ * The sections of a page, in reading order.
+ *
+ * Written by the extractor: a message's headers, each of its bodies, and what
+ * it carried. The blank lines between them belong to no section, which is why
+ * this is a list of ranges rather than a partition — a viewer draws the
+ * sections and there is nothing in the gaps.
+ */
+export function sectionsOf(page: NormalizedPage): PageSection[] {
+  return [...(page.sections ?? [])].sort((a, b) => a.start - b.start)
+}
+
+/**
+ * The body sections, and which one a reviewer should be looking at.
+ *
+ * An HTML alternative and the `text/plain` it duplicates are the same message
+ * written twice. The HTML is what the sender composed and what the recipient
+ * saw, so it is the one that opens; the plain part is the fallback, in both
+ * senses.
+ */
+export function bodySections(page: NormalizedPage): PageSection[] {
+  return sectionsOf(page).filter(
+    (section) => section.kind === "html" || section.kind === "text"
+  )
+}
+
+export function activeBodyId(page: NormalizedPage): string | null {
+  const bodies = bodySections(page)
+  const html = bodies.find((section) => section.kind === "html")
+  return (html ?? bodies[0])?.id ?? null
+}
 
 /** Walks a range of the page, alternating spans and the gaps between them. */
 export function piecesOf(
@@ -100,29 +129,6 @@ export function piecesOf(
   }
 
   return pieces.filter((piece) => piece.text.length > 0)
-}
-
-/**
- * The page split into the stretches that are markdown and the ones that are
- * not — the headers, the `text/plain` alternative, the attachment lines.
- */
-export function sectionsOf(page: NormalizedPage): MarkdownSection[] {
-  const ranges = [...(page.markdown ?? [])].sort((a, b) => a.start - b.start)
-  const sections: MarkdownSection[] = []
-  let cursor = 0
-
-  for (const range of ranges) {
-    const start = Math.max(cursor, range.start)
-    if (start > cursor) sections.push({ markdown: false, start: cursor, end: start })
-    if (range.end > start) sections.push({ markdown: true, start, end: range.end })
-    cursor = Math.max(cursor, range.end)
-  }
-
-  if (cursor < page.text.length) {
-    sections.push({ markdown: false, start: cursor, end: page.text.length })
-  }
-
-  return sections
 }
 
 const QUOTE = /^(?:> ?)+/

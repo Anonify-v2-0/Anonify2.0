@@ -416,22 +416,92 @@ describe("extracting a message for review", () => {
     expect(text).toContain("[john@example.com](mailto:john@example.com)")
   })
 
-  it("marks the stretches of a page that carry markdown", () => {
+  it("names the parts of the message a page holds", () => {
+    const { document } = extract(mixedEml())
+    const sections = document.pages.flatMap((page) => page.sections ?? [])
+
+    expect(sections.map((section) => section.kind)).toEqual([
+      "headers",
+      "text",
+      "html",
+      "attachments",
+    ])
+    expect(sections.map((section) => section.label)).toEqual([
+      "Headers",
+      "text/plain",
+      "text/html",
+      "Attachments",
+    ])
+
+    // Only the HTML body is markdown; everything else is the flat stream it
+    // has always been.
+    expect(
+      sections.filter((section) => section.markdown).map((section) => section.kind)
+    ).toEqual(["html"])
+  })
+
+  it("gives a section a stable identity, so a split body folds as one", () => {
     const { document } = extract(richHtmlEml())
     const page = document.pages[0]
+    const sections = page.sections ?? []
 
-    const ranges = page.markdown ?? []
-    expect(ranges.length).toBeGreaterThan(0)
+    expect(sections.length).toBeGreaterThan(0)
+    for (const section of sections) {
+      // The id names the part, never the position: `body:0` is the same
+      // section on page one and on page four.
+      expect(section.id).toMatch(/^(headers|body|attachments):/)
+      expect(section.end).toBeGreaterThan(section.start)
+      expect(page.text.slice(section.start, section.end).length).toBeGreaterThan(0)
+    }
 
-    const marked = ranges
-      .map((range) => page.text.slice(range.start, range.end))
-      .join("")
+    const html = sections.find((section) => section.kind === "html")!
+    expect(html.markdown).toBe(true)
+    expect(page.text.slice(html.start, html.end)).toContain("# Quarterly review")
+    // The headers are their own section and are not inside the body's range.
+    expect(page.text.slice(html.start, html.end)).not.toContain("Subject:")
+  })
 
-    // The body is markdown; the headers above it are the flat stream they have
-    // always been, and the viewer has to be able to tell the two apart.
-    expect(marked).toContain("# Quarterly review")
-    expect(marked).not.toContain("Subject:")
-    expect(page.text.slice(0, ranges[0].start)).toContain("Subject:")
+  it("sections a forwarded message one level deeper than the one carrying it", () => {
+    const { document } = extract(nestedEml())
+    const sections = document.pages.flatMap((page) => page.sections ?? [])
+
+    const headers = sections.filter((section) => section.kind === "headers")
+    expect(headers.length).toBeGreaterThan(1)
+
+    expect(headers[0].label).toBe("Headers")
+    expect(headers[0].depth).toBeUndefined()
+
+    const forwarded = headers[1]
+    expect(forwarded.label).toBe("Forwarded message")
+    expect(forwarded.depth).toBe(1)
+  })
+
+  it("puts every character of a section's text inside that section", () => {
+    const { document } = extract(mixedEml())
+
+    for (const page of document.pages) {
+      const sections = [...(page.sections ?? [])].sort((a, b) => a.start - b.start)
+
+      let cursor = 0
+      for (const section of sections) {
+        // Sections never overlap, and what sits between them is only the blank
+        // lines that separate them — never content nobody would be shown.
+        expect(section.start).toBeGreaterThanOrEqual(cursor)
+        expect(page.text.slice(cursor, section.start).trim()).toBe("")
+        cursor = section.end
+      }
+      expect(page.text.slice(cursor).trim()).toBe("")
+
+      // And every span belongs to one of them, or it is text with nowhere to
+      // be drawn.
+      for (const span of page.spans) {
+        expect(
+          sections.some(
+            (section) => span.start >= section.start && span.end <= section.end
+          )
+        ).toBe(true)
+      }
+    }
   })
 
   it("carries the structure of an HTML body into the reviewed text", () => {

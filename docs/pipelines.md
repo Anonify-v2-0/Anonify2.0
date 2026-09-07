@@ -496,6 +496,30 @@ every character the extractor wrote is padding between spans, so a line's block
 type is whatever its padding says. A `- ` a sender typed is span text and can
 never be mistaken for a bullet.
 
+### Which part of the message a stretch of the page is
+
+Extraction also records `NormalizedPage.sections`: the header block, each body,
+and the attachment list, one `PageSection` each, again for every nested
+message. This is what lets the editor name and fold them rather than drawing
+one undifferentiated stream — see `docs/editor.md`.
+
+```
+[headers]     id=headers:0            label=Headers            depth=0
+[text]        id=body:0.1.1           label=text/plain         depth=0
+[html]        id=body:0.1.2           label=text/html          depth=0  markdown
+[attachments] id=attachments:0        label=Attachments        depth=0
+[headers]     id=headers:0.2.msg      label=Forwarded message  depth=1
+```
+
+The labels used to be written into the reviewed text as padding — `[text/html]`,
+`[forwarded message]` — which nobody could redact and which the AI read as
+content. They are metadata now, which is what they always were: the reviewed
+text is the message, and the interface draws its own headings.
+
+`id` is the section's identity rather than its position, so a body longer than a
+page is one section across both halves. Sections are ranges, not a partition:
+what falls between them is the blank line separating them.
+
 ### Export
 
 The message is **not rebuilt**. Everything is a byte-range replacement on the

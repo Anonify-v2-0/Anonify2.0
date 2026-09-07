@@ -110,6 +110,51 @@ export type DocxTable = {
 
 export type DocxBlock = DocxParagraph | DocxTable
 
+/**
+ * What a section of a page is.
+ *
+ * `headers` is a message's header block, `text` and `html` are its bodies, and
+ * `attachments` is the list of what it carried. A nested `message/rfc822`
+ * contributes its own set, one level deeper.
+ */
+export type PageSectionKind = "headers" | "text" | "html" | "attachments"
+
+/**
+ * A named stretch of a page's text, for formats whose pages are not one thing.
+ *
+ * A message is the case this exists for. Its headers, its `text/plain`
+ * alternative and its HTML body are three different documents printed one after
+ * another, and drawing them as one undifferentiated stream is how a reviewer
+ * came to read the same paragraph twice without noticing it was the same
+ * paragraph. Sections let the viewer name them, fold them, and say what is
+ * still unreviewed inside a folded one.
+ *
+ * `id` is the section's identity rather than its position: pagination cuts a
+ * long body in half, and both halves are the same section, so folding it folds
+ * it everywhere rather than reopening as the reviewer pages through.
+ *
+ * Offsets are into the page's own text. Text belonging to no section is the
+ * padding between them.
+ */
+export type PageSection = {
+  /** Stable across pages and across re-extraction, e.g. `body:0.2`. */
+  id: string
+  kind: PageSectionKind
+  /** What the interface calls it, e.g. `text/html`. */
+  label: string
+  /** Inclusive start offset within `NormalizedPage.text`. */
+  start: number
+  /** Exclusive end offset within `NormalizedPage.text`. */
+  end: number
+  /**
+   * True when the range is markdown, written by the EML extractor out of an
+   * HTML body and drawn as blocks rather than as a fixed-width stream.
+   */
+  markdown?: boolean
+  /** How many messages deep this is, so a forwarded thread reads as nested. */
+  depth?: number
+}
+
 export type NormalizedPage = {
   /** 1-based page number. */
   number: number
@@ -129,20 +174,8 @@ export type NormalizedPage = {
   images?: boolean
   /** Flow content for DOCX documents, used by the editorial renderer. */
   blocks?: DocxBlock[]
-  /**
-   * Ranges of `text` that carry generated markdown, for the EML renderer.
-   *
-   * An HTML email body is extracted as markdown: the characters that came from
-   * the message are spans as always, and the structure the markup was
-   * expressing — a heading, a list item, a table row — is written into the
-   * padding between them. These ranges say which stretches of the page to read
-   * that way. Everything outside them is the flat stream it has always been:
-   * the headers, the `text/plain` alternative, the attachment lines.
-   *
-   * Offsets are into the page's own text, so a body split across two pages
-   * leaves each page saying what it holds.
-   */
-  markdown?: { start: number; end: number }[]
+  /** The parts of a message this page holds; see `PageSection`. */
+  sections?: PageSection[]
 }
 
 export type SpreadsheetCell = {

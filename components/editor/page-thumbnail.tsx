@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import type { PDFDocumentProxy } from "pdfjs-dist"
 
 import { DocxViewer } from "@/components/document-viewer/docx-viewer"
+import { EmlViewer } from "@/components/document-viewer/eml-viewer"
 import { boxesForRedaction } from "@/components/redaction/redaction-layer"
 import { cn } from "@/lib/utils"
 import type { NormalizedPage } from "@/types/document"
@@ -22,6 +23,11 @@ import type { Redaction } from "@/types/redaction"
  * uses, scaled down. Without this the rail showed a column of blank rectangles
  * for every DOCX, which reads as a broken panel rather than as a document with
  * nothing on its pages.
+ *
+ * A message is the same, with one difference: only its *body* is drawn. A rail
+ * of tiles all showing the same `From:` block tells a reviewer nothing about
+ * which page they are looking for, and the body is the part that differs from
+ * page to page.
  */
 
 const THUMBNAIL_WIDTH = 120
@@ -152,6 +158,21 @@ export function PageThumbnail({
         {source ? (
           // eslint-disable-next-line @next/next/no-img-element -- a client-rendered data URL
           <img src={source} alt="" className="block h-full w-full object-contain" />
+        ) : page?.sections ? (
+          <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+            <EmlViewer
+              page={page}
+              zoom={THUMBNAIL_WIDTH / page.width}
+              variant="preview"
+              renderSpan={(spanId, children) =>
+                coveredByAccepted(page, spanId, redactions) ? (
+                  <span className="bg-black text-black">{children}</span>
+                ) : (
+                  children
+                )
+              }
+            />
+          </span>
         ) : page?.blocks ? (
           // Inert: the whole tile is one button, so the miniature must not be
           // reachable or announced separately.
