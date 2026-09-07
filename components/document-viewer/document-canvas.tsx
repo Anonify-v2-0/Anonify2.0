@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react"
 import { FileWarning } from "lucide-react"
 
 import { DocxViewer } from "@/components/document-viewer/docx-viewer"
+import { EmlViewer } from "@/components/document-viewer/eml-viewer"
 import { PdfViewer } from "@/components/document-viewer/pdf-viewer"
 import { TextViewer } from "@/components/document-viewer/text-viewer"
 import { ImageCanvas } from "@/components/image-editor/image-canvas"
@@ -245,9 +246,18 @@ export function DocumentCanvas({
         </PdfViewer>
       ) : summary.kind === "docx" && page ? (
         <DocxViewer page={page} zoom={zoom} renderSpan={renderSpan} />
+      ) : summary.kind === "eml" && page ? (
+        // A message is a flat stream *and*, where it carried an HTML body, a
+        // document with headings and tables. Its viewer draws both, which the
+        // fixed-width one cannot.
+        <EmlViewer
+          page={page}
+          zoom={zoom}
+          renderSpan={renderSpan}
+          redactions={pageRedactions}
+        />
       ) : (summary.kind === "txt" ||
           summary.kind === "rtf" ||
-          summary.kind === "eml" ||
           summary.kind === "pptx") &&
         page ? (
         <TextViewer page={page} zoom={zoom} renderSpan={renderSpan} />

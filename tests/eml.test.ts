@@ -29,6 +29,7 @@ import {
   mixedEml,
   nestedEml,
   quotedReplyEml,
+  richHtmlEml,
   simpleEml,
   truncatedMultipartEml,
 } from "./eml-fixtures"
@@ -274,13 +275,86 @@ describe("the visible text of an HTML body", () => {
     expect(text).not.toContain("var x")
   })
 
-  it("collects link targets separately from the text", () => {
+  it("writes a link target as text the reviewer can act on", () => {
     const { text, attributes } = parseHtmlText(
       '<a href="mailto:john@example.com">write to me</a>'
     )
-    expect(text).toContain("write to me")
-    expect(text).not.toContain("mailto:")
+    // An address reachable only through an href used to be swept at export and
+    // never shown, so the reviewer was trusting a removal they could not see.
+    // As markdown it is text, addressed by the bytes it came from.
+    expect(text).toBe("[write to me](mailto:john@example.com)")
     expect(attributes.map((a) => a.value)).toContain("mailto:john@example.com")
+  })
+
+  it("keeps the structure the markup was expressing", () => {
+    const { text } = parseHtmlText(
+      "<h2>Attendees</h2><ul><li>Alice</li><li>Bob</li></ul>" +
+        "<table><tr><th>Name</th><th>Role</th></tr>" +
+        "<tr><td>Alice</td><td>PM</td></tr></table>" +
+        "<blockquote><p>On Tue, Bob wrote:</p></blockquote>"
+    )
+
+    expect(text).toBe(
+      [
+        "## Attendees",
+        "",
+        "- Alice",
+        "- Bob",
+        "",
+        "| Name | Role |",
+        "| --- | --- |",
+        "| Alice | PM |",
+        "",
+        "> On Tue, Bob wrote:",
+      ].join("\n")
+    )
+  })
+
+  it("reads a nested layout table as layout, not as a table", () => {
+    // Every newsletter is built from single-cell tables nested several deep.
+    // Counting the inner table's cells as the outer row's would pipe a
+    // one-column wrapper into a two-column table and bury the message in
+    // punctuation.
+    const { text } = parseHtmlText(
+      '<table width="600"><tr><td><table><tr><td>' +
+        "<p>Hello there</p>" +
+        "</td></tr></table></td></tr></table>"
+    )
+
+    expect(text).toBe("Hello there")
+  })
+
+  it("collapses markup indentation but keeps the spaces between words", () => {
+    const { text, atoms } = parseHtmlText("<div>\n    Alice Brown\n  </div>")
+
+    // The newlines and the indentation are markup and go; the space between
+    // the two words is the author's and stays a literal, so a value written
+    // across it is one contiguous range rather than two with an unremovable
+    // gap between them.
+    expect(text).toBe("Alice Brown")
+
+    const literals = atoms.filter((atom) => atom.kind === "literal")
+    expect(
+      literals.map((atom) => text.slice(atom.textStart, atom.textEnd))
+    ).toEqual(["Alice", " ", "Brown"])
+
+    // A line break inside the markup reads as the single space it renders as,
+    // rather than splitting the name across two lines of the review.
+    expect(parseHtmlText("<div>\n  Alice\n  Brown\n</div>").text).toBe(
+      "Alice Brown"
+    )
+  })
+
+  it("emits an image as its alt text, never as its source", () => {
+    const { text } = parseHtmlText(
+      '<p><img src="https://tracker.example/pixel.gif" alt="Photo of John"></p>'
+    )
+
+    // The alt text can name somebody, so it is reviewable. The src is not
+    // written at all: a reviewer never needs a CDN URL, and text is not
+    // something the renderer can turn back into a request.
+    expect(text).toBe("![Photo of John]")
+    expect(text).not.toContain("tracker.example")
   })
 
   it("points every atom at the bytes that produced it", () => {
@@ -329,14 +403,135 @@ describe("extracting a message for review", () => {
     expect(kinds).toContain("filename")
   })
 
-  it("shows the text of an HTML part, not its markup", () => {
+  it("shows the text of an HTML part as markdown, not as markup", () => {
     const { document } = extract(alternativeEml())
     const text = document.pages.map((page) => page.text).join("\n")
 
     expect(text).not.toContain("<p>")
-    expect(text).not.toContain("mailto:")
+    expect(text).not.toContain("<b>")
     // Split across a tag in the source, whole in the review.
     expect(text).toContain("john@example.com")
+    // What the markup was saying survives as something a reviewer can read.
+    expect(text).toContain("**John Smith**")
+    expect(text).toContain("[john@example.com](mailto:john@example.com)")
+  })
+
+  it("names the parts of the message a page holds", () => {
+    const { document } = extract(mixedEml())
+    const sections = document.pages.flatMap((page) => page.sections ?? [])
+
+    expect(sections.map((section) => section.kind)).toEqual([
+      "headers",
+      "text",
+      "html",
+      "attachments",
+    ])
+    expect(sections.map((section) => section.label)).toEqual([
+      "Headers",
+      "text/plain",
+      "text/html",
+      "Attachments",
+    ])
+
+    // Only the HTML body is markdown; everything else is the flat stream it
+    // has always been.
+    expect(
+      sections.filter((section) => section.markdown).map((section) => section.kind)
+    ).toEqual(["html"])
+  })
+
+  it("gives a section a stable identity, so a split body folds as one", () => {
+    const { document } = extract(richHtmlEml())
+    const page = document.pages[0]
+    const sections = page.sections ?? []
+
+    expect(sections.length).toBeGreaterThan(0)
+    for (const section of sections) {
+      // The id names the part, never the position: `body:0` is the same
+      // section on page one and on page four.
+      expect(section.id).toMatch(/^(headers|body|attachments):/)
+      expect(section.end).toBeGreaterThan(section.start)
+      expect(page.text.slice(section.start, section.end).length).toBeGreaterThan(0)
+    }
+
+    const html = sections.find((section) => section.kind === "html")!
+    expect(html.markdown).toBe(true)
+    expect(page.text.slice(html.start, html.end)).toContain("# Quarterly review")
+    // The headers are their own section and are not inside the body's range.
+    expect(page.text.slice(html.start, html.end)).not.toContain("Subject:")
+  })
+
+  it("sections a forwarded message one level deeper than the one carrying it", () => {
+    const { document } = extract(nestedEml())
+    const sections = document.pages.flatMap((page) => page.sections ?? [])
+
+    const headers = sections.filter((section) => section.kind === "headers")
+    expect(headers.length).toBeGreaterThan(1)
+
+    expect(headers[0].label).toBe("Headers")
+    expect(headers[0].depth).toBeUndefined()
+
+    const forwarded = headers[1]
+    expect(forwarded.label).toBe("Forwarded message")
+    expect(forwarded.depth).toBe(1)
+  })
+
+  it("puts every character of a section's text inside that section", () => {
+    const { document } = extract(mixedEml())
+
+    for (const page of document.pages) {
+      const sections = [...(page.sections ?? [])].sort((a, b) => a.start - b.start)
+
+      let cursor = 0
+      for (const section of sections) {
+        // Sections never overlap, and what sits between them is only the blank
+        // lines that separate them — never content nobody would be shown.
+        expect(section.start).toBeGreaterThanOrEqual(cursor)
+        expect(page.text.slice(cursor, section.start).trim()).toBe("")
+        cursor = section.end
+      }
+      expect(page.text.slice(cursor).trim()).toBe("")
+
+      // And every span belongs to one of them, or it is text with nowhere to
+      // be drawn.
+      for (const span of page.spans) {
+        expect(
+          sections.some(
+            (section) => span.start >= section.start && span.end <= section.end
+          )
+        ).toBe(true)
+      }
+    }
+  })
+
+  it("carries the structure of an HTML body into the reviewed text", () => {
+    const { document } = extract(richHtmlEml())
+    const text = document.pages.map((page) => page.text).join("\n")
+
+    expect(text).toContain("# Quarterly review")
+    expect(text).toContain(`- ${EML.colleague}`)
+    expect(text).toContain("- Bob Chen")
+    expect(text).toContain("| Name | Role |")
+    expect(text).toContain(`| ${EML.person} | Chair |`)
+    expect(text).toContain("> On Tue, Bob wrote:")
+    expect(text).toContain(`[the chair](mailto:${EML.email})`)
+
+    // The layout tables around all of it contributed nothing.
+    expect(text).not.toContain("|  |")
+    // Markup indentation is not text, and a line break in the middle of a
+    // paragraph is not a paragraph break.
+    expect(text).toContain("Attendees, in reading order:")
+  })
+
+  it("never lets a span cross a line of the reviewed markdown", () => {
+    const { document } = extract(richHtmlEml())
+
+    for (const page of document.pages) {
+      for (const span of page.spans) {
+        expect(span.text).not.toContain("\n")
+        expect(page.text.slice(span.start, span.end)).toBe(span.text)
+      }
+    }
   })
 
   it("keeps quoted replies as reviewable text", () => {
@@ -551,7 +746,13 @@ describe("redacting a message", () => {
     const html = nodes.find((node) => node.contentType === "text/html")!
     const rendered = parseHtmlText(html.text!).text
 
-    expect(rendered.match(/\[REDACTED\]/g)?.length).toBe(1)
+    // Two places the reviewer can see the address — the link's text, which the
+    // markup split across three fragments, and the link's target — so two
+    // markers rather than four.
+    expect(rendered.match(/\[REDACTED\]/g)?.length).toBe(2)
+    // The link's target keeps its scheme: `mailto:` is not the address, and
+    // removing it would leave a link that no longer says what it was.
+    expect(rendered).toContain("[[REDACTED]](mailto:[REDACTED])")
   })
 
   it("keeps non-ASCII content that was not redacted", async () => {

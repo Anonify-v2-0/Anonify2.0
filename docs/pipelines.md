@@ -442,10 +442,83 @@ part:0.2.msg/header:to[0]    the To of the message nested in part two
 HTML bodies go through their own atom map, the same idea RTF uses:
 `jo<span>hn</span>&#64;example.com` is one address to a reader and no substring
 of the markup, and editing the markup directly destroys a tag or leaves half an
-entity behind. Script and style content is skipped. `href` and `src` are
-collected separately — not shown as reviewable text, because nobody reads a
-link target, but reached by the accepted-value sweep, because a `mailto:` link
-is a copy of the address.
+entity behind. Script and style content is skipped.
+
+### An HTML body is extracted as markdown
+
+An atom is one of three things, and the third is what carries the shape of the
+message: a `literal` is one source byte per character, an `escape` is several
+bytes for one character and goes whole or not at all, and a `structural` atom
+contributes text of its own, carries no source characters, and is **never
+removed**.
+
+Structural atoms used to contribute a bare `\n`, which flattened a message into
+a wall of text — a reviewer could not tell a table from a paragraph, or the
+quoted reply from the reply. They now contribute markdown:
+
+```
+<h2>Attendees</h2>                    ## Attendees
+<ul><li>Alice</li></ul>               - Alice
+<blockquote>On Tue…                   > On Tue…
+<tr><td>Alice</td><td>PM</td></tr>    | Alice | PM |
+<b>John Smith</b>                     **John Smith**
+```
+
+Nobody reviewing an email needs its colours, its fonts or its tracking pixels.
+They need to know who is in the table and where the quoted thread starts, and
+that is what markdown carries.
+
+**This costs nothing at export.** The markdown lives entirely in structural
+atoms, so the exporter still cuts byte ranges out of the original markup and a
+part nobody edited still comes out identical to the byte. What changed is that
+the offsets a reviewer works in now index a string that reads like the message.
+
+Three consequences worth knowing:
+
+- **Whitespace.** Markup indentation is not text — `<td>\n    Alice\n  </td>`
+  is one word — so runs of whitespace collapse to a single structural space, or
+  to nothing at a line edge. A *single* space stays a literal, because a value
+  written across it (`John Smith`) has to stay one contiguous range: two ranges
+  either side of an unremovable space write the marker twice.
+- **Link targets are now reviewable.** A link becomes `[text](url)` with the
+  URL emitted as literal atoms over its own bytes. An address reachable only
+  through `href="mailto:…"` used to be swept at export and never shown, so the
+  reviewer was trusting a removal they could not see. `src`, `alt` and `title`
+  are still collected as attributes for the sweep to reach.
+- **Layout tables stay layout.** Email markup nests single-cell tables the way
+  a print designer nests frames, and piping those would hand a reviewer a page
+  of `| |`. A row is written with pipes only when it really has more than one
+  cell, counted at its own nesting depth.
+
+Reading it back for the canvas is `lib/documents/eml/markdown.ts`, and it is
+not a markdown parser: every character from the message is inside a span and
+every character the extractor wrote is padding between spans, so a line's block
+type is whatever its padding says. A `- ` a sender typed is span text and can
+never be mistaken for a bullet.
+
+### Which part of the message a stretch of the page is
+
+Extraction also records `NormalizedPage.sections`: the header block, each body,
+and the attachment list, one `PageSection` each, again for every nested
+message. This is what lets the editor name and fold them rather than drawing
+one undifferentiated stream — see `docs/editor.md`.
+
+```
+[headers]     id=headers:0            label=Headers            depth=0
+[text]        id=body:0.1.1           label=text/plain         depth=0
+[html]        id=body:0.1.2           label=text/html          depth=0  markdown
+[attachments] id=attachments:0        label=Attachments        depth=0
+[headers]     id=headers:0.2.msg      label=Forwarded message  depth=1
+```
+
+The labels used to be written into the reviewed text as padding — `[text/html]`,
+`[forwarded message]` — which nobody could redact and which the AI read as
+content. They are metadata now, which is what they always were: the reviewed
+text is the message, and the interface draws its own headings.
+
+`id` is the section's identity rather than its position, so a body longer than a
+page is one section across both halves. Sections are ranges, not a partition:
+what falls between them is the blank line separating them.
 
 ### Export
 

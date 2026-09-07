@@ -27,7 +27,9 @@ Workspace                         the orchestrator
  │    ├── PdfViewer               rendered PDF page
  │    │    └── RedactionLayer     boxes, spans, drag regions
  │    ├── DocxViewer              paginated runs  ── renderSpan
- │    ├── TextViewer              txt / rtf / eml / pptx  ── renderSpan
+ │    ├── EmlViewer               foldable sections: headers, bodies,
+ │    │                           attachments  ── renderSpan
+ │    ├── TextViewer              txt / rtf / pptx  ── renderSpan
  │    ├── ImageCanvas             pixels + OCR words + regions
  │    └── SpreadsheetGrid         sheets, rows, columns, cells
  ├── RedactionInspector           grouped suggestions, accept/reject, rules
@@ -151,10 +153,59 @@ different shape from the page-based viewers:
 | `xlsx`, `csv`, `tsv` | `SpreadsheetGrid` | own grid | sheets, rows, cells |
 | `pdf` | `PdfViewer` | container | paginated, rendered page |
 | `docx` | `DocxViewer` | container | paginated runs |
-| `txt`, `rtf`, `eml`, `pptx` | `TextViewer` | container | paginated text |
+| `eml` | `EmlViewer` | container | paginated text + foldable sections |
+| `txt`, `rtf`, `pptx` | `TextViewer` | container | paginated text |
 
 CSV and TSV normalize to the same worksheet model a workbook does, so they are
 reviewed in the same grid rather than as text that happens to have commas.
+
+### `EmlViewer` — a message is not one document
+
+A message is a header block, then the same body written twice (once as
+`text/plain`, once as HTML), then whatever it carried, and then all of that
+again for every message forwarded inside it. Drawn as one undifferentiated
+stream it reads as a wall of near-duplicate text, which is how a reviewer came
+to read the same paragraph twice without noticing it was the same paragraph.
+
+So the extractor names those stretches — `NormalizedPage.sections`, a list of
+`PageSection` — and the viewer draws each as a section that folds:
+
+| Section | Default | Behaviour |
+| --- | --- | --- |
+| `headers` | open | Never closed by anything else; From/To/Subject is the orientation for everything below. Still foldable by hand, because twenty `Received` lines is a wall of its own. |
+| `text` / `html` | one open | An accordion. The HTML body is what the sender composed and what the recipient saw, so it opens; `text/plain` is the fallback. Opening one closes the other. |
+| `attachments` | folded | With a count. |
+
+A section's `id` is its identity, not its position (`body:0.2`), so pagination
+cutting a long body in half still leaves one section: folding it folds it on
+every page rather than reopening as the reviewer pages through. `depth` steps a
+forwarded message in, so a thread reads as the nest of messages it is.
+
+**A folded section must never hide unreviewed work.** This is the one thing in
+the viewer that is not a matter of taste. Folding the `text/plain` alternative
+because an HTML body exists would hide a suggestion nobody has actioned, and a
+reviewer who exports believing they have seen the message is precisely the
+failure this product exists to prevent. So every folded section carries its
+counts, and a section holding suggestions nobody has decided on **opens
+regardless of the default**, folding only once the reviewer has folded it
+themselves. A default this code chose is never the reason something went
+unread.
+
+An HTML body is drawn from the markdown the extractor wrote it as (see
+`docs/pipelines.md`); everything else stays the fixed-width stream it arrived
+as. Block structure is read off the **padding**, never off span text —
+`lib/documents/eml/markdown.ts` — so a sender who types `- ` or `# ` gets a
+paragraph containing those characters. That is also why nothing upstream
+escapes markdown: there is nothing to escape against.
+
+No message content ever reaches an `href`, a `src` or any other attribute a
+browser would fetch, and there is no `dangerouslySetInnerHTML` anywhere in the
+viewer, so a tracking pixel cannot phone home from a reviewer's screen.
+
+`EmlViewer` also takes a `variant="preview"` used by the page rail, which draws
+the message's body alone — no chrome, nothing folded, headers and attachment
+lines left out. A rail of tiles all showing the same `From:` block says nothing
+about which page you are looking for; the body is the part that differs.
 
 ### The dispatch contract
 
