@@ -36,23 +36,6 @@ import type { Redaction } from "@/types/redaction"
  */
 const THUMBNAIL_RASTER_WIDTH = 120
 
-/**
- * The page width a DOM-rendered preview is laid out at.
- *
- * A PDF thumbnail is a photograph of a real page, so reducing it is right. A
- * DOCX or EML page has no real geometry — `612 x 792` is invented by the
- * extractor — so reducing *that* until 10.5pt type lands on under three
- * physical pixels is fidelity to nothing, and it costs the reviewer the glance
- * the rail exists for. Laying the same content out in a narrower page reflows
- * it instead, and the type lands around 7px: still small, but a miniature of
- * the document rather than grey noise.
- *
- * The margin shrinks with it. Keeping a 72pt margin on a 260pt page would
- * spend more than half the width on white.
- */
-const PREVIEW_PAGE_WIDTH = 260
-const PREVIEW_PAGE_MARGIN = 14
-
 const renderCache = new Map<string, string>()
 
 function cacheKey(documentId: string, page: number): string {
@@ -150,7 +133,13 @@ export function PageThumbnail({
     return () => observer.disconnect()
   }, [])
 
-  const previewZoom = tileWidth > 0 ? tileWidth / PREVIEW_PAGE_WIDTH : 0
+  // The page reduced to the tile, the way the rasterized branch is. A DOCX or
+  // EML page geometry is invented rather than measured off anything, so there
+  // was a temptation to reflow the content into a narrower page and get bigger
+  // type out of it. It reads as a zoomed-in fragment rather than as the page,
+  // which is not what a rail is for: the tile answers "which page", and that
+  // is a question about shape.
+  const previewZoom = page && tileWidth > 0 ? tileWidth / page.width : 0
 
   useEffect(() => {
     if (!pdf || source || rendering.current) return
@@ -216,8 +205,6 @@ export function PageThumbnail({
             <EmlViewer
               page={page}
               zoom={previewZoom}
-              width={PREVIEW_PAGE_WIDTH}
-              padding={PREVIEW_PAGE_MARGIN}
               variant="preview"
               renderSpan={(spanId, children) =>
                 coveredByAccepted(page, spanId, redactions) ? (
@@ -235,8 +222,6 @@ export function PageThumbnail({
             <DocxViewer
               page={page}
               zoom={previewZoom}
-              width={PREVIEW_PAGE_WIDTH}
-              padding={PREVIEW_PAGE_MARGIN}
               renderSpan={(spanId, children) =>
                 // DOCX spans carry no geometry, so the boxes drawn below this
                 // find nothing to place. Blacking the run out here is what

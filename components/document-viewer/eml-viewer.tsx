@@ -537,23 +537,12 @@ export function EmlViewer({
   renderSpan,
   redactions = [],
   variant = "editor",
-  width = page.width,
-  padding,
   children,
 }: {
   page: NormalizedPage
   zoom: number
   renderSpan?: Renderer
   redactions?: Redaction[]
-  /**
-   * The width to lay the page out at, before `zoom`. Defaults to the page's
-   * own, which is what the canvas wants. The page rail overrides it: `612 x
-   * 792` is invented by the extractor rather than measured off anything, so a
-   * thumbnail is free to reflow the same content into a narrower page instead
-   * of reducing this one until the type is smaller than a pixel.
-   */
-  width?: number
-  padding?: number
   /**
    * `preview` is the page rail: the message's body alone, at thumbnail size,
    * with no chrome and nothing folded. Headers and attachment lines are left
@@ -589,8 +578,6 @@ export function EmlViewer({
     })
   }
 
-  const height = (page.height / page.width) * width
-
   if (variant === "preview") {
     // Markdown if the message had an HTML body, the plain body otherwise. A
     // plain-text email is ordinary, and rendering nothing for one puts back the
@@ -602,9 +589,9 @@ export function EmlViewer({
       <div
         className="origin-top-left bg-document text-document-foreground"
         style={{
-          width,
-          minHeight: height,
-          padding: padding ?? PAGE_MARGIN / 2,
+          width: page.width,
+          minHeight: page.height,
+          padding: PAGE_MARGIN / 2,
           transform: `scale(${zoom})`,
           fontFamily: BODY_FONT,
           fontSize: "10.5pt",
@@ -627,14 +614,14 @@ export function EmlViewer({
   return (
     <div
       className="relative shadow-document"
-      style={{ width: width * zoom, minHeight: height * zoom }}
+      style={{ width: page.width * zoom, minHeight: page.height * zoom }}
     >
       <div
         className="origin-top-left bg-document text-document-foreground"
         style={{
-          width,
-          minHeight: height,
-          padding: padding ?? PAGE_MARGIN,
+          width: page.width,
+          minHeight: page.height,
+          padding: PAGE_MARGIN,
           transform: `scale(${zoom})`,
           fontFamily: BODY_FONT,
           fontSize: "10.5pt",

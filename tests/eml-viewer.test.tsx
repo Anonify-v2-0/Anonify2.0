@@ -243,30 +243,6 @@ describe("the page rail's preview", () => {
     expect(markup).toContain("scale(0.2)")
   })
 
-  it("lays the page out at the width it is given, not the page's own", () => {
-    const page = pageOf(mixedEml())
-
-    // The rail's tile is `w-full` of a rail whose width is a layout decision,
-    // so the thumbnail measures it and hands the width down. Falling back to
-    // `page.width` here is what left every preview smaller than its tile, with
-    // 10.5pt type landing on under three physical pixels.
-    const markup = renderToStaticMarkup(
-      <EmlViewer
-        page={page}
-        zoom={136 / 260}
-        width={260}
-        padding={14}
-        variant="preview"
-      />
-    )
-
-    expect(markup).toContain("width:260px")
-    expect(markup).toContain("padding:14px")
-    expect(markup).not.toContain("width:612px")
-    // 260 laid out, scaled by 136/260, is exactly the 136px tile.
-    expect(markup).toContain(`scale(${136 / 260})`)
-  })
-
   it("falls back to the plain body when the message has no HTML part", () => {
     const markup = renderToStaticMarkup(
       <EmlViewer page={pageOf(simpleEml())} zoom={0.2} variant="preview" />

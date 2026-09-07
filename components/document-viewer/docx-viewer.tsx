@@ -172,37 +172,24 @@ export function DocxViewer({
   page,
   zoom,
   renderSpan,
-  width = page.width,
-  padding = PAGE_MARGIN,
   children,
 }: {
   page: NormalizedPage
   zoom: number
   renderSpan?: (spanId: string, children: ReactNode) => ReactNode
-  /**
-   * The width to lay the page out at, before `zoom`. Defaults to the page's
-   * own, which is what the canvas wants. The page rail overrides it: `612 x
-   * 792` is invented by the extractor rather than measured off anything, so a
-   * thumbnail is free to reflow the same content into a narrower page instead
-   * of reducing this one until the type is smaller than a pixel.
-   */
-  width?: number
-  padding?: number
   children?: ReactNode
 }) {
-  const height = (page.height / page.width) * width
-
   return (
     <div
       className="relative shadow-document"
-      style={{ width: width * zoom, minHeight: height * zoom }}
+      style={{ width: page.width * zoom, minHeight: page.height * zoom }}
     >
       <div
         className="origin-top-left bg-document text-document-foreground"
         style={{
-          width,
-          minHeight: height,
-          padding,
+          width: page.width,
+          minHeight: page.height,
+          padding: PAGE_MARGIN,
           transform: `scale(${zoom})`,
           fontFamily: "Calibri, Carlito, Helvetica, Arial, sans-serif",
           fontSize: "11pt",
