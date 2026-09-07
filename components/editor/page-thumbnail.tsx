@@ -30,7 +30,28 @@ import type { Redaction } from "@/types/redaction"
  * page to page.
  */
 
-const THUMBNAIL_WIDTH = 120
+/**
+ * The width of the raster asked of pdf.js. A resolution, not a layout size:
+ * the image is drawn `object-contain` into whatever the tile turns out to be.
+ */
+const THUMBNAIL_RASTER_WIDTH = 120
+
+/**
+ * The page width a DOM-rendered preview is laid out at.
+ *
+ * A PDF thumbnail is a photograph of a real page, so reducing it is right. A
+ * DOCX or EML page has no real geometry — `612 x 792` is invented by the
+ * extractor — so reducing *that* until 10.5pt type lands on under three
+ * physical pixels is fidelity to nothing, and it costs the reviewer the glance
+ * the rail exists for. Laying the same content out in a narrower page reflows
+ * it instead, and the type lands around 7px: still small, but a miniature of
+ * the document rather than grey noise.
+ *
+ * The margin shrinks with it. Keeping a 72pt margin on a 260pt page would
+ * spend more than half the width on white.
+ */
+const PREVIEW_PAGE_WIDTH = 260
+const PREVIEW_PAGE_MARGIN = 14
 
 const renderCache = new Map<string, string>()
 
@@ -44,7 +65,9 @@ async function renderThumbnail(
 ): Promise<string> {
   const page = await pdf.getPage(pageNumber)
   const base = page.getViewport({ scale: 1 })
-  const viewport = page.getViewport({ scale: THUMBNAIL_WIDTH / base.width })
+  const viewport = page.getViewport({
+    scale: THUMBNAIL_RASTER_WIDTH / base.width,
+  })
 
   const canvas = document.createElement("canvas")
   canvas.width = Math.ceil(viewport.width)
@@ -105,6 +128,30 @@ export function PageThumbnail({
   )
   const rendering = useRef(false)
 
+  /**
+   * The tile is `w-full` of a rail whose width is a layout decision, so the
+   * only honest scale is the one measured off the tile itself. Scaling to a
+   * constant left every DOM-rendered preview a little smaller than its tile,
+   * with a dead strip down the right — the raster branch never showed it,
+   * because an `object-contain` image stretches to whatever it is given.
+   */
+  const tile = useRef<HTMLSpanElement>(null)
+  const [tileWidth, setTileWidth] = useState(0)
+
+  useEffect(() => {
+    const element = tile.current
+    if (!element) return
+
+    const measure = () => setTileWidth(element.clientWidth)
+    measure()
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+
+  const previewZoom = tileWidth > 0 ? tileWidth / PREVIEW_PAGE_WIDTH : 0
+
   useEffect(() => {
     if (!pdf || source || rendering.current) return
 
@@ -146,6 +193,7 @@ export function PageThumbnail({
       className="group flex flex-col items-center gap-1.5 focus-visible:outline-none"
     >
       <span
+        ref={tile}
         className={cn(
           "relative block w-full overflow-hidden rounded-[3px] border bg-document transition-colors",
           selected
@@ -158,11 +206,13 @@ export function PageThumbnail({
         {source ? (
           // eslint-disable-next-line @next/next/no-img-element -- a client-rendered data URL
           <img src={source} alt="" className="block h-full w-full object-contain" />
-        ) : page?.sections ? (
+        ) : page?.sections && previewZoom > 0 ? (
           <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
             <EmlViewer
               page={page}
-              zoom={THUMBNAIL_WIDTH / page.width}
+              zoom={previewZoom}
+              width={PREVIEW_PAGE_WIDTH}
+              padding={PREVIEW_PAGE_MARGIN}
               variant="preview"
               renderSpan={(spanId, children) =>
                 coveredByAccepted(page, spanId, redactions) ? (
@@ -173,13 +223,15 @@ export function PageThumbnail({
               }
             />
           </span>
-        ) : page?.blocks ? (
+        ) : page?.blocks && previewZoom > 0 ? (
           // Inert: the whole tile is one button, so the miniature must not be
           // reachable or announced separately.
           <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
             <DocxViewer
               page={page}
-              zoom={THUMBNAIL_WIDTH / page.width}
+              zoom={previewZoom}
+              width={PREVIEW_PAGE_WIDTH}
+              padding={PREVIEW_PAGE_MARGIN}
               renderSpan={(spanId, children) =>
                 // DOCX spans carry no geometry, so the boxes drawn below this
                 // find nothing to place. Blacking the run out here is what
