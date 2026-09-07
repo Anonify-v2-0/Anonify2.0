@@ -129,6 +129,20 @@ export type NormalizedPage = {
   images?: boolean
   /** Flow content for DOCX documents, used by the editorial renderer. */
   blocks?: DocxBlock[]
+  /**
+   * Ranges of `text` that carry generated markdown, for the EML renderer.
+   *
+   * An HTML email body is extracted as markdown: the characters that came from
+   * the message are spans as always, and the structure the markup was
+   * expressing — a heading, a list item, a table row — is written into the
+   * padding between them. These ranges say which stretches of the page to read
+   * that way. Everything outside them is the flat stream it has always been:
+   * the headers, the `text/plain` alternative, the attachment lines.
+   *
+   * Offsets are into the page's own text, so a body split across two pages
+   * leaves each page saying what it holds.
+   */
+  markdown?: { start: number; end: number }[]
 }
 
 export type SpreadsheetCell = {

@@ -27,7 +27,9 @@ Workspace                         the orchestrator
  │    ├── PdfViewer               rendered PDF page
  │    │    └── RedactionLayer     boxes, spans, drag regions
  │    ├── DocxViewer              paginated runs  ── renderSpan
- │    ├── TextViewer              txt / rtf / eml / pptx  ── renderSpan
+ │    ├── EmlViewer               headers as a stream, HTML bodies as
+ │    │                           markdown blocks  ── renderSpan
+ │    ├── TextViewer              txt / rtf / pptx  ── renderSpan
  │    ├── ImageCanvas             pixels + OCR words + regions
  │    └── SpreadsheetGrid         sheets, rows, columns, cells
  ├── RedactionInspector           grouped suggestions, accept/reject, rules
@@ -151,10 +153,27 @@ different shape from the page-based viewers:
 | `xlsx`, `csv`, `tsv` | `SpreadsheetGrid` | own grid | sheets, rows, cells |
 | `pdf` | `PdfViewer` | container | paginated, rendered page |
 | `docx` | `DocxViewer` | container | paginated runs |
-| `txt`, `rtf`, `eml`, `pptx` | `TextViewer` | container | paginated text |
+| `eml` | `EmlViewer` | container | paginated text + markdown ranges |
+| `txt`, `rtf`, `pptx` | `TextViewer` | container | paginated text |
 
 CSV and TSV normalize to the same worksheet model a workbook does, so they are
 reviewed in the same grid rather than as text that happens to have commas.
+
+A message needs its own viewer because it is two things at once. Its headers,
+its `text/plain` alternative and its attachment lines are a flat stream and are
+drawn as one, fixed-width, exactly as they arrived. Its HTML bodies are not:
+they were authored with headings, lists and tables, and the extractor writes
+them out as markdown (see `docs/pipelines.md`). `NormalizedPage.markdown` says
+which stretches of the page that covers, and `EmlViewer` draws those as the
+document they describe.
+
+It reads the block structure off the **padding**, never off span text —
+`lib/documents/eml/markdown.ts` — so a sender who types `- ` or `# ` gets a
+paragraph containing those characters. That is also why nothing upstream
+escapes markdown: there is nothing to escape against. No message content ever
+reaches an `href`, a `src` or any other attribute a browser would fetch, and
+there is no `dangerouslySetInnerHTML` anywhere in the viewer, so a tracking
+pixel cannot phone home from a reviewer's screen.
 
 ### The dispatch contract
 

@@ -82,6 +82,41 @@ export function alternativeEml(): string {
   ])
 }
 
+/**
+ * An HTML body with the structure a reviewer actually needs.
+ *
+ * Wrapped in the nested single-cell layout tables every newsletter is built
+ * from, so the extraction has to tell those apart from the one table that
+ * really is a table.
+ */
+export function richHtmlEml(): string {
+  return message([
+    `From: ${EML.person} <${EML.email}>`,
+    `To: <${EML.colleagueEmail}>`,
+    "Subject: Quarterly review",
+    "MIME-Version: 1.0",
+    'Content-Type: text/html; charset="utf-8"',
+    "",
+    "<html><body>",
+    '<table width="600"><tr><td>',
+    "  <table><tr><td>",
+    "    <h1>Quarterly review</h1>",
+    "    <p>Attendees, in",
+    "    reading order:</p>",
+    `    <ul><li>${EML.colleague}</li><li>Bob Chen</li></ul>`,
+    "    <table>",
+    "      <tr><th>Name</th><th>Role</th></tr>",
+    `      <tr><td>${EML.person}</td><td>Chair</td></tr>`,
+    "    </table>",
+    `    <p>Mail <a href="mailto:${EML.email}">the chair</a>.</p>`,
+    "    <blockquote><p>On Tue, Bob wrote:</p></blockquote>",
+    "  </td></tr></table>",
+    "</td></tr></table>",
+    "</body></html>",
+    "",
+  ])
+}
+
 /** Text, an HTML alternative, and a binary attachment with a telling name. */
 export function mixedEml(): string {
   return message([
