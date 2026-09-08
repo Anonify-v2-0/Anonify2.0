@@ -29,6 +29,8 @@ and how it still holds. Skip if it touches none.
 
 ## Checks
 
+- [ ] A changelog fragment, if this moves the version — `changelog.d/<number>.<section>.md`.
+      CI fails without one. Sections and examples: `changelog.d/README.md`.
 - [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build`
 - [ ] Any new fixture is synthetic. No real personal data, in the diff or in the
       screenshots.

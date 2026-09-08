@@ -569,6 +569,46 @@ incompatible, and urgency is what SECURITY.md and the release notes are for.
 No label produces a major. `2.0.0` says something about compatibility and
 support that a label cannot carry, so it is dispatched by hand by an admin.
 
+The table lives in `scripts/release-labels.mjs`, not in either workflow, because
+`release.yml` and `ci.yml` both need the same answer from it.
+
+### The changelog
+
+**A pull request that moves the version must add a changelog fragment, in the
+same pull request.** CI fails without one. That is the same rule as the table
+above: if it produces a release, it needs a line saying what changed.
+
+```
+changelog.d/<issue-or-pull-request-number>.<section>.md
+```
+
+One file, one entry, no leading `-`. The sections are the
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) ones — `added`,
+`changed`, `deprecated`, `removed`, `fixed`, `security` — and the number becomes
+a `(#88)` reference on the entry.
+
+```markdown
+MBOX mailboxes are accepted as an upload, and open as a batch with one
+document per message
+```
+
+Write for someone self-hosting Anonify who is deciding whether to pull: what
+changed in the output, what changed in the configuration, what needs a
+migration. Not the refactors. This is the sentence that survives into the
+release notes, and it is the only part of a release that a person writes.
+
+Fragments are separate files rather than an `## Unreleased` section for a dull
+but decisive reason: that section would be three lines every open pull request
+edits, and every one of them would conflict with the others. Two people adding
+entries here add two files.
+
+`CHANGELOG.md` and the version in `package.json` are both written by the release
+workflow. Do not edit either by hand — the workflow assembles the fragments into
+a new section, publishes that section as the GitHub release body, and deletes
+the fragments in the same commit that moves the version.
+
+More, including what makes a good entry: [`changelog.d/README.md`](changelog.d/README.md).
+
 ---
 
 ## 6. Good first issues

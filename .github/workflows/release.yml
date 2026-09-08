@@ -124,56 +124,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          rank() {
-            case "$1" in
-              major) echo 3 ;;
-              minor) echo 2 ;;
-              patch) echo 1 ;;
-              *)     echo 0 ;;
-            esac
-          }
-
-          # The table. Anything not named here contributes nothing, which is why
-          # `docs`, `documentation`, `question`, `duplicate` and the rest of the
-          # triage labels need no entry.
-          bump_for() {
-            case "$1" in
-              enhancement|formats) echo minor ;;
-              bug|performance|testing|ci|infrastructure|ux|accessibility|security|benchmark) echo patch ;;
-              *) echo none ;;
-            esac
-          }
-
-          bump=none
-          why=
-
+          # The label table lives in scripts/release-labels.mjs rather than in
+          # this file, because `ci.yml` needs the same answer to decide whether
+          # a pull request owes a changelog fragment. Two copies of it would
+          # eventually disagree, and both ways of disagreeing are silent: a
+          # release with no changelog entry, or a check demanding a fragment
+          # that nothing will ever publish.
+          #
+          # It prints `bump=` and `why=` already in the shape of step outputs.
           if [ "$EVENT" = "workflow_dispatch" ]; then
             bump="$INPUT_BUMP"
             why="asked for by hand: $bump."
           else
-            matched=()
-
-            # node rather than jq to read the label array: the job already needs
-            # node for package.json, and one dependency the runner guarantees
-            # beats two. The loop reads from a process substitution rather than
-            # a pipe so that `bump` survives it — a pipe would set it in a
-            # subshell and throw the answer away.
-            while IFS= read -r label; do
-              [ -n "$label" ] || continue
-              this=$(bump_for "$label")
-              [ "$this" = "none" ] && continue
-              matched+=("$label -> $this")
-              if [ "$(rank "$this")" -gt "$(rank "$bump")" ]; then
-                bump="$this"
-              fi
-            done < <(node -e 'for (const n of JSON.parse(process.env.LABELS || "[]")) console.log(n)')
-
-            if [ "$bump" = "none" ]; then
-              why="#$PR carries no label that maps to a version bump."
-            else
-              joined=$(printf '%s, ' "${matched[@]}")
-              why="#$PR is a $bump — ${joined%, }."
-            fi
+            resolved=$(node scripts/release-labels.mjs --labels "$LABELS" --pr "$PR")
+            bump=$(printf '%s\n' "$resolved" | sed -n 's/^bump=//p')
+            why=$(printf '%s\n' "$resolved" | sed -n 's/^why=//p')
           fi
 
           echo "bump=$bump" >> "$GITHUB_OUTPUT"
@@ -290,6 +255,32 @@ jobs:
 
           git --no-pager diff --stat
 
+      # The fragments in changelog.d/ become a section of CHANGELOG.md and the
+      # body of the release, and are deleted in the same commit that publishes
+      # them — so the directory always holds exactly what has not shipped yet.
+      #
+      # This runs during a dry run too. It writes to the working tree of a
+      # throwaway runner and nothing is committed, and seeing the notes that
+      # would go out is most of what a dry run is for.
+      - name: Assemble the changelog
+        id: changelog
+        if: steps.resolve.outputs.bump != 'none'
+        env:
+          NEXT: ${{ steps.version.outputs.next }}
+        run: |
+          set -euo pipefail
+
+          notes="$RUNNER_TEMP/release-notes.md"
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
+
+          node scripts/changelog.mjs "$NEXT" --body-out "$notes"
+
+          {
+            echo "### Release notes for v$NEXT"
+            echo
+            cat "$notes"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # main is protected — required pull requests, `enforce_admins: true` —
       # so `GITHUB_TOKEN` cannot push a commit to it, and no token can: the
       # protection applies to admins too. The bump therefore arrives the same
@@ -317,6 +308,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           NEXT: ${{ steps.version.outputs.next }}
+          CURRENT: ${{ steps.version.outputs.current }}
           WHY: ${{ steps.resolve.outputs.why }}
         run: |
           set -euo pipefail
@@ -327,7 +319,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git switch -c "$branch"
-          git add package.json
+
+          # The version, the changelog section that describes it, and the
+          # removal of the fragments that became that section — one commit, so
+          # the three can never reach main separately.
+          git add package.json CHANGELOG.md
+          git add --all changelog.d
           git commit -m "chore(release): v$NEXT" -m "$WHY"
 
           # A run that failed between the push and the merge leaves this branch
@@ -461,13 +458,27 @@ jobs:
           git tag -a "v$NEXT" "$sha" -m "v$NEXT"
           git push origin "refs/tags/v$NEXT"
 
-          # The notes are the merged pull requests since the previous tag, which
-          # is what the releases before this workflow used. #105 covers giving
-          # them a written changelog to draw from instead.
+          # The body is the changelog section assembled above — entries written
+          # by the people who made the changes — rather than `--generate-notes`,
+          # which lists pull request titles and put the bot's own
+          # `chore(release)` pull request in the v1.1.1 notes.
+          #
+          # The compare link survives from those notes, because it is the one
+          # part of them no human is going to write, and the generated list is
+          # worth having a click away.
+          notes="${{ steps.changelog.outputs.notes }}"
+
+          if git rev-parse -q --verify "refs/tags/v$CURRENT" >/dev/null; then
+            {
+              echo
+              echo "**Full Changelog**: $GITHUB_SERVER_URL/$REPO/compare/v$CURRENT...v$NEXT"
+            } >> "$notes"
+          fi
+
           gh release create "v$NEXT" \
             --title "Anonify v$NEXT" \
             --target "$sha" \
-            --generate-notes
+            --notes-file "$notes"
 
       - name: Say what happened
         if: steps.resolve.outputs.bump != 'none'
