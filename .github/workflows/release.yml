@@ -329,6 +329,26 @@ jobs:
           git switch -c "$branch"
           git add package.json
           git commit -m "chore(release): v$NEXT" -m "$WHY"
+
+          # A run that failed between the push and the merge leaves this branch
+          # behind, and a plain push then refuses every later attempt: the new
+          # commit is built fresh from main and is not a fast-forward of the old
+          # one, so the whole release wedges on a branch nobody wants. That is
+          # not hypothetical — it is how the first attempt at v1.1.1 went.
+          #
+          # Nothing on the old branch is worth keeping. The bump is recomputed
+          # from main on every run, so the newer commit is the better one by
+          # construction. Deleting the branch closes any pull request still
+          # attached to it, which is why the close comes first and says why.
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "::warning::$branch was left behind by an earlier run; replacing it."
+            stale=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')
+            if [ -n "$stale" ]; then
+              gh pr close "$stale" --comment "Superseded by a newer release run for the same version."
+            fi
+            git push origin --delete "$branch"
+          fi
+
           git push origin "$branch"
 
           # A pull request opened with GITHUB_TOKEN starts no workflows, so this
@@ -341,12 +361,30 @@ jobs:
           BODY
           )
 
-          pr=$(gh pr create \
-                 --base main \
-                 --head "$branch" \
-                 --title "chore(release): v$NEXT" \
-                 --body "$body" \
-               | grep -oE '[0-9]+$')
+          # The error this can fail with is worth translating. "GitHub Actions is
+          # not permitted to create or approve pull requests" is a repository
+          # setting — Settings → Actions → General → Workflow permissions — and
+          # is off by default, which is exactly what stopped the first attempt
+          # at v1.1.1. An organisation policy overrides the repository one, so
+          # if it is off there, turning it on here changes nothing.
+          if ! created=$(gh pr create \
+                           --base main \
+                           --head "$branch" \
+                           --title "chore(release): v$NEXT" \
+                           --body "$body" 2>&1); then
+            echo "$created"
+            case "$created" in
+              *"not permitted to create or approve pull requests"*)
+                echo "::error::Actions may not open pull requests. Enable 'Allow GitHub Actions to create and approve pull requests' under Settings → Actions → General → Workflow permissions, at the organisation as well as the repository."
+                ;;
+              *)
+                echo "::error::Could not open the bump pull request for v$NEXT."
+                ;;
+            esac
+            exit 1
+          fi
+
+          pr=$(printf '%s' "$created" | grep -oE '[0-9]+$')
 
           echo "::notice::Opened #$pr for v$NEXT"
 
