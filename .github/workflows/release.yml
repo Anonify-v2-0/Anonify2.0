@@ -388,17 +388,31 @@ jobs:
 
           echo "::notice::Opened #$pr for v$NEXT"
 
-          # Mergeability is computed asynchronously, and is `null` until GitHub
-          # has worked it out. Poll rather than guess.
+          # Mergeability is computed asynchronously and is null until GitHub has
+          # worked it out, so this waits for a definite answer.
+          #
+          # It waits for `true` or `false` specifically, and not for "anything
+          # that is not null", because `gh api --jq` prints *nothing* for a null
+          # value — there is no "null" string to compare against. Checking for
+          # one broke out of this loop on the first pass with an empty answer
+          # and reported a perfectly mergeable pull request as unmergeable,
+          # which is how #110 came to be abandoned with the bump inside it.
+          state=
           for _ in $(seq 1 30); do
-            state=$(gh api "repos/$REPO/pulls/$pr" --jq '.mergeable')
-            [ "$state" != "null" ] && break
+            state=$(gh api "repos/$REPO/pulls/$pr" --jq '.mergeable // empty')
+            case "$state" in
+              true | false) break ;;
+            esac
             sleep 2
           done
 
-          if [ "$state" != "true" ]; then
-            echo "::error::#$pr is not mergeable ($state). The bump is in it — merge it by hand, or give the Actions app a ruleset bypass on main."
+          if [ "$state" = "false" ]; then
+            echo "::error::#$pr has conflicts and cannot be merged. The bump is in it; main has moved under it."
             exit 1
+          fi
+
+          if [ -z "$state" ]; then
+            echo "::warning::GitHub never said whether #$pr is mergeable. Trying the merge anyway — it is the API's decision, not ours."
           fi
 
           # `required_linear_history` rules out a merge commit, so squash. The
@@ -406,10 +420,30 @@ jobs:
           # SHA of the commit it created, which is what the tag has to point at
           # — reading main's head instead would race with anything else that
           # merged in the meantime.
-          merged=$(gh api -X PUT "repos/$REPO/pulls/$pr/merge" \
-                     -f merge_method=squash \
-                     -f commit_title="chore(release): v$NEXT (#$pr) [skip ci]" \
-                     -f commit_message="$WHY")
+          # Retried, because the states this can fail on are mostly temporary.
+          # `mergeable_state` is often "unstable" for a minute or two — mergeable,
+          # with a non-required check still running, which this repository
+          # produces on every pull request through its preview deployments. The
+          # API is the one that decides; guessing from `mergeable_state` here
+          # would be a second, worse copy of the rules on the branch.
+          merged=
+          for attempt in 1 2 3; do
+            if merged=$(gh api -X PUT "repos/$REPO/pulls/$pr/merge" \
+                          -f merge_method=squash \
+                          -f commit_title="chore(release): v$NEXT (#$pr) [skip ci]" \
+                          -f commit_message="$WHY" 2>&1); then
+              break
+            fi
+
+            echo "attempt $attempt did not merge #$pr: $merged"
+            merged=
+            sleep 5
+          done
+
+          if [ -z "$merged" ]; then
+            echo "::error::#$pr would not merge. The bump is in it, so merging it by hand finishes the release — nothing is lost. To stop the release needing a pull request at all, move main's protection to a ruleset and add the Actions app as a bypass actor; a ruleset bypass cannot override classic branch protection, so the classic rule has to go at the same time."
+            exit 1
+          fi
 
           sha=$(printf '%s' "$merged" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).sha))')
           echo "::notice::#$pr merged as $sha"
