@@ -524,6 +524,29 @@ have been caught by mocking.
 - If you found a bug while doing something else, say so in the PR — that is the
   most valuable sentence in most changelogs.
 
+### Releases
+
+Labels are not only descriptive: `.github/workflows/release.yml` reads them when
+a pull request merges and moves the version in `package.json`, tags it, and
+publishes a release. Nobody edits the version by hand.
+
+| Bump | Labels |
+| --- | --- |
+| **minor** — `1.1.0` → `1.2.0` | `enhancement`, `formats` |
+| **patch** — `1.1.0` → `1.1.1` | `bug`, `performance`, `testing`, `ci`, `infrastructure`, `ux`, `accessibility`, `security`, `benchmark` |
+| **nothing** | `docs`, `documentation`, and anything not listed above |
+
+The highest bump wins, so a pull request labelled `bug` and `enhancement` is a
+minor, and `docs` alongside `bug` is still a patch — `docs` does not veto, it
+only fails to raise. A merge with no label from the table releases nothing and
+says so in the run summary; its change ships with whatever release comes next.
+
+`security` is a patch on purpose. A fix to a redaction bypass is urgent, not
+incompatible, and urgency is what SECURITY.md and the release notes are for.
+
+No label produces a major. `2.0.0` says something about compatibility and
+support that a label cannot carry, so it is dispatched by hand by an admin.
+
 ---
 
 ## 6. Good first issues
