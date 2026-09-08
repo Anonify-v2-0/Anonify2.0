@@ -54,10 +54,15 @@ on:
         default: false
 
 permissions:
-  # The bump commit, the tag and the release. Nothing else — in particular
-  # there is no `administration` key here, because `GITHUB_TOKEN` does not have
-  # one; the admin check below asks the API and copes with being refused.
+  # The bump commit, the tag and the release.
   contents: write
+  # The bump arrives as a pull request, because main is protected and cannot be
+  # pushed to. This is what opens and merges it.
+  pull-requests: write
+  #
+  # Nothing else — in particular there is no `administration` key here, because
+  # `GITHUB_TOKEN` does not have one; the admin check below asks the API and
+  # copes with being refused.
 
 # Two pull requests merged a minute apart both read 1.1.0, both try to write
 # 1.1.1, and the loser's push is rejected as non-fast-forward. Serialising them
@@ -74,9 +79,14 @@ jobs:
     name: Release
     # A pull request that was closed without merging changes nothing and
     # releases nothing.
+    # The `release/*` clause skips the job's own bump pull request. That merge
+    # is a `pull_request: closed` event like any other, and while it carries no
+    # labels and would resolve to nothing anyway, an obvious no-op run in the
+    # Actions list is worse than no run at all.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.merged == true
+      (github.event.pull_request.merged == true &&
+      !startsWith(github.event.pull_request.head.ref, 'release/'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -280,44 +290,111 @@ jobs:
 
           git --no-pager diff --stat
 
-      # Everything or nothing. The commit, the tag and the release go together,
-      # and the order below is the one that survives a failure halfway: the
-      # commit and tag are pushed in a single call, so a rejected push leaves no
-      # tag pointing at a commit main does not have.
+      # main is protected — required pull requests, `enforce_admins: true` —
+      # so `GITHUB_TOKEN` cannot push a commit to it, and no token can: the
+      # protection applies to admins too. The bump therefore arrives the same
+      # way every other change does, as a pull request, which the job then
+      # merges.
       #
-      # `[skip ci]` is not decoration. package.json counts as source in
-      # `ci.yml`'s `decide` job, so without it this commit runs the full
-      # matrix — build, migrations, the compose stack — against a diff whose
-      # only content is a version number. GitHub honours the marker at the
-      # platform level for `push`.
+      # That is allowed where a push is not, and it needs no settings change:
+      # the branch requires zero approving reviews, there is no CODEOWNERS file
+      # for `require_code_owner_reviews` to bite on, and no status check is
+      # required. Tags are not protected at all, so the tag still goes up
+      # directly.
       #
-      # The push also cannot start a second release run: `GITHUB_TOKEN` does not
-      # trigger workflows, and this workflow does not listen to `push` anyway.
-      - name: Commit, tag and release
+      # The failure mode is deliberately gentle. If the merge is refused — a
+      # rule changes, someone adds a required check — the pull request is left
+      # open with the bump in it, and a human can merge it. The version is never
+      # lost, only delayed.
+      #
+      # `[skip ci]` in the squash title is not decoration. package.json counts
+      # as source in `ci.yml`'s `decide` job, so without it every release runs
+      # the build, the migrations and the compose stack against a diff whose
+      # only content is a version number.
+      - name: Open the bump as a pull request, merge it, tag it, release it
         if: steps.resolve.outputs.bump != 'none' && inputs.dry_run != true
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           NEXT: ${{ steps.version.outputs.next }}
           WHY: ${{ steps.resolve.outputs.why }}
         run: |
           set -euo pipefail
 
+          branch="release/v$NEXT"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          git switch -c "$branch"
           git add package.json
-          git commit -m "chore(release): v$NEXT [skip ci]" -m "$WHY"
-          git tag -a "v$NEXT" -m "v$NEXT"
+          git commit -m "chore(release): v$NEXT" -m "$WHY"
+          git push origin "$branch"
 
-          # --atomic: main and the tag move together or neither does.
-          git push --atomic origin HEAD:main "refs/tags/v$NEXT"
+          # A pull request opened with GITHUB_TOKEN starts no workflows, so this
+          # cannot trigger CI or a second release run.
+          body=$(cat <<BODY
+          $WHY
+
+          Opened and merged by release.yml. main is protected, so the bump
+          cannot be pushed to it directly.
+          BODY
+          )
+
+          pr=$(gh pr create \
+                 --base main \
+                 --head "$branch" \
+                 --title "chore(release): v$NEXT" \
+                 --body "$body" \
+               | grep -oE '[0-9]+$')
+
+          echo "::notice::Opened #$pr for v$NEXT"
+
+          # Mergeability is computed asynchronously, and is `null` until GitHub
+          # has worked it out. Poll rather than guess.
+          for _ in $(seq 1 30); do
+            state=$(gh api "repos/$REPO/pulls/$pr" --jq '.mergeable')
+            [ "$state" != "null" ] && break
+            sleep 2
+          done
+
+          if [ "$state" != "true" ]; then
+            echo "::error::#$pr is not mergeable ($state). The bump is in it — merge it by hand, or give the Actions app a ruleset bypass on main."
+            exit 1
+          fi
+
+          # `required_linear_history` rules out a merge commit, so squash. The
+          # API is used rather than `gh pr merge` because it answers with the
+          # SHA of the commit it created, which is what the tag has to point at
+          # — reading main's head instead would race with anything else that
+          # merged in the meantime.
+          merged=$(gh api -X PUT "repos/$REPO/pulls/$pr/merge" \
+                     -f merge_method=squash \
+                     -f commit_title="chore(release): v$NEXT (#$pr) [skip ci]" \
+                     -f commit_message="$WHY")
+
+          sha=$(printf '%s' "$merged" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).sha))')
+          echo "::notice::#$pr merged as $sha"
+
+          # `delete_branch_on_merge` is off for this repository, so clean up.
+          git push origin --delete "$branch" || echo "::warning::could not delete $branch"
+
+          # Tags are unprotected, so this goes straight up.
+          git fetch origin main
+          if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+            echo "::error::$sha is not in the fetched history; the tag would be a guess."
+            exit 1
+          fi
+
+          git tag -a "v$NEXT" "$sha" -m "v$NEXT"
+          git push origin "refs/tags/v$NEXT"
 
           # The notes are the merged pull requests since the previous tag, which
           # is what the releases before this workflow used. #105 covers giving
           # them a written changelog to draw from instead.
           gh release create "v$NEXT" \
             --title "Anonify v$NEXT" \
-            --target "$(git rev-parse HEAD)" \
+            --target "$sha" \
             --generate-notes
 
       - name: Say what happened
