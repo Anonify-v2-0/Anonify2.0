@@ -537,6 +537,21 @@ merges it, then tags the squashed commit. If that merge is ever refused, the
 pull request is left open for a human to merge and the version is delayed
 rather than lost.
 
+Two settings this depends on, both of which have already bitten once:
+
+- **Actions must be allowed to open pull requests** — Settings → Actions →
+  General → Workflow permissions. It is off by default, and the organisation's
+  setting overrides the repository's.
+- The bump pull request is opened by `GITHUB_TOKEN`, which by design **starts no
+  workflows**. That is deliberate: it cannot trigger CI, and it cannot trigger a
+  second release.
+
+If you would rather the workflow pushed to `main` directly and skipped the pull
+request, that needs a **ruleset** on `main` with the GitHub Actions app as a
+bypass actor. A ruleset bypass cannot override classic branch protection — both
+are enforced and the stricter wins — so `main`'s classic rule has to be deleted
+and re-expressed as ruleset rules at the same time.
+
 | Bump | Labels |
 | --- | --- |
 | **minor** — `1.1.0` → `1.2.0` | `enhancement`, `formats` |
