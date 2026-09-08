@@ -14,6 +14,15 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.2.0] - 2026-09-08
+
+### Changed
+
+- Release notes are written by the people who make the changes. Each pull request
+  that moves the version now carries a fragment in `changelog.d/`, and the release
+  workflow assembles them into `CHANGELOG.md` and publishes that as the release
+  body — in place of a generated list of pull request titles (#105)
+
 ## [1.1.1] - 2026-09-08
 
 ### Added
