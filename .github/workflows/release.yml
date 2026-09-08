@@ -1,0 +1,352 @@
+name: Release
+
+# Moves the version, and nothing else decides it.
+#
+# The two releases before this workflow existed were cut by hand — edit
+# package.json, commit, tag, write the notes — and nothing enforced that those
+# four things agreed. The judgement of *which* number moves lived in whoever was
+# doing the tagging.
+#
+# That judgement is already on the pull request. We label everything, and the
+# labels say what kind of change it was: `enhancement` is a feature, `bug` is a
+# fix, `performance` and `testing` are neither. The table in `resolve` below
+# turns those labels into a bump, and the rest of this file is the mechanical
+# part — write package.json, commit, tag, publish — done the same way every
+# time, or not at all.
+#
+# What it deliberately does not do is decide a major. No label maps to one, and
+# adding a `2.0.0` label would be a mistake: a major says something about
+# compatibility and support that a label cannot carry, and that a reviewer
+# applying labels is not being asked. Majors come in by hand, through
+# `workflow_dispatch`, from an admin.
+#
+# See #104 for the design and the trade-offs behind each choice here.
+
+on:
+  # Not `push: [main]`, even though that is where a merge lands.
+  #
+  # A push event carries a commit, not a pull request, so the labels would have
+  # to be recovered by asking the API which pull request claims the SHA as its
+  # merge — the same dance `ci.yml`'s `decide` job already has to do, and there
+  # is no reason for a second copy of it. `pull_request: closed` hands us
+  # `github.event.pull_request.labels` directly.
+  #
+  # A closed-but-unmerged pull request is filtered out by the job's `if`. A
+  # commit pushed straight to main belongs to no pull request and releases
+  # nothing, which is the correct answer: an unreviewed direct push is not a
+  # release.
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to move
+        type: choice
+        required: true
+        default: patch
+        options: [major, minor, patch]
+      dry_run:
+        description: Resolve the version and print it, writing nothing
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  # The bump commit, the tag and the release. Nothing else — in particular
+  # there is no `administration` key here, because `GITHUB_TOKEN` does not have
+  # one; the admin check below asks the API and copes with being refused.
+  contents: write
+
+# Two pull requests merged a minute apart both read 1.1.0, both try to write
+# 1.1.1, and the loser's push is rejected as non-fast-forward. Serialising them
+# turns that into two consecutive versions.
+#
+# `cancel-in-progress: false` matters: a cancelled release is a lost version,
+# possibly one that has already been tagged. The second run waits.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    # A pull request that was closed without merging changes nothing and
+    # releases nothing.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # Always main, never `github.ref`. A dispatch from a topic branch is
+      # still a release of main — there is nowhere else a version can come
+      # from — and checking out the branch would tag the wrong tree.
+      #
+      # Full history: `git describe` is not used, but a shallow clone cannot be
+      # pushed from reliably once it is a few commits behind.
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # The labels are the input. Everything downstream is arithmetic.
+      #
+      # Precedence is highest-wins: a pull request labelled `bug` and
+      # `enhancement` is a minor, and `docs` plus `bug` is a patch — `docs` does
+      # not veto, it only fails to raise. That is the safe direction to be wrong
+      # in. Under-bumping a feature to a patch hides it from anyone reading
+      # version numbers to decide whether to pull; over-bumping a fix to a minor
+      # costs a number nobody is short of.
+      #
+      # `security` is a patch deliberately. A fix to a redaction bypass is
+      # urgent, not incompatible, and urgency is what SECURITY.md and the
+      # release notes are for.
+      - name: Resolve the bump
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          PR: ${{ github.event.pull_request.number }}
+          INPUT_BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          rank() {
+            case "$1" in
+              major) echo 3 ;;
+              minor) echo 2 ;;
+              patch) echo 1 ;;
+              *)     echo 0 ;;
+            esac
+          }
+
+          # The table. Anything not named here contributes nothing, which is why
+          # `docs`, `documentation`, `question`, `duplicate` and the rest of the
+          # triage labels need no entry.
+          bump_for() {
+            case "$1" in
+              enhancement|formats) echo minor ;;
+              bug|performance|testing|ci|infrastructure|ux|accessibility|security|benchmark) echo patch ;;
+              *) echo none ;;
+            esac
+          }
+
+          bump=none
+          why=
+
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            bump="$INPUT_BUMP"
+            why="asked for by hand: $bump."
+          else
+            matched=()
+
+            # node rather than jq to read the label array: the job already needs
+            # node for package.json, and one dependency the runner guarantees
+            # beats two. The loop reads from a process substitution rather than
+            # a pipe so that `bump` survives it — a pipe would set it in a
+            # subshell and throw the answer away.
+            while IFS= read -r label; do
+              [ -n "$label" ] || continue
+              this=$(bump_for "$label")
+              [ "$this" = "none" ] && continue
+              matched+=("$label -> $this")
+              if [ "$(rank "$this")" -gt "$(rank "$bump")" ]; then
+                bump="$this"
+              fi
+            done < <(node -e 'for (const n of JSON.parse(process.env.LABELS || "[]")) console.log(n)')
+
+            if [ "$bump" = "none" ]; then
+              why="#$PR carries no label that maps to a version bump."
+            else
+              joined=$(printf '%s, ' "${matched[@]}")
+              why="#$PR is a $bump — ${joined%, }."
+            fi
+          fi
+
+          echo "bump=$bump" >> "$GITHUB_OUTPUT"
+          echo "why=$why"   >> "$GITHUB_OUTPUT"
+          echo "::notice::$why"
+
+          # Nothing to do, and that is not a failure. An unlabelled merge ships
+          # with whatever release comes next; a doc-only one ships with nothing,
+          # which is the point. A release that should have happened and did not
+          # is recoverable by dispatching this workflow by hand.
+          if [ "$bump" = "none" ]; then
+            {
+              echo "## No release"
+              echo
+              echo "$why"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # `workflow_dispatch` is already restricted to accounts with write access,
+      # which is broader than what a major should need. This narrows it to
+      # admin.
+      #
+      # It fails closed. If the permission cannot be read — `GITHUB_TOKEN` is
+      # not guaranteed to be allowed at this endpoint, and the answer may be a
+      # 403 rather than a level — the answer is no. The cost of that is an admin
+      # having to ask why their major was refused; the cost of failing open is a
+      # 2.0.0 nobody agreed to.
+      #
+      # If it turns out to refuse everyone, the replacement is a `release`
+      # environment with required reviewers on this job, which asks a human
+      # instead of the API and wants no token at all.
+      - name: Only an admin cuts a major
+        if: steps.resolve.outputs.bump == 'major'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+
+          level=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq '.permission' 2>/dev/null) || level=""
+
+          if [ "$level" != "admin" ]; then
+            echo "::error::$ACTOR is '${level:-unknown}', not an admin. A major release is an admin decision."
+            exit 1
+          fi
+
+          echo "$ACTOR is an admin."
+
+      # Between this job being queued and it starting, another release may have
+      # landed. The concurrency group makes that rare rather than impossible —
+      # a hand-pushed commit to main is outside it entirely — so read the
+      # version from what main actually holds right now, not from whatever the
+      # checkout happened to catch.
+      - name: Compute the next version
+        id: version
+        if: steps.resolve.outputs.bump != 'none'
+        env:
+          BUMP: ${{ steps.resolve.outputs.bump }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin main --tags
+          git reset --hard origin/main
+
+          current=$(node -p "require('./package.json').version")
+
+          if ! printf '%s' "$current" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::package.json is at '$current', which is not a plain major.minor.patch. Sort that out by hand."
+            exit 1
+          fi
+
+          IFS=. read -r major minor patch <<< "$current"
+
+          case "$BUMP" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+
+          next="$major.$minor.$patch"
+
+          if git rev-parse -q --verify "refs/tags/v$next" >/dev/null; then
+            echo "::error::v$next already exists. main is at $current, so something released out of band."
+            exit 1
+          fi
+
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "next=$next"       >> "$GITHUB_OUTPUT"
+          echo "::notice::$current -> $next"
+
+      # A regex rather than a JSON round-trip, so prettier's formatting of the
+      # rest of the file survives untouched. It is anchored to the indented
+      # top-level key: the file also contains "@neondatabase/serverless":
+      # "^1.1.0", and a looser pattern would eventually find one of those.
+      - name: Write package.json
+        if: steps.resolve.outputs.bump != 'none'
+        env:
+          NEXT: ${{ steps.version.outputs.next }}
+        run: |
+          set -euo pipefail
+
+          node -e '
+            const fs = require("fs");
+            const next = process.env.NEXT;
+            const before = fs.readFileSync("package.json", "utf8");
+            const after = before.replace(/^(\s*"version":\s*")[^"]*(")/m, `$1${next}$2`);
+
+            if (after === before) throw new Error("package.json version line did not match");
+            if (JSON.parse(after).version !== next) throw new Error("wrote the wrong key");
+
+            fs.writeFileSync("package.json", after);
+          '
+
+          git --no-pager diff --stat
+
+      # Everything or nothing. The commit, the tag and the release go together,
+      # and the order below is the one that survives a failure halfway: the
+      # commit and tag are pushed in a single call, so a rejected push leaves no
+      # tag pointing at a commit main does not have.
+      #
+      # `[skip ci]` is not decoration. package.json counts as source in
+      # `ci.yml`'s `decide` job, so without it this commit runs the full
+      # matrix — build, migrations, the compose stack — against a diff whose
+      # only content is a version number. GitHub honours the marker at the
+      # platform level for `push`.
+      #
+      # The push also cannot start a second release run: `GITHUB_TOKEN` does not
+      # trigger workflows, and this workflow does not listen to `push` anyway.
+      - name: Commit, tag and release
+        if: steps.resolve.outputs.bump != 'none' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT: ${{ steps.version.outputs.next }}
+          WHY: ${{ steps.resolve.outputs.why }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add package.json
+          git commit -m "chore(release): v$NEXT [skip ci]" -m "$WHY"
+          git tag -a "v$NEXT" -m "v$NEXT"
+
+          # --atomic: main and the tag move together or neither does.
+          git push --atomic origin HEAD:main "refs/tags/v$NEXT"
+
+          # The notes are the merged pull requests since the previous tag, which
+          # is what the releases before this workflow used. #105 covers giving
+          # them a written changelog to draw from instead.
+          gh release create "v$NEXT" \
+            --title "Anonify v$NEXT" \
+            --target "$(git rev-parse HEAD)" \
+            --generate-notes
+
+      - name: Say what happened
+        if: steps.resolve.outputs.bump != 'none'
+        env:
+          BUMP: ${{ steps.resolve.outputs.bump }}
+          CURRENT: ${{ steps.version.outputs.current }}
+          NEXT: ${{ steps.version.outputs.next }}
+          WHY: ${{ steps.resolve.outputs.why }}
+          DRY: ${{ inputs.dry_run }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ "$DRY" = "true" ]; then
+            {
+              echo "## Dry run — nothing was written"
+              echo
+              echo "\`$CURRENT\` → \`$NEXT\` ($BUMP)"
+              echo
+              echo "$WHY"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            echo "## Released [v$NEXT]($REPO_URL/releases/tag/v$NEXT)"
+            echo
+            echo "\`$CURRENT\` → \`$NEXT\` ($BUMP)"
+            echo
+            echo "$WHY"
+          } >> "$GITHUB_STEP_SUMMARY"
