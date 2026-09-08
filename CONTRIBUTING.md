@@ -530,6 +530,13 @@ Labels are not only descriptive: `.github/workflows/release.yml` reads them when
 a pull request merges and moves the version in `package.json`, tags it, and
 publishes a release. Nobody edits the version by hand.
 
+`main` is protected, so the bump cannot be pushed to it — not by the workflow
+and not by an admin. It arrives the way every other change does: the job opens
+a `release/vX.Y.Z` pull request containing the one-line `package.json` change,
+merges it, then tags the squashed commit. If that merge is ever refused, the
+pull request is left open for a human to merge and the version is delayed
+rather than lost.
+
 | Bump | Labels |
 | --- | --- |
 | **minor** — `1.1.0` → `1.2.0` | `enhancement`, `formats` |
