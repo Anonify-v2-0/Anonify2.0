@@ -74,6 +74,12 @@ Tesseract with no account anywhere, and CI proves it on every pull request by
 booting that stack and redacting a document through it. If you find a code path
 that only works on Vercel, that is a bug — report it as one.
 
+The optional contextual model pass can also run locally through Ollama. Setup
+discovers installed models and verifies structured output and image capabilities.
+Official AI SDK providers are available for operators bringing their own API keys
+or cloud credentials; see [AI providers](docs/ai-providers.md). Credential-free
+tests cover the local provider protocol; they do not claim live model quality.
+
 ---
 
 ## 3. The next phase
@@ -419,7 +425,7 @@ password to be rotated casually: documents are sealed with per-document keys
 wrapped by it, so a new one makes everything already stored permanently
 unreadable.
 
-`AI_GATEWAY_API_KEY` is genuinely optional — without it the contextual pass is
+`AI_GATEWAY_API_KEY` is optional with the default Gateway provider — without it the contextual pass is
 skipped and the deterministic detectors, manual redaction and export all still
 work, which is a reasonable way to develop the UI and the only way CI runs.
 

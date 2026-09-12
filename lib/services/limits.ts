@@ -95,7 +95,14 @@ const BOUNDS: Record<ServiceLimitKey, { min: number; max: number }> = {
 }
 
 export function serviceDefaults(service: ServiceName): ServiceLimits {
-  return { ...DEFAULTS[service] }
+  // One instance selects one AI provider, so its existing overrides still
+  // describe the only outbound AI gate. A local GPU starts one request at a time.
+  return {
+    ...DEFAULTS[service],
+    ...(service === "ai" && process.env.AI_PROVIDER === "ollama"
+      ? { concurrency: 1 }
+      : {}),
+  }
 }
 
 /** `ANONIFY_AI_CONCURRENCY`, `ANONIFY_OCR_REQUESTS_PER_MINUTE`, … */

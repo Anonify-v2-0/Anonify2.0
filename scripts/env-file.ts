@@ -14,6 +14,8 @@
  * testing live here instead. `tests/env-file.test.ts` is the reason.
  */
 
+import { parse } from "dotenv"
+
 export type EnvLine = {
   key: string
   value: string
@@ -62,7 +64,7 @@ export function renderEnv(title: string, groups: EnvGroup[]): string {
       // defaults stays a block rather than forty alternating lines.
       if (line.comment && !line.commented) out.push(`# ${line.comment}`)
 
-      const assignment = `${line.commented ? "# " : ""}${line.key}=${line.value}`
+      const assignment = `${line.commented ? "# " : ""}${line.key}=${quoteEnvValue(line.value)}`
       out.push(
         line.comment && line.commented
           ? `${assignment.padEnd(COMMENT_COLUMN)} # ${line.comment}`
@@ -85,27 +87,17 @@ export function renderEnv(title: string, groups: EnvGroup[]): string {
  * writes inert on a re-run rather than being read back as choices.
  */
 export function parseEnv(source: string): Map<string, string> {
-  const values = new Map<string, string>()
+  return new Map(Object.entries(parse(source)))
+}
 
-  for (const raw of source.split("\n")) {
-    const line = raw.trim()
-    if (!line || line.startsWith("#")) continue
-
-    const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line)
-    if (!match) continue
-
-    let value = match[2].trim()
-    if (
-      value.length >= 2 &&
-      ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'")))
-    ) {
-      value = value.slice(1, -1)
-    }
-    values.set(match[1], value)
+function quoteEnvValue(value: string): string {
+  if (!/[\s#'"`]/.test(value)) return value
+  for (const quote of ["'", '"', "`"]) {
+    if (!value.includes(quote)) return `${quote}${value}${quote}`
   }
-
-  return values
+  throw new Error(
+    "An environment value contains an unsupported combination of quotes"
+  )
 }
 
 /**

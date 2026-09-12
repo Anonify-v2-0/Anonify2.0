@@ -79,9 +79,10 @@ call is a classic and very quiet bug. There is a test for it.
 
 `lib/ai/gateway.ts`, `lib/ai/prompts/*`, `lib/ai/schemas/*`
 
-Everything goes through the AI Gateway by model id, so swapping models is
-configuration rather than a code change. The default is a small, fast,
-vision-capable model — the shape of work here is many short structured
+Calls use the selected official AI SDK provider or local Ollama. Provider and
+model selection, live discovery and capability verification are documented in
+[AI providers](ai-providers.md). Gateway remains the backward-compatible default,
+with a small, fast, vision-capable model — the shape of work here is many short structured
 extractions, not long reasoning.
 
 **Structured output only.** Every call passes a Zod schema; output that does not
@@ -104,8 +105,14 @@ it); the characters are not.
 
 **Failure is contained.** A provider error returns `null`, not an exception.
 Detection is an assist; losing it must never cost the user the document. Without
-`AI_GATEWAY_API_KEY` the whole layer short-circuits and the product still works:
+credentials for the default Gateway the whole layer short-circuits and the product still works:
 deterministic detection, manual redaction, global rules, and export all run.
+
+**Capabilities are checked before the call.** Setup verifies synthetic structured
+output and image input and saves a declaration bound to the provider, model and
+destination. Unsupported or unverified direct/local calls return `unsupported`,
+which reaches the degradation event and reviewer-facing usage panel. Legacy
+Gateway configurations retain their previous behavior without a new probe.
 
 **But the reason is not lost.** `null` used to be the whole answer, and a rate
 limit, an empty balance, a bad key and a malformed response all arrived at the

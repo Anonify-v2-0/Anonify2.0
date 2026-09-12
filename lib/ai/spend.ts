@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/database/prisma"
-import { configuredRates } from "@/lib/ai/usage-report"
-import { estimateCost } from "@/lib/ai/usage-types"
+import { configuredRates, estimateRows } from "@/lib/ai/rates"
+import { providerId } from "@/lib/ai/providers/config"
 import {
   dailySpendCapUsd,
   SPEND_ENV_NAME,
@@ -31,7 +31,7 @@ import { setConcurrencyCeiling } from "@/lib/services/throttle"
  */
 
 export type SpendStatus =
-  | { state: "uncapped"; reason: "no-cap" | "no-prices" }
+  | { state: "uncapped"; reason: "no-cap" | "no-prices" | "local" }
   | { state: "under"; spentUsd: number; capUsd: number }
   /** Past the slowdown threshold: still running, one call at a time. */
   | { state: "slowing"; spentUsd: number; capUsd: number }
@@ -53,23 +53,23 @@ export function startOfUtcDay(now: Date = new Date()): Date {
  * scoped so nobody sees another person's usage; this one is never shown to
  * anyone, only compared against a number the operator set.
  */
-export async function spentTodayUsd(now: Date = new Date()): Promise<number | null> {
-  const rates = configuredRates()
-  if (!rates) return null
+export async function spentTodayUsd(
+  now: Date = new Date()
+): Promise<number | null> {
+  if (!configuredRates()) return null
 
-  const totals = await prisma.aiUsage.aggregate({
+  const totals = await prisma.aiUsage.groupBy({
+    by: ["model"],
     where: { createdAt: { gte: startOfUtcDay(now) } },
     _sum: { inputTokens: true, outputTokens: true },
   })
 
-  return (
-    estimateCost(
-      {
-        inputTokens: totals._sum.inputTokens ?? 0,
-        outputTokens: totals._sum.outputTokens ?? 0,
-      },
-      rates
-    ) ?? 0
+  return estimateRows(
+    totals.map((row) => ({
+      model: row.model,
+      inputTokens: row._sum.inputTokens ?? 0,
+      outputTokens: row._sum.outputTokens ?? 0,
+    }))
   )
 }
 
@@ -82,7 +82,13 @@ export async function spentTodayUsd(now: Date = new Date()): Promise<number | nu
  * between them, and the retry path already handles the 402 if the estimate is
  * wrong in the direction that matters.
  */
-export async function spendStatus(now: Date = new Date()): Promise<SpendStatus> {
+export async function spendStatus(
+  now: Date = new Date()
+): Promise<SpendStatus> {
+  if (providerId() === "ollama") {
+    setConcurrencyCeiling("ai", null)
+    return { state: "uncapped", reason: "local" }
+  }
   const capUsd = dailySpendCapUsd()
 
   if (capUsd <= 0) {
@@ -100,7 +106,7 @@ export async function spendStatus(now: Date = new Date()): Promise<SpendStatus> 
       JSON.stringify({
         level: "warn",
         context: "ai.spend",
-        message: `${SPEND_ENV_NAME} is set but AI_PRICE_INPUT_PER_MTOK and AI_PRICE_OUTPUT_PER_MTOK are not, so no spend can be estimated and the cap is not in force.`,
+        message: `${SPEND_ENV_NAME} is set but rates are missing or invalid for one or more models. Configure AI_MODEL_PRICES (or AI_PRICE_INPUT_PER_MTOK and AI_PRICE_OUTPUT_PER_MTOK for a single model); the cap is not in force.`,
       })
     )
     setConcurrencyCeiling("ai", null)

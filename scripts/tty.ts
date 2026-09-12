@@ -16,6 +16,7 @@
  */
 
 import { createInterface, type Interface } from "node:readline/promises"
+import { Writable } from "node:stream"
 
 import { formatByteSize, parseByteSize } from "@/lib/config/bytes"
 
@@ -191,6 +192,7 @@ export type Choice<T> = {
   label: string
   /** The lines under the label. Where the actual explaining happens. */
   detail?: string[]
+  disabled?: string
 }
 
 /**
@@ -203,10 +205,20 @@ export type Choice<T> = {
  */
 export class Prompter {
   private readonly rl: Interface | null
+  private muted = false
 
   constructor(readonly interactive: boolean) {
     this.rl = interactive
-      ? createInterface({ input: process.stdin, output: process.stdout })
+      ? createInterface({
+          input: process.stdin,
+          terminal: Boolean(process.stdin.isTTY),
+          output: new Writable({
+            write: (chunk, encoding, callback) => {
+              if (!this.muted) process.stdout.write(chunk, encoding)
+              callback()
+            },
+          }),
+        })
       : null
   }
 
@@ -217,6 +229,20 @@ export class Prompter {
   private async read(question: string): Promise<string> {
     if (!this.rl) return ""
     return (await this.rl.question(question)).trim()
+  }
+
+  async secret(question: string, fallback = ""): Promise<string> {
+    if (!this.rl) return fallback
+    process.stdout.write(
+      `  ${question}${fallback ? " [Enter keeps existing credential]" : ""}: `
+    )
+    this.muted = true
+    try {
+      return (await this.read("")) || fallback
+    } finally {
+      this.muted = false
+      process.stdout.write("\n")
+    }
   }
 
   /** Free text, with a default shown in brackets. */
@@ -263,6 +289,11 @@ export class Prompter {
     choices: Choice<T>[],
     fallbackIndex = 0
   ): Promise<T> {
+    if (!choices[fallbackIndex] || choices[fallbackIndex].disabled) {
+      fallbackIndex = choices.findIndex((choice) => !choice.disabled)
+    }
+    if (fallbackIndex < 0)
+      throw new Error("No selectable choices are available")
     // A blank line after a choice separates it from its explanation. A list of
     // fifteen bare labels has no explanations to separate, and spacing them out
     // turns a menu that fits on screen into one that scrolls.
@@ -275,6 +306,8 @@ export class Prompter {
         `  ${marker} ${paint.bold(`${index + 1}.`)} ${paint.bold(choice.label)}`
       )
       for (const line of choice.detail ?? []) say(`       ${paint.gray(line)}`)
+      if (choice.disabled)
+        say(`       ${paint.gray(`Unavailable: ${choice.disabled}`)}`)
       if (spaced) say()
     }
     if (!spaced) say()
@@ -292,6 +325,10 @@ export class Prompter {
 
       const picked = Number(answer)
       if (Number.isInteger(picked) && picked >= 1 && picked <= choices.length) {
+        if (choices[picked - 1].disabled) {
+          warn(choices[picked - 1].disabled!)
+          continue
+        }
         return choices[picked - 1].value
       }
 

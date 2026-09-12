@@ -14,13 +14,13 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 const aggregate = vi.fn()
 
 vi.mock("@/lib/database/prisma", () => ({
-  prisma: { aiUsage: { aggregate: (...args: unknown[]) => aggregate(...args) } },
+  prisma: { aiUsage: { groupBy: (...args: unknown[]) => aggregate(...args) } },
 }))
 
-const { spendAllows, spendStatus, spentTodayUsd, startOfUtcDay } = await import(
-  "@/lib/ai/spend"
-)
-const { throttleState, resetThrottles } = await import("@/lib/services/throttle")
+const { spendAllows, spendStatus, spentTodayUsd, startOfUtcDay } =
+  await import("@/lib/ai/spend")
+const { throttleState, resetThrottles } =
+  await import("@/lib/services/throttle")
 const { SPEND_ENV_NAME } = await import("@/lib/services/limits")
 
 /** $1 per million in and $2 per million out makes the arithmetic legible. */
@@ -30,7 +30,12 @@ function pricesAre(): void {
 }
 
 function spent(inputTokens: number, outputTokens: number): void {
-  aggregate.mockResolvedValue({ _sum: { inputTokens, outputTokens } })
+  aggregate.mockResolvedValue([
+    {
+      model: "anthropic/claude-haiku-4.5",
+      _sum: { inputTokens, outputTokens },
+    },
+  ])
 }
 
 afterEach(() => {

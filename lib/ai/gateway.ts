@@ -1,6 +1,10 @@
 import { generateText, Output } from "ai"
 import type { z } from "zod"
-import { languageModel, providerConfigured, selectedProvider } from "@/lib/ai/providers"
+import {
+  languageModel,
+  providerConfigured,
+  selectedProvider,
+} from "@/lib/ai/providers"
 import { configuredCapabilities, usageModelId } from "@/lib/ai/providers/config"
 
 import { newUsageId } from "@/lib/documents/ids"
@@ -89,8 +93,17 @@ export async function runStructured<T>(
   try {
     selectedProvider()
     const capabilities = configuredCapabilities()
-    if (!capabilities.structuredOutput || (call.images?.length && !capabilities.vision)) {
-      return { output: null, skipped: "unsupported", inputTokens: 0, outputTokens: 0, durationMs: 0 }
+    if (
+      !capabilities.structuredOutput ||
+      (call.images?.length && !capabilities.vision)
+    ) {
+      return {
+        output: null,
+        skipped: "unsupported",
+        inputTokens: 0,
+        outputTokens: 0,
+        durationMs: 0,
+      }
     }
     const resolved = await languageModel()
     const result = await runThrottled("ai", { label: call.task }, () =>
