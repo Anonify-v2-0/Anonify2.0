@@ -36,7 +36,8 @@
  */
 
 import { randomBytes } from "node:crypto"
-import { existsSync } from "node:fs"
+import { spawn } from "node:child_process"
+import { existsSync, readFileSync } from "node:fs"
 import { readFile, rename, writeFile } from "node:fs/promises"
 import { createConnection } from "node:net"
 import path from "node:path"
@@ -1102,10 +1103,33 @@ const HELP = `
   and every default it prints is read from the code that enforces it.
 `
 
+const SETUP_VERSION = (() => {
+  try {
+    const packageJson = JSON.parse(
+      readFileSync(path.join(process.cwd(), "package.json"), "utf8")
+    ) as { version?: unknown }
+    return typeof packageJson.version === "string"
+      ? packageJson.version
+      : "development"
+  } catch {
+    return process.env.npm_package_version ?? "development"
+  }
+})()
+
 function banner(): void {
   say()
-  say(`  ${paint.bold(paint.cyan("Anonify"))} ${paint.gray("setup")}`)
-  say(`  ${paint.gray("Writes .env. Nothing here leaves your machine.")}`)
+  say(`  ${paint.gray("┌──────────────┐")}`)
+  say(`  ${paint.gray("│")} ${paint.cyan("▰▰▰▰▰▰▰▰")} ${paint.gray("│")}`)
+  say(
+    `  ${paint.gray("│")} ${paint.bold(paint.cyan("ANONIFY"))} ${paint.gray("│")}`
+  )
+  say(`  ${paint.gray("│")} ${paint.red("████  ████")} ${paint.gray("│")}`)
+  say(`  ${paint.gray("└──────────────┘")}`)
+  say(`  ${paint.bold(paint.cyan("Welcome to Anonify setup"))}`)
+  say(
+    `  ${paint.gray(`v${SETUP_VERSION} · your documents stay on this machine`)}`
+  )
+  note("Let's redact the sharp edges first, then get your instance running.")
   rule()
 }
 
@@ -1176,6 +1200,83 @@ const NEXT_STEPS: Record<Mode, string[]> = {
     "pnpm db:migrate           # apply the schema to your Neon database",
     "pnpm dev                  # http://localhost:3000",
   ],
+}
+
+async function runCommand(
+  command: string,
+  args: string[],
+  description: string
+): Promise<boolean> {
+  say()
+  note(`${description} …`)
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(command, args, { stdio: "inherit", shell: true })
+      child.once("error", reject)
+      child.once("exit", (code) =>
+        code === 0
+          ? resolve()
+          : reject(new Error(`command exited with status ${code ?? "unknown"}`))
+      )
+    })
+    ok(description)
+    return true
+  } catch (error) {
+    warn(
+      `${description} failed: ${error instanceof Error ? error.message : String(error)}`
+    )
+    return false
+  }
+}
+
+async function finishSetup(
+  prompt: Prompter,
+  mode: Mode,
+  ocr: "tesseract" | "mistral"
+): Promise<void> {
+  if (!prompt.interactive) return
+
+  const action = await prompt.choose("What would you like to do next?", [
+    {
+      value: "print",
+      label: "Print the next steps and exit",
+      detail: ["You can run them whenever you are ready."],
+    },
+    ...(mode === "local"
+      ? [
+          {
+            value: "complete",
+            label: "Finish local setup",
+            detail: ["Start services, migrate the database, and warm OCR."],
+          },
+          {
+            value: "start",
+            label: "Finish setup and run the app",
+            detail: [
+              "Also starts pnpm dev after the local services are ready.",
+            ],
+          },
+        ]
+      : []),
+  ])
+  if (action === "print") return
+
+  const steps = [
+    ["docker", ["compose", "up", "-d"], "Started Postgres and RustFS"] as const,
+    ["pnpm", ["db:migrate"], "Applied database migrations"] as const,
+    ...(ocr === "tesseract"
+      ? [["pnpm", ["ocr:warm"], "Warmed the OCR model"] as const]
+      : []),
+  ]
+  for (const [command, args, description] of steps) {
+    if (!(await runCommand(command, [...args], description))) {
+      note("The remaining commands are printed below so you can retry them.")
+      return
+    }
+  }
+  if (action === "start") {
+    await runCommand("pnpm", ["dev"], "Started the Anonify app")
+  }
 }
 
 async function main(): Promise<void> {
@@ -1541,6 +1642,7 @@ async function main(): Promise<void> {
     say(`  ${paint.bold("Next")}`)
     say()
     for (const line of NEXT_STEPS[mode]) say(`    ${paint.gray(line)}`)
+    await finishSetup(prompt, mode, ocr)
     say()
     note("Every variable, with its units and why it exists: .env.example")
     note("The full walkthrough: README.md")

@@ -195,6 +195,11 @@ export type Choice<T> = {
   disabled?: string
 }
 
+export type PagedChoiceOptions = {
+  pageSize?: number
+  searchHint?: string
+}
+
 /**
  * Questions, and the promise that an answer is either understood or asked
  * again.
@@ -336,6 +341,74 @@ export class Prompter {
       }
 
       warn(`"${answer}" is not one of 1 to ${choices.length}.`)
+    }
+  }
+
+  /**
+   * A numbered menu for lists that may be larger than a terminal window.
+   * Search and paging are explicit choices, so a model ID that happens to
+   * contain a number can never be mistaken for a navigation command.
+   */
+  async choosePaged<T>(
+    question: string,
+    choices: Choice<T>[],
+    options: PagedChoiceOptions = {}
+  ): Promise<T> {
+    const pageSize = Math.max(3, options.pageSize ?? 10)
+    const original = choices
+    let filtered = original
+    let page = 0
+    const search = Symbol("search")
+    const previous = Symbol("previous")
+    const next = Symbol("next")
+
+    if (!this.interactive) {
+      const first = original.findIndex((choice) => !choice.disabled)
+      if (first < 0) throw new Error("No selectable choices are available")
+      this.echo(question, original[first].label)
+      return original[first].value
+    }
+
+    for (;;) {
+      const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+      page = Math.min(page, pageCount - 1)
+      const start = page * pageSize
+      const visible = filtered.slice(start, start + pageSize)
+      const controls: Choice<symbol>[] = [
+        { value: search, label: "Search models" },
+        ...(page > 0 ? [{ value: previous, label: "Previous page" }] : []),
+        ...(page + 1 < pageCount ? [{ value: next, label: "Next page" }] : []),
+      ]
+      const selected = await this.choose(
+        `${question} (page ${page + 1} of ${pageCount}, ${filtered.length} models)`,
+        [...visible, ...controls] as Choice<T | symbol>[]
+      )
+
+      if (selected === search) {
+        const term = await this.ask(options.searchHint ?? "Search models", {
+          hint: "Matches model ID and display name. Leave blank to show all models.",
+        })
+        const needle = term.toLocaleLowerCase()
+        filtered = needle
+          ? original.filter((choice) =>
+              `${choice.label} ${(choice.detail ?? []).join(" ")}`
+                .toLocaleLowerCase()
+                .includes(needle)
+            )
+          : original
+        page = 0
+        if (filtered.length === 0) warn(`No models match "${term}".`)
+        continue
+      }
+      if (selected === previous) {
+        page -= 1
+        continue
+      }
+      if (selected === next) {
+        page += 1
+        continue
+      }
+      return selected as T
     }
   }
 
