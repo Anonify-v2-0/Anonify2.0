@@ -43,6 +43,8 @@ afterEach(() => {
     SPEND_ENV_NAME,
     "AI_PRICE_INPUT_PER_MTOK",
     "AI_PRICE_OUTPUT_PER_MTOK",
+    "AI_PROVIDER",
+    "AI_MODEL_PRICES",
   ]) {
     delete process.env[key]
   }
@@ -81,6 +83,30 @@ describe("what has been spent today", () => {
 })
 
 describe("the cap", () => {
+  it("does not meter local Ollama calls or query hosted spend", async () => {
+    process.env.AI_PROVIDER = "ollama"
+    process.env[SPEND_ENV_NAME] = "1"
+    expect(await spendStatus()).toEqual({ state: "uncapped", reason: "local" })
+    expect(aggregate).not.toHaveBeenCalled()
+  })
+
+  it("sums historical models at their own configured rates", async () => {
+    process.env.AI_MODEL_PRICES = JSON.stringify({
+      "anthropic/claude-haiku-4.5": { inputPerMillion: 1, outputPerMillion: 2 },
+      "openai:other": { inputPerMillion: 10, outputPerMillion: 20 },
+    })
+    aggregate.mockResolvedValue([
+      {
+        model: "anthropic/claude-haiku-4.5",
+        _sum: { inputTokens: 1_000_000, outputTokens: 0 },
+      },
+      {
+        model: "openai:other",
+        _sum: { inputTokens: 1_000_000, outputTokens: 0 },
+      },
+    ])
+    expect(await spentTodayUsd()).toBe(11)
+  })
   it("is absent by default, and lifts any ceiling it had set", async () => {
     const status = await spendStatus()
     expect(status.state).toBe("uncapped")

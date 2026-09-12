@@ -69,7 +69,11 @@ export function parseModel(
   raw: unknown
 ): ModelDefinition | undefined {
   const row = bag(raw)
-  const rawId = row.id ?? row.model_name ?? row.name ?? row.model
+  // Azure's `id` is an ARM resource path; inference requires its deployment name.
+  const rawId =
+    provider === "azure"
+      ? row.name
+      : (row.id ?? row.model_name ?? row.name ?? row.model)
   if (
     typeof rawId !== "string" ||
     !rawId.trim() ||

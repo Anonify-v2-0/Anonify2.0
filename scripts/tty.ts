@@ -212,6 +212,9 @@ export class Prompter {
       ? createInterface({
           input: process.stdin,
           terminal: Boolean(process.stdin.isTTY),
+          // A pasted credential must not be recalled and echoed by an arrow key
+          // in the next ordinary prompt.
+          historySize: 0,
           output: new Writable({
             write: (chunk, encoding, callback) => {
               if (!this.muted) process.stdout.write(chunk, encoding)

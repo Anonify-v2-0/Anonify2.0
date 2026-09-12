@@ -90,6 +90,34 @@ export async function askAiProvider(
     note(
       "Bedrock uses your AWS credential chain (profile, environment or role). Runtime bearer keys cannot list control-plane models."
     )
+  if (picked === "amazon-bedrock") {
+    const auth = await prompt.choose(
+      "Bedrock authentication",
+      [
+        {
+          value: "chain",
+          label: "Use AWS environment credentials, profile or role",
+        },
+        { value: "keys", label: "Enter AWS access credentials" },
+        { value: "bearer", label: "Enter a Bedrock runtime API key" },
+      ],
+      env.AWS_BEARER_TOKEN_BEDROCK ? 2 : 0
+    )
+    if (auth !== "bearer") env.AWS_BEARER_TOKEN_BEDROCK = ""
+    if (auth === "keys") {
+      for (const key of [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+      ])
+        env[key] = await prompt.secret(key, env[key])
+    }
+    if (auth === "bearer")
+      env.AWS_BEARER_TOKEN_BEDROCK = await prompt.secret(
+        "AWS_BEARER_TOKEN_BEDROCK",
+        env.AWS_BEARER_TOKEN_BEDROCK
+      )
+  }
   if (picked === "azure")
     note(
       "Deployment discovery uses Azure CLI / managed identity credentials. Inference uses AZURE_API_KEY."
@@ -98,6 +126,23 @@ export async function askAiProvider(
     note(
       "Vertex uses Google Application Default Credentials. Credential files must also be available to the running app."
     )
+  if (picked === "google-vertex") {
+    const auth = await prompt.choose(
+      "Vertex authentication",
+      [
+        { value: "adc", label: "Use Google Application Default Credentials" },
+        { value: "key", label: "Enter a Vertex express-mode API key" },
+      ],
+      env.GOOGLE_VERTEX_API_KEY ? 1 : 0
+    )
+    env.GOOGLE_VERTEX_API_KEY =
+      auth === "key"
+        ? await prompt.secret(
+            "GOOGLE_VERTEX_API_KEY",
+            env.GOOGLE_VERTEX_API_KEY
+          )
+        : ""
+  }
   if (
     provider.envKey &&
     !env[provider.envKey] &&
@@ -129,9 +174,9 @@ export async function askAiProvider(
     },
     {
       value: false,
-      label: "Text only",
+      label: "Text (image support optional)",
       detail: [
-        "Image-region analysis will be skipped and reported to the reviewer; OCR still runs.",
+        "If image verification fails, image-region analysis is skipped and reported; OCR still runs.",
       ],
     },
   ])

@@ -62,6 +62,7 @@ export function capabilityTarget(env: ProviderEnv): string {
     env.AWS_REGION || "",
     env.GOOGLE_VERTEX_PROJECT || "",
     env.GOOGLE_VERTEX_LOCATION || "",
+    Boolean(env.GOOGLE_VERTEX_API_KEY),
   ])
 }
 

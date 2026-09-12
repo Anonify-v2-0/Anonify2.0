@@ -50,9 +50,10 @@ cannot bypass a known disabled model. If discovery fails, setup reports it and
 offers a verified manual ID or keeps the current configuration. Ollama requires
 an installed, inspected model from discovery, including for typed IDs.
 
-Choose **Text and images** for the full model pass. **Text only** allows a model
-that passes structured-output verification but cannot read images. OCR still
-extracts text; image-region analysis is skipped and reported in the usage panel.
+Choose **Text and images** for the full model pass. **Text (image support
+optional)** also allows a model that passes structured-output verification but
+cannot read images. For those models, OCR still extracts text; image-region
+analysis is skipped and reported in the usage panel.
 Models that fail structured output cannot be newly selected in either mode.
 
 `--yes` and non-interactive setup stay offline: existing AI settings are
