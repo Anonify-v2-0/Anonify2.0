@@ -16,7 +16,28 @@ import {
   type ModelDefinition,
 } from "@/lib/ai/providers/discovery"
 import { probeModel } from "@/lib/ai/providers/probe"
-import { note, ok, Prompter, spin, warn } from "./tty"
+import { note, ok, Prompter, spin, warn, type Choice } from "./tty"
+
+function modelDetails(model: ModelDefinition): string[] {
+  const capabilities = [
+    model.textOutput === true
+      ? "text"
+      : model.textOutput === false
+        ? "no text"
+        : "text ?",
+    model.vision === true
+      ? "images"
+      : model.vision === false
+        ? "no images"
+        : "images ?",
+    model.structuredOutput === true
+      ? "structured output"
+      : model.structuredOutput === false
+        ? "no structured output"
+        : "structured output ?",
+  ]
+  return [capabilities.join(" · ")]
+}
 
 export const AI_ENV_KEYS = [
   ...new Set([
@@ -196,26 +217,26 @@ export async function askAiProvider(
   const manual = Symbol("manual")
   const cancel = Symbol("cancel")
   for (;;) {
-    const choices = models.map((model) => ({
+    const choices: Choice<string | symbol>[] = models.map((model) => ({
       value: model.id as string | symbol,
       label: model.label,
-      detail: [
-        model.vision === true
-          ? "Image input advertised; verify before saving."
-          : model.vision === false
-            ? "Text only; verify before saving."
-            : "Capabilities not advertised; verify before saving.",
-      ],
+      detail: modelDetails(model),
       disabled: blockedReason(model, requireVision),
     }))
-    const chosen = await prompt.choose("Which model?", [
+    const menu = [
       ...choices,
       { value: manual, label: "Enter a model / deployment ID and verify it" },
       {
         value: cancel,
         label: "Keep the current configuration and finish setup",
       },
-    ])
+    ] satisfies Choice<string | symbol>[]
+    const chosen = await (typeof prompt.choosePaged === "function"
+      ? prompt.choosePaged("Which model?", menu, {
+          pageSize: 8,
+          searchHint: "Search models",
+        })
+      : prompt.choose("Which model?", menu))
     if (chosen === cancel) return current
     const id =
       chosen === manual
