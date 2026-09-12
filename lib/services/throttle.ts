@@ -139,6 +139,15 @@ export function classifyServiceError(error: unknown): ServiceFailure {
   const after = retryAfterMs(error)
   const message = error instanceof Error ? error.message : String(error)
 
+  // Node fetch wraps a refused local connection in a cause. Waiting cannot
+  // start Ollama; classify the code without exposing its raw error message.
+  let cause: unknown = error
+  for (let depth = 0; depth < 8 && cause && typeof cause === "object"; depth++) {
+    const current = cause as { code?: string; cause?: unknown }
+    if (current.code === "ECONNREFUSED") return { kind: "provider", retryable: false, retryAfterMs: null }
+    cause = current.cause
+  }
+
   if (status !== null) {
     if (status === 429) {
       return { kind: "rate-limit", retryable: true, retryAfterMs: after }
