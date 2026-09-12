@@ -990,9 +990,9 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
   )
   step(`reserved ${reserved.id} (upload mode: ${reserved.uploadMode})`)
 
-  // 2. Upload. On a self-hosted install this goes through the app to S3/MinIO
-  //    or the local filesystem; on Vercel the browser would upload to Blob
-  //    directly and this script would have nothing to do here.
+  // 2. Upload. On a self-hosted install this goes through the app to an
+  //    S3-compatible service or the local filesystem; on Vercel the browser
+  //    uploads to Blob directly and this script would have nothing to do here.
   if (reserved.uploadMode === "vercel-blob") {
     throw new Error(
       "This install is configured for direct Vercel Blob uploads, which the " +

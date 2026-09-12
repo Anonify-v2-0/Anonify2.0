@@ -349,10 +349,16 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Build and start the stack
-        # --wait blocks until postgres and minio report healthy, the bucket and
+        # --wait blocks until postgres and RustFS report healthy, the bucket and
         # migration jobs have exited successfully, and the app's own healthcheck
         # passes. Reaching the next step at all is most of the assertion.
         run: docker compose up -d --build --wait
+
+      - name: Re-run bucket initialization
+        run: docker compose run --rm rustfs-init
+
+      - name: Upload, download, list, presign and delete through RustFS
+        run: pnpm smoke:storage http://127.0.0.1:9000
 
       # Every supported format, each opened afterwards the way an adversary
       # would: a CSV reparsed as a grid, a message reparsed with an independent

@@ -69,7 +69,7 @@ Usage counters are local rows in your own database. Nothing phones home.
 ### No vendor lock-in that breaks local dev
 
 Vercel Blob, Neon and the AI Gateway are the *deployed* defaults, not
-requirements. A clone runs against local Postgres, local MinIO and local
+requirements. A clone runs against local Postgres, local RustFS and local
 Tesseract with no account anywhere, and CI proves it on every pull request by
 booting that stack and redacting a document through it. If you find a code path
 that only works on Vercel, that is a bug — report it as one.
@@ -102,7 +102,7 @@ Done.
 ### 3.1 Make it actually clone-and-run
 
 Done. A fresh clone now runs with `pnpm setup && docker compose up -d`, which
-builds and starts Anonify along with local Postgres and MinIO, with no account
+builds and starts Anonify along with local Postgres and RustFS, with no account
 anywhere.
 
 - [x] ~~**Browser uploads require a real Blob store.**~~ The server reports which
@@ -114,7 +114,7 @@ anywhere.
       PGlite was investigated and dropped: there is no Prisma 7 adapter for it.
 - [x] ~~**No migrations.**~~ Migrations are canonical, and CI applies them to an
       empty database and fails if the schema and the migrations disagree.
-- [x] ~~**A `docker compose` for the dependencies.**~~ Postgres and MinIO, with
+- [x] ~~**A `docker compose` for the dependencies.**~~ Postgres and RustFS, with
       health checks, named volumes and automatic bucket creation.
 - [x] ~~**A container image for the app itself.**~~ A standalone Next.js build on
       `node:22-slim`, with a separate migrator stage that runs before the app
@@ -402,7 +402,7 @@ opinion.
 
 ```bash
 pnpm setup                                  # writes .env and generates the two required secrets
-docker compose up -d postgres minio minio-init
+docker compose up -d postgres rustfs rustfs-init
 pnpm db:migrate
 pnpm dev
 ```

@@ -76,7 +76,7 @@ describe("storage driver selection", () => {
     expect(() => selectStorageDriver()).toThrow(/must be one of/)
   })
 
-  it("infers MinIO's path-style addressing from a custom endpoint", () => {
+  it("infers path-style addressing from a custom S3 endpoint", () => {
     process.env.S3_BUCKET = "anonify"
     process.env.S3_ACCESS_KEY_ID = "key"
     process.env.S3_SECRET_ACCESS_KEY = "secret"

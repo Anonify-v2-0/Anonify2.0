@@ -24,6 +24,7 @@
     "ocr:warm": "tsx scripts/warm-ocr.ts",
     "cleanup": "tsx scripts/cleanup.ts",
     "smoke": "tsx scripts/smoke.ts",
+    "smoke:storage": "tsx scripts/storage-smoke.ts",
     "bench": "tsx scripts/bench-formats.ts",
     "workflow:bootstrap": "node node_modules/@workflow/world-postgres/bin/setup.js"
   },

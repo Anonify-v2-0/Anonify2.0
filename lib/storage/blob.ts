@@ -7,7 +7,7 @@ import {
 /**
  * Storage for encrypted document bytes.
  *
- * The backend is configuration — Vercel Blob, S3/MinIO, or the local
+ * The backend is configuration — Vercel Blob, S3-compatible storage, or the local
  * filesystem — and nothing above this file knows which one answered. Blob URLs
  * and object keys are treated as opaque server-side handles: they are never
  * handed to the browser, and everything written here is already AES-256-GCM

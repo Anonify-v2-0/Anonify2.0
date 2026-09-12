@@ -166,7 +166,12 @@ function portInUse(port: number, timeoutMs = 400): Promise<boolean> {
 type Answers = {
   mode: Mode
   profile: Profile
-  ports: { app: number; postgres: number; minio: number; minioConsole: number }
+  ports: {
+    app: number
+    postgres: number
+    rustfs: number
+    rustfsConsole: number
+  }
   ocr: "tesseract" | "mistral"
   /** Which model the chosen engine reads with, from a validated list. */
   tesseractModel: TesseractModel
@@ -890,12 +895,12 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
             ],
           },
           {
-            heading: "Object storage (MinIO, via docker compose)",
+            heading: "Object storage (RustFS, via docker compose)",
             lines: [
               { key: "STORAGE_DRIVER", value: "s3" },
               {
                 key: "S3_ENDPOINT",
-                value: `http://localhost:${answers.ports.minio}`,
+                value: `http://localhost:${answers.ports.rustfs}`,
               },
               { key: "S3_BUCKET", value: "anonify" },
               { key: "S3_REGION", value: "us-east-1" },
@@ -913,10 +918,10 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
             lines: [
               { key: "APP_PORT", value: String(answers.ports.app) },
               { key: "POSTGRES_PORT", value: String(answers.ports.postgres) },
-              { key: "MINIO_PORT", value: String(answers.ports.minio) },
+              { key: "RUSTFS_PORT", value: String(answers.ports.rustfs) },
               {
-                key: "MINIO_CONSOLE_PORT",
-                value: String(answers.ports.minioConsole),
+                key: "RUSTFS_CONSOLE_PORT",
+                value: String(answers.ports.rustfsConsole),
               },
             ],
           },
@@ -1083,7 +1088,7 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
 const HELP = `
   ${paint.bold("pnpm setup")} — write a working .env
 
-    --local        fully local: Postgres and MinIO in Docker, Tesseract OCR
+    --local        fully local: Postgres and RustFS in Docker, Tesseract OCR
     --demo         the deployed demo's services: Neon, Vercel Blob, Mistral
     --private      just you, or a team on a private network (the default)
     --public       this instance is shared: strict limits, small allowances
@@ -1105,7 +1110,12 @@ function banner(): void {
 }
 
 async function choosePorts(prompt: Prompter): Promise<Answers["ports"]> {
-  const wanted = { app: 3000, postgres: 5432, minio: 9000, minioConsole: 9001 }
+  const wanted = {
+    app: 3000,
+    postgres: 5432,
+    rustfs: 9000,
+    rustfsConsole: 9001,
+  }
 
   const probe = spin("Checking whether those ports are free")
   const taken: string[] = []
@@ -1142,21 +1152,21 @@ async function choosePorts(prompt: Prompter): Promise<Answers["ports"]> {
     postgres: await prompt.askInteger("POSTGRES_PORT", {
       fallback: wanted.postgres,
     }),
-    minio: await prompt.askInteger("MINIO_PORT", { fallback: wanted.minio }),
-    minioConsole: await prompt.askInteger("MINIO_CONSOLE_PORT", {
-      fallback: wanted.minioConsole,
+    rustfs: await prompt.askInteger("RUSTFS_PORT", { fallback: wanted.rustfs }),
+    rustfsConsole: await prompt.askInteger("RUSTFS_CONSOLE_PORT", {
+      fallback: wanted.rustfsConsole,
     }),
   }
 }
 
 const MODE_LABELS: Record<Mode, string> = {
-  local: "fully local, Postgres and MinIO in Docker",
+  local: "fully local, Postgres and RustFS in Docker",
   demo: "the deployed demo's services",
 }
 
 const NEXT_STEPS: Record<Mode, string[]> = {
   local: [
-    "docker compose up -d      # Postgres + MinIO, with the bucket created",
+    "docker compose up -d      # Postgres + RustFS, with the bucket created",
     "pnpm db:migrate           # apply the schema",
     "pnpm ocr:warm             # fetch the configured OCR model now, not mid-redaction",
     "pnpm dev                  # http://localhost:3000",
@@ -1249,7 +1259,7 @@ async function main(): Promise<void> {
             value: "local",
             label: "Fully local",
             detail: [
-              "Postgres and MinIO through Docker Compose, Tesseract for OCR.",
+              "Postgres and RustFS through Docker Compose, Tesseract for OCR.",
               "No accounts, no API keys, nothing leaves your machine.",
             ],
           },
@@ -1317,7 +1327,7 @@ async function main(): Promise<void> {
     const ports =
       mode === "local"
         ? await choosePorts(prompt)
-        : { app: 3000, postgres: 5432, minio: 9000, minioConsole: 9001 }
+        : { app: 3000, postgres: 5432, rustfs: 9000, rustfsConsole: 9001 }
 
     const ocr =
       mode === "local"
