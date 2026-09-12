@@ -1,16 +1,16 @@
 # A self-hosted Anonify: the app and everything it depends on.
 #
 #   pnpm setup            # writes .env, including the two required secrets
-#   docker compose up -d  # postgres, minio, migrations, then the app on :3000
+#   docker compose up -d  # postgres, RustFS, migrations, then the app on :3000
 #
-# Nothing here needs an account anywhere. Postgres replaces Neon, MinIO replaces
+# Nothing here needs an account anywhere. Postgres replaces Neon, RustFS replaces
 # Vercel Blob, and OCR runs locally through Tesseract, so a fresh clone works
 # offline once the images are built.
 #
 # To develop against these services with the app on the host instead, start only
 # the dependencies and leave port 3000 free:
 #
-#   docker compose up -d postgres minio minio-init
+#   docker compose up -d postgres rustfs rustfs-init
 #   pnpm db:migrate && pnpm dev
 #
 # The credentials below are development defaults and are deliberately obvious.
@@ -44,38 +44,71 @@ services:
       retries: 20
       start_period: 10s
 
-  minio:
-    image: minio/minio:latest
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: anonify
-      MINIO_ROOT_PASSWORD: anonify-dev-secret
-    ports:
-      - "127.0.0.1:${MINIO_PORT:-9000}:9000" # S3 API
-      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001" # web console
+  # RustFS runs as UID/GID 10001. Existing installs reuse the old object-storage
+  # volume, whose ownership may come from the previous container image, so make
+  # it writable before RustFS starts. This changes ownership, never data.
+  rustfs-volume-init:
+    image: rustfs/rustfs:1.0.0-rc.6
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        chown -R 10001:10001 /data
+        echo "RustFS volume permissions ready"
     volumes:
-      - minio-data:/data
+      - rustfs-data:/data
+    restart: "no"
+
+  rustfs:
+    image: rustfs/rustfs:1.0.0-rc.6
+    restart: unless-stopped
+    depends_on:
+      rustfs-volume-init:
+        condition: service_completed_successfully
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY_ID:-anonify}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_ACCESS_KEY:-anonify-dev-secret}
+      RUSTFS_REGION: ${S3_REGION:-us-east-1}
+    ports:
+      - "127.0.0.1:${RUSTFS_PORT:-9000}:9000" # S3 API
+      - "127.0.0.1:${RUSTFS_CONSOLE_PORT:-9001}:9001" # web console
+    volumes:
+      - rustfs-data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "--silent",
+          "http://127.0.0.1:9000/health/ready",
+        ]
       interval: 5s
       timeout: 5s
       retries: 20
-      start_period: 10s
+      start_period: 20s
 
-  # Creates the bucket once MinIO is healthy, then exits. Without this the app
+  # Creates the bucket once RustFS is healthy, then exits. Without this the app
   # would start against a bucket that does not exist and fail on first upload.
-  minio-init:
-    image: minio/mc:latest
+  rustfs-init:
+    image: rustfs/rc:v0.1.35
     depends_on:
-      minio:
+      rustfs:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 anonify anonify-dev-secret &&
-      mc mb --ignore-existing local/anonify &&
-      echo 'bucket ready: anonify'
-      "
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY_ID:-anonify}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_ACCESS_KEY:-anonify-dev-secret}
+      S3_BUCKET: ${S3_BUCKET:-anonify}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        rc alias set local http://rustfs:9000 "$${RUSTFS_ACCESS_KEY}" "$${RUSTFS_SECRET_KEY}"
+        rc bucket create "local/$${S3_BUCKET}" --ignore-existing
+        echo "bucket ready: $${S3_BUCKET}"
     restart: "no"
 
   # Schema and workflow tables, then exits. The app waits for this to succeed,
@@ -98,21 +131,23 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      minio-init:
+      rustfs-init:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:${APP_PORT:-3000}:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       # Service names, not localhost: these are resolved on the compose network,
       # so a .env written for host development still works unchanged.
       DATABASE_URL: postgresql://anonify:anonify@postgres:5432/anonify
       DATABASE_DRIVER: postgres
       STORAGE_DRIVER: s3
-      S3_ENDPOINT: http://minio:9000
-      S3_BUCKET: anonify
-      S3_REGION: us-east-1
-      S3_ACCESS_KEY_ID: anonify
-      S3_SECRET_ACCESS_KEY: anonify-dev-secret
+      S3_ENDPOINT: http://rustfs:9000
+      S3_BUCKET: ${S3_BUCKET:-anonify}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-anonify}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-anonify-dev-secret}
       S3_FORCE_PATH_STYLE: "true"
 
       # Required, and deliberately not defaulted. ENCRYPTION_KEY is the master
@@ -161,7 +196,39 @@ services:
       # Optional. Without a key the contextual pass is skipped and pattern
       # detection, manual redaction and export all still work.
       AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
+      AI_PROVIDER: ${AI_PROVIDER:-gateway}
       AI_MODEL: ${AI_MODEL:-}
+      AI_MODEL_CAPABILITIES: ${AI_MODEL_CAPABILITIES:-}
+      AI_MODEL_PRICES: ${AI_MODEL_PRICES:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      PERPLEXITY_API_KEY: ${PERPLEXITY_API_KEY:-}
+      BASETEN_API_KEY: ${BASETEN_API_KEY:-}
+      AZURE_API_KEY: ${AZURE_API_KEY:-}
+      AZURE_RESOURCE_NAME: ${AZURE_RESOURCE_NAME:-}
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
+      GOOGLE_VERTEX_PROJECT: ${GOOGLE_VERTEX_PROJECT:-}
+      GOOGLE_VERTEX_LOCATION: ${GOOGLE_VERTEX_LOCATION:-}
+      GOOGLE_VERTEX_API_KEY: ${GOOGLE_VERTEX_API_KEY:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      # Rewrites loopback Ollama addresses to the Docker host at connection time.
+      # IAM credential files/profiles must be mounted explicitly; see docs/ai-providers.md.
+      ANONIFY_CONTAINER: "1"
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://localhost:11434}
       AI_PRICE_INPUT_PER_MTOK: ${AI_PRICE_INPUT_PER_MTOK:-}
       AI_PRICE_OUTPUT_PER_MTOK: ${AI_PRICE_OUTPUT_PER_MTOK:-}
 
@@ -210,7 +277,7 @@ services:
   # same work directly against the database — point cron or a systemd timer at
   # it instead.
   scheduler:
-    image: curlimages/curl:latest
+    image: curlimages/curl:8.22.0
     profiles: ["scheduler"]
     restart: unless-stopped
     depends_on:
@@ -267,5 +334,8 @@ services:
 
 volumes:
   postgres-data:
-  minio-data:
+  # Keep the prior Compose volume's concrete name so an upgrade attaches the
+  # existing object data. RustFS imports the supported on-disk metadata in place.
+  rustfs-data:
+    name: anonify_minio-data
   tesseract-cache:

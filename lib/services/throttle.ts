@@ -119,7 +119,8 @@ export function retryAfterMs(error: unknown): number | null {
   if (!raw) return null
 
   const seconds = Number(raw)
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000)
+  if (Number.isFinite(seconds) && seconds >= 0)
+    return Math.round(seconds * 1000)
 
   const at = Date.parse(raw)
   if (Number.isFinite(at)) return Math.max(0, at - Date.now())
@@ -138,6 +139,20 @@ export function classifyServiceError(error: unknown): ServiceFailure {
   const status = statusOf(error)
   const after = retryAfterMs(error)
   const message = error instanceof Error ? error.message : String(error)
+
+  // Node fetch wraps a refused local connection in a cause. Waiting cannot
+  // start Ollama; classify the code without exposing its raw error message.
+  let cause: unknown = error
+  for (
+    let depth = 0;
+    depth < 8 && cause && typeof cause === "object";
+    depth++
+  ) {
+    const current = cause as { code?: string; cause?: unknown }
+    if (current.code === "ECONNREFUSED")
+      return { kind: "provider", retryable: false, retryAfterMs: null }
+    cause = current.cause
+  }
 
   if (status !== null) {
     if (status === 429) {
@@ -173,7 +188,11 @@ export function classifyServiceError(error: unknown): ServiceFailure {
   if (/401|403|api.?key|unauthor/i.test(message)) {
     return { kind: "authorization", retryable: false, retryAfterMs: null }
   }
-  if (/timeout|ETIMEDOUT|ECONNRESET|socket hang up|aborted|fetch failed/i.test(message)) {
+  if (
+    /timeout|ETIMEDOUT|ECONNRESET|socket hang up|aborted|fetch failed/i.test(
+      message
+    )
+  ) {
     return { kind: "timeout", retryable: true, retryAfterMs: after }
   }
   if (/schema|validat|parse|JSON/i.test(message)) {
@@ -197,8 +216,14 @@ const MAX_BACKOFF_MS = 30_000
  * the first one. Spreading them over the window turns a thundering herd into a
  * queue.
  */
-export function backoffMs(attempt: number, random: () => number = Math.random): number {
-  const ceiling = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** Math.max(0, attempt - 1))
+export function backoffMs(
+  attempt: number,
+  random: () => number = Math.random
+): number {
+  const ceiling = Math.min(
+    MAX_BACKOFF_MS,
+    BASE_BACKOFF_MS * 2 ** Math.max(0, attempt - 1)
+  )
   // Full jitter: anywhere in [ceiling/2, ceiling], so a retry is never earlier
   // than half the intended wait and never in lockstep with another caller.
   return Math.round(ceiling / 2 + random() * (ceiling / 2))
@@ -403,5 +428,9 @@ export function throttleState(service: ServiceName): {
   ceiling: number | null
 } {
   const gate = gates[service]
-  return { active: gate.active, waiting: gate.waiting.length, ceiling: gate.ceiling }
+  return {
+    active: gate.active,
+    waiting: gate.waiting.length,
+    ceiling: gate.ceiling,
+  }
 }

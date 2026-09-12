@@ -78,7 +78,7 @@ segments are stripped and leading slashes are trimmed, so a traversal-shaped
 key cannot escape the store. `put` mkdirs the parent recursively; `exists` is a
 read that swallows its own error, so there is no `stat` import to maintain.
 
-### S3 / MinIO — `createS3Driver` (`drivers.ts:122`)
+### S3-compatible storage — `createS3Driver` (`drivers.ts:122`)
 
 Built from an `S3Config`. `s3ConfigFromEnv` (`drivers.ts:96`) reads
 `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (all required), plus
@@ -87,8 +87,8 @@ the required pieces are missing, which is how `selectStorageDriver` decides S3
 is not configured.
 
 `forcePathStyle` is inferred from the endpoint when
-`S3_FORCE_PATH_STYLE` is unset: a custom endpoint means MinIO in practice, and
-MinIO needs path-style addressing; AWS does not. Setting
+`S3_FORCE_PATH_STYLE` is unset: custom S3-compatible endpoints usually need
+path-style addressing, while AWS does not. Setting
 `S3_FORCE_PATH_STYLE=false` overrides that inference for an edge case.
 
 ### `vercelBlobDriver` — `lib/storage/drivers.ts:188`
@@ -113,7 +113,7 @@ the bundle:
 - `localDriver` uses only `node:fs/promises`, so there is nothing to lazy-load.
 
 A deployment on Vercel Blob therefore never pulls in `@aws-sdk/client-s3`, and a
-self-hosted install on MinIO never pulls in `@vercel/blob`.
+self-hosted install on RustFS never pulls in `@vercel/blob`.
 
 ---
 

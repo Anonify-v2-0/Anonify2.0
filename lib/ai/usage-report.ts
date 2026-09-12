@@ -1,13 +1,13 @@
 import { prisma } from "@/lib/database/prisma"
 import {
   EMPTY_TOTALS,
-  estimateCost,
   type AggregateUsage,
   type DocumentUsage,
-  type ModelRates,
   type UsageDegradation,
   type UsageTotals,
 } from "@/lib/ai/usage-types"
+import { estimateRows } from "@/lib/ai/rates"
+export { configuredRates } from "@/lib/ai/rates"
 
 /**
  * Reading back what analysis actually cost.
@@ -23,17 +23,10 @@ import {
  * the browser bundle.
  */
 
-export function configuredRates(): ModelRates | null {
-  const input = Number(process.env.AI_PRICE_INPUT_PER_MTOK)
-  const output = Number(process.env.AI_PRICE_OUTPUT_PER_MTOK)
-
-  if (!Number.isFinite(input) || !Number.isFinite(output)) return null
-  if (input < 0 || output < 0) return null
-
-  return { inputPerMillion: input, outputPerMillion: output }
-}
-
-function add(totals: UsageTotals, row: Omit<UsageTotals, "calls">): UsageTotals {
+function add(
+  totals: UsageTotals,
+  row: Omit<UsageTotals, "calls">
+): UsageTotals {
   return {
     calls: totals.calls + 1,
     inputTokens: totals.inputTokens + row.inputTokens,
@@ -75,13 +68,16 @@ export async function documentDegradation(
   if (!event) return null
 
   const payload = (event.payload ?? {}) as { reason?: unknown; calls?: unknown }
-  const reason = typeof payload.reason === "string" ? payload.reason : "provider"
+  const reason =
+    typeof payload.reason === "string" ? payload.reason : "provider"
   const calls = typeof payload.calls === "number" ? payload.calls : 0
 
   return { reason, calls }
 }
 
-export async function documentUsage(documentId: string): Promise<DocumentUsage> {
+export async function documentUsage(
+  documentId: string
+): Promise<DocumentUsage> {
   const [rows, degraded] = await Promise.all([
     prisma.aiUsage.findMany({
       where: { documentId },
@@ -107,7 +103,7 @@ export async function documentUsage(documentId: string): Promise<DocumentUsage> 
       .map(([key, value]) => ({ key, ...value }))
       .sort((a, b) => b.inputTokens - a.inputTokens),
     models: [...models],
-    estimatedCostUsd: estimateCost(totals, configuredRates()),
+    estimatedCostUsd: estimateRows(rows),
     degraded,
   }
 }
@@ -146,7 +142,10 @@ export async function aggregateUsage(
   for (const row of rows) {
     totals = add(totals, row)
     seen.add(row.documentId)
-    models.set(row.model, add(models.get(row.model) ?? { ...EMPTY_TOTALS }, row))
+    models.set(
+      row.model,
+      add(models.get(row.model) ?? { ...EMPTY_TOTALS }, row)
+    )
   }
 
   return {
@@ -155,6 +154,6 @@ export async function aggregateUsage(
     byModel: [...models.entries()]
       .map(([key, value]) => ({ key, ...value }))
       .sort((a, b) => b.inputTokens - a.inputTokens),
-    estimatedCostUsd: estimateCost(totals, configuredRates()),
+    estimatedCostUsd: estimateRows(rows),
   }
 }

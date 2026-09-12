@@ -50,6 +50,8 @@ export const DEGRADATION_LABELS: Record<string, string> = {
   timeout: "the AI provider did not answer in time",
   "invalid-output": "the AI provider returned something unreadable",
   provider: "the AI provider failed",
+  unsupported:
+    "the selected model lacks verified structured-output or image support for this call; run setup to choose a compatible model",
 }
 
 export function describeDegradation(degraded: UsageDegradation): string {

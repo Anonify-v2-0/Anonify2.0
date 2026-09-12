@@ -1,5 +1,11 @@
 import { generateText, Output } from "ai"
 import type { z } from "zod"
+import {
+  languageModel,
+  providerConfigured,
+  selectedProvider,
+} from "@/lib/ai/providers"
+import { configuredCapabilities, usageModelId } from "@/lib/ai/providers/config"
 
 import { newUsageId } from "@/lib/documents/ids"
 import { prisma } from "@/lib/database/prisma"
@@ -12,21 +18,18 @@ import {
 /**
  * The model layer.
  *
- * Everything reaches the provider through the AI Gateway by model id, so
+ * Everything reaches the selected AI SDK provider by model id, so
  * swapping models is configuration rather than a code change. Nothing here
  * decides anything: the model returns structured proposals, and the application
  * applies only what a person accepts.
  */
 
-/** Cheap, fast and vision-capable — the shape of work this product does. */
-const DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
-
 export function resolveModel(): string {
-  return process.env.AI_MODEL?.trim() || DEFAULT_MODEL
+  return usageModelId()
 }
 
 export function aiConfigured(): boolean {
-  return Boolean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN)
+  return providerConfigured()
 }
 
 export type StructuredCall<T> = {
@@ -41,7 +44,7 @@ export type StructuredCall<T> = {
 }
 
 /** Why a call produced nothing, when it did. */
-export type StructuredSkip = "not-configured" | ServiceErrorKind
+export type StructuredSkip = "not-configured" | "unsupported" | ServiceErrorKind
 
 export type StructuredResult<T> = {
   output: T | null
@@ -88,9 +91,24 @@ export async function runStructured<T>(
   }
 
   try {
+    selectedProvider()
+    const capabilities = configuredCapabilities()
+    if (
+      !capabilities.structuredOutput ||
+      (call.images?.length && !capabilities.vision)
+    ) {
+      return {
+        output: null,
+        skipped: "unsupported",
+        inputTokens: 0,
+        outputTokens: 0,
+        durationMs: 0,
+      }
+    }
+    const resolved = await languageModel()
     const result = await runThrottled("ai", { label: call.task }, () =>
       generateText({
-        model,
+        model: resolved,
         system: call.system,
         maxRetries: call.maxRetries ?? 0,
         output: Output.object({ schema: call.schema }),

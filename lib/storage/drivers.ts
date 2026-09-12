@@ -4,8 +4,8 @@ import path from "node:path"
 /**
  * Storage drivers.
  *
- * Three backends, one interface: Vercel Blob for the deployed demo, S3 (MinIO
- * locally) for a self-hosted install, and the filesystem for a clone with
+ * Three backends, one interface: Vercel Blob for the deployed demo, S3-compatible
+ * storage for a self-hosted install, and the filesystem for a clone with
  * nothing configured at all. Everything above this file works in stored keys
  * and never learns which one answered.
  *
@@ -79,7 +79,7 @@ export const localDriver: StorageDriver = {
   },
 }
 
-// --- S3 / MinIO ------------------------------------------------------------
+// --- S3-compatible storage -------------------------------------------------
 
 const S3_PREFIX = "s3:"
 
@@ -89,7 +89,7 @@ export type S3Config = {
   endpoint?: string
   accessKeyId: string
   secretAccessKey: string
-  /** MinIO needs path-style addressing; AWS does not. */
+  /** Self-hosted S3 services commonly need path-style addressing; AWS does not. */
   forcePathStyle: boolean
 }
 
@@ -108,7 +108,7 @@ export function s3ConfigFromEnv(): S3Config | null {
     endpoint,
     accessKeyId,
     secretAccessKey,
-    // Anything with a custom endpoint is MinIO-shaped in practice.
+    // Custom S3-compatible endpoints generally use path-style addressing.
     forcePathStyle: process.env.S3_FORCE_PATH_STYLE
       ? process.env.S3_FORCE_PATH_STYLE !== "false"
       : Boolean(endpoint),

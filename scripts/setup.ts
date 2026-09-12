@@ -40,6 +40,8 @@ import { existsSync } from "node:fs"
 import { readFile, rename, writeFile } from "node:fs/promises"
 import { createConnection } from "node:net"
 import path from "node:path"
+import { AI_ENV_KEYS, askAiProvider } from "./setup-ai"
+import type { ProviderEnv } from "@/lib/ai/providers/config"
 
 import { formatByteSize } from "@/lib/config/bytes"
 import {
@@ -164,14 +166,18 @@ function portInUse(port: number, timeoutMs = 400): Promise<boolean> {
 type Answers = {
   mode: Mode
   profile: Profile
-  ports: { app: number; postgres: number; minio: number; minioConsole: number }
+  ports: {
+    app: number
+    postgres: number
+    rustfs: number
+    rustfsConsole: number
+  }
   ocr: "tesseract" | "mistral"
   /** Which model the chosen engine reads with, from a validated list. */
   tesseractModel: TesseractModel
   tesseractLanguage: TesseractLanguage
   mistralOcrModel: MistralOcrModel
-  /** Blank keeps the gateway's built-in default. */
-  aiModel: string
+  ai: ProviderEnv
   services: Partial<Record<ServiceName, Partial<ServiceLimits>>>
   spendCapUsd: number
   quotas: Partial<Quotas>
@@ -255,7 +261,7 @@ const SERVICE_UNITS: Record<ServiceLimitKey, string> = {
 }
 
 const SERVICE_TITLES: Record<ServiceName, string> = {
-  ai: "AI Gateway",
+  ai: "AI provider",
   ocr: "Hosted OCR (Mistral)",
 }
 
@@ -427,63 +433,6 @@ async function askMistralOcrModel(prompt: Prompter): Promise<MistralOcrModel> {
     })),
     MISTRAL_OCR_MODELS.indexOf(DEFAULT_MISTRAL_OCR_MODEL)
   )
-}
-
-/**
- * Known-good gateway models, with free text still allowed.
- *
- * Deliberately not a closed list, unlike the OCR ones. Gateway model ids change
- * faster than this repository does, and refusing a model released next month
- * would be obstruction rather than validation. The shortlist exists so nobody
- * has to go and look one up to get started.
- */
-const AI_MODEL_CHOICES: { value: string; label: string; detail: string[] }[] = [
-  {
-    value: "",
-    label: "The built-in default (anthropic/claude-haiku-4.5)",
-    detail: [
-      "Cheap, fast and vision-capable, which is the shape of work this does.",
-    ],
-  },
-  {
-    value: "anthropic/claude-sonnet-4.5",
-    label: "anthropic/claude-sonnet-4.5",
-    detail: ["Stronger on subtle context; several times the cost per token."],
-  },
-  {
-    value: "openai/gpt-4.1-mini",
-    label: "openai/gpt-4.1-mini",
-    detail: ["A comparable small vision model from another provider."],
-  },
-  {
-    value: "other",
-    label: "Something else",
-    detail: ["Any id your gateway accepts. Typed in, not validated here."],
-  },
-]
-
-async function askAiModel(prompt: Prompter, current: string): Promise<string> {
-  say()
-  say(`  ${paint.bold("AI model")}`)
-  say()
-  note("Everything reaches the provider through the gateway by model id, so")
-  note("this is the whole of swapping models. Vision matters: a scanned page")
-  note("and a photograph are read by the same call. Only relevant with a")
-  note("gateway key — without one the contextual pass is skipped entirely and")
-  note("pattern detection, manual redaction, rules and export all still work.")
-
-  const picked = await prompt.choose<string>(
-    "Which model?",
-    AI_MODEL_CHOICES,
-    0
-  )
-
-  if (picked !== "other") return picked
-
-  return prompt.ask("Model id", {
-    fallback: current,
-    hint: "As your gateway spells it, for example anthropic/claude-haiku-4.5.",
-  })
 }
 
 async function askQuotas(
@@ -946,12 +895,12 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
             ],
           },
           {
-            heading: "Object storage (MinIO, via docker compose)",
+            heading: "Object storage (RustFS, via docker compose)",
             lines: [
               { key: "STORAGE_DRIVER", value: "s3" },
               {
                 key: "S3_ENDPOINT",
-                value: `http://localhost:${answers.ports.minio}`,
+                value: `http://localhost:${answers.ports.rustfs}`,
               },
               { key: "S3_BUCKET", value: "anonify" },
               { key: "S3_REGION", value: "us-east-1" },
@@ -969,10 +918,10 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
             lines: [
               { key: "APP_PORT", value: String(answers.ports.app) },
               { key: "POSTGRES_PORT", value: String(answers.ports.postgres) },
-              { key: "MINIO_PORT", value: String(answers.ports.minio) },
+              { key: "RUSTFS_PORT", value: String(answers.ports.rustfs) },
               {
-                key: "MINIO_CONSOLE_PORT",
-                value: String(answers.ports.minioConsole),
+                key: "RUSTFS_CONSOLE_PORT",
+                value: String(answers.ports.rustfsConsole),
               },
             ],
           },
@@ -1069,12 +1018,9 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
         "detection, manual redaction, rules and export all still work.",
       ],
       lines: [
-        { key: "AI_GATEWAY_API_KEY", value: keep("AI_GATEWAY_API_KEY") },
-        {
-          key: "AI_MODEL",
-          value: answers.aiModel || keep("AI_MODEL"),
-          comment: "Defaults to a small, fast, vision-capable model.",
-        },
+        ...AI_ENV_KEYS.filter(
+          (key) => key !== "MISTRAL_API_KEY" || answers.ocr !== "mistral"
+        ).map((key) => ({ key, value: answers.ai[key] ?? keep(key) })),
         {
           key: "AI_PRICE_INPUT_PER_MTOK",
           value: keep("AI_PRICE_INPUT_PER_MTOK"),
@@ -1142,7 +1088,7 @@ function buildEnv(answers: Answers, kept: Map<string, string>): string {
 const HELP = `
   ${paint.bold("pnpm setup")} — write a working .env
 
-    --local        fully local: Postgres and MinIO in Docker, Tesseract OCR
+    --local        fully local: Postgres and RustFS in Docker, Tesseract OCR
     --demo         the deployed demo's services: Neon, Vercel Blob, Mistral
     --private      just you, or a team on a private network (the default)
     --public       this instance is shared: strict limits, small allowances
@@ -1164,7 +1110,12 @@ function banner(): void {
 }
 
 async function choosePorts(prompt: Prompter): Promise<Answers["ports"]> {
-  const wanted = { app: 3000, postgres: 5432, minio: 9000, minioConsole: 9001 }
+  const wanted = {
+    app: 3000,
+    postgres: 5432,
+    rustfs: 9000,
+    rustfsConsole: 9001,
+  }
 
   const probe = spin("Checking whether those ports are free")
   const taken: string[] = []
@@ -1201,21 +1152,21 @@ async function choosePorts(prompt: Prompter): Promise<Answers["ports"]> {
     postgres: await prompt.askInteger("POSTGRES_PORT", {
       fallback: wanted.postgres,
     }),
-    minio: await prompt.askInteger("MINIO_PORT", { fallback: wanted.minio }),
-    minioConsole: await prompt.askInteger("MINIO_CONSOLE_PORT", {
-      fallback: wanted.minioConsole,
+    rustfs: await prompt.askInteger("RUSTFS_PORT", { fallback: wanted.rustfs }),
+    rustfsConsole: await prompt.askInteger("RUSTFS_CONSOLE_PORT", {
+      fallback: wanted.rustfsConsole,
     }),
   }
 }
 
 const MODE_LABELS: Record<Mode, string> = {
-  local: "fully local, Postgres and MinIO in Docker",
+  local: "fully local, Postgres and RustFS in Docker",
   demo: "the deployed demo's services",
 }
 
 const NEXT_STEPS: Record<Mode, string[]> = {
   local: [
-    "docker compose up -d      # Postgres + MinIO, with the bucket created",
+    "docker compose up -d      # Postgres + RustFS, with the bucket created",
     "pnpm db:migrate           # apply the schema",
     "pnpm ocr:warm             # fetch the configured OCR model now, not mid-redaction",
     "pnpm dev                  # http://localhost:3000",
@@ -1254,6 +1205,38 @@ async function main(): Promise<void> {
   try {
     banner()
 
+    // Resolve reuse before asking for provider credentials; a rerun must show
+    // the operator's current provider/model and never restore an old choice later.
+    let kept = new Map<string, string>()
+    if (existsSync(ENV_PATH)) {
+      const existing = await readFile(ENV_PATH, "utf8")
+      const values = parseEnv(existing)
+      const hasValues = [...values.values()].some((value) => value.length > 0)
+      if (
+        hasValues &&
+        !argv.has("--force") &&
+        !argv.has("-f") &&
+        !(await prompt.confirm("Overwrite the existing .env?", false))
+      ) {
+        note("Left .env alone. Nothing was changed.")
+        return
+      }
+      if (hasValues) {
+        if (
+          await prompt.confirm(
+            "Reuse the secrets and keys already in it?",
+            true
+          )
+        )
+          kept = values
+        await writeFile(`${ENV_PATH}.backup`, existing, {
+          encoding: "utf8",
+          mode: 0o600,
+        })
+        ok("Previous .env copied to .env.backup")
+      }
+    }
+
     if (!interactive && !assumeYes) {
       note("stdin is not a terminal, so every question takes its default.")
     }
@@ -1276,7 +1259,7 @@ async function main(): Promise<void> {
             value: "local",
             label: "Fully local",
             detail: [
-              "Postgres and MinIO through Docker Compose, Tesseract for OCR.",
+              "Postgres and RustFS through Docker Compose, Tesseract for OCR.",
               "No accounts, no API keys, nothing leaves your machine.",
             ],
           },
@@ -1344,7 +1327,7 @@ async function main(): Promise<void> {
     const ports =
       mode === "local"
         ? await choosePorts(prompt)
-        : { app: 3000, postgres: 5432, minio: 9000, minioConsole: 9001 }
+        : { app: 3000, postgres: 5432, rustfs: 9000, rustfsConsole: 9001 }
 
     const ocr =
       mode === "local"
@@ -1388,7 +1371,19 @@ async function main(): Promise<void> {
         ? await askMistralOcrModel(prompt)
         : DEFAULT_MISTRAL_OCR_MODEL
 
-    const aiModel = await askAiModel(prompt, "")
+    const ai = await askAiProvider(
+      prompt,
+      {
+        ...Object.fromEntries(kept),
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([, value]) => value !== undefined)
+        ),
+      },
+      mode === "local"
+    )
+    // The same provider determines defaults shown here and enforced at runtime.
+    process.env.AI_PROVIDER = ai.AI_PROVIDER || "gateway"
+    if (ai.MISTRAL_API_KEY) kept.set("MISTRAL_API_KEY", ai.MISTRAL_API_KEY)
 
     // 4. Limits.
     step(4, STEPS, "Limits")
@@ -1416,40 +1411,6 @@ async function main(): Promise<void> {
     // 5. Write.
     step(5, STEPS, "Writing .env")
 
-    let kept = new Map<string, string>()
-
-    if (existsSync(ENV_PATH)) {
-      const existing = await readFile(ENV_PATH, "utf8")
-      const values = parseEnv(existing)
-      const hasValues = [...values.values()].some((value) => value.length > 0)
-
-      if (hasValues && !argv.has("--force") && !argv.has("-f")) {
-        warn("A .env already exists and has values in it.")
-
-        if (!(await prompt.confirm("Overwrite it?", false))) {
-          note("Left .env alone. Nothing was changed.")
-          say()
-          return
-        }
-      }
-
-      if (hasValues) {
-        // The single most destructive thing this script can do. Documents are
-        // sealed with per-document keys wrapped by ENCRYPTION_KEY, so a new one
-        // does not "reset" anything — it makes everything already stored
-        // permanently unreadable. Reusing is therefore the default, and the
-        // question is phrased so that pressing enter is the safe answer.
-        const reuse = await prompt.confirm(
-          "Reuse the secrets and keys already in it?",
-          true
-        )
-        if (reuse) kept = values
-
-        await writeFile(`${ENV_PATH}.backup`, existing, "utf8")
-        ok("Previous .env copied to .env.backup")
-      }
-    }
-
     const contents = buildEnv(
       {
         mode,
@@ -1459,7 +1420,7 @@ async function main(): Promise<void> {
         tesseractModel,
         tesseractLanguage,
         mistralOcrModel,
-        aiModel,
+        ai,
         services,
         spendCapUsd,
         quotas,
@@ -1478,7 +1439,10 @@ async function main(): Promise<void> {
       // Through a temporary file: an interrupted write over the real one is a
       // truncated .env, and the value most likely to be lost that way is the
       // encryption key.
-      await writeFile(`${ENV_PATH}.tmp`, contents, "utf8")
+      await writeFile(`${ENV_PATH}.tmp`, contents, {
+        encoding: "utf8",
+        mode: 0o600,
+      })
       await rename(`${ENV_PATH}.tmp`, ENV_PATH)
 
       written = parseEnv(await readFile(ENV_PATH, "utf8"))
@@ -1505,8 +1469,9 @@ async function main(): Promise<void> {
         ? `${ocr} · ${tesseractModel} · ${tesseractLanguage}`
         : `${ocr} · ${mistralOcrModel}`
     )
-    setting("AI model", aiModel || "built-in default", {
-      defaulted: aiModel === "",
+    setting("AI provider", ai.AI_PROVIDER || "gateway")
+    setting("AI model", ai.AI_MODEL || "built-in default", {
+      defaulted: !ai.AI_MODEL,
     })
     setting(
       "AI spend cap",
