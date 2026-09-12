@@ -14,6 +14,19 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.3.0] - 2026-09-12
+
+### Added
+
+- AI detection can use official AI SDK providers, including Azure, Bedrock and
+  Vertex, or a local Ollama server. Setup discovers models, blocks incompatible
+  choices and verifies structured output and image support before saving a model;
+  existing AI Gateway configurations continue to work. (#115)
+
+### Changed
+
+- Self-hosted object storage now uses pinned RustFS images instead of archived MinIO Community Edition tooling, reuses the existing data volume, and initializes its S3 bucket idempotently (#117)
+
 ## [1.2.0] - 2026-09-08
 
 ### Changed
