@@ -46,6 +46,11 @@ model Document {
   workflowRunId    String?
   /// Wrapped per-document data key (base64), unwrapped server-side only.
   encryptionKey    String?
+  /// Which envelope this document's objects are sealed in: null or `v0` for the
+  /// original whole-object AES-256-GCM, `v1` for the chunked format. Every
+  /// object the document owns shares it, and reads dispatch on this rather
+  /// than on the bytes. See lib/storage/sealed.ts.
+  encryptionFormat String?
   checksum         String?
   processedChecksum String?
 

@@ -1,23 +1,33 @@
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
-import { decodeEml } from "@/lib/documents/eml/parse"
 import {
+  decodeAttachment,
   planExpansion,
   type AttachmentRefusal,
   type ExpansionLimits,
 } from "@/lib/documents/eml/attachments"
+import { decodeEml } from "@/lib/documents/eml/parse"
 import { isPureContainer } from "@/lib/documents/formats"
 import { newBatchId, newDocumentId, newUsageId } from "@/lib/documents/ids"
-import type { MboxLimits } from "@/lib/documents/mbox/limits"
+import { mboxLimits, type MboxLimits } from "@/lib/documents/mbox/limits"
 import {
   messagePartPath,
-  planMailbox,
+  planMailboxMessages,
+  scanMailboxMessages,
   type MessageRefusal,
 } from "@/lib/documents/mbox/messages"
+import { messageFromMailbox } from "@/lib/documents/mbox/parse"
 import { checkQuota, quotaMessage } from "@/lib/security/usage"
-import { getObject, putObject, sourceKey } from "@/lib/storage/blob"
-import { decryptDocument, encryptDocument } from "@/lib/storage/encryption"
+import { sourceKey } from "@/lib/storage/blob"
 import { sha256 } from "@/lib/storage/integrity"
+import {
+  documentSeal,
+  newDocumentSeal,
+  openSealedObject,
+  putSealed,
+  type SealedObject,
+} from "@/lib/storage/sealed"
+import { collect } from "@/lib/storage/streams"
 import { failureForCode } from "@/lib/workflows/failure"
 import type { DocumentKind } from "@/types/document"
 
@@ -53,6 +63,13 @@ import type { DocumentKind } from "@/types/document"
  * workflow run, its own extraction, its own detectors, its own review and its
  * own export — that indistinguishability is what keeps this from becoming a
  * second, weaker pipeline.
+ *
+ * **Children are ranges until they are documents.** A planner locates each
+ * child in the container and learns its size and what it sniffs as, and
+ * nothing more; a child's bytes are read back out of the sealed source, one
+ * child at a time, when it is sealed as a document of its own. A mailbox is
+ * scanned as it streams and never held, and a refused child — too large, the
+ * wrong format, over the allowance — is never read out at all.
  */
 
 export type ExpandedChild = {
@@ -93,7 +110,13 @@ type PlannedChild = {
   name: string
   kind: DocumentKind
   mimeType: string
-  bytes: Uint8Array
+  /** The child's size in bytes, known without reading it out. */
+  size: number
+  /**
+   * Reads the child's bytes out of the container. Called at most once, and
+   * only for a child that becomes a document.
+   */
+  load: () => Promise<Uint8Array>
   /** Null for a child that becomes a document. */
   refusal: ChildRefusal | null
   /** Recorded on the child so where it came from can be read back. */
@@ -155,6 +178,7 @@ export async function expandContainer(
       quotaKey: true,
       sourceBlobKey: true,
       encryptionKey: true,
+      encryptionFormat: true,
       checksum: true,
       metadata: true,
     },
@@ -195,14 +219,17 @@ export async function expandContainer(
     throw new Error("Document has not been ingested")
   }
 
-  const sealed = await getObject(document.sourceBlobKey)
-  const source = decodeEml(decryptDocument(sealed, document.encryptionKey))
+  const source = await openSealedObject(
+    document.sourceBlobKey,
+    sourceKey(documentId),
+    documentSeal(document)
+  )
   const depth = expansionDepth(document.metadata)
 
   const plan =
     kind === "mbox"
-      ? planMailboxChildren(source, depth, options.mboxLimits)
-      : planAttachmentChildren(source, depth, options.limits)
+      ? await planMailboxChildren(source, depth, options.mboxLimits)
+      : await planAttachmentChildren(source, depth, options.limits)
 
   if (plan.children.length === 0) {
     await mark(documentId, document.metadata, {
@@ -270,23 +297,34 @@ export async function expandContainer(
  * no child at all, which is the one difference from a mailbox: every message
  * in a mailbox is a message, so there is nothing to carry.
  */
-function planAttachmentChildren(
-  source: string,
+async function planAttachmentChildren(
+  source: SealedObject,
   depth: number,
   limits: ExpansionLimits | undefined
-): ContainerPlan {
-  const plan = planExpansion(source, { depth, limits })
+): Promise<ContainerPlan> {
+  // The MIME tree is built over the whole message, which is the one thing
+  // here that is held whole — streamed in, so its sealed form never is.
+  // Nothing planned keeps a reference to it, so it is gone before the first
+  // child is sealed.
+  const message = decodeEml(await collect(await source.stream()))
+  const plan = planExpansion(message, { depth, limits })
 
   const children: PlannedChild[] = []
 
   for (const entry of plan.entries) {
     if (entry.action === "carry") continue
+    const { attachment } = entry
     children.push({
-      partPath: entry.attachment.path,
+      partPath: attachment.path,
       name: entry.name,
       kind: entry.kind,
       mimeType: entry.mimeType,
-      bytes: entry.attachment.bytes,
+      size: attachment.size,
+      load: async () =>
+        decodeAttachment(
+          await source.range(attachment.bodyStart, attachment.bodyEnd),
+          attachment.encoding
+        ),
       refusal: entry.action === "refuse" ? entry.reason : null,
       provenance: {
         partPath: entry.attachment.path,
@@ -299,27 +337,36 @@ function planAttachmentChildren(
   return { children, carried: plan.entries.length - children.length }
 }
 
-/** The messages of a mailbox, in the same shape. */
-function planMailboxChildren(
-  source: string,
+/**
+ * The messages of a mailbox, in the same shape.
+ *
+ * Scanned as the source streams out of storage, so the mailbox is never one
+ * buffer or one string; each message is read back by range when it is sealed.
+ */
+async function planMailboxChildren(
+  source: SealedObject,
   depth: number,
-  limits: MboxLimits | undefined
-): ContainerPlan {
-  const plan = planMailbox(source, { depth, limits })
+  configured: MboxLimits | undefined
+): Promise<ContainerPlan> {
+  const limits = configured ?? mboxLimits()
+  const found = await scanMailboxMessages(await source.stream(), limits)
+  const plan = planMailboxMessages(found, { depth, limits })
 
   return {
-    children: plan.entries.map((entry) => ({
-      partPath: messagePartPath(entry.entry.index),
-      name: entry.name,
-      kind: entry.kind,
-      mimeType: entry.mimeType,
-      bytes: entry.entry.bytes,
-      refusal: entry.action === "refuse" ? entry.reason : null,
+    children: plan.entries.map(({ entry, ...verdict }) => ({
+      partPath: messagePartPath(entry.index),
+      name: verdict.name,
+      kind: verdict.kind,
+      mimeType: verdict.mimeType,
+      size: entry.size,
+      load: async () =>
+        messageFromMailbox(await source.range(entry.start, entry.end)),
+      refusal: verdict.action === "refuse" ? verdict.reason : null,
       provenance: {
         // The position in the mailbox, which is what provenance means here.
         // The `From ` line is not recorded: it carries the envelope sender,
         // which is document content, and this column is not a place for it.
-        messageIndex: entry.entry.index,
+        messageIndex: entry.index,
         messages: plan.entries.length,
       },
     })),
@@ -422,7 +469,6 @@ async function materialize(input: {
   // than leaving a document nothing can ever process.
   if (existing) await prisma.document.delete({ where: { id: existing.id } })
 
-  const bytes = planned.bytes
   // A refusal decided from the bytes is free; only a document that will
   // actually be processed spends an upload. The allowance exists to bound
   // work, and a child that is a row and a sentence is not work.
@@ -434,7 +480,7 @@ async function materialize(input: {
     originalName: planned.name,
     kind: planned.kind,
     mimeType: planned.mimeType,
-    size: bytes.byteLength,
+    size: planned.size,
     preset: parent.preset,
     userFingerprint: parent.userFingerprint,
     quotaKey: parent.quotaKey,
@@ -471,20 +517,30 @@ async function materialize(input: {
     return { id: documentId, partPath, kind: planned.kind, processable: false }
   }
 
+  // Read out before the claim rather than after it, so the one read that can
+  // fail on the network does not sit between the charge and the seal.
+  const bytes = await planned.load()
+  if (bytes.byteLength !== planned.size) {
+    throw new Error("A child does not match the size it was planned at")
+  }
+
   // The charge and the claim, together. Either the batch gained a document and
   // was billed one upload for it, or neither happened and the retry starts
   // this part over — which is what keeps a retried expansion from charging the
   // same message twice.
   await chargeAndClaim(parent.quotaKey, { ...common, status: "queued" })
 
-  const { ciphertext, wrappedKey } = encryptDocument(bytes)
-  const stored = await putObject(sourceKey(documentId), ciphertext)
+  // A child is a new document with a key of its own, sealed in the current
+  // format whatever its container was written in.
+  const seal = newDocumentSeal()
+  const stored = await putSealed(sourceKey(documentId), bytes, seal)
 
   await prisma.document.update({
     where: { id: documentId },
     data: {
       sourceBlobKey: stored.key,
-      encryptionKey: wrappedKey,
+      encryptionKey: seal.wrappedKey,
+      encryptionFormat: seal.format,
       checksum: sha256(bytes),
     },
   })

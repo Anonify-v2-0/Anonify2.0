@@ -3,8 +3,8 @@ import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { verifyDownloadToken } from "@/lib/security/signed-url"
-import { getObject } from "@/lib/storage/blob"
-import { decryptDocument } from "@/lib/storage/encryption"
+import { artifactKey, reportKey } from "@/lib/storage/blob"
+import { documentSeal, getSealed } from "@/lib/storage/sealed"
 import { checksumMatches, sha256 } from "@/lib/storage/integrity"
 
 export const runtime = "nodejs"
@@ -60,12 +60,14 @@ export async function GET(
     }
 
     const blobKey = reportBlob ?? artifact.blobKey
+    const logicalKey = reportBlob
+      ? reportKey(document.id, artifact.id)
+      : artifactKey(document.id, artifact.id, artifact.extension)
     const expectedChecksum = reportBlob
       ? (artifact.reportChecksum ?? "")
       : artifact.checksum
 
-    const sealed = await getObject(blobKey)
-    const bytes = decryptDocument(sealed, document.encryptionKey)
+    const bytes = await getSealed(blobKey, logicalKey, documentSeal(document))
 
     if (!checksumMatches(expectedChecksum, sha256(bytes))) {
       console.error(

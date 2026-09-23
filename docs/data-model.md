@@ -110,6 +110,7 @@ An uploaded source document. The stored source bytes are AES-256-GCM encrypted;
 | `processedBlobKey` | `String?` | Sealed export artifact produced on demand. |
 | `workflowRunId` | `String?` | Durable run currently processing (or last processing) this document. |
 | `encryptionKey` | `String?` | Wrapped per-document data key (base64); unwrapped server-side only. |
+| `encryptionFormat` | `String?` | Which envelope every object this document owns is sealed in: null or `v0` for the original whole-object AES-256-GCM, `v1` for the chunked format. Reads dispatch on this, never on the bytes. Documents ingested before it existed stay `null` and age out through retention; nothing is backfilled. See [storage.md](./storage.md) §7. |
 | `checksum` | `String?` | SHA-256 of the sealed source bytes. Integrity, not a key. |
 | `processedChecksum` | `String?` | SHA-256 of the export artifact, for verification on download. |
 | `batchId` | `String?` | Batch this document arrived in, if any. `onDelete: SetNull`. |

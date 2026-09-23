@@ -2,12 +2,18 @@ import { formatOf, kindForExtension } from "@/lib/documents/formats"
 import { looksLikeEml } from "@/lib/documents/eml/parse"
 import { looksLikeMbox } from "@/lib/documents/mbox/parse"
 import { looksLikeRtf } from "@/lib/documents/rtf/parse"
+import { DETECTION_SAMPLE_BYTES } from "@/lib/documents/sample"
 import type { DocumentKind } from "@/types/document"
 
 /**
  * Content sniffing. The browser-supplied MIME type and the filename are hints;
  * the bytes decide. A file whose contents disagree with its extension is
  * rejected rather than guessed at.
+ *
+ * Only the first `DETECTION_SAMPLE_BYTES` are ever consulted, and that is a
+ * contract rather than an accident: ingest and the mailbox scanner sniff a
+ * head they kept instead of a file they would otherwise have to hold. A new
+ * test here that reads further breaks both — see lib/documents/sample.ts.
  *
  * Most formats announce themselves in their first few bytes. Text formats do
  * not — a CSV, a TSV and a plain text file are all just characters — so for
@@ -34,13 +40,13 @@ function startsWith(bytes: Uint8Array, signature: number[], offset = 0): boolean
 /** Zip entry names sit uncompressed in local file headers, so a scan is enough. */
 function zipContains(bytes: Uint8Array, needle: string): boolean {
   const haystack = Buffer.from(
-    bytes.subarray(0, Math.min(bytes.length, 64 * 1024))
+    bytes.subarray(0, Math.min(bytes.length, DETECTION_SAMPLE_BYTES))
   ).toString("latin1")
   return haystack.includes(needle)
 }
 
 /** How much of a file is read to decide whether it is text. */
-const TEXT_SAMPLE_BYTES = 64 * 1024
+const TEXT_SAMPLE_BYTES = DETECTION_SAMPLE_BYTES
 
 /** Control characters no text document contains. Tab, CR and LF are fine. */
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/

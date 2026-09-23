@@ -4,7 +4,11 @@ import {
   detectDocumentType,
   extensionMatchesKind,
 } from "@/lib/documents/detect"
-import { planAttachment, planExpansion } from "@/lib/documents/eml/attachments"
+import {
+  attachmentBytes,
+  planAttachment,
+  planExpansion,
+} from "@/lib/documents/eml/attachments"
 import { decodeEml, encodeEml } from "@/lib/documents/eml/parse"
 import { formatOf, isPureContainer } from "@/lib/documents/formats"
 import { maxBatchFiles } from "@/lib/documents/batch-config"
@@ -19,6 +23,7 @@ import {
   messagePartPath,
   planMailbox,
   planMessage,
+  type MailboxMessage,
 } from "@/lib/documents/mbox/messages"
 import {
   looksLikeMbox,
@@ -71,6 +76,11 @@ const docx = await makeDocxFixture()
 
 function entriesOf(source: string): MailboxEntry[] {
   return splitMailbox(source)
+}
+
+/** An entry read out of a mailbox, as the planner sees it: sniffed. */
+function sniffedEntry({ bytes, ...span }: MailboxEntry): MailboxMessage {
+  return { ...span, detected: detectDocumentType(bytes) }
 }
 
 describe("recognising a mailbox", () => {
@@ -279,7 +289,7 @@ describe("messages that are not the ordinary case", () => {
 
     expect(entries).toHaveLength(3)
     expect(decodeEml(entries[1].bytes)).toContain("Subject: Nothing to say 2")
-    expect(planMessage(entries[1], 3).action).toBe("expand")
+    expect(planMessage(sniffedEntry(entries[1]), 3).action).toBe("expand")
   })
 
   it("keeps a message that is nothing but its enclosures", () => {
@@ -325,12 +335,13 @@ describe("messages that are not the ordinary case", () => {
     // Unreachable through the splitter, which will not open a message on bytes
     // that are not a header block. Asserted anyway, because "unreachable" is
     // not a property and this is the function that decides what gets processed.
-    const notAMessage: MailboxEntry = {
+    const notAMessage: MailboxMessage = {
       index: 0,
       fromLine: fromLine(),
       start: 0,
       end: docx.byteLength,
-      bytes: docx,
+      size: docx.byteLength,
+      detected: detectDocumentType(docx),
     }
     const plan = planMessage(notAMessage, 1)
 
@@ -395,10 +406,7 @@ describe("the limits on a mailbox", () => {
     const expanding = plan.entries.filter((entry) => entry.action === "expand")
 
     expect(plan.expandedBytes).toBe(
-      expanding.reduce(
-        (total, entry) => total + entry.entry.bytes.byteLength,
-        0
-      )
+      expanding.reduce((total, entry) => total + entry.entry.size, 0)
     )
   })
 
@@ -575,10 +583,13 @@ describe("the values inside are still findable", () => {
       ]),
     ])
     const [only] = entriesOf(source)
-    const [enclosure] = planExpansion(decodeEml(only.bytes)).entries
+    const message = decodeEml(only.bytes)
+    const [enclosure] = planExpansion(message).entries
 
     if (enclosure.action !== "expand") expect.unreachable()
-    expect(Buffer.from(enclosure.attachment.bytes)).toEqual(Buffer.from(pdf))
+    expect(Buffer.from(attachmentBytes(message, enclosure.attachment))).toEqual(
+      Buffer.from(pdf)
+    )
     expect(planAttachment(enclosure.attachment).action).toBe("expand")
   })
 })

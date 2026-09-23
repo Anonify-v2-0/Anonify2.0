@@ -25,6 +25,9 @@ const { expandContainer: expandMessageAttachments } = await import(
 const { resolveAttachments } = await import("@/lib/redaction/attachments")
 const { putObject, sourceKey } = await import("@/lib/storage/blob")
 const { encryptDocument } = await import("@/lib/storage/encryption")
+const { documentSeal, getSealed, newDocumentSeal, putSealed } = await import(
+  "@/lib/storage/sealed"
+)
 const { sha256 } = await import("@/lib/storage/integrity")
 const { attachedEml, bytesOf, unreadableBytes } = await import(
   "../eml-fixtures"
@@ -44,17 +47,30 @@ function owner(label: string): string {
   return value
 }
 
-/** A message already ingested: sealed source, checksum, no children yet. */
+/**
+ * A message already ingested: sealed source, checksum, no children yet. In
+ * the original envelope unless `format` says it was ingested chunked.
+ */
 async function seedMessage(input: {
   source: string
   ownerKey: string
   quotaKey?: string | null
   batchId?: string | null
+  format?: "v0" | "v1"
 }): Promise<string> {
   const id = testId("doc")
   const bytes = bytesOf(input.source)
-  const { ciphertext, wrappedKey } = encryptDocument(bytes)
-  const stored = await putObject(sourceKey(id), ciphertext)
+  let stored: { key: string }
+  let wrappedKey: string
+  if (input.format === "v1") {
+    const seal = newDocumentSeal()
+    stored = await putSealed(sourceKey(id), bytes, seal)
+    wrappedKey = seal.wrappedKey
+  } else {
+    const legacy = encryptDocument(bytes)
+    stored = await putObject(sourceKey(id), legacy.ciphertext)
+    wrappedKey = legacy.wrappedKey
+  }
 
   await prisma.document.create({
     data: {
@@ -69,6 +85,7 @@ async function seedMessage(input: {
       batchId: input.batchId ?? null,
       sourceBlobKey: stored.key,
       encryptionKey: wrappedKey,
+      encryptionFormat: input.format === "v1" ? "v1" : null,
       checksum: sha256(bytes),
       ttlSeconds: 3600,
       expiresAt: new Date(Date.now() + 3600 * 1000),
@@ -121,6 +138,40 @@ describe.skipIf(!hasDatabase)("expanding a message against Postgres", () => {
       await prisma.document.deleteMany({ where: { userFingerprint: value } })
       await prisma.usageRecord.deleteMany({ where: { fingerprint: value } })
       await prisma.batch.deleteMany({ where: { userFingerprint: value } })
+    }
+  })
+
+  it("reads each attachment of a chunked message back out of its range", async () => {
+    const ownerKey = owner("expand-chunked")
+    const id = await seedMessage({
+      ownerKey,
+      format: "v1",
+      source: attachedEml([
+        { contentType: "application/pdf", filename: "report.pdf", bytes: pdf },
+        {
+          contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          filename: "notes.docx",
+          bytes: docx,
+        },
+      ]),
+    })
+
+    await expandMessageAttachments(id)
+
+    const children = await childrenOf(id)
+    expect(children.map((child) => child.sourcePartPath)).toEqual(["0.2", "0.3"])
+    for (const [child, expected] of [
+      [children[0], pdf],
+      [children[1], docx],
+    ] as const) {
+      expect(child.encryptionFormat).toBe("v1")
+      const bytes = await getSealed(
+        child.sourceBlobKey ?? "",
+        sourceKey(child.id),
+        documentSeal(child)
+      )
+      expect(bytes.equals(Buffer.from(expected))).toBe(true)
+      expect(child.size).toBe(expected.byteLength)
     }
   })
 

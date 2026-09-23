@@ -33,6 +33,9 @@ const { createBatchRule, carryBatchRules } =
 const { saveNormalized } = await import("@/lib/documents/normalized-store")
 const { putObject, sourceKey } = await import("@/lib/storage/blob")
 const { encryptDocument } = await import("@/lib/storage/encryption")
+const { documentSeal, getSealed, newDocumentSeal, putSealed } =
+  await import("@/lib/storage/sealed")
+const { splitMailbox } = await import("@/lib/documents/mbox/parse")
 const { sha256 } = await import("@/lib/storage/integrity")
 const { bytesOf, EML } = await import("../eml-fixtures")
 const { mailbox, mailboxOf, numberedMessage } = await import("../mbox-fixtures")
@@ -47,17 +50,33 @@ function owner(label: string): string {
   return value
 }
 
-/** A mailbox already ingested: sealed source, checksum, no children yet. */
+/**
+ * A mailbox already ingested: sealed source, checksum, no children yet.
+ *
+ * `v0` by default — sealed the way every mailbox was before the chunked
+ * envelope, which is what a document already in the database still is — and
+ * `v1` for one ingested now.
+ */
 async function seedMailbox(input: {
   source: string
   ownerKey: string
   quotaKey?: string | null
   batchId?: string | null
+  format?: "v0" | "v1"
 }): Promise<string> {
   const id = testId("doc")
   const bytes = bytesOf(input.source)
-  const { ciphertext, wrappedKey } = encryptDocument(bytes)
-  const stored = await putObject(sourceKey(id), ciphertext)
+  let stored: { key: string }
+  let wrappedKey: string
+  if (input.format === "v1") {
+    const seal = newDocumentSeal()
+    stored = await putSealed(sourceKey(id), bytes, seal)
+    wrappedKey = seal.wrappedKey
+  } else {
+    const legacy = encryptDocument(bytes)
+    stored = await putObject(sourceKey(id), legacy.ciphertext)
+    wrappedKey = legacy.wrappedKey
+  }
 
   await prisma.document.create({
     data: {
@@ -72,6 +91,7 @@ async function seedMailbox(input: {
       batchId: input.batchId ?? null,
       sourceBlobKey: stored.key,
       encryptionKey: wrappedKey,
+      encryptionFormat: input.format === "v1" ? "v1" : null,
       checksum: sha256(bytes),
       ttlSeconds: 3600,
       expiresAt: new Date(Date.now() + 3600 * 1000),
@@ -112,10 +132,10 @@ async function childrenOf(documentId: string) {
 async function normalize(documentId: string, text: string): Promise<void> {
   const document = await prisma.document.findUniqueOrThrow({
     where: { id: documentId },
-    select: { encryptionKey: true },
+    select: { encryptionKey: true, encryptionFormat: true },
   })
 
-  const key = await saveNormalized(documentId, document.encryptionKey ?? "", {
+  const key = await saveNormalized(documentId, documentSeal(document), {
     documentId,
     kind: "eml",
     pages: [
@@ -197,6 +217,66 @@ describe.skipIf(!hasDatabase)("expanding a mailbox against Postgres", () => {
       "message-0005.eml",
       "message-0006.eml",
     ])
+  })
+
+  it("reads a chunked mailbox one message at a time, byte for byte", async () => {
+    // Small chunks, so messages straddle chunk boundaries and every child is
+    // read out by a range that starts and ends mid-chunk.
+    const saved = process.env.ANONIFY_ENCRYPTION_CHUNK_SIZE
+    process.env.ANONIFY_ENCRYPTION_CHUNK_SIZE = "64KB"
+    try {
+      const ownerKey = owner("mbox-chunked")
+      const source = mailboxOf(60)
+      // No allowance to run out of: this is about the bytes, and a message
+      // refused for quota is never read out at all.
+      const id = await seedMailbox({
+        ownerKey,
+        source,
+        format: "v1",
+        quotaKey: null,
+      })
+
+      await expandContainer(id)
+
+      const expected = splitMailbox(source)
+      const children = await childrenOf(id)
+      expect(children).toHaveLength(expected.length)
+
+      for (const [index, child] of children.entries()) {
+        expect(child.sourcePartPath).toBe(`msg-${index}`)
+        expect(child.encryptionFormat).toBe("v1")
+        const bytes = await getSealed(
+          child.sourceBlobKey ?? "",
+          sourceKey(child.id),
+          documentSeal(child)
+        )
+        expect(bytes.equals(Buffer.from(expected[index].bytes))).toBe(true)
+        expect(child.size).toBe(expected[index].bytes.byteLength)
+        expect(child.checksum).toBe(sha256(bytes))
+      }
+    } finally {
+      if (saved === undefined) delete process.env.ANONIFY_ENCRYPTION_CHUNK_SIZE
+      else process.env.ANONIFY_ENCRYPTION_CHUNK_SIZE = saved
+    }
+  })
+
+  it("seals the messages of a legacy mailbox in the chunked format", async () => {
+    const ownerKey = owner("mbox-legacy")
+    const source = mailboxOf(3)
+    const id = await seedMailbox({ ownerKey, source })
+
+    await expandContainer(id)
+
+    const expected = splitMailbox(source)
+    for (const [index, child] of (await childrenOf(id)).entries()) {
+      expect(child.encryptionFormat).toBe("v1")
+      const bytes = await getSealed(
+        child.sourceBlobKey ?? "",
+        sourceKey(child.id),
+        documentSeal(child)
+      )
+      expect(bytes.equals(Buffer.from(expected[index].bytes))).toBe(true)
+    }
   })
 
   it("keeps a mailbox that arrived in a batch in that batch", async () => {

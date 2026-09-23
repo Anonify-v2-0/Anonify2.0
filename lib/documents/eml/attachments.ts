@@ -11,6 +11,7 @@ import {
   parseEml,
   type MimeNode,
 } from "@/lib/documents/eml/parse"
+import { DETECTION_SAMPLE_BYTES } from "@/lib/documents/sample"
 import type { DocumentKind } from "@/types/document"
 
 /**
@@ -162,7 +163,16 @@ export class ExpansionLimitError extends Error {
 
 // --- enumeration ------------------------------------------------------------
 
-/** One attachment part, with the bytes it actually carries. */
+/**
+ * One attachment part, located in the message but not held.
+ *
+ * A part is a byte range and a transfer encoding, plus the two facts planning
+ * needs about its decoded bytes — how many there are, and what the first of
+ * them sniff as. The bytes themselves are decoded again only when the part
+ * becomes a document, one part at a time; planning a message with forty
+ * enclosures used to hold all forty decoded at once, next to the message they
+ * came out of.
+ */
 export type MessageAttachment = {
   /** Dotted MIME path of the part, e.g. `0.3`. */
   path: string
@@ -174,8 +184,61 @@ export type MessageAttachment = {
   contentId: string | null
   /** True for a part a reader sees as body content rather than as an enclosure. */
   inline: boolean
-  /** Decoded bytes: transfer encoding undone. */
-  bytes: Uint8Array
+  /** Byte range of the part's encoded body in the message: `[bodyStart, bodyEnd)`. */
+  bodyStart: number
+  bodyEnd: number
+  /** Lowercased Content-Transfer-Encoding the body is written in. */
+  encoding: string
+  /** Decoded size in bytes: transfer encoding undone. */
+  size: number
+  /** The first `DETECTION_SAMPLE_BYTES` of the decoded bytes, for sniffing. */
+  head: Uint8Array
+}
+
+/**
+ * A part's decoded bytes, from the encoded body the message holds.
+ *
+ * `encoded` is the message's bytes over `[bodyStart, bodyEnd)` — sliced from a
+ * message in memory, or read back from the sealed source by range.
+ */
+export function decodeAttachment(
+  encoded: Uint8Array | string,
+  encoding: string
+): Uint8Array {
+  const raw =
+    typeof encoded === "string"
+      ? encoded
+      : Buffer.from(
+          encoded.buffer,
+          encoded.byteOffset,
+          encoded.byteLength
+        ).toString("latin1")
+  return new Uint8Array(decodeTransfer(raw, encoding))
+}
+
+/** A part's decoded bytes, from the whole message held as a string. */
+export function attachmentBytes(
+  source: string,
+  attachment: MessageAttachment
+): Uint8Array {
+  return decodeAttachment(
+    source.slice(attachment.bodyStart, attachment.bodyEnd),
+    attachment.encoding
+  )
+}
+
+/**
+ * A copy of a string that shares nothing with the message it came from.
+ *
+ * Substrings in V8 can be views onto their parent, so a filename sliced out of
+ * a 40 MiB message may keep the whole message alive for as long as the
+ * filename lives. Planning outlives the parse — the children are sealed long
+ * after — so what it keeps is copied out.
+ */
+function detached(value: string): string
+function detached(value: string | null): string | null
+function detached(value: string | null): string | null {
+  return value === null ? null : (JSON.parse(JSON.stringify(value)) as string)
 }
 
 /** Strips the angle brackets a `Content-ID` is written with. */
@@ -201,16 +264,27 @@ export function messageAttachments(
 
   return nodes
     .filter((node) => node.attachment)
-    .map((node) => ({
-      path: node.path,
-      filename: node.filename,
-      contentType: node.contentType,
-      contentId: contentIdOf(node),
-      inline: node.disposition === "inline" || contentIdOf(node) !== null,
-      bytes: new Uint8Array(
-        decodeTransfer(source.slice(node.bodyStart, node.end), node.encoding)
-      ),
-    }))
+    .map((node) => {
+      // Decoded once here, to learn its size and sniff its head, and dropped
+      // before the next part is decoded.
+      const decoded = decodeAttachment(
+        source.slice(node.bodyStart, node.end),
+        node.encoding
+      )
+      const contentId = contentIdOf(node)
+      return {
+        path: detached(node.path),
+        filename: detached(node.filename),
+        contentType: detached(node.contentType),
+        contentId: detached(contentId),
+        inline: node.disposition === "inline" || contentId !== null,
+        bodyStart: node.bodyStart,
+        bodyEnd: node.end,
+        encoding: detached(node.encoding),
+        size: decoded.byteLength,
+        head: decoded.slice(0, DETECTION_SAMPLE_BYTES),
+      }
+    })
 }
 
 // --- classification ---------------------------------------------------------
@@ -284,8 +358,10 @@ export function planAttachment(
   limits: ExpansionLimits = expansionLimits()
 ): AttachmentPlan {
   const name = attachmentName(attachment)
+  // The head is all sniffing reads, so this is the verdict the whole part
+  // would have produced; see lib/documents/sample.ts.
   const detected = detectDocumentType(
-    attachment.bytes,
+    attachment.head,
     attachment.filename ?? undefined
   )
 
@@ -300,7 +376,7 @@ export function planAttachment(
     name: named(name, detected.extension),
   })
 
-  if (attachment.bytes.byteLength > limits.maxAttachmentBytes) {
+  if (attachment.size > limits.maxAttachmentBytes) {
     return refusal("too-large")
   }
 
@@ -397,7 +473,7 @@ export function planExpansion(
   }
 
   const expandedBytes = expanding.reduce(
-    (total, entry) => total + entry.attachment.bytes.byteLength,
+    (total, entry) => total + entry.attachment.size,
     0
   )
   if (expandedBytes > limits.maxExpandedBytes) {

@@ -4,6 +4,8 @@ import {
   MboxLimitError,
   type MboxLimits,
 } from "@/lib/documents/mbox/limits"
+import { DETECTION_SAMPLE_BYTES } from "@/lib/documents/sample"
+import type { ByteSource } from "@/lib/storage/streams"
 
 /**
  * A mailbox, split back into the messages it is made of.
@@ -41,6 +43,11 @@ import {
  * Bytes are Latin-1 here for the same reason they are in the MIME parser: one
  * character is one byte, so an offset is an offset and a message handed on is
  * the bytes that were actually in the file.
+ *
+ * And the mailbox is never one string. Every test is local — the line before,
+ * the line itself, and a few kilobytes after — so the scan reads the file as
+ * it streams out of storage and reports each message as a byte range. A
+ * message is read out later, on its own, when it becomes a document.
  */
 
 export class MboxParseError extends Error {
@@ -48,20 +55,6 @@ export class MboxParseError extends Error {
     super(message)
     this.name = "MboxParseError"
   }
-}
-
-/** One message, as it sits in the mailbox. */
-export type MailboxEntry = {
-  /** Position in the mailbox, from zero. Stable across retries. */
-  index: number
-  /** The separator line this message was introduced by, without its newline. */
-  fromLine: string
-  /** Byte offset of the message's first header, in the mailbox. */
-  start: number
-  /** Byte offset just past the message's last byte, in the mailbox. */
-  end: number
-  /** The message itself: separator gone, `>From ` quoting undone. */
-  bytes: Uint8Array
 }
 
 /**
@@ -108,55 +101,6 @@ export function looksLikeMbox(bytes: Uint8Array): boolean {
 }
 
 /**
- * Every line that begins `From `, and nothing else.
- *
- * A mailbox is millions of lines and a few hundred separators, so the cheap
- * five-character test is what the scan is built around: `indexOf` walks the
- * string once and the expensive checks only ever see a candidate.
- */
-function candidateOffsets(source: string): number[] {
-  const offsets: number[] = []
-  if (source.startsWith("From ")) offsets.push(0)
-
-  for (
-    let at = source.indexOf("\nFrom ");
-    at !== -1;
-    at = source.indexOf("\nFrom ", at + 1)
-  ) {
-    offsets.push(at + 1)
-  }
-
-  return offsets
-}
-
-/**
- * Whether the line beginning at `offset` opens a new message.
- *
- * The blank-line rule is checked against the raw bytes rather than against a
- * line index so that both line endings behave the same: a mailbox written with
- * CRLF and one written with LF are the same file to everyone but a parser that
- * split on the wrong one.
- */
-function opensMessage(source: string, offset: number, line: string): boolean {
-  if (!SEPARATOR.test(line)) return false
-
-  // The first line of the file needs no blank line before it; every other
-  // separator does, and a `From ` line inside a body almost never has one.
-  // Four bytes back, because a blank line is `\r\n\r\n` and two would let the
-  // ordinary `\r\n` ending any line at all pass for one.
-  if (offset > 0) {
-    const preceding = source.slice(Math.max(0, offset - 4), offset)
-    if (!/(?:\r?\n)\r?\n$/.test(preceding)) return false
-  }
-
-  const bodyStart = offset + line.length
-  const afterNewline = source.slice(bodyStart).replace(/^\r?\n/, "")
-  return looksLikeEml(
-    new Uint8Array(Buffer.from(afterNewline.slice(0, SNIFF_BYTES), "latin1"))
-  )
-}
-
-/**
  * Undoes the quoting a producer applied on the way in.
  *
  * A body line that begins `From ` would be read back as a separator, so
@@ -198,68 +142,348 @@ function withoutTerminator(message: string): string {
   return message.replace(/(\r?\n)\r?\n$/, "$1")
 }
 
+// --- the scan -----------------------------------------------------------------
+
 /**
- * Every message in a mailbox, in the order it sits in the file.
+ * How much of each message is kept while scanning: exactly what content
+ * sniffing reads, so a message can be sniffed without being read back.
+ */
+const MESSAGE_HEAD_BYTES = DETECTION_SAMPLE_BYTES
+
+/** One message, located in the mailbox but not read out of it. */
+export type MailboxSpan = {
+  /** Position in the mailbox, from zero. Stable across retries. */
+  index: number
+  /** The separator line this message was introduced by, without its newline. */
+  fromLine: string
+  /** Byte offset of the message's first header, in the mailbox. */
+  start: number
+  /** Byte offset just past the message's last byte, in the mailbox. */
+  end: number
+  /**
+   * The message's length as it is handed on — terminating blank line trimmed,
+   * `>From ` quoting undone — which is a little less than `end - start`.
+   */
+  size: number
+}
+
+/** A span as the scanner reports it, with the head of the message. */
+export type ScannedMessage = MailboxSpan & {
+  /** The first `DETECTION_SAMPLE_BYTES` of the message as it is handed on. */
+  head: Buffer
+}
+
+/** One message, read out: separator gone, `>From ` quoting undone. */
+export type MailboxEntry = MailboxSpan & {
+  bytes: Uint8Array
+}
+
+type Line = {
+  /** The line as it sits in the file, newline included when it has one. */
+  text: string
+  /** Absolute byte offset of the line's first byte. */
+  offset: number
+  /** Passed tests 1 and 2, and is waiting on test 3. */
+  candidate: boolean
+  /** Without its newline and one trailing CR: what the separator test reads. */
+  content: string
+}
+
+type OpenMessage = {
+  fromLine: string
+  start: number
+  size: number
+  head: string[]
+  headLength: number
+  lines: number
+  lastBlank: boolean
+  lastLength: number
+}
+
+/**
+ * Finds the seams in a mailbox as it streams past.
  *
- * The whole-mailbox limits are checked over the finished list rather than
- * while walking it, because a partial split is the one outcome that is not on
- * the table: stopping at the two hundredth message of nine hundred produces a
- * batch that looks complete and is not.
+ * The three tests above are all local, and that is what makes this possible
+ * without the mailbox in memory: the blank line before a candidate and the
+ * candidate's own shape are known the moment the line is complete, and the
+ * header test needs only the next `SNIFF_BYTES` after it. So a candidate is
+ * held until that much more has arrived, decided, and everything before the
+ * next undecided candidate is settled into the message it belongs to.
+ *
+ * Each message is reported as a byte range with its final length and a head
+ * for sniffing — never as bytes. Reading a message out is the caller's job,
+ * one at a time, through a ranged read of the sealed source.
+ *
+ * The decisions are the ones the whole-string splitter made, byte for byte:
+ * the tests read the same bytes, in the same order, against the same patterns.
+ * What changed is how much of the file has to exist at once — the current
+ * line, the lookahead window, and one head.
+ */
+export class MailboxScanner {
+  private carry = ""
+  private carryOffset = 0
+  private consumed = 0
+  private previous: { blank: boolean; offset: number } | null = null
+  private readonly pending: Line[] = []
+  private pendingBytes = 0
+  private message: OpenMessage | null = null
+  private separators = 0
+  private emitted = 0
+  private totalBytes = 0
+
+  constructor(
+    private readonly limits: MboxLimits,
+    private readonly onMessage: (message: ScannedMessage) => void
+  ) {}
+
+  write(bytes: Uint8Array): void {
+    const text = Buffer.from(
+      bytes.buffer,
+      bytes.byteOffset,
+      bytes.byteLength
+    ).toString("latin1")
+    const base = this.consumed
+    this.consumed += text.length
+
+    let cursor = 0
+    let newline = text.indexOf("\n")
+    while (newline !== -1) {
+      if (cursor === 0 && this.carry.length > 0) {
+        this.line(
+          this.carry + text.slice(0, newline + 1),
+          this.carryOffset,
+          false
+        )
+        this.carry = ""
+      } else {
+        this.line(text.slice(cursor, newline + 1), base + cursor, false)
+      }
+      cursor = newline + 1
+      newline = text.indexOf("\n", cursor)
+    }
+
+    if (cursor === 0) {
+      // No line ended in this piece: it all belongs to the line in progress.
+      if (this.carry.length === 0) this.carryOffset = base
+      this.carry += text
+    } else {
+      this.carry = text.slice(cursor)
+      this.carryOffset = base + cursor
+    }
+
+    this.decide(false)
+  }
+
+  /** Finishes the scan. Throws for a mailbox with no messages or over a limit. */
+  end(): void {
+    if (this.carry.length > 0) {
+      // The last line, with no newline after it. It can never be a
+      // separator — there is nothing after it to be a header block — so it
+      // is body text of whatever message is open.
+      const last = this.carry
+      this.carry = ""
+      this.line(last, this.carryOffset, true)
+    }
+    this.decide(true)
+    this.close(this.consumed)
+
+    if (this.separators === 0) {
+      throw new MboxParseError("No messages found in this mailbox")
+    }
+    if (this.totalBytes > this.limits.maxTotalBytes) {
+      throw new MboxLimitError("maxTotalBytes", this.limits.maxTotalBytes)
+    }
+  }
+
+  private line(text: string, offset: number, final: boolean): void {
+    const content = text.replace(/\n$/, "").replace(/\r$/, "")
+
+    // Test 1: the start of the file, or a blank line before. A blank line that
+    // is itself the first line of the file does not count — there has to be a
+    // line ending before it for it to be one.
+    const opensAfterBlank =
+      offset === 0 ||
+      (this.previous !== null &&
+        this.previous.blank &&
+        this.previous.offset > 0)
+    // Test 2: the shape of a real separator line.
+    const candidate =
+      !final &&
+      text.startsWith("From ") &&
+      opensAfterBlank &&
+      SEPARATOR.test(content)
+
+    this.previous = { blank: text === "\n" || text === "\r\n", offset }
+
+    if (!candidate && this.pending.length === 0) {
+      this.settle(text, offset, content, false)
+      return
+    }
+    this.pending.push({ text, offset, candidate, content })
+    this.pendingBytes += text.length
+  }
+
+  /**
+   * Decides every candidate that has enough lookahead behind it, and settles
+   * the lines up to the next one that does not.
+   */
+  private decide(eof: boolean): void {
+    while (this.pending.length > 0) {
+      const head = this.pending[0]
+
+      if (head.candidate) {
+        const available =
+          this.pendingBytes - head.text.length + this.carry.length
+        if (available < SNIFF_BYTES && !eof) return
+
+        // Test 3: the bytes after the separator's newline read as headers.
+        let after = ""
+        for (let index = 1; index < this.pending.length; index++) {
+          after += this.pending[index].text
+          if (after.length >= SNIFF_BYTES) break
+        }
+        if (after.length < SNIFF_BYTES) after += this.carry
+        const opens = looksLikeEml(
+          new Uint8Array(Buffer.from(after.slice(0, SNIFF_BYTES), "latin1"))
+        )
+        this.settle(head.text, head.offset, head.content, opens)
+      } else {
+        this.settle(head.text, head.offset, head.content, false)
+      }
+
+      this.pending.shift()
+      this.pendingBytes -= head.text.length
+    }
+  }
+
+  private settle(
+    text: string,
+    offset: number,
+    content: string,
+    separator: boolean
+  ): void {
+    if (separator) {
+      this.close(offset)
+      this.separators += 1
+      // Counted as they are found, and refused the moment there are too
+      // many. The refusal is about the mailbox, and nothing is built from a
+      // scan that throws, so stopping early changes nothing but how long it
+      // takes to say so.
+      if (this.separators > this.limits.maxMessages) {
+        throw new MboxLimitError("maxMessages", this.limits.maxMessages)
+      }
+      this.message = {
+        fromLine: content,
+        start: offset + text.length,
+        size: 0,
+        head: [],
+        headLength: 0,
+        lines: 0,
+        lastBlank: false,
+        lastLength: 0,
+      }
+      return
+    }
+
+    // Before the first separator there is no message to belong to, and those
+    // bytes have never been handed on.
+    const message = this.message
+    if (!message) return
+
+    // `>From ` quoting is undone per line, exactly as `unquoteFromLines`
+    // undoes it over a whole message: at the start of every line.
+    const handed = /^>+From /.test(text) ? text.slice(1) : text
+    message.size += handed.length
+    if (message.headLength < MESSAGE_HEAD_BYTES) {
+      const piece = handed.slice(0, MESSAGE_HEAD_BYTES - message.headLength)
+      message.head.push(piece)
+      message.headLength += piece.length
+    }
+    message.lines += 1
+    message.lastBlank = text === "\n" || text === "\r\n"
+    message.lastLength = text.length
+  }
+
+  private close(end: number): void {
+    const message = this.message
+    if (!message) return
+    this.message = null
+
+    // `withoutTerminator`, in lengths: a blank last line after another line
+    // is the mailbox's, not the message's.
+    const size =
+      message.lines >= 2 && message.lastBlank
+        ? message.size - message.lastLength
+        : message.size
+    const head = Buffer.from(message.head.join(""), "latin1")
+
+    this.totalBytes += size
+    this.onMessage({
+      index: this.emitted++,
+      fromLine: message.fromLine,
+      start: message.start,
+      end,
+      size,
+      head: head.byteLength > size ? head.subarray(0, size) : head,
+    })
+  }
+}
+
+/**
+ * Every message in a mailbox, located as it streams past.
+ *
+ * The whole-mailbox limits hold exactly as they did for the whole-string
+ * split: the count is refused as soon as it is exceeded, the total bytes once
+ * the scan has seen them all, and a mailbox with no messages at all is an
+ * error rather than an empty batch. A partial split is never the outcome.
+ */
+export async function scanMailbox(
+  source: ByteSource,
+  limits: MboxLimits,
+  onMessage: (message: ScannedMessage) => void
+): Promise<void> {
+  const scanner = new MailboxScanner(limits, onMessage)
+  for await (const piece of source) scanner.write(piece)
+  scanner.end()
+}
+
+/**
+ * One message's bytes, from the raw range the scanner located.
+ *
+ * The two steps the scanner accounted for in lengths — trim the terminating
+ * blank line, undo the `>From ` quoting — applied to the bytes.
+ */
+export function messageFromMailbox(raw: Uint8Array): Uint8Array {
+  return encodeEml(unquoteFromLines(withoutTerminator(decodeEml(raw))))
+}
+
+/**
+ * Every message in a mailbox held in memory, read out.
+ *
+ * For the callers that have the whole mailbox anyway — the tests, and the
+ * verification in lib/documents/mbox/validate.ts. The pipeline itself scans a
+ * stream and reads each message back through a ranged read instead.
  */
 export function splitMailbox(
   source: string,
   limits: MboxLimits = mboxLimits()
 ): MailboxEntry[] {
-  const separators: { offset: number; line: string }[] = []
+  const spans: ScannedMessage[] = []
+  const scanner = new MailboxScanner(limits, (message) => spans.push(message))
+  scanner.write(Buffer.from(source, "latin1"))
+  scanner.end()
 
-  for (const offset of candidateOffsets(source)) {
-    const newline = source.indexOf("\n", offset)
-    const line = (
-      newline === -1 ? source.slice(offset) : source.slice(offset, newline)
-    ).replace(/\r$/, "")
-
-    if (opensMessage(source, offset, line)) separators.push({ offset, line })
-  }
-
-  if (separators.length === 0) {
-    throw new MboxParseError("No messages found in this mailbox")
-  }
-
-  // Counted before anything is built. The refusal is about the mailbox, and a
-  // reviewer must never be handed the first two hundred of it instead.
-  if (separators.length > limits.maxMessages) {
-    throw new MboxLimitError("maxMessages", limits.maxMessages)
-  }
-
-  const entries: MailboxEntry[] = []
-
-  for (const [index, separator] of separators.entries()) {
-    const newline = source.indexOf("\n", separator.offset)
-    // A separator with nothing after it is a truncated mailbox: the message it
-    // introduces is not there, so there is nothing to make a document out of.
-    if (newline === -1) continue
-
-    const start = newline + 1
-    const end = separators[index + 1]?.offset ?? source.length
-    const message = unquoteFromLines(
-      withoutTerminator(source.slice(start, end))
+  return spans.map(({ index, fromLine, start, end, size }) => {
+    const bytes = messageFromMailbox(
+      Buffer.from(source.slice(start, end), "latin1")
     )
-
-    entries.push({
-      index: entries.length,
-      fromLine: separator.line,
-      start,
-      end,
-      bytes: encodeEml(message),
-    })
-  }
-
-  const total = entries.reduce((sum, entry) => sum + entry.bytes.byteLength, 0)
-  if (total > limits.maxTotalBytes) {
-    throw new MboxLimitError("maxTotalBytes", limits.maxTotalBytes)
-  }
-
-  return entries
+    if (bytes.byteLength !== size) {
+      // The scan's arithmetic and the bytes disagree. Nothing downstream
+      // could notice, so this is the one place that can.
+      throw new Error("Mailbox scan disagrees with the message it located")
+    }
+    return { index, fromLine, start, end, size, bytes }
+  })
 }
 
 /** The mailbox's messages, read straight from the sealed bytes. */

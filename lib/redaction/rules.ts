@@ -4,6 +4,7 @@ import { loadNormalized } from "@/lib/documents/normalized-store"
 import { normalizeValue } from "@/lib/documents/shared/text"
 import { findAllOccurrences } from "@/lib/redaction/entities"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
+import { documentSeal } from "@/lib/storage/sealed"
 import type { Redaction } from "@/types/redaction"
 
 /**
@@ -29,6 +30,7 @@ export type AppliedRule = {
 type RuleTarget = {
   id: string
   encryptionKey: string
+  encryptionFormat: string | null
   normalizedBlobKey: string
 }
 
@@ -43,8 +45,9 @@ export async function applyRuleToDocument(input: {
   const { target, pattern, category } = input
 
   const model = await loadNormalized(
+    target.id,
     target.normalizedBlobKey,
-    target.encryptionKey
+    documentSeal(target)
   )
 
   const ruleId = newRuleId()
@@ -109,6 +112,7 @@ export async function carryBatchRules(
       id: true,
       batchId: true,
       encryptionKey: true,
+      encryptionFormat: true,
       normalizedBlobKey: true,
     },
   })
@@ -140,6 +144,7 @@ export async function carryBatchRules(
       target: {
         id: document.id,
         encryptionKey: document.encryptionKey,
+        encryptionFormat: document.encryptionFormat,
         normalizedBlobKey: document.normalizedBlobKey,
       },
       pattern: rule.pattern,
@@ -194,7 +199,12 @@ export async function createBatchRule(input: {
       normalizedBlobKey: { not: null },
     },
     orderBy: { createdAt: "asc" },
-    select: { id: true, encryptionKey: true, normalizedBlobKey: true },
+    select: {
+      id: true,
+      encryptionKey: true,
+      encryptionFormat: true,
+      normalizedBlobKey: true,
+    },
   })
 
   const applied: { documentId: string; redactions: Redaction[] }[] = []
@@ -206,6 +216,7 @@ export async function createBatchRule(input: {
       target: {
         id: target.id,
         encryptionKey: target.encryptionKey,
+        encryptionFormat: target.encryptionFormat,
         normalizedBlobKey: target.normalizedBlobKey,
       },
       pattern: input.pattern,

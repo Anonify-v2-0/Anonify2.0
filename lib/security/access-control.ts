@@ -29,6 +29,8 @@ export type OwnedDocument = {
   sourceBlobKey: string | null
   processedBlobKey: string | null
   encryptionKey: string | null
+  /** Which envelope the document's objects are sealed in; see lib/storage/sealed.ts. */
+  encryptionFormat: string | null
   checksum: string | null
   error: string | null
   errorCode: string | null
@@ -68,6 +70,7 @@ export async function requireDocument(
       sourceBlobKey: true,
       processedBlobKey: true,
       encryptionKey: true,
+      encryptionFormat: true,
       checksum: true,
       error: true,
       errorCode: true,

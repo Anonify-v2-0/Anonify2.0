@@ -4,6 +4,7 @@ import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
+import { documentSeal } from "@/lib/storage/sealed"
 
 export const runtime = "nodejs"
 
@@ -29,8 +30,9 @@ export async function GET(
     }
 
     const model = await loadNormalized(
+      document.id,
       record.normalizedBlobKey,
-      document.encryptionKey
+      documentSeal(document)
     )
 
     return jsonResponse(model)

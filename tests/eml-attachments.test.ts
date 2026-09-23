@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  attachmentBytes,
   DEFAULT_EXPANSION_LIMITS,
   ExpansionLimitError,
   expansionEnvName,
@@ -99,7 +100,8 @@ describe("enumerating a message's attachments", () => {
 
     expect(only.path).toBe("0.2")
     expect(only.filename).toBe("report.pdf")
-    expect(Buffer.from(only.bytes)).toEqual(Buffer.from(pdf))
+    expect(Buffer.from(attachmentBytes(source, only))).toEqual(Buffer.from(pdf))
+    expect(only.size).toBe(pdf.byteLength)
   })
 
   it("treats an inline cid: image as an attachment, and says it is inline", () => {

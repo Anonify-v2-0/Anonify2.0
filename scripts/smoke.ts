@@ -1172,19 +1172,181 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
   step("deleted")
 }
 
+// --- a mailbox ----------------------------------------------------------------
+
+/**
+ * The messages the mailbox case is built from, each exactly as it should come
+ * back out as a document of its own.
+ *
+ * The second is large enough to straddle a 1 MiB chunk of the sealed mailbox,
+ * so reading it back is a ranged read that starts in one chunk and ends in
+ * another; the third carries a body line that was quoted as `>From ` on the
+ * way in and must come out unquoted.
+ */
+function mailboxMessages(): string[] {
+  const message = (index: number, body: string): string =>
+    [
+      `From: ${SENSITIVE.person} <${SENSITIVE.email}>`,
+      "To: <records@example.com>",
+      `Subject: Mailbox smoke ${index}`,
+      "Date: Fri, 02 Jan 2026 03:04:05 +0000",
+      `Message-ID: <smoke-${index}@example.com>`,
+      "",
+      body,
+      "",
+    ].join("\r\n")
+
+  return [
+    message(1, `Call ${SENSITIVE.person} on ${SENSITIVE.phone}.`),
+    message(
+      2,
+      Array.from(
+        { length: 30_000 },
+        (_, line) => `Line ${line} of a long thread, nothing to see here.`
+      ).join("\r\n")
+    ),
+    message(3, "From the top, as they say."),
+  ]
+}
+
+function makeMailbox(messages: string[]): Uint8Array {
+  const separator = "From smoke@example.com Fri Jan  2 03:04:05 2026"
+  const quoted = messages.map((text) =>
+    text.replace(/(^|\r\n)(>*From )/g, "$1>$2")
+  )
+  return new TextEncoder().encode(
+    quoted.map((text) => `${separator}\r\n${text}\r\n`).join("")
+  )
+}
+
+/**
+ * A mailbox is a container, not a document: it is never ready, never
+ * exported. What is checked is that it became one child per message and that
+ * each child's bytes are the message, exactly — the part of the pipeline that
+ * reads a mailbox as it streams and each message back by range.
+ */
+async function runMailbox(): Promise<void> {
+  console.log("\n[mbox]")
+
+  const messages = mailboxMessages()
+  const bytes = makeMailbox(messages)
+  const filename = `smoke-${Date.now()}-archive.mbox`
+
+  const reserved = await json<{ id: string; uploadMode: string }>(
+    await call("/api/documents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        filename,
+        size: bytes.byteLength,
+        contentType: "application/mbox",
+        ttlSeconds: 3600,
+      }),
+    }),
+    "reserve"
+  )
+  step(`reserved ${reserved.id}`)
+
+  const form = new FormData()
+  form.set("documentId", reserved.id)
+  form.set(
+    "file",
+    new File([new Uint8Array(bytes)], filename, { type: "application/mbox" })
+  )
+  const uploaded = await json<{ url: string; size: number }>(
+    await call("/api/upload/local", { method: "POST", body: form }),
+    "upload"
+  )
+  step(`uploaded ${uploaded.size} bytes`)
+
+  await json(
+    await call(`/api/documents/${reserved.id}/process`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ blobUrl: uploaded.url }),
+    }),
+    "process"
+  )
+
+  const deadline = Date.now() + READY_TIMEOUT_MS
+  for (;;) {
+    const summary = await json<{ status: string; error?: string | null }>(
+      await call(`/api/documents/${reserved.id}`),
+      "mailbox status"
+    )
+    if (summary.status === "expanded") break
+    if (summary.status === "failed") {
+      throw new Error(`mailbox failed: ${summary.error ?? "no reason given"}`)
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`mailbox still ${summary.status} after ${READY_TIMEOUT_MS / 1000}s`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+  }
+
+  const { documents } = await json<{
+    documents: { id: string; batchId: string | null }[]
+  }>(await call("/api/documents"), "list documents")
+  const batchId = documents.find((document) => document.id === reserved.id)?.batchId
+  if (!batchId) throw new Error("the mailbox did not become a batch")
+
+  const { batch } = await json<{
+    batch: { documents: { id: string; originalName: string }[] }
+  }>(await call(`/api/batches/${batchId}`), "batch")
+  const children = batch.documents
+    .filter((document) => document.id !== reserved.id)
+    .sort((a, b) => a.originalName.localeCompare(b.originalName))
+
+  if (children.length !== messages.length) {
+    throw new Error(`expected ${messages.length} messages, got ${children.length}`)
+  }
+  step(`expanded into ${children.length} message(s)`)
+
+  for (const [index, child] of children.entries()) {
+    const source = await expectOk(
+      await call(`/api/documents/${child.id}/source`),
+      "message source"
+    )
+    const got = Buffer.from(await source.arrayBuffer())
+    const want = Buffer.from(new TextEncoder().encode(messages[index]))
+    if (!got.equals(want)) {
+      throw new Error(
+        `${child.originalName} is not the message it came from ` +
+          `(${got.byteLength} bytes, expected ${want.byteLength})`
+      )
+    }
+  }
+  step("every message read back byte for byte")
+
+  for (const child of children) {
+    await expectOk(
+      await call(`/api/documents/${child.id}`, { method: "DELETE" }),
+      "delete message"
+    )
+  }
+  await expectOk(
+    await call(`/api/documents/${reserved.id}`, { method: "DELETE" }),
+    "delete mailbox"
+  )
+  step("deleted")
+}
+
 async function main(): Promise<void> {
   const selected = only
     ? CASES.filter((smokeCase) => only.includes(smokeCase.name))
     : CASES
+  const mailbox = !only || only.includes("mbox")
 
-  if (selected.length === 0) {
+  if (selected.length === 0 && !mailbox) {
     throw new Error(
       `no cases matched --only; available: ${CASES.map((c) => c.name).join(", ")}`
     )
   }
 
   console.log(`smoke: ${BASE}`)
-  console.log(`cases: ${selected.map((smokeCase) => smokeCase.name).join(", ")}`)
+  console.log(
+    `cases: ${[...selected.map((smokeCase) => smokeCase.name), ...(mailbox ? ["mbox"] : [])].join(", ")}`
+  )
 
   // 0. The app is serving. A standalone build with a missing static chunk or a
   //    world that failed to load falls over right here.
@@ -1193,9 +1355,10 @@ async function main(): Promise<void> {
   for (const smokeCase of selected) {
     await runCase(smokeCase)
   }
+  if (mailbox) await runMailbox()
 
   console.log(
-    `\nsmoke passed — ${selected.length} format(s), ${steps} steps`
+    `\nsmoke passed — ${selected.length + (mailbox ? 1 : 0)} format(s), ${steps} steps`
   )
 }
 

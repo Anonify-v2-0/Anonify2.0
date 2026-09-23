@@ -1,9 +1,9 @@
-import { errorResponse, fileResponse, handleRouteError } from "@/lib/api/http"
+import { errorResponse, handleRouteError, streamResponse } from "@/lib/api/http"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
-import { getObject } from "@/lib/storage/blob"
-import { decryptDocument } from "@/lib/storage/encryption"
+import { sourceKey } from "@/lib/storage/blob"
+import { documentSeal, getSealedStream } from "@/lib/storage/sealed"
 
 export const runtime = "nodejs"
 
@@ -11,6 +11,10 @@ export const runtime = "nodejs"
  * Streams the decrypted source so the browser can render the document at full
  * fidelity. Authorization happens here, per request — the underlying blob URL
  * is never handed out, and nothing is cached.
+ *
+ * Streamed end to end for a chunked document: plaintext leaves one
+ * authenticated chunk at a time and the source is never whole in this
+ * process. A legacy document is opened whole first, as it always was.
  */
 export async function GET(
   _request: Request,
@@ -26,10 +30,13 @@ export async function GET(
       return errorResponse("Document is still being ingested", 409)
     }
 
-    const sealed = await getObject(document.sourceBlobKey)
-    const bytes = decryptDocument(sealed, document.encryptionKey)
+    const body = await getSealedStream(
+      document.sourceBlobKey,
+      sourceKey(document.id),
+      documentSeal(document)
+    )
 
-    return fileResponse(new Uint8Array(bytes), {
+    return streamResponse(body, {
       "content-type": document.mimeType,
       "cache-control": "no-store, private",
       "content-disposition": "inline",

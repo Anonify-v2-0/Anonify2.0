@@ -96,6 +96,35 @@ export function decryptDocument(
   }
 }
 
+/**
+ * A fresh data key and its wrapped form, for a writer that seals as it goes.
+ *
+ * The caller owns the plaintext key and must zero it when done; `withDataKey`
+ * is the shape that makes that hard to forget.
+ */
+export function newDataKey(): { dataKey: Buffer; wrappedKey: string } {
+  const dataKey = randomBytes(KEY_BYTES)
+  const wrappedKey = sealWithKey(dataKey, masterKey()).toString("base64")
+  return { dataKey, wrappedKey }
+}
+
+/**
+ * Runs `work` with a document's unwrapped data key, and zeroes the key
+ * afterwards however `work` ends. Anything that needs the key beyond this call
+ * — a stream that seals as it is read — must take its own copy.
+ */
+export async function withDataKey<T>(
+  wrappedKey: string,
+  work: (dataKey: Buffer) => Promise<T> | T
+): Promise<T> {
+  const dataKey = openWithKey(Buffer.from(wrappedKey, "base64"), masterKey())
+  try {
+    return await work(dataKey)
+  } finally {
+    dataKey.fill(0)
+  }
+}
+
 /** Encrypts a derived artifact (an export, say) under an existing data key. */
 export function encryptWithDocumentKey(
   plaintext: Uint8Array,

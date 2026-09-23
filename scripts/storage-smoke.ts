@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto"
+import { Readable } from "node:stream"
 
 import {
   DeleteObjectCommand,
@@ -10,6 +11,16 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
+
+import {
+  chunkOffset,
+  openChunkedRange,
+  parseHeader,
+  plaintextSizeOf,
+  sealChunked,
+  sealedRangeFor,
+} from "@/lib/storage/chunked"
+import { createS3Driver } from "@/lib/storage/drivers"
 
 const endpoint =
   process.argv[2] ?? process.env.S3_ENDPOINT ?? "http://127.0.0.1:9000"
@@ -104,7 +115,132 @@ async function main(): Promise<void> {
     )
   }
 
+  await streamingChecks()
+
   console.log(`RustFS S3 smoke passed against ${endpoint}/${bucket}`)
+}
+
+/**
+ * The streaming half of the driver, against a real S3 implementation.
+ *
+ * A multipart upload large enough to need more than one part, a ranged GET
+ * that the server must honour rather than answering with the whole object,
+ * and a chunked-envelope object opened by range — the read the mailbox
+ * expansion makes once per message.
+ */
+async function streamingChecks(): Promise<void> {
+  const driver = createS3Driver({
+    bucket,
+    region,
+    endpoint,
+    accessKeyId,
+    secretAccessKey,
+    forcePathStyle: true,
+  })
+  const name = `storage-smoke/${Date.now()}-${randomBytes(6).toString("hex")}.bin`
+  // Past the 5 MiB minimum part, so the upload is genuinely multipart.
+  const large = randomBytes(12 * 1024 * 1024 + 123)
+
+  let stored: { key: string; size: number } | null = null
+  try {
+    async function* pieces(): AsyncGenerator<Buffer> {
+      for (let at = 0; at < large.byteLength; at += 256 * 1024) {
+        yield large.subarray(at, at + 256 * 1024)
+      }
+    }
+    stored = await driver.putStream(name, Readable.from(pieces()))
+    assert(
+      stored.size === large.byteLength,
+      "putStream reported the wrong size"
+    )
+    assert(
+      (await driver.size(stored.key)) === large.byteLength,
+      "size() disagrees with what was written"
+    )
+
+    const downloaded: Buffer[] = []
+    for await (const piece of await driver.getStream(stored.key)) {
+      downloaded.push(piece as Buffer)
+    }
+    assert(
+      Buffer.concat(downloaded).equals(large),
+      "getStream returned different bytes"
+    )
+
+    const start = 5 * 1024 * 1024 - 7
+    const range = await driver.getRange(stored.key, start, start + 4096)
+    assert(
+      range.equals(large.subarray(start, start + 4096)),
+      "getRange returned different bytes"
+    )
+
+    // The driver would quietly slice a whole-object answer, which is correct
+    // and would make every ranged read a full download. Asked directly, so a
+    // server that ignores ranges is a failure here rather than a slowdown.
+    const ranged = await client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: stored.key.replace(/^s3:/, ""),
+        Range: `bytes=${start}-${start + 4095}`,
+      })
+    )
+    assert(ranged.ContentRange, "the server ignored a Range request")
+    const rangedBytes = await ranged.Body?.transformToByteArray()
+    assert(
+      rangedBytes?.byteLength === 4096,
+      "the server answered a range with the wrong length"
+    )
+  } finally {
+    if (stored) await driver.delete(stored.key)
+  }
+
+  // A chunked-envelope object, opened one range at a time.
+  const key = randomBytes(32)
+  const logical = "documents/smoke/source.bin"
+  const plaintext = randomBytes(3 * 1024 * 1024 + 11)
+  const sealedName = `storage-smoke/${Date.now()}-${randomBytes(6).toString("hex")}.bin`
+  const sealedObject = await driver.put(
+    sealedName,
+    sealChunked(plaintext, key, logical, 20)
+  )
+  try {
+    const header = parseHeader(await driver.getRange(sealedObject.key, 0, 16))
+    const size = plaintextSizeOf(
+      await driver.size(sealedObject.key),
+      header.chunkSize
+    )
+    assert(
+      size === plaintext.byteLength,
+      "chunked size arithmetic disagrees with the store"
+    )
+
+    const start = header.chunkSize - 100
+    const end = 2 * header.chunkSize + 100
+    const covering = sealedRangeFor(start, end, size, header.chunkSize)
+    assert(
+      covering.start === chunkOffset(0, header.chunkSize),
+      "range covers the wrong chunks"
+    )
+    const opened = openChunkedRange({
+      header,
+      key,
+      logicalKey: logical,
+      plaintextSize: size,
+      start,
+      end,
+      sealed: await driver.getRange(
+        sealedObject.key,
+        covering.start,
+        covering.end
+      ),
+    })
+    assert(
+      opened.equals(plaintext.subarray(start, end)),
+      "chunked range opened to different bytes"
+    )
+  } finally {
+    await driver.delete(sealedObject.key)
+  }
 }
 
 main().catch((error) => {
