@@ -166,8 +166,6 @@ finished.
 
 ### 3.3 Testing
 
-Zero coverage today for: `extractImage`, `ocrImage`, `cleanupExpired`.
-
 - [x] ~~**A fake model provider** so the analysis orchestration can be tested
       without a network or a bill — chunking, concurrency, dedupe, the
       locate-or-discard rule, and the "provider failed, keep going" path.~~
@@ -185,8 +183,14 @@ Zero coverage today for: `extractImage`, `ocrImage`, `cleanupExpired`.
       cover is what a fake cannot tell you: cleanup deletes storage *before* the
       row and keeps the row when storage fails, and a quota charge is atomic
       under concurrency and lands exactly once even when the step is retried.
-- [ ] **OCR tests** with a committed fixture image and pinned language data, so
-      they do not depend on a download.
+- [x] ~~**OCR tests** with a committed fixture image and pinned language data, so
+      they do not depend on a download.~~ `tests/image-ocr.test.ts` runs the
+      real Tesseract engine over `tests/fixtures/ocr/account.png` and checks
+      every box against ink boxes measured from the fixture's own pixels, then
+      exports a redaction and reads the result back. The model is pinned by URL
+      and hash in `tests/fixtures/ocr/model.json`; the suites run wherever that
+      exact model is cached and skip where it is not, and CI's `OCR` job caches
+      it and requires it (#33).
 - [ ] **End-to-end tests** (Playwright): upload → review → export → download,
       per format, through the browser. `pnpm smoke` now does this over HTTP for
       every supported format and runs in CI against the compose stack, which
@@ -442,8 +446,14 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```
 
 CI runs these four in parallel, plus a migration check, a `Database tests` job
-with a real Postgres, and a `Compose stack` job that builds the images and runs
-`pnpm smoke` against them. They must pass.
+with a real Postgres, an `OCR` job, and a `Compose stack` job that builds the
+images and runs `pnpm smoke` against them. They must pass.
+
+The OCR suites — `tests/image-ocr.test.ts` and the end-to-end half of
+`tests/pdf-ocr.test.ts` — run the real Tesseract engine and skip until the
+pinned model is cached. `pnpm ocr:warm` caches it once, after which `pnpm test`
+runs them with no network. If you have touched OCR, image extraction or where
+image redactions land, run that first.
 
 If you have touched cleanup, quotas or anything that writes to the database,
 run the database suites too. They need a throwaway Postgres — never your

@@ -1,0 +1,42 @@
+{
+  "width": 640,
+  "height": 220,
+  "words": [
+    {
+      "text": "ACCOUNT",
+      "box": {
+        "x": 40,
+        "y": 49,
+        "width": 217,
+        "height": 31
+      }
+    },
+    {
+      "text": "12345678",
+      "box": {
+        "x": 365,
+        "y": 49,
+        "width": 189,
+        "height": 31
+      }
+    },
+    {
+      "text": "Patient",
+      "box": {
+        "x": 43,
+        "y": 139,
+        "width": 134,
+        "height": 31
+      }
+    },
+    {
+      "text": "Smith",
+      "box": {
+        "x": 362,
+        "y": 139,
+        "width": 107,
+        "height": 31
+      }
+    }
+  ]
+}
