@@ -14,6 +14,16 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.6.3] - 2026-09-23
+
+### Fixed
+
+- A document that needs OCR now fails at once, as a configuration problem an
+  administrator has to fix, when `OCR_PROVIDER=mistral` has no `MISTRAL_API_KEY`
+  — instead of being retried five times and reported as an unknown error with a
+  retry button. When a Mistral key is set under another name, such as
+  `MISTRAL_AI_KEY`, the error names it and says to rename it (#134)
+
 ## [1.6.2] - 2026-09-23
 
 ### Fixed
