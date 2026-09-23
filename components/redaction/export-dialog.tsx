@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Download,
+  FileArchive,
   FileText,
   KeyRound,
   Loader2,
@@ -32,6 +33,7 @@ import {
 } from "@/components/ui/select"
 import { DocumentUsageSummary } from "@/components/documents/usage-summary"
 import { toastFailure } from "@/lib/api/errors"
+import { collectBundle, zipBundle } from "@/lib/redaction/export-bundle"
 import { categoriesAllowing } from "@/lib/redaction/methods"
 import type { ExportReport } from "@/lib/redaction/report"
 import type { TokenVault } from "@/lib/redaction/vault"
@@ -296,7 +298,36 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
   const [imageStyle, setImageStyle] = useState<ImageStyle>("solid")
   const [secondCopy, setSecondCopy] = useState<SecondCopy>("none")
   const [busy, setBusy] = useState(false)
+  const [bundling, setBundling] = useState(false)
   const [result, setResult] = useState<ExportResponse | null>(null)
+
+  /** Every copy and its report, as one zip. See lib/redaction/export-bundle.ts. */
+  async function downloadAll(artifacts: ExportedArtifact[]) {
+    setBundling(true)
+    try {
+      const zipped = await zipBundle(await collectBundle(artifacts))
+      const url = URL.createObjectURL(
+        new Blob([zipped as BlobPart], { type: "application/zip" })
+      )
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `${
+        summary.originalName.replace(/.[^.]+$/, "") || "document"
+      }-redacted-copies.zip`
+      link.click()
+      // Revoked on the next tick: the click has started the download by then,
+      // and holding the object URL longer keeps both copies in memory.
+      setTimeout(() => URL.revokeObjectURL(url), 0)
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? `${error.message}. Try the individual downloads.`
+          : "The zip could not be built. Try the individual downloads."
+      )
+    } finally {
+      setBundling(false)
+    }
+  }
 
   async function generate() {
     setBusy(true)
@@ -417,6 +448,15 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
                     </div>
                   ))}
 
+              {result.artifacts.length > 1 &&
+              result.artifacts.some((artifact) => artifact.vault) ? (
+                <p className="text-[11px] leading-relaxed text-text-muted">
+                  Download all bundles every copy with its report. The vault is
+                  left out on purpose: it reverses a copy, so it should not
+                  travel with one.
+                </p>
+              ) : null}
+
               <DocumentUsageSummary documentId={summary.id} />
             </div>
           ) : (
@@ -531,7 +571,20 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
         </div>
 
         <DialogFooter>
-          {result ? (
+          {result && result.artifacts.length > 1 ? (
+            <Button
+              className="btn-pill h-10"
+              disabled={bundling}
+              onClick={() => downloadAll(result.artifacts)}
+            >
+              {bundling ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <FileArchive className="size-4" />
+              )}
+              Download all (.zip)
+            </Button>
+          ) : result ? (
             // Same reason as the card's Open control: these are download links,
             // and Base UI's Button would relabel them as buttons.
             <>
