@@ -57,8 +57,20 @@ export type TextSpan = {
   end: number
   boundingBox?: BoundingBox
   style?: TextStyle
-  /** Defaults to `word` when absent, which is what extracted text gives. */
+  /**
+   * `word` or `block`. Absent on a PDF run: with `offsets` it is sliced
+   * exactly, and without them (a document extracted before positions were
+   * measured) it is covered whole.
+   */
   geometry?: SpanGeometry
+  /**
+   * Where each character starts, measured from the box's left edge in page
+   * units, plus one final entry for where the last one ends: `text.length + 1`
+   * values. PDF spans carry it because a span is a whole run of proportional
+   * text, and dividing its width evenly between characters puts a redaction
+   * box several characters away from its value by the end of a line.
+   */
+  offsets?: number[]
   /** Present for DOCX-derived spans so exports can find the originating run. */
   blockId?: string
 }

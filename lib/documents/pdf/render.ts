@@ -60,8 +60,18 @@ function pdfjsAsset(...segments: string[]): string {
   return path.join(pdfjsRoot(), ...segments)
 }
 
+/**
+ * A directory pdf.js reads fonts or CMaps from.
+ *
+ * A filesystem path, not a `file://` URL. On Node, pdf.js appends the file name
+ * and passes the string straight to `fs.readFile`, which treats `file:///…` as
+ * a relative path and fails. Every non-embedded standard font then fell back to
+ * a substitute face, and every PDF that relies on the bundled CMaps lost its
+ * text. Forward slashes, because pdf.js insists on a trailing `/` and
+ * `readFile` accepts them on Windows too.
+ */
 function assetUrl(...segments: string[]): string {
-  return `${pathToFileURL(pdfjsAsset(...segments)).href}/`
+  return `${pdfjsAsset(...segments).split(path.sep).join("/")}/`
 }
 
 export type PdfjsRuntime = Awaited<

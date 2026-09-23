@@ -11,8 +11,11 @@ import type { Redaction } from "@/types/redaction"
  *
  * Spans carry how precisely their box locates their text:
  *
- *   word  — the box bounds the characters, so a redaction covering part of the
- *           span gets a proportional slice of the box.
+ *   word  — the box bounds the characters. A redaction covering part of the
+ *           span gets the slice its characters occupy: measured, from the
+ *           span's `offsets`, when the extractor has them (a PDF run, where
+ *           an even split drifts along the line), otherwise an even split,
+ *           which is close enough inside the one word an OCR box holds.
  *   block — the box bounds a whole paragraph, which is all some OCR providers
  *           report. A slice of that would be a rectangle in the wrong place,
  *           possibly on the wrong line, so the whole block is covered.
@@ -23,6 +26,9 @@ import type { Redaction } from "@/types/redaction"
 
 /** Padding in page units. Glyph boxes are tight, and a surviving hairline leaks. */
 export const BOX_PADDING = 1.5
+
+/** How far below a legacy PDF box's baseline to reach, as a share of its height. */
+const LEGACY_DESCENT = 0.25
 
 export function padBox(box: BoundingBox, padding = BOX_PADDING): BoundingBox {
   return {
@@ -46,6 +52,31 @@ export function boxForRange(
 
   const from = Math.max(span.start, start) - span.start
   const to = Math.min(span.end, end) - span.start
+
+  // Measured positions when the extractor has them. Only an even split is
+  // left otherwise, which is exact for monospace text and wrong for anything
+  // else by an amount that grows along the line.
+  const offsets = span.offsets
+  if (offsets && offsets.length === span.text.length + 1) {
+    const left = offsets[from]
+    const right = offsets[Math.max(to, from + 1)]
+    return {
+      x: span.boundingBox.x + left,
+      y: span.boundingBox.y,
+      width: Math.max(right - left, 0),
+      height: span.boundingBox.height,
+    }
+  }
+
+  // A PDF run extracted before positions were measured: no stated geometry
+  // and no offsets. Its even split is the misplacement this replaced, and its
+  // box stops at the baseline, so it is covered whole and down past the
+  // descenders until the document is analysed again.
+  if (span.geometry === undefined) {
+    const box = span.boundingBox
+    return { ...box, height: box.height * (1 + LEGACY_DESCENT) }
+  }
+
   const length = Math.max(1, span.text.length)
   const unit = span.boundingBox.width / length
 
