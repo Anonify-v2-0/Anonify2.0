@@ -166,12 +166,18 @@ finished.
 
 ### 3.3 Testing
 
-Zero coverage today for: `extractImage`, `ocrImage`, `analyzeDocument`,
-`analyzeImageRegions`, `cleanupExpired`, `runStructured`.
+Zero coverage today for: `extractImage`, `ocrImage`, `cleanupExpired`.
 
-- [ ] **A fake model provider** so the analysis orchestration can be tested
+- [x] ~~**A fake model provider** so the analysis orchestration can be tested
       without a network or a bill — chunking, concurrency, dedupe, the
-      locate-or-discard rule, and the "provider failed, keep going" path.
+      locate-or-discard rule, and the "provider failed, keep going" path.~~
+      `tests/helpers/scripted-provider.ts` is a real AI SDK language model
+      (`LanguageModelV4`) that answers from a script keyed by task, installed
+      in place of the configured one by `vi.mock("@/lib/ai/providers")`. Only
+      the network is gone: `runStructured`, the throttle, `Output.object` and
+      its schema validation, usage recording and error classification all run.
+      `tests/analysis-orchestration.test.ts` drives `analyzeDocument` and
+      `analyzeImageRegions` through it in the ordinary `pnpm test` run (#30).
 - [x] ~~**Cleanup and quota tests**, which need a database.~~
       `tests/integration/`, run by `pnpm test:db` against `TEST_DATABASE_URL`
       and by a Postgres service in CI. They skip when that variable is unset, so
