@@ -1,7 +1,12 @@
 import { getRun, start } from "workflow/api"
 import { z } from "zod"
 
-import { errorResponse, handleRouteError, jsonResponse } from "@/lib/api/http"
+import {
+  errorResponse,
+  handleRouteError,
+  jsonResponse,
+  readJson,
+} from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import {
   activeBatchExport,
@@ -127,7 +132,11 @@ export async function POST(
       )
     }
 
-    const options = optionsSchema.parse(await request.json().catch(() => ({})))
+    const parsed = optionsSchema.safeParse((await readJson(request)) ?? {})
+    if (!parsed.success) {
+      return errorResponse("Invalid export options", 400)
+    }
+    const options = parsed.data
     const exportId = newBatchExportId()
 
     await prisma.batchExport.create({

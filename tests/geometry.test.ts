@@ -12,6 +12,7 @@ function span(overrides: Partial<TextSpan> = {}): TextSpan {
     start: 0,
     end: 10,
     boundingBox: { x: 100, y: 50, width: 100, height: 12 },
+    geometry: "word",
     ...overrides,
   }
 }

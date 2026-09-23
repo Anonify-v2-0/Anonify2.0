@@ -158,6 +158,10 @@ async function transferFile(input: {
             onUploadProgress: ({ percentage }) => input.onProgress(percentage),
           })
         : await uploadThroughServer(input.documentId, input.file, input.onProgress)
+    // The bytes are there. A small file can finish before the browser reports
+    // any progress at all, and without this the bar would sit at 0% for as
+    // long as starting the run takes.
+    input.onProgress(100)
 
     const started = await fetch(`/api/documents/${input.documentId}/process`, {
       method: "POST",
@@ -447,17 +451,23 @@ export function UploadPanel() {
           </p>
         </div>
 
-        {phase === "uploading" ? (
-          <Progress value={progress} className="h-1 w-48" />
-        ) : (
-          <Button
-            className="btn-pill h-10"
-            disabled={busy}
-            onClick={() => inputRef.current?.click()}
-          >
-            Select files
-          </Button>
-        )}
+        {/*
+          The same height either way, so the drop zone — and the column around
+          it — does not jump when the button gives way to the progress bar.
+        */}
+        <div className="flex h-10 items-center justify-center">
+          {phase === "uploading" ? (
+            <Progress value={progress} className="h-1 w-48" />
+          ) : (
+            <Button
+              className="btn-pill h-10"
+              disabled={busy}
+              onClick={() => inputRef.current?.click()}
+            >
+              Select files
+            </Button>
+          )}
+        </div>
 
         <input
           ref={inputRef}

@@ -5,6 +5,7 @@ import { toast } from "sonner"
 
 import { toastFailure } from "@/lib/api/errors"
 import { randomClientId } from "@/lib/documents/client-ids"
+import { historyWrites } from "@/store/history-sync"
 import { useAppDispatch, useAppSelector, useAppStore } from "@/store/hooks"
 import {
   redactionAdded,
@@ -64,10 +65,34 @@ export function useRedactions(documentId: string, active: boolean) {
     void reload()
   }, [active, reload])
 
+  /**
+   * Applies an optimistic change and returns how to take it back.
+   *
+   * The rollback pops history only if the top entry is still the one this
+   * change pushed. A change that altered nothing pushed nothing, and a later
+   * edit may have landed while the request was in flight; either way a blind
+   * undo would revert some other decision instead of this one. The reload that
+   * follows a failure puts the server's copy back regardless.
+   */
+  const optimistic = useCallback(
+    (action: Parameters<typeof dispatch>[0]) => {
+      const before = store.getState().redactions.past.at(-1)
+      dispatch(action)
+      const pushed = store.getState().redactions.past.at(-1)
+      return () => {
+        if (pushed === before) return
+        if (store.getState().redactions.past.at(-1) === pushed) {
+          dispatch(undone())
+        }
+      }
+    },
+    [dispatch, store]
+  )
+
   const setStatus = useCallback(
     async (ids: string[], next: RedactionStatus) => {
       if (ids.length === 0) return
-      dispatch(redactionStatusSet({ ids, status: next }))
+      const rollback = optimistic(redactionStatusSet({ ids, status: next }))
 
       try {
         const response = await fetch(
@@ -80,16 +105,16 @@ export function useRedactions(documentId: string, active: boolean) {
         )
         if (!response.ok) {
           await toastFailure(toast, response, "That change could not be saved.")
-          dispatch(undone())
+          rollback()
           void reload()
         }
       } catch {
         toast.error("That change could not be saved.")
-        dispatch(undone())
+        rollback()
         void reload()
       }
     },
-    [dispatch, documentId, reload]
+    [documentId, optimistic, reload]
   )
 
   const create = useCallback(
@@ -216,7 +241,7 @@ export function useRedactions(documentId: string, active: boolean) {
   const setMethod = useCallback(
     async (ids: string[], method: RedactionMethod) => {
       if (ids.length === 0) return
-      dispatch(redactionMethodSet({ ids, method }))
+      const rollback = optimistic(redactionMethodSet({ ids, method }))
 
       try {
         const response = await fetch(
@@ -229,16 +254,16 @@ export function useRedactions(documentId: string, active: boolean) {
         )
         if (!response.ok) {
           await toastFailure(toast, response, "That change could not be saved.")
-          dispatch(undone())
+          rollback()
           void reload()
         }
       } catch {
         toast.error("That change could not be saved.")
-        dispatch(undone())
+        rollback()
         void reload()
       }
     },
-    [dispatch, documentId, reload]
+    [documentId, optimistic, reload]
   )
   const reject = useCallback(
     (ids: string[]) => setStatus(ids, "rejected"),
@@ -246,44 +271,39 @@ export function useRedactions(documentId: string, active: boolean) {
   )
 
   /**
-   * Pushes the post-undo statuses to the server. The state is read from the
-   * store rather than the render's snapshot, because the dispatch that has just
-   * run is exactly the change being synced.
+   * Takes a step through history and tells the server what that step changed,
+   * and nothing else. The canvas is what the user just saw change, and the
+   * server has to agree with it because the export reads the server's copy.
+   * The comparison is read from the store rather than the render's snapshot,
+   * because the dispatch that has just run is exactly the change being synced.
    */
-  const syncStatuses = useCallback(async () => {
-    const state = store.getState().redactions
-    const grouped = new Map<RedactionStatus, string[]>()
+  const step = useCallback(
+    (action: ReturnType<typeof undone> | ReturnType<typeof redone>) => {
+      const before = store.getState().redactions.entities
+      dispatch(action)
+      const after = store.getState().redactions.entities
+      if (after === before) return
 
-    for (const id of state.ids) {
-      const redaction = state.entities[id]
-      if (!redaction) continue
-      const list = grouped.get(redaction.status) ?? []
-      list.push(id)
-      grouped.set(redaction.status, list)
-    }
-
-    await Promise.all(
-      [...grouped.entries()].map(([next, ids]) =>
-        fetch(`/api/documents/${documentId}/redactions`, {
+      for (const write of historyWrites(before, after)) {
+        void fetch(`/api/documents/${documentId}/redactions`, {
           method: "PATCH",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ ids, status: next }),
-        }).catch(() => undefined)
-      )
-    )
-  }, [documentId, store])
+          body: JSON.stringify(write),
+        })
+          .then((response) => {
+            if (!response.ok) throw new Error("not saved")
+          })
+          .catch(() => {
+            toast.error("That undo could not be saved. Reloading.")
+            void reload()
+          })
+      }
+    },
+    [dispatch, documentId, reload, store]
+  )
 
-  const undo = useCallback(() => {
-    dispatch(undone())
-    // The canvas is what the user just saw change; the server has to agree with
-    // it, because the export reads the server's copy.
-    void syncStatuses()
-  }, [dispatch, syncStatuses])
-
-  const redo = useCallback(() => {
-    dispatch(redone())
-    void syncStatuses()
-  }, [dispatch, syncStatuses])
+  const undo = useCallback(() => step(undone()), [step])
+  const redo = useCallback(() => step(redone()), [step])
 
   return {
     redactions,

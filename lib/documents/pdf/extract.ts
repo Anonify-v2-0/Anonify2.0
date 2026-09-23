@@ -1,5 +1,10 @@
 import { startOcr } from "@/lib/ocr"
 import {
+  characterOffsets,
+  collectFontWidths,
+  type FontWidths,
+} from "@/lib/documents/pdf/glyphs"
+import {
   mergeOcrIntoPage,
   ocrPdfPages,
   type PageRecognizer,
@@ -7,8 +12,10 @@ import {
 import { copyBytes, loadPdfjsForRender } from "@/lib/documents/pdf/render"
 import { TextStreamBuilder } from "@/lib/documents/shared/text"
 import type {
+  BoundingBox,
   NormalizedDocument,
   NormalizedPage,
+  SpanGeometry,
   TextStyle,
 } from "@/types/document"
 
@@ -41,6 +48,108 @@ type PdfTextStyle = {
 
 /** Below this many characters a page is treated as scanned rather than empty. */
 const OCR_TEXT_THRESHOLD = 16
+
+/**
+ * How far below the baseline a glyph may reach, as a share of the font size,
+ * when the font does not say. Generous on purpose: the box has to cover the
+ * tail of a `g` or a `p`, and a descent is under a quarter of the em in
+ * every common face.
+ */
+const FALLBACK_DESCENT = 0.25
+
+type Operators = Record<string, number>
+
+type OperatorList = { fnArray: number[]; argsArray: unknown[] }
+
+/**
+ * Where a run of text sits on the page, top-down, and how finely.
+ *
+ * The box runs from one em above the baseline, which clears capitals and
+ * accents, to the font's descent below it. It used to stop at the baseline,
+ * which left the descenders of every redacted value showing under the box.
+ *
+ * A run that is not horizontal left to right gets a box around the whole of
+ * it and `block` geometry, so a redaction covers the run rather than a slice
+ * measured along the wrong axis.
+ */
+function placeRun(
+  item: PdfTextItem,
+  pageHeight: number,
+  styles: Record<string, PdfTextStyle>,
+  widths: FontWidths
+): {
+  boundingBox: BoundingBox
+  fontSize: number
+  geometry?: SpanGeometry
+  offsets?: number[]
+} {
+  const [a, b, c, d, translateX, translateY] = item.transform
+  const fontSize =
+    item.height && item.height > 0 ? item.height : Math.hypot(c, d)
+  const width = item.width ?? 0
+  const style = item.fontName ? styles[item.fontName] : undefined
+  const descent =
+    typeof style?.descent === "number" && style.descent < 0
+      ? Math.max(-style.descent, FALLBACK_DESCENT / 2)
+      : FALLBACK_DESCENT
+  const above = fontSize
+  const below = fontSize * descent
+
+  const horizontal = Math.abs(b) < 1e-6 && Math.abs(c) < 1e-6 && a > 0
+  if (!horizontal || item.dir === "rtl") {
+    // The run's rectangle in text space, from its origin along its baseline,
+    // mapped through its own transform and boxed on the page.
+    const unit = Math.hypot(a, b) || 1
+    const along = [a / unit, b / unit]
+    const up = [c / (Math.hypot(c, d) || 1), d / (Math.hypot(c, d) || 1)]
+    const corners = [
+      [0, -below],
+      [width, -below],
+      [0, above],
+      [width, above],
+    ].map(([u, v]) => [
+      translateX + along[0] * u + up[0] * v,
+      translateY + along[1] * u + up[1] * v,
+    ])
+    const xs = corners.map(([x]) => x)
+    const ys = corners.map(([, y]) => pageHeight - y)
+    return {
+      boundingBox: {
+        x: Math.min(...xs),
+        y: Math.min(...ys),
+        width: Math.max(...xs) - Math.min(...xs),
+        height: Math.max(...ys) - Math.min(...ys),
+      },
+      fontSize,
+      geometry: "block",
+    }
+  }
+
+  const offsets = characterOffsets(
+    item.str,
+    width,
+    a,
+    item.fontName ? widths.get(item.fontName) : undefined
+  )
+
+  return {
+    boundingBox: {
+      x: translateX,
+      // PDF space is bottom-up; the canvas and the exporter both work
+      // top-down, so flip once here and never again.
+      y: pageHeight - translateY - above,
+      width,
+      height: above + below,
+    },
+    fontSize,
+    // Without measured positions a slice would be a guess, so the whole run
+    // is covered instead: visible on the canvas, never a silent leak.
+    geometry: offsets ? undefined : "block",
+    offsets: offsets
+      ? offsets.map((value) => Math.round(value * 100) / 100)
+      : undefined,
+  }
+}
 
 function styleFrom(
   fontName: string | undefined,
@@ -100,6 +209,10 @@ export async function extractPdf(
       const viewport = page.getViewport({ scale: 1 })
       const content = await page.getTextContent()
       const styles = (content.styles ?? {}) as Record<string, PdfTextStyle>
+      const operators = await operatorList(page)
+      const widths = operators
+        ? collectFontWidths(pdfjs.OPS, operators)
+        : new Map()
 
       const builder = new TextStreamBuilder()
       let index = 0
@@ -108,20 +221,13 @@ export async function extractPdf(
         if (!("str" in raw)) continue
         const item = raw
         if (item.str.length > 0) {
-          const [, , , scaleY, translateX, translateY] = item.transform
-          const height = item.height && item.height > 0 ? item.height : Math.abs(scaleY)
-          const width = item.width ?? 0
+          const run = placeRun(item, viewport.height, styles, widths)
 
           builder.append(`p${pageNumber}s${index++}`, item.str, {
-            boundingBox: {
-              x: translateX,
-              // PDF space is bottom-up; the canvas and the exporter both work
-              // top-down, so flip once here and never again.
-              y: viewport.height - translateY - height,
-              width,
-              height,
-            },
-            style: styleFrom(item.fontName, styles, height),
+            boundingBox: run.boundingBox,
+            style: styleFrom(item.fontName, styles, run.fontSize),
+            ...(run.geometry ? { geometry: run.geometry } : {}),
+            ...(run.offsets ? { offsets: run.offsets } : {}),
           })
         }
 
@@ -133,7 +239,7 @@ export async function extractPdf(
       }
 
       // Asked before cleanup(), which discards the page's operator list.
-      const images = await pageHasImages(pdfjs, page)
+      const images = operators ? pageHasImages(pdfjs.OPS, operators) : false
 
       page.cleanup()
 
@@ -198,6 +304,22 @@ export async function extractPdf(
 }
 
 /**
+ * The page's operator list, or null when it cannot be read. Both the glyph
+ * widths and the image check come from it, so it is fetched once.
+ */
+async function operatorList(page: {
+  getOperatorList: () => Promise<OperatorList>
+}): Promise<OperatorList | null> {
+  try {
+    return await page.getOperatorList()
+  } catch {
+    // A page whose operators cannot be read is not worth failing extraction
+    // over: its runs are covered whole and it does not get a vision pass.
+    return null
+  }
+}
+
+/**
  * Whether the page paints any image.
  *
  * A scanned page is one big image and a letterhead is a small one, and neither
@@ -206,31 +328,21 @@ export async function extractPdf(
  * pass, so it errs towards yes — an inline image, a mask and an XObject all
  * count.
  */
-async function pageHasImages(
-  pdfjs: { OPS: Record<string, number> },
-  page: { getOperatorList: () => Promise<{ fnArray: number[] }> }
-): Promise<boolean> {
+function pageHasImages(ops: Operators, list: OperatorList): boolean {
   const painters = new Set(
     [
-      pdfjs.OPS.paintImageXObject,
-      pdfjs.OPS.paintImageXObjectRepeat,
-      pdfjs.OPS.paintInlineImageXObject,
-      pdfjs.OPS.paintInlineImageXObjectGroup,
-      pdfjs.OPS.paintImageMaskXObject,
-      pdfjs.OPS.paintImageMaskXObjectRepeat,
-      pdfjs.OPS.paintImageMaskXObjectGroup,
-      pdfjs.OPS.paintJpegXObject,
+      ops.paintImageXObject,
+      ops.paintImageXObjectRepeat,
+      ops.paintInlineImageXObject,
+      ops.paintInlineImageXObjectGroup,
+      ops.paintImageMaskXObject,
+      ops.paintImageMaskXObjectRepeat,
+      ops.paintImageMaskXObjectGroup,
+      ops.paintJpegXObject,
     ].filter((op): op is number => typeof op === "number")
   )
 
-  try {
-    const list = await page.getOperatorList()
-    return list.fnArray.some((fn) => painters.has(fn))
-  } catch {
-    // A page whose operators cannot be read is not worth failing extraction
-    // over; it simply does not get a vision pass.
-    return false
-  }
+  return list.fnArray.some((fn) => painters.has(fn))
 }
 
 /** Wraps the configured OCR session in the shape ocrPdfPages expects. */

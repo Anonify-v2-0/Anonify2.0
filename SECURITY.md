@@ -7,7 +7,7 @@ already sent to somebody else. Please report those privately first.
 ## Reporting
 
 **Use GitHub's private vulnerability reporting:** the **Security** tab of
-[nabeel-w/Anonify2.0](https://github.com/nabeel-w/Anonify2.0/security) →
+[Anonify-v2-0/Anonify2.0](https://github.com/Anonify-v2-0/Anonify2.0/security) →
 **Report a vulnerability**. That opens a private advisory only the maintainers
 can read, and it is the fastest way to reach us.
 

@@ -509,7 +509,7 @@ middle of somebody's first redaction.
 Only languages present in every variant are listed, so changing the variant can
 never leave you without the data for the language you chose. Note that
 *detection* is still English-shaped
-([#43](https://github.com/nabeel-w/Anonify2.0/issues/43)) — this makes the page
+([#43](https://github.com/Anonify-v2-0/Anonify2.0/issues/43)) — this makes the page
 readable, which is the half that has to work first.
 
 ### AI detection, model, and cost
