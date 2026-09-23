@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useState } from "react"
 import {
   Check,
+  ChevronDown,
   Download,
   FileText,
   KeyRound,
@@ -190,7 +191,7 @@ function ReportSummary({ report }: { report: ExportReport }) {
           {report.removed.byCategory.map((entry) => (
             <div key={entry.category} className="flex justify-between gap-2">
               <dt className="truncate">{entry.category}</dt>
-              <dd className="font-mono tabular-nums text-text-muted">
+              <dd className="font-mono text-text-muted tabular-nums">
                 {entry.count}
               </dd>
             </div>
@@ -214,6 +215,73 @@ function ReportSummary({ report }: { report: ExportReport }) {
           : `${leftIn} suggested ${leftIn === 1 ? "item" : "items"} (${report.notRemoved.rejected.total} rejected, ${report.notRemoved.undecided.total} undecided) ${leftIn === 1 ? "was" : "were"} not accepted and remain in the file.`}{" "}
         The report records counts and checksums, never the values themselves.
       </p>
+    </div>
+  )
+}
+
+/**
+ * One output of a two-copy export.
+ *
+ * Folded by default: two checksums and two reports stacked one above the other
+ * made the dialog taller than the screen. What stays out of the fold is what
+ * the reviewer has to act on — the downloads, and the vault above all, which
+ * is the only copy there will ever be. A fold is a fine place for a report and
+ * the wrong place for something that is lost when the dialog closes.
+ */
+function ArtifactSection({ artifact }: { artifact: ExportedArtifact }) {
+  const [open, setOpen] = useState(false)
+  const detailsId = useId()
+
+  return (
+    <div className="space-y-2 rounded-[10px] border border-border p-3">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={detailsId}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between gap-2 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        <span className="label-micro">{artifact.variant}</span>
+        <span className="flex items-center gap-1 text-[11px] text-text-muted">
+          {open ? "Hide report" : "Show report"}
+          <ChevronDown
+            className={cn(
+              "size-3.5 transition-transform",
+              open && "rotate-180"
+            )}
+          />
+        </span>
+      </button>
+
+      <div id={detailsId} hidden={!open} className="space-y-2">
+        <p className="font-mono text-[11px] break-all text-text-muted">
+          sha256 {artifact.checksum}
+        </p>
+        {artifact.report ? <ReportSummary report={artifact.report} /> : null}
+      </div>
+
+      {artifact.vault ? (
+        <VaultDownload vault={artifact.vault} variant={artifact.variant} />
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        <a
+          href={artifact.downloadUrl}
+          download
+          className={cn(buttonVariants({ size: "sm" }))}
+        >
+          <Download className="size-4" />
+          {artifact.variant}
+        </a>
+        <a
+          href={artifact.reportUrl}
+          download
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+        >
+          <FileText className="size-4" />
+          Report
+        </a>
+      </div>
     </div>
   )
 }
@@ -258,7 +326,11 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
       }
 
       if (!response.ok) {
-        await toastFailure(toast, response.clone(), "The export could not be generated.")
+        await toastFailure(
+          toast,
+          response.clone(),
+          "The export could not be generated."
+        )
         return
       }
 
@@ -275,7 +347,11 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
       open={open}
       onOpenChange={(next) => dispatch(exportDialogToggled(next))}
     >
-      <DialogContent className="sm:max-w-md">
+      {/*
+        Header and footer stay put and the body between them scrolls, so a
+        long result never pushes the close button or the downloads off screen.
+      */}
+      <DialogContent className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Export redacted document</DialogTitle>
           <DialogDescription>
@@ -287,182 +363,172 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
           </DialogDescription>
         </DialogHeader>
 
-        {result ? (
-          <div className="space-y-3 py-2 text-sm">
-            <p className="label-micro text-primary">Redaction complete</p>
-            <ul className="space-y-1.5 text-text-secondary">
-              <li className="flex items-center gap-2">
-                <Check className="size-4 text-text-muted" />
-                {result.appliedRedactions} sensitive{" "}
-                {result.appliedRedactions === 1 ? "item" : "items"} removed
-              </li>
-              {result.metadataSanitized ? (
+        <div className="-mx-6 min-h-0 overflow-y-auto overscroll-contain px-6">
+          {result ? (
+            <div className="space-y-3 py-2 text-sm">
+              <p className="label-micro text-primary">Redaction complete</p>
+              <ul className="space-y-1.5 text-text-secondary">
                 <li className="flex items-center gap-2">
                   <Check className="size-4 text-text-muted" />
-                  Metadata sanitized
+                  {result.appliedRedactions} sensitive{" "}
+                  {result.appliedRedactions === 1 ? "item" : "items"} removed
                 </li>
-              ) : null}
-              <li className="flex items-center gap-2">
-                <ShieldCheck className="size-4 text-text-muted" />
-                Verified: {result.verifiedValues}{" "}
-                {result.verifiedValues === 1 ? "value" : "values"} confirmed
-                absent from the export
-              </li>
-            </ul>
+                {result.metadataSanitized ? (
+                  <li className="flex items-center gap-2">
+                    <Check className="size-4 text-text-muted" />
+                    Metadata sanitized
+                  </li>
+                ) : null}
+                <li className="flex items-center gap-2">
+                  <ShieldCheck className="size-4 text-text-muted" />
+                  Verified: {result.verifiedValues}{" "}
+                  {result.verifiedValues === 1 ? "value" : "values"} confirmed
+                  absent from the export
+                </li>
+              </ul>
 
-            {/*
+              {/*
               Each output gets its own block. Two artifacts of one review
               differ only in what happened to the values, so showing one set of
               counts and two links would invite the reader to apply the first
               artifact's report to the second.
             */}
-            {result.artifacts.map((artifact) => (
-              <div key={artifact.artifactId} className="space-y-2">
-                {result.artifacts.length > 1 ? (
-                  <p className="label-micro">{artifact.variant}</p>
-                ) : null}
-                <p className="font-mono text-[11px] break-all text-text-muted">
-                  sha256 {artifact.checksum}
-                </p>
-                {artifact.report ? (
-                  <ReportSummary report={artifact.report} />
-                ) : null}
-                {artifact.vault ? (
-                  <VaultDownload
-                    vault={artifact.vault}
-                    variant={artifact.variant}
-                  />
-                ) : null}
-                {result.artifacts.length > 1 ? (
-                  <div className="flex flex-wrap gap-2">
-                    <a
-                      href={artifact.downloadUrl}
-                      download
-                      className={cn(buttonVariants({ size: "sm" }))}
-                    >
-                      <Download className="size-4" />
-                      {artifact.variant}
-                    </a>
-                    <a
-                      href={artifact.reportUrl}
-                      download
-                      className={cn(
-                        buttonVariants({ variant: "outline", size: "sm" })
-                      )}
-                    >
-                      <FileText className="size-4" />
-                      Report
-                    </a>
-                  </div>
-                ) : null}
-              </div>
-            ))}
-
-            <DocumentUsageSummary documentId={summary.id} />
-          </div>
-        ) : (
-          <div className="space-y-3 py-2">
-            <p className="text-xs leading-relaxed text-text-muted">
-              Accepted content is removed from the document, not covered over.
-              The original file is never modified.
-            </p>
-
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="sanitize"
-                checked={sanitizeMetadata}
-                onCheckedChange={(checked) =>
-                  setSanitizeMetadata(checked === true)
-                }
-              />
-              <Label htmlFor="sanitize" className="text-sm font-normal">
-                Sanitize metadata (author, tooling, EXIF, GPS)
-              </Label>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="labels"
-                checked={addLabels}
-                onCheckedChange={(checked) => setAddLabels(checked === true)}
-              />
-              <Label htmlFor="labels" className="text-sm font-normal">
-                Add [REDACTED] labels where content was removed
-              </Label>
-            </div>
-
-            <div className="space-y-1.5 pt-1">
-              <Label htmlFor="second-copy" className="text-sm font-normal">
-                Outputs
-              </Label>
-              <Select
-                value={secondCopy}
-                onValueChange={(value) => setSecondCopy(value as SecondCopy)}
-              >
-                <SelectTrigger id="second-copy" size="sm" className="w-full">
-                  <SelectValue>
-                    {(value) =>
-                      SECOND_COPY.find((option) => option.value === value)
-                        ?.label ?? "Just the one"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {SECOND_COPY.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
+              {result.artifacts.length > 1
+                ? result.artifacts.map((artifact) => (
+                    <ArtifactSection
+                      key={artifact.artifactId}
+                      artifact={artifact}
+                    />
+                  ))
+                : result.artifacts.map((artifact) => (
+                    <div key={artifact.artifactId} className="space-y-2">
+                      <p className="font-mono text-[11px] break-all text-text-muted">
+                        sha256 {artifact.checksum}
+                      </p>
+                      {artifact.report ? (
+                        <ReportSummary report={artifact.report} />
+                      ) : null}
+                      {artifact.vault ? (
+                        <VaultDownload
+                          vault={artifact.vault}
+                          variant={artifact.variant}
+                        />
+                      ) : null}
+                    </div>
                   ))}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] leading-relaxed text-text-muted">
-                {
-                  SECOND_COPY.find((option) => option.value === secondCopy)
-                    ?.note
-                }{" "}
-                {secondCopy === "none"
-                  ? ""
-                  : "Government ids, bank and card numbers, API keys and faces are removed in every copy — there is no softer option for them."}
-              </p>
-            </div>
 
-            {summary.kind === "image" ? (
+              <DocumentUsageSummary documentId={summary.id} />
+            </div>
+          ) : (
+            <div className="space-y-3 py-2">
+              <p className="text-xs leading-relaxed text-text-muted">
+                Accepted content is removed from the document, not covered over.
+                The original file is never modified.
+              </p>
+
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="sanitize"
+                  checked={sanitizeMetadata}
+                  onCheckedChange={(checked) =>
+                    setSanitizeMetadata(checked === true)
+                  }
+                />
+                <Label htmlFor="sanitize" className="text-sm font-normal">
+                  Sanitize metadata (author, tooling, EXIF, GPS)
+                </Label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="labels"
+                  checked={addLabels}
+                  onCheckedChange={(checked) => setAddLabels(checked === true)}
+                />
+                <Label htmlFor="labels" className="text-sm font-normal">
+                  Add [REDACTED] labels where content was removed
+                </Label>
+              </div>
+
               <div className="space-y-1.5 pt-1">
-                <Label htmlFor="image-style" className="text-sm font-normal">
-                  Redaction appearance
+                <Label htmlFor="second-copy" className="text-sm font-normal">
+                  Outputs
                 </Label>
                 <Select
-                  value={imageStyle}
-                  onValueChange={(value) => setImageStyle(value as ImageStyle)}
+                  value={secondCopy}
+                  onValueChange={(value) => setSecondCopy(value as SecondCopy)}
                 >
-                  <SelectTrigger id="image-style" size="sm" className="w-full">
+                  <SelectTrigger id="second-copy" size="sm" className="w-full">
                     <SelectValue>
                       {(value) =>
-                        IMAGE_STYLES.find((style) => style.value === value)
-                          ?.label ?? "Solid black"
+                        SECOND_COPY.find((option) => option.value === value)
+                          ?.label ?? "Just the one"
                       }
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {IMAGE_STYLES.map((style) => (
-                      <SelectItem key={style.value} value={style.value}>
-                        {style.label}
+                    {SECOND_COPY.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="text-[11px] leading-relaxed text-text-muted">
                   {
-                    IMAGE_STYLES.find((style) => style.value === imageStyle)
+                    SECOND_COPY.find((option) => option.value === secondCopy)
                       ?.note
                   }{" "}
-                  Every option replaces the pixels and re-encodes the file — the
-                  original region is not in the export either way.
+                  {secondCopy === "none"
+                    ? ""
+                    : "Government ids, bank and card numbers, API keys and faces are removed in every copy — there is no softer option for them."}
                 </p>
               </div>
-            ) : null}
-          </div>
-        )}
+
+              {summary.kind === "image" ? (
+                <div className="space-y-1.5 pt-1">
+                  <Label htmlFor="image-style" className="text-sm font-normal">
+                    Redaction appearance
+                  </Label>
+                  <Select
+                    value={imageStyle}
+                    onValueChange={(value) =>
+                      setImageStyle(value as ImageStyle)
+                    }
+                  >
+                    <SelectTrigger
+                      id="image-style"
+                      size="sm"
+                      className="w-full"
+                    >
+                      <SelectValue>
+                        {(value) =>
+                          IMAGE_STYLES.find((style) => style.value === value)
+                            ?.label ?? "Solid black"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {IMAGE_STYLES.map((style) => (
+                        <SelectItem key={style.value} value={style.value}>
+                          {style.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] leading-relaxed text-text-muted">
+                    {
+                      IMAGE_STYLES.find((style) => style.value === imageStyle)
+                        ?.note
+                    }{" "}
+                    Every option replaces the pixels and re-encodes the file —
+                    the original region is not in the export either way.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
 
         <DialogFooter>
           {result ? (
@@ -491,7 +557,11 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
               </a>
             </>
           ) : (
-            <Button className="btn-pill h-10" disabled={busy} onClick={generate}>
+            <Button
+              className="btn-pill h-10"
+              disabled={busy}
+              onClick={generate}
+            >
               {busy ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
