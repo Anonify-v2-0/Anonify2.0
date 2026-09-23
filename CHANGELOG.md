@@ -14,6 +14,17 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.6.2] - 2026-09-23
+
+### Fixed
+
+- Image and PDF-page analysis works with local vision models such as Qwen3-VL
+  through Ollama. The model is now asked for region coordinates as whole numbers
+  on a 0–1000 grid, the convention those models answer in, rather than 0–1
+  fractions they ignored, which failed validation and left every image with no
+  suggestions. An over-long region explanation is shortened rather than
+  discarding the region (#132)
+
 ## [1.6.1] - 2026-09-23
 
 ### Added
