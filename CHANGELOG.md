@@ -14,6 +14,21 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.4.0] - 2026-09-23
+
+### Added
+
+- `pnpm setup` pages and searches large model catalogs, shows each model's
+  advertised capabilities and context window apart from what setup verified, and
+  can finish a local install for you — starting Postgres and RustFS, migrating,
+  warming OCR and starting the app, or running everything in Docker — with retry,
+  skip or stop on any step that fails (#119)
+- `pnpm setup` shows list prices for models on the Vercel AI Gateway and
+  DeepInfra, read from their own model lists and labelled with source and age,
+  and offers — never automatically — to save the chosen model's price to
+  `AI_MODEL_PRICES`. Model lists are cached in `.cache/models` (or
+  `ANONIFY_MODEL_CACHE_PATH`), and `pnpm models:warm` refreshes them (#120)
+
 ## [1.3.0] - 2026-09-12
 
 ### Added
