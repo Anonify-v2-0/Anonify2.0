@@ -195,6 +195,27 @@ export type Choice<T> = {
   disabled?: string
 }
 
+/** Where a paged menu was left, so asking again reopens the same page and search. */
+export type PagedView = { page?: number; search: string }
+
+export type PagedChoiceOptions<T> = {
+  /** What the list holds, in the plural: "models". */
+  noun?: string
+  pageSize?: number
+  /**
+   * Shown on every page and never filtered out. These are the escape hatches,
+   * and an escape hatch on page fourteen of fourteen is not one.
+   */
+  actions?: Choice<T>[]
+  /** What a search is matched against. The label, unless said otherwise. */
+  searchText?: (choice: Choice<T>) => string
+  searchHint?: string
+  /** The default answer, and the page that opens first is the one it is on. */
+  initial?: T
+  /** Pass the same object on every call to keep the page and search. */
+  view?: PagedView
+}
+
 /**
  * Questions, and the promise that an answer is either understood or asked
  * again.
@@ -204,29 +225,48 @@ export type Choice<T> = {
  * took, so a scripted run is readable afterwards rather than silent.
  */
 export class Prompter {
-  private readonly rl: Interface | null
+  private rl: Interface | null
   private muted = false
 
   constructor(readonly interactive: boolean) {
-    this.rl = interactive
-      ? createInterface({
-          input: process.stdin,
-          terminal: Boolean(process.stdin.isTTY),
-          // A pasted credential must not be recalled and echoed by an arrow key
-          // in the next ordinary prompt.
-          historySize: 0,
-          output: new Writable({
-            write: (chunk, encoding, callback) => {
-              if (!this.muted) process.stdout.write(chunk, encoding)
-              callback()
-            },
-          }),
-        })
-      : null
+    this.rl = interactive ? this.open() : null
+  }
+
+  private open(): Interface {
+    return createInterface({
+      input: process.stdin,
+      terminal: Boolean(process.stdin.isTTY),
+      // A pasted credential must not be recalled and echoed by an arrow key
+      // in the next ordinary prompt.
+      historySize: 0,
+      output: new Writable({
+        write: (chunk, encoding, callback) => {
+          if (!this.muted) process.stdout.write(chunk, encoding)
+          callback()
+        },
+      }),
+    })
   }
 
   close(): void {
     this.rl?.close()
+    this.rl = null
+  }
+
+  /**
+   * Lends the terminal to something else — a child process run with inherited
+   * stdio — and takes it back afterwards. An open readline interface keeps
+   * stdin in raw mode and reads every keystroke itself, so without this the
+   * child's own prompts and Ctrl-C would both land here instead.
+   */
+  async handOff<R>(run: () => Promise<R>): Promise<R> {
+    if (!this.interactive) return run()
+    this.close()
+    try {
+      return await run()
+    } finally {
+      this.rl = this.open()
+    }
   }
 
   private async read(question: string): Promise<string> {
@@ -336,6 +376,122 @@ export class Prompter {
       }
 
       warn(`"${answer}" is not one of 1 to ${choices.length}.`)
+    }
+  }
+
+  /**
+   * A numbered menu for lists that may be larger than a terminal window.
+   *
+   * Paging and search are numbered entries like everything else, so a model
+   * ID that happens to be a number can never be mistaken for a command, and
+   * "Next page" keeps the same number on every full page.
+   */
+  async choosePaged<T>(
+    question: string,
+    choices: Choice<T>[],
+    options: PagedChoiceOptions<T> = {}
+  ): Promise<T> {
+    const noun = options.noun ?? "choices"
+    const pageSize = Math.max(3, options.pageSize ?? 10)
+    const actions = options.actions ?? []
+    const view = options.view ?? { search: "" }
+    const text = options.searchText ?? ((choice: Choice<T>) => choice.label)
+    const isInitial = (choice: Choice<unknown>) =>
+      options.initial !== undefined && choice.value === options.initial
+    const matching = () => {
+      const needle = view.search.toLocaleLowerCase()
+      return needle
+        ? choices.filter((choice) =>
+            text(choice).toLocaleLowerCase().includes(needle)
+          )
+        : choices
+    }
+
+    if (!this.interactive) {
+      const all = [...choices, ...actions]
+      const pick =
+        all.find((choice) => isInitial(choice) && !choice.disabled) ??
+        all.find((choice) => !choice.disabled)
+      if (!pick) throw new Error("No selectable choices are available")
+      this.echo(question, pick.label)
+      return pick.value
+    }
+
+    if (view.page === undefined) {
+      const at = matching().findIndex(isInitial)
+      view.page = at < 0 ? 0 : Math.floor(at / pageSize)
+    }
+
+    const search = Symbol("search")
+    const clear = Symbol("clear")
+    const previous = Symbol("previous")
+    const next = Symbol("next")
+
+    for (;;) {
+      const filtered = matching()
+      const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+      const page = Math.min(Math.max(0, view.page ?? 0), pageCount - 1)
+      view.page = page
+      const visible = filtered.slice(page * pageSize, (page + 1) * pageSize)
+      const controls: Choice<symbol>[] = [
+        ...(page + 1 < pageCount ? [{ value: next, label: "Next page" }] : []),
+        ...(page > 0 ? [{ value: previous, label: "Previous page" }] : []),
+        {
+          value: search,
+          label: view.search ? "Search again" : `Search ${noun}`,
+        },
+        ...(view.search
+          ? [
+              {
+                value: clear,
+                label: `Clear the search and show all ${choices.length} ${noun}`,
+              },
+            ]
+          : []),
+      ]
+      const menu = [...visible, ...controls, ...actions] as Choice<T | symbol>[]
+
+      say()
+      note(
+        [
+          view.search
+            ? `${filtered.length} of ${choices.length} ${noun} match "${view.search}"`
+            : `${choices.length} ${noun}`,
+          `page ${page + 1} of ${pageCount}`,
+        ].join(" · ")
+      )
+      const selected = await this.choose(
+        question,
+        menu,
+        Math.max(
+          0,
+          menu.findIndex((choice) => isInitial(choice) && !choice.disabled)
+        )
+      )
+
+      if (selected === search) {
+        view.search = await this.ask(options.searchHint ?? `Search ${noun}`, {
+          hint: "Leave blank to show everything again.",
+        })
+        view.page = 0
+        if (view.search && matching().length === 0)
+          warn(`No ${noun} match "${view.search}".`)
+        continue
+      }
+      if (selected === clear) {
+        view.search = ""
+        view.page = 0
+        continue
+      }
+      if (selected === previous) {
+        view.page = page - 1
+        continue
+      }
+      if (selected === next) {
+        view.page = page + 1
+        continue
+      }
+      return selected as T
     }
   }
 

@@ -527,7 +527,8 @@ configurations keep working unchanged.
 | `AI_PROVIDER` | Selects the provider. Credentials belong to this provider. | `gateway` |
 | `AI_MODEL` | Provider model ID (Azure deployment name). | `anthropic/claude-haiku-4.5` for Gateway; required for other providers |
 | `AI_MODEL_CAPABILITIES` | Setup's verified structured-output/image declaration, bound to the chosen model and destination. | Legacy Gateway behavior when unset |
-| `AI_MODEL_PRICES` | Optional JSON rates keyed by usage model ID; accounts for historical models separately. | unset |
+| `AI_MODEL_PRICES` | Optional JSON rates keyed by usage model ID; accounts for historical models separately. Setup offers to add the chosen model's list price, with confirmation. | unset |
+| `ANONIFY_MODEL_CACHE_PATH` | Where setup and `pnpm models:warm` cache provider model lists. Not read by the app. | `.cache/models` |
 | `AI_PRICE_INPUT_PER_MTOK` | USD per million input tokens. Turns recorded token counts into an estimated cost in the UI. | unset |
 | `AI_PRICE_OUTPUT_PER_MTOK` | USD per million output tokens, same purpose. | unset |
 
@@ -766,6 +767,7 @@ pnpm db:migrate        # create and apply a migration
 pnpm db:migrate:deploy # apply existing migrations
 pnpm rate-limit show   # inspect the limits in force
 pnpm ocr:warm          # pre-download the Tesseract model
+pnpm models:warm       # refresh the model lists and list prices setup shows
 pnpm cleanup           # run the expiry sweep once
 pnpm smoke             # every format, against a running instance
 pnpm smoke --only=eml  # or one of them

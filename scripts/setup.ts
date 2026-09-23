@@ -41,7 +41,10 @@ import { readFile, rename, writeFile } from "node:fs/promises"
 import { createConnection } from "node:net"
 import path from "node:path"
 import { AI_ENV_KEYS, askAiProvider } from "./setup-ai"
+import { bannerLines, fancyTerminal, setupVersion } from "./setup-banner"
+import { childRunning, finishSetup, nextSteps, type Mode } from "./setup-finish"
 import type { ProviderEnv } from "@/lib/ai/providers/config"
+import { ratesFor } from "@/lib/ai/rates"
 
 import { formatByteSize } from "@/lib/config/bytes"
 import {
@@ -128,8 +131,6 @@ import {
 
 const ENV_PATH = path.join(process.cwd(), ".env")
 const STEPS = 5
-
-type Mode = "local" | "demo"
 
 /** 32 bytes of hex — what the crypto and identity layers expect. */
 function secret(): string {
@@ -1100,12 +1101,18 @@ const HELP = `
 
   With no flags it asks. Every limit it can set is documented in .env.example,
   and every default it prints is read from the code that enforces it.
+
+  After writing .env it offers to run the next steps for a local install,
+  one at a time and only when asked. Scripted runs never start anything.
 `
 
 function banner(): void {
   say()
-  say(`  ${paint.bold(paint.cyan("Anonify"))} ${paint.gray("setup")}`)
-  say(`  ${paint.gray("Writes .env. Nothing here leaves your machine.")}`)
+  for (const line of bannerLines({
+    version: setupVersion(),
+    fancy: fancyTerminal(),
+  }))
+    say(line)
   rule()
 }
 
@@ -1164,20 +1171,6 @@ const MODE_LABELS: Record<Mode, string> = {
   demo: "the deployed demo's services",
 }
 
-const NEXT_STEPS: Record<Mode, string[]> = {
-  local: [
-    "docker compose up -d      # Postgres + RustFS, with the bucket created",
-    "pnpm db:migrate           # apply the schema",
-    "pnpm ocr:warm             # fetch the configured OCR model now, not mid-redaction",
-    "pnpm dev                  # http://localhost:3000",
-  ],
-  demo: [
-    "Fill in the REQUIRED values in .env",
-    "pnpm db:migrate           # apply the schema to your Neon database",
-    "pnpm dev                  # http://localhost:3000",
-  ],
-}
-
 async function main(): Promise<void> {
   const argv = new Set(process.argv.slice(2))
 
@@ -1193,10 +1186,18 @@ async function main(): Promise<void> {
 
   // Ctrl-C during a question leaves the terminal in a strange state unless the
   // interface is closed, and an unexplained exit reads as a crash.
+  let envWritten = false
   const onInterrupt = () => {
+    // A command setup started owns Ctrl-C: it is how `pnpm dev` is stopped,
+    // and the child receives the same signal and exits on its own.
+    if (childRunning()) return
     prompt.close()
     say()
-    note("Stopped. Nothing was written.")
+    note(
+      envWritten
+        ? "Stopped. .env is written; the next steps are printed above."
+        : "Stopped. Nothing was written."
+    )
     say()
     process.exit(130)
   }
@@ -1451,6 +1452,7 @@ async function main(): Promise<void> {
           throw new Error(`${required} did not survive the write`)
         }
       }
+      envWritten = true
       writing.succeed("Wrote .env")
     } catch (error) {
       writing.fail("Could not write .env")
@@ -1520,27 +1522,27 @@ async function main(): Promise<void> {
 
     // A cap computed from prices nobody set is a cap that does nothing, and
     // silently doing nothing is exactly what a spend limit must not do.
-    if (
-      spendCapUsd > 0 &&
-      !(
-        written.get("AI_PRICE_INPUT_PER_MTOK") &&
-        written.get("AI_PRICE_OUTPUT_PER_MTOK")
-      )
-    ) {
+    // Checked with the app's own rules, against what was written: a price
+    // adopted into AI_MODEL_PRICES counts, and a table that lacks this model
+    // does not, however many other models it prices.
+    if (spendCapUsd > 0 && !ratesFor(Object.fromEntries(written))) {
       say()
       warn(
-        `${SPEND_ENV_NAME} is set but the prices it is computed from are not.`
+        `${SPEND_ENV_NAME} is set but the current model has no price to compute it from.`
       )
+      note("Add it to AI_MODEL_PRICES (or set AI_PRICE_INPUT_PER_MTOK and")
       note(
-        "Set AI_PRICE_INPUT_PER_MTOK and AI_PRICE_OUTPUT_PER_MTOK, or the cap"
+        "AI_PRICE_OUTPUT_PER_MTOK), or the cap cannot be enforced and the app"
       )
-      note("cannot be enforced and the app will say so on every document.")
+      note("will say so on every document.")
     }
 
     say()
     say(`  ${paint.bold("Next")}`)
     say()
-    for (const line of NEXT_STEPS[mode]) say(`    ${paint.gray(line)}`)
+    const finish = { mode, ocr, ports }
+    for (const line of nextSteps(finish)) say(`    ${paint.gray(line)}`)
+    await finishSetup(prompt, finish)
     say()
     note("Every variable, with its units and why it exists: .env.example")
     note("The full walkthrough: README.md")

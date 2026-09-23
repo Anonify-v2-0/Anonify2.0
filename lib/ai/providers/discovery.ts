@@ -4,10 +4,26 @@ import { ollamaUrl, type ProviderEnv } from "./config"
 export type ModelDefinition = {
   id: string
   label: string
+  /** The provider's display name, when it has one that is not just the ID. */
+  name?: string
+  /** Input context in tokens, as the provider advertises it. */
+  contextWindow?: number
+  /** A list price the provider publishes in its own model list. */
+  price?: ListPrice
   textOutput?: boolean
   structuredOutput?: boolean
   vision?: boolean
   unavailable?: string
+}
+
+/** USD per million tokens, as published; informational, never enforced. */
+export type ListPrice = {
+  inputPerMillion: number
+  outputPerMillion: number
+  /** The first tier's rate; longer prompts cost more. */
+  tiered?: boolean
+  /** A representative rate; the upstream provider actually used may differ. */
+  variesByProvider?: boolean
 }
 
 export function blockedReason(
@@ -64,6 +80,113 @@ function strings(value: unknown): string[] | undefined {
     : undefined
 }
 
+const CONTEXT_KEYS = [
+  "context_window",
+  "contextWindow",
+  "context_length",
+  "contextLength",
+  "max_context_length",
+  "max_input_tokens",
+  "inputTokenLimit",
+]
+
+/** Only a plausible whole number of tokens; anything else is "unknown". */
+function tokenCount(value: unknown): number | undefined {
+  const count = typeof value === "string" ? Number(value) : value
+  return typeof count === "number" &&
+    Number.isInteger(count) &&
+    count > 0 &&
+    count <= 100_000_000
+    ? count
+    : undefined
+}
+
+function contextWindow(row: Record<string, unknown>): number | undefined {
+  for (const key of CONTEXT_KEYS) {
+    const count = tokenCount(row[key])
+    if (count) return count
+  }
+  return tokenCount(bag(row.top_provider).context_length)
+}
+
+/** A nonnegative amount, from a number or a decimal string. */
+function amount(value: unknown): number | undefined {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : Number.NaN
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+}
+
+/** Floating point turns 0.0000025 × 10⁶ into 2.4999999999999996. */
+function perMillion(perToken: number): number | undefined {
+  const rate = Number((perToken * 1_000_000).toPrecision(12))
+  // No real model costs more than this; a larger number is a unit mistake.
+  return rate <= 10_000 ? rate : undefined
+}
+
+/**
+ * Only from model lists whose unit is part of the field's contract: the AI
+ * Gateway publishes USD per token, DeepInfra names its fields cents per token.
+ * Providers whose model APIs carry no price, or carry one in an undocumented
+ * unit, get none — a price off by a factor of a hundred is worse than "not
+ * published", because it looks exactly like a real one.
+ */
+export function listPrice(
+  provider: string,
+  row: Record<string, unknown>
+): ListPrice | undefined {
+  const pricing = bag(row.pricing)
+  let input: number | undefined
+  let output: number | undefined
+  if (provider === "gateway") {
+    input = amount(pricing.input)
+    output = amount(pricing.output)
+  } else if (provider === "deepinfra" && pricing.type === "tokens") {
+    const inputCents = amount(pricing.cents_per_input_token)
+    const outputCents = amount(pricing.cents_per_output_token)
+    input = inputCents === undefined ? undefined : inputCents / 100
+    output = outputCents === undefined ? undefined : outputCents / 100
+  }
+  if (input === undefined || output === undefined) return
+  const inputPerMillion = perMillion(input)
+  const outputPerMillion = perMillion(output)
+  if (inputPerMillion === undefined || outputPerMillion === undefined) return
+  return {
+    inputPerMillion,
+    outputPerMillion,
+    ...(pricing.input_tiers || pricing.output_tiers ? { tiered: true } : {}),
+    ...(pricing.varies_by_provider === true ? { variesByProvider: true } : {}),
+  }
+}
+
+function displayName(
+  provider: string,
+  row: Record<string, unknown>,
+  id: string
+): string | undefined {
+  // Where there is no separate `id`, `name` *is* the ID (Azure, Google,
+  // Cohere, Fireworks), and repeating it as a display name says nothing.
+  const candidates = [
+    row.display_name,
+    row.displayName,
+    provider !== "azure" && typeof row.id === "string" ? row.name : undefined,
+  ]
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue
+    const name = candidate.trim()
+    if (
+      name &&
+      name.length <= 80 &&
+      !/[\x00-\x1f\x7f]/.test(name) &&
+      name.toLowerCase() !== id.toLowerCase()
+    )
+      return name
+  }
+}
+
 export function parseModel(
   provider: string,
   raw: unknown
@@ -97,6 +220,12 @@ export function parseModel(
   const methods = strings(row.supportedGenerationMethods)
   const endpoints = strings(row.endpoints)
   const model: ModelDefinition = { id, label: id }
+  const name = displayName(provider, row, id)
+  if (name) model.name = name
+  const context = contextWindow(row)
+  if (context) model.contextWindow = context
+  const price = listPrice(provider, row)
+  if (price) model.price = price
   if (input)
     model.vision = input.some((value) => value.toLowerCase() === "image")
   if (output)
@@ -132,7 +261,12 @@ export function parseModel(
     if (textTypes.includes(row.type)) model.textOutput = true
     if (nonTextTypes.includes(row.type)) model.textOutput = false
   }
-  if (row.active === false || row.is_deprecated === true)
+  if (
+    row.active === false ||
+    row.is_deprecated === true ||
+    // DeepInfra: the Unix time a model was (or will be) deprecated.
+    (typeof row.deprecated === "number" && row.deprecated * 1000 <= Date.now())
+  )
     model.unavailable = "Inactive or deprecated model"
   return model
 }
@@ -168,6 +302,13 @@ export async function discoverModels(
             fetcher
           )
         )
+        // model_info keys are prefixed by architecture: llama.context_length.
+        const modelInfo = bag(info.model_info)
+        const context = Object.keys(modelInfo).find((key) =>
+          key.endsWith(".context_length")
+        )
+        if (context && tokenCount(modelInfo[context]))
+          model.contextWindow = tokenCount(modelInfo[context])
         const capabilities = strings(info.capabilities)
         if (capabilities) {
           model.textOutput = capabilities.includes("completion")
