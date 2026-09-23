@@ -14,6 +14,48 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.5.0] - 2026-09-23
+
+### Added
+
+- An export with a second copy can be downloaded as one zip holding every copy
+  and its report. The vault is left out on purpose and is still downloaded on
+  its own
+
+### Fixed
+
+- Exports with a second copy (pseudonymized, tokenized or encrypted) work again.
+  Every one of them failed with "The export could not be generated", and a
+  malformed export request is now answered with a 400 rather than a 500 (#121)
+- Accept all leaves suggestions you ignored alone instead of redacting them after
+  all, and an ignored suggestion is marked and dimmed in the inspector (#121)
+- The export dialog scrolls instead of growing past the screen, and with two
+  copies each copy's checksum and report fold away while its downloads and vault
+  stay in view (#121)
+- The documents list says a review is finished instead of showing "0 accepted"
+  under a full progress bar, and the upload panel no longer jumps or sits at 0%
+  when an upload starts (#121)
+- Undo and redo save only the redactions they changed. Before, pressing Ctrl+Z
+  in a tab holding stale decisions could overwrite every decision on the
+  document, and undoing a method change was never saved (#121)
+- PDFs that use the standard fonts without embedding them, or that need the
+  bundled CMaps, render and extract on the server with the right font data
+  again. The server was looking for those files at a path it could not read
+
+### Security
+
+- PDF redaction boxes are placed from the font's own character widths and reach
+  below the baseline. On a line of proportional text a box could sit a few
+  characters away from its value and leave descenders showing, and the export
+  burned in the same box, so part of an accepted value could survive in the
+  exported PDF. PDFs analysed before this release are covered a whole text run at
+  a time instead; upload them again for boxes that fit the value
+  (GHSA-h3hv-rpqw-7p84)
+- Next.js is updated to 16.3.6, which fixes two critical and several high-severity
+  advisories in 16.2.x, and vulnerable copies of undici, mysql2, nanoid,
+  deepmerge-ts, devalue, uuid, lodash and postcss pulled in by Prisma, Workflow
+  and exceljs are replaced with patched releases, so `pnpm audit` reports nothing
+
 ## [1.4.0] - 2026-09-23
 
 ### Added
