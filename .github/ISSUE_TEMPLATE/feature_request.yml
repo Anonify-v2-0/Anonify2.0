@@ -5,9 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        [CONTRIBUTING.md §3](https://github.com/nabeel-w/Anonify2.0/blob/main/CONTRIBUTING.md#3-the-next-phase)
+        [CONTRIBUTING.md §3](https://github.com/Anonify-v2-0/Anonify2.0/blob/main/CONTRIBUTING.md#3-the-next-phase)
         lists what is already planned, and
-        [§2](https://github.com/nabeel-w/Anonify2.0/blob/main/CONTRIBUTING.md#2-design-positions)
+        [§2](https://github.com/Anonify-v2-0/Anonify2.0/blob/main/CONTRIBUTING.md#2-design-positions)
         lists what we have deliberately decided not to do. Worth a look first —
         if your idea is in §2, make the case against the reasoning there rather
         than for the feature.
@@ -36,7 +36,7 @@ body:
       label: Invariants
       description:
         The eight rules in
-        [CONTRIBUTING.md](https://github.com/nabeel-w/Anonify2.0/blob/main/CONTRIBUTING.md#the-invariants).
+        [CONTRIBUTING.md](https://github.com/Anonify-v2-0/Anonify2.0/blob/main/CONTRIBUTING.md#the-invariants).
         A change that breaks one will not be merged, however good the rest of it
         is — so it is worth checking before either of us spends an evening on it.
       options:

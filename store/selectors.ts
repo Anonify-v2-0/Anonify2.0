@@ -93,7 +93,31 @@ export const selectOccurrenceGroups = createSelector(
   }
 )
 
-export const selectCanUndo = (state: RootState) => state.redactions.past.length > 0
+/**
+ * What "Accept all" and "Reject all" act on: the groups on screen.
+ *
+ * Accept all leaves out what the reviewer already ignored. Ignoring a false
+ * positive (a practice's public phone number, a clinician's name) and then
+ * accepting the rest is the ordinary way to finish a review, and a bulk
+ * accept that quietly redacted the ignored ones too would undo the one
+ * decision the reviewer took the trouble to make. Reject all has no such
+ * asymmetry: it only ever takes redaction away, which the canvas shows.
+ */
+export const selectBulkTargets = createSelector(
+  [selectOccurrenceGroups],
+  (groups) => {
+    const all = groups.flatMap((group) => group.members)
+    return {
+      acceptIds: all
+        .filter((member) => member.status !== "rejected")
+        .map((member) => member.id),
+      rejectIds: all.map((member) => member.id),
+      ignored: all.filter((member) => member.status === "rejected").length,
+    }
+  }
+)
+
+export const selectCanUndo =(state: RootState) => state.redactions.past.length > 0
 export const selectCanRedo = (state: RootState) => state.redactions.future.length > 0
 
 export const selectSelectedRedaction = createSelector(

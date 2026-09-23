@@ -1,60 +1,26 @@
-import { z } from "zod"
-
 import {
   errorResponse,
   handleRouteError,
   jsonResponse,
   rateLimitResponse,
+  readJson,
 } from "@/lib/api/http"
 import { exportAndStore } from "@/lib/redaction/deliver"
 import { ExportVerificationError } from "@/lib/redaction/export"
+import { exportOptionsSchema } from "@/lib/redaction/export-options"
 import { ReportLeakError } from "@/lib/redaction/report"
 import {
   defaultVariant,
   nameVariants,
-  MAX_VARIANTS,
   type VariantSpec,
 } from "@/lib/redaction/variants"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { createDownloadToken } from "@/lib/security/signed-url"
-import { REDACTION_CATEGORIES, REDACTION_METHODS } from "@/types/redaction"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
-
-/**
- * Methods asked for by category.
- *
- * Nothing here decides whether the method is *allowed* — that is
- * lib/redaction/methods.ts, asked again at export time — so an override for a
- * mask-only category parses fine and then resolves to a mask. The schema's job
- * is to make sure the strings are ours; the policy's job is to make sure the
- * answer is defensible, and putting both here would give a client two places
- * to be told no.
- */
-const methodsSchema = z
-  .record(z.enum(REDACTION_CATEGORIES), z.enum(REDACTION_METHODS))
-  .optional()
-
-const variantSchema = z.object({
-  addLabels: z.boolean().default(false),
-  sanitizeMetadata: z.boolean().default(true),
-  imageStyle: z.enum(["solid", "blur", "pixelate"]).default("solid"),
-  methods: methodsSchema,
-})
-
-/**
- * One export, or several.
- *
- * `variants` is how a reviewer gets two outputs from one pass — an internal
- * copy with names masked and a shareable one with them tokenised. Absent, the
- * body is read as a single variant, which is what every existing client sends.
- */
-const optionsSchema = variantSchema.extend({
-  variants: z.array(variantSchema).min(1).max(MAX_VARIANTS).optional(),
-})
 
 /**
  * Generates the redacted document.
@@ -76,7 +42,13 @@ export async function POST(
     const identity = await peekIdentity()
 
     const document = await requireDocument(id, identity?.ownerKey)
-    const options = optionsSchema.parse(await request.json().catch(() => ({})))
+    // No body is the default export. A body that does not parse is the
+    // caller's mistake, and is answered as one rather than as a 500.
+    const parsed = exportOptionsSchema.safeParse((await readJson(request)) ?? {})
+    if (!parsed.success) {
+      return errorResponse("Invalid export options", 400)
+    }
+    const options = parsed.data
 
     const specs: VariantSpec[] = options.variants ?? []
     const variants =

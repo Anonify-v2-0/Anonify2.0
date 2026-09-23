@@ -7,9 +7,9 @@ body:
       value: |
         **If content came back out of an exported document, stop here.**
         That is a security report: use
-        [private reporting](https://github.com/nabeel-w/Anonify2.0/security/advisories/new)
+        [private reporting](https://github.com/Anonify-v2-0/Anonify2.0/security/advisories/new)
         instead, so the fix lands before the recipe does. See
-        [SECURITY.md](https://github.com/nabeel-w/Anonify2.0/blob/main/SECURITY.md).
+        [SECURITY.md](https://github.com/Anonify-v2-0/Anonify2.0/blob/main/SECURITY.md).
 
   - type: checkboxes
     id: no-real-data

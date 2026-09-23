@@ -72,7 +72,7 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the maintainers privately through
-[GitHub's private reporting](https://github.com/nabeel-w/Anonify2.0/security)
+[GitHub's private reporting](https://github.com/Anonify-v2-0/Anonify2.0/security)
 or by contacting [@nabeel-w](https://github.com/nabeel-w) directly. All
 complaints will be reviewed and investigated promptly and fairly.
 

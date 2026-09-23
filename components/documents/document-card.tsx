@@ -63,7 +63,11 @@ export function DocumentCard({
 }) {
   const Icon = KIND_ICONS[document.kind]
   const working = IN_PROGRESS.has(document.status)
+  // The bar is review progress, so once it is full the label says the review
+  // is done and how it came out. "0 accepted" under a full bar read as if the
+  // bar were counting accepted redactions, when every suggestion was ignored.
   const reviewed = document.counts.total - document.counts.suggested
+  const ignored = reviewed - document.counts.accepted
   const progress =
     document.counts.total === 0
       ? 0
@@ -138,7 +142,9 @@ export function DocumentCard({
               <span className="text-[11px] text-text-muted">
                 {document.counts.suggested > 0
                   ? `${document.counts.suggested} left to review`
-                  : `${document.counts.accepted} accepted`}
+                  : `Reviewed · ${document.counts.accepted} accepted${
+                      ignored > 0 ? `, ${ignored} ignored` : ""
+                    }`}
               </span>
             </div>
           ) : null}

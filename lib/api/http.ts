@@ -1,3 +1,5 @@
+import { ZodError } from "zod"
+
 import { AccessError } from "@/lib/security/access-control"
 
 /**
@@ -126,6 +128,23 @@ export function describeWait(seconds: number): string {
 export function handleRouteError(error: unknown, context: string): Response {
   if (error instanceof AccessError) {
     return errorResponse(error.message, error.status)
+  }
+  // A body that failed validation is the caller's mistake. Routes should
+  // safeParse and say so themselves; this is the backstop for one that threw,
+  // so a bad request is never reported, and logged, as an outage.
+  if (error instanceof ZodError) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        context,
+        errorCategory: "invalid-request",
+        issues: error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          code: issue.code,
+        })),
+      })
+    )
+    return errorResponse("Invalid request", 400)
   }
 
   const message = error instanceof Error ? error.message : String(error)

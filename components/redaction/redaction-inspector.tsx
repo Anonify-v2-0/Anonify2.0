@@ -1,6 +1,5 @@
 "use client"
 
-import { useMemo } from "react"
 import { Check, Globe, Layers, Sparkles, User, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -9,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { filtersChanged, redactionSelected } from "@/store/redactionSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import {
+  selectBulkTargets,
   selectCategories,
   selectCounts,
   selectOccurrenceGroups,
@@ -147,10 +147,7 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
     (state) => (state.document.summary?.batch?.total ?? 0) > 1
   )
 
-  const allIds = useMemo(
-    () => groups.flatMap((group) => group.members.map((member) => member.id)),
-    [groups]
-  )
+  const bulk = useAppSelector(selectBulkTargets)
 
   return (
     <>
@@ -211,24 +208,33 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
         </div>
       ) : null}
 
-      {actions && allIds.length > 0 ? (
-        <div className="flex gap-2 px-4 py-3">
-          <Button
-            size="sm"
-            variant="outline"
-            className="flex-1"
-            onClick={() => actions.accept(allIds)}
-          >
-            Accept all
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="flex-1"
-            onClick={() => actions.reject(allIds)}
-          >
-            Reject all
-          </Button>
+      {actions && bulk.rejectIds.length > 0 ? (
+        <div className="px-4 py-3">
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1"
+              disabled={bulk.acceptIds.length === 0}
+              onClick={() => actions.accept(bulk.acceptIds)}
+            >
+              Accept all
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="flex-1"
+              onClick={() => actions.reject(bulk.rejectIds)}
+            >
+              Reject all
+            </Button>
+          </div>
+          {bulk.ignored > 0 ? (
+            <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+              Accept all leaves the {bulk.ignored} ignored{" "}
+              {bulk.ignored === 1 ? "suggestion" : "suggestions"} alone.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -250,6 +256,13 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
             const accepted = group.members.filter(
               (member) => member.status === "accepted"
             ).length
+            const ignored = group.members.filter(
+              (member) => member.status === "rejected"
+            ).length
+            // Dimmed only when nothing in the group is still in play, so a
+            // group with one occurrence redacted and one ignored still reads
+            // as live.
+            const allIgnored = ignored === group.members.length
             const isSelected = group.members.some(
               (member) => member.id === selectedId
             )
@@ -260,14 +273,17 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
               first.confidence !== undefined
                 ? `, ${Math.round(first.confidence * 100)} percent confidence`
                 : ""
-            }${accepted > 0 ? `, ${accepted} accepted` : ""}.`
+            }${accepted > 0 ? `, ${accepted} accepted` : ""}${
+              ignored > 0 ? `, ${ignored} ignored` : ""
+            }.`
 
             return (
               <li
                 key={group.key}
                 className={cn(
                   "-mx-2 rounded-md border-b border-border/60 px-2 py-3 transition-colors last:border-b-0",
-                  isSelected ? "bg-red-soft" : "hover:bg-white/3"
+                  isSelected ? "bg-red-soft" : "hover:bg-white/3",
+                  allIgnored && !isSelected && "opacity-60"
                 )}
               >
                 {/*
@@ -315,6 +331,11 @@ export function InspectorBody({ actions }: { actions?: InspectorActions }) {
                   {accepted > 0 ? (
                     <span className="text-primary">
                       · {accepted} accepted
+                    </span>
+                  ) : null}
+                  {ignored > 0 ? (
+                    <span>
+                      · {allIgnored && ignored === 1 ? "ignored" : `${ignored} ignored`}
                     </span>
                   ) : null}
                 </div>

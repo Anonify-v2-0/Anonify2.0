@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest"
 
+import { historyWrites } from "@/store/history-sync"
 import { makeStore } from "@/store/store"
 import {
   redactionAdded,
+  redactionMethodSet,
   redactionRemoved,
   redactionsReplaced,
   redactionStatusSet,
@@ -12,6 +14,7 @@ import {
   undone,
 } from "@/store/redactionSlice"
 import {
+  selectBulkTargets,
   selectCanRedo,
   selectCanUndo,
   selectCounts,
@@ -170,5 +173,94 @@ describe("global rules", () => {
 
     expect(store.getState().redactions.ids).toEqual(["c"])
     expect(store.getState().redactions.ruleIds).toEqual([])
+  })
+})
+
+describe("accept all", () => {
+  it("leaves suggestions the reviewer ignored alone", () => {
+    const store = makeStore()
+    store.dispatch(
+      redactionsReplaced([
+        redaction("a"),
+        redaction("b", { text: "01632 960000", category: "phone" }),
+        redaction("c", { text: "Dr Jane Doe", category: "person" }),
+      ])
+    )
+    store.dispatch(redactionStatusSet({ ids: ["b"], status: "rejected" }))
+
+    const targets = selectBulkTargets(store.getState())
+
+    expect(targets.acceptIds.sort()).toEqual(["a", "c"])
+    expect(targets.ignored).toBe(1)
+    // Reject all is not asymmetric: it only ever takes redaction away.
+    expect(targets.rejectIds.sort()).toEqual(["a", "b", "c"])
+  })
+
+  it("keeps an ignored suggestion ignored through an accept all", () => {
+    const store = makeStore()
+    store.dispatch(
+      redactionsReplaced([
+        redaction("a"),
+        redaction("b", { text: "01632 960000", category: "phone" }),
+      ])
+    )
+    store.dispatch(redactionStatusSet({ ids: ["b"], status: "rejected" }))
+    store.dispatch(
+      redactionStatusSet({
+        ids: selectBulkTargets(store.getState()).acceptIds,
+        status: "accepted",
+      })
+    )
+
+    expect(store.getState().redactions.entities.a.status).toBe("accepted")
+    expect(store.getState().redactions.entities.b.status).toBe("rejected")
+  })
+})
+
+/**
+ * What an undo tells the server. It used to send every redaction's status,
+ * which let one stray Ctrl+Z in a stale tab rewrite the whole document.
+ */
+describe("syncing a step through history", () => {
+  function stepped(prepare: (store: ReturnType<typeof makeStore>) => void) {
+    const store = makeStore()
+    store.dispatch(
+      redactionsReplaced([
+        redaction("a"),
+        redaction("b", { status: "accepted" }),
+        redaction("c", { status: "rejected" }),
+      ])
+    )
+    prepare(store)
+    const before = store.getState().redactions.entities
+    store.dispatch(undone())
+    return historyWrites(before, store.getState().redactions.entities)
+  }
+
+  it("sends only the redactions the undo changed", () => {
+    const writes = stepped((store) =>
+      store.dispatch(redactionStatusSet({ ids: ["a"], status: "accepted" }))
+    )
+    expect(writes).toEqual([{ ids: ["a"], status: "suggested" }])
+  })
+
+  it("sends nothing when there was nothing to undo", () => {
+    expect(stepped(() => {})).toEqual([])
+  })
+
+  it("puts a method back, including back to the default mask", () => {
+    const writes = stepped((store) =>
+      store.dispatch(redactionMethodSet({ ids: ["b"], method: "tokenize" }))
+    )
+    expect(writes).toEqual([{ ids: ["b"], method: "mask" }])
+  })
+
+  it("stops applying a redaction the undo took off the canvas", () => {
+    const writes = stepped((store) =>
+      store.dispatch(
+        redactionAdded(redaction("manual", { source: "user", status: "accepted" }))
+      )
+    )
+    expect(writes).toEqual([{ ids: ["manual"], status: "rejected" }])
   })
 })

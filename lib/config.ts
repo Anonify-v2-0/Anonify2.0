@@ -66,7 +66,7 @@ export const MAX_RETENTION_SECONDS = 72 * 60 * 60
  * service — the repo is where the real capabilities live — so the UI surfaces
  * this wherever a curious reviewer or self-hoster might look for it.
  */
-export const REPOSITORY_URL = "https://github.com/nabeel-w/Anonify2.0"
+export const REPOSITORY_URL = "https://github.com/Anonify-v2-0/Anonify2.0"
 
 // Quotas live in lib/security/quota-config.ts and rate limits in
 // lib/security/rate-limit-config.ts. Both differ by deployment profile — the
