@@ -192,6 +192,48 @@ jobs:
       - name: Test
         run: pnpm run test
 
+  # The real Tesseract engine, against committed fixture images, asserting where
+  # its boxes land and not only what it read: OCR spans are what the image
+  # canvas and the exporter both place redactions from.
+  #
+  # Its own job so `test` stays offline. The model is pinned by URL and hash in
+  # tests/fixtures/ocr/model.json and cached under that hash, so the network is
+  # touched once per model rather than once per run, and a model that changed
+  # underneath us fails the checksum rather than moving the boxes.
+  # ANONIFY_OCR_TESTS makes the suites fail, not skip, if the model is missing.
+  ocr:
+    name: OCR
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TESSERACT_CACHE_PATH: ${{ github.workspace }}/.cache/tesseract
+      ANONIFY_OCR_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+
+      - name: Restore the pinned OCR model
+        id: model
+        uses: actions/cache@v5
+        with:
+          path: .cache/tesseract
+          key: tesseract-${{ hashFiles('tests/fixtures/ocr/model.json') }}
+
+      - name: Fetch the pinned OCR model
+        if: steps.model.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          model=tests/fixtures/ocr/model.json
+          file="$TESSERACT_CACHE_PATH/$(jq -r .language "$model").traineddata"
+          mkdir -p "$TESSERACT_CACHE_PATH"
+          curl -fsSL --retry 3 "$(jq -r .source "$model")" | gunzip > "$file"
+          echo "$(jq -r .sha256 "$model")  $file" | sha256sum --check -
+
+      - name: OCR suites
+        run: pnpm exec vitest run tests/image-ocr.test.ts tests/pdf-ocr.test.ts
+
   build:
     name: Build
     needs: decide
@@ -444,6 +486,7 @@ jobs:
         lint,
         typecheck,
         test,
+        ocr,
         build,
         migrations,
         database,
@@ -458,6 +501,7 @@ jobs:
           echo "lint:       ${{ needs.lint.result }}"
           echo "typecheck:  ${{ needs.typecheck.result }}"
           echo "test:       ${{ needs.test.result }}"
+          echo "ocr:        ${{ needs.ocr.result }}"
           echo "build:      ${{ needs.build.result }}"
           echo "migrations: ${{ needs.migrations.result }}"
           echo "database:   ${{ needs.database.result }}"

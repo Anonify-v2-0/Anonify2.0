@@ -9,11 +9,12 @@ import {
   makeScannedTextPdfFixture,
   SCANNED_TEXT,
 } from "./fixtures"
+import { describeWithOcrModel } from "./helpers/ocr-model"
 
 /**
  * The recognizer is injected, so everything except tesseract itself is covered
  * here without a language-data download. The end-to-end pass against the real
- * engine is opt-in at the bottom of the file.
+ * engine is at the bottom of the file, and needs the pinned model cached.
  */
 function word(
   text: string,
@@ -151,11 +152,11 @@ describe("extracting a scanned PDF", () => {
 })
 
 /**
- * The real engine, against a PDF whose only content is a picture of text.
- * Opt-in because tesseract downloads language data on first use, which is not
- * something CI should depend on. Run with ANONIFY_OCR_TESTS=1.
+ * The real engine, against a PDF whose only content is a picture of text. It
+ * runs wherever the pinned model is cached, which CI's OCR job guarantees — see
+ * tests/helpers/ocr-model.ts.
  */
-describe.runIf(process.env.ANONIFY_OCR_TESTS)("OCR end to end", () => {
+describeWithOcrModel("OCR end to end", () => {
   it("reads text that exists only as pixels", async () => {
     const bytes = await makeScannedTextPdfFixture()
 

@@ -1,0 +1,5 @@
+{
+  "runtime": "ollama/ollama:0.34.3",
+  "model": "gemma3:4b",
+  "digest": "a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a"
+}

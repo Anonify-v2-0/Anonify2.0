@@ -79,6 +79,11 @@ discovers installed models and verifies structured output and image capabilities
 Official AI SDK providers are available for operators bringing their own API keys
 or cloud credentials; see [AI providers](docs/ai-providers.md). Credential-free
 tests cover the local provider protocol; they do not claim live model quality.
+A weekly workflow (`.github/workflows/local-model.yml`) runs
+`tests/ollama-contract.test.ts` against a pinned Ollama and Gemma 3 4B to prove
+the transport still carries structured text and image calls end to end — the
+contract, not the model's judgement. To run it yourself, pull the model and set
+`ANONIFY_OLLAMA_TESTS=1`.
 
 ---
 
@@ -166,12 +171,16 @@ finished.
 
 ### 3.3 Testing
 
-Zero coverage today for: `extractImage`, `ocrImage`, `analyzeDocument`,
-`analyzeImageRegions`, `cleanupExpired`, `runStructured`.
-
-- [ ] **A fake model provider** so the analysis orchestration can be tested
+- [x] ~~**A fake model provider** so the analysis orchestration can be tested
       without a network or a bill — chunking, concurrency, dedupe, the
-      locate-or-discard rule, and the "provider failed, keep going" path.
+      locate-or-discard rule, and the "provider failed, keep going" path.~~
+      `tests/helpers/scripted-provider.ts` is a real AI SDK language model
+      (`LanguageModelV4`) that answers from a script keyed by task, installed
+      in place of the configured one by `vi.mock("@/lib/ai/providers")`. Only
+      the network is gone: `runStructured`, the throttle, `Output.object` and
+      its schema validation, usage recording and error classification all run.
+      `tests/analysis-orchestration.test.ts` drives `analyzeDocument` and
+      `analyzeImageRegions` through it in the ordinary `pnpm test` run (#30).
 - [x] ~~**Cleanup and quota tests**, which need a database.~~
       `tests/integration/`, run by `pnpm test:db` against `TEST_DATABASE_URL`
       and by a Postgres service in CI. They skip when that variable is unset, so
@@ -179,8 +188,14 @@ Zero coverage today for: `extractImage`, `ocrImage`, `analyzeDocument`,
       cover is what a fake cannot tell you: cleanup deletes storage *before* the
       row and keeps the row when storage fails, and a quota charge is atomic
       under concurrency and lands exactly once even when the step is retried.
-- [ ] **OCR tests** with a committed fixture image and pinned language data, so
-      they do not depend on a download.
+- [x] ~~**OCR tests** with a committed fixture image and pinned language data, so
+      they do not depend on a download.~~ `tests/image-ocr.test.ts` runs the
+      real Tesseract engine over `tests/fixtures/ocr/account.png` and checks
+      every box against ink boxes measured from the fixture's own pixels, then
+      exports a redaction and reads the result back. The model is pinned by URL
+      and hash in `tests/fixtures/ocr/model.json`; the suites run wherever that
+      exact model is cached and skip where it is not, and CI's `OCR` job caches
+      it and requires it (#33).
 - [ ] **End-to-end tests** (Playwright): upload → review → export → download,
       per format, through the browser. `pnpm smoke` now does this over HTTP for
       every supported format and runs in CI against the compose stack, which
@@ -436,8 +451,14 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```
 
 CI runs these four in parallel, plus a migration check, a `Database tests` job
-with a real Postgres, and a `Compose stack` job that builds the images and runs
-`pnpm smoke` against them. They must pass.
+with a real Postgres, an `OCR` job, and a `Compose stack` job that builds the
+images and runs `pnpm smoke` against them. They must pass.
+
+The OCR suites — `tests/image-ocr.test.ts` and the end-to-end half of
+`tests/pdf-ocr.test.ts` — run the real Tesseract engine and skip until the
+pinned model is cached. `pnpm ocr:warm` caches it once, after which `pnpm test`
+runs them with no network. If you have touched OCR, image extraction or where
+image redactions land, run that first.
 
 If you have touched cleanup, quotas or anything that writes to the database,
 run the database suites too. They need a throwaway Postgres — never your

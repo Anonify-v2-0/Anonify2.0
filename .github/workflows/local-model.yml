@@ -1,0 +1,90 @@
+name: Local model
+
+# The provider contract, against a real model running on the runner.
+#
+# Every pull request tests the analysis orchestration against a scripted model
+# (tests/analysis-orchestration.test.ts): deterministic, free, and able to make
+# a model misbehave on cue. What it cannot show is that the adapter a
+# self-hosted install actually uses still works — Ollama's OpenAI-compatible
+# endpoint carrying JSON-schema output and an image attachment, parsed by the
+# real schemas and accounted for. This runs tests/ollama-contract.test.ts
+# against a pinned Ollama and a pinned Gemma 3 4B to show that.
+#
+# Weekly rather than per pull request: a 3.3 GB model on a CPU runner is minutes
+# of download and inference, and what it guards against — an Ollama or AI SDK
+# change breaking the transport — does not arrive with our pull requests. It is
+# also not cached: GitHub evicts a cache unused for seven days, so a weekly job
+# would restore nothing and pay for the upload anyway.
+#
+# The runtime image, model tag and model digest are pinned in
+# tests/fixtures/ollama/model.json. When the registry republishes the tag, the
+# digest check below fails and says so; update the digest there on purpose,
+# after reading what changed, rather than having the model move underneath the
+# assertions.
+
+on:
+  schedule:
+    # Mondays, early UTC. GitHub's scheduler is best-effort; the minute is
+    # off the hour because on-the-hour schedules are the ones it delays most.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-model
+  cancel-in-progress: true
+
+jobs:
+  ollama:
+    name: Ollama contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ANONIFY_OLLAMA_TESTS: "1"
+      OLLAMA_BASE_URL: http://127.0.0.1:11434
+      PIN: tests/fixtures/ollama/model.json
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+
+      - name: Start Ollama
+        run: |
+          set -euo pipefail
+          docker run --detach --name ollama --publish 11434:11434 \
+            "$(jq -r .runtime "$PIN")"
+
+          for _ in $(seq 60); do
+            if curl -fsS "$OLLAMA_BASE_URL/api/version"; then exit 0; fi
+            sleep 1
+          done
+          echo "::error::Ollama did not start within a minute."
+          exit 1
+
+      - name: Pull the pinned model
+        run: |
+          set -euo pipefail
+          model=$(jq -r .model "$PIN")
+          pinned=$(jq -r .digest "$PIN")
+
+          # The API rather than `ollama pull`, which draws a progress bar per
+          # layer into the log.
+          curl -fsS --max-time 1800 "$OLLAMA_BASE_URL/api/pull" \
+            -d "$(jq -n --arg model "$model" '{model: $model, stream: false}')"
+          echo
+
+          actual=$(curl -fsS "$OLLAMA_BASE_URL/api/tags" \
+            | jq -r --arg model "$model" '.models[] | select(.name == $model) | .digest')
+          if [ "$actual" != "$pinned" ]; then
+            echo "::error::$model is $actual, but $PIN pins $pinned. The registry has republished the tag; read what changed, then update the digest."
+            exit 1
+          fi
+          echo "$model is the pinned $pinned"
+
+      - name: Contract suite
+        run: pnpm exec vitest run tests/ollama-contract.test.ts
+
+      - name: Show what Ollama said
+        if: failure()
+        run: docker logs --tail 300 ollama
