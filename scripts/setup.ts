@@ -44,6 +44,7 @@ import { AI_ENV_KEYS, askAiProvider } from "./setup-ai"
 import { bannerLines, fancyTerminal, setupVersion } from "./setup-banner"
 import { childRunning, finishSetup, nextSteps, type Mode } from "./setup-finish"
 import type { ProviderEnv } from "@/lib/ai/providers/config"
+import { ratesFor } from "@/lib/ai/rates"
 
 import { formatByteSize } from "@/lib/config/bytes"
 import {
@@ -1521,21 +1522,19 @@ async function main(): Promise<void> {
 
     // A cap computed from prices nobody set is a cap that does nothing, and
     // silently doing nothing is exactly what a spend limit must not do.
-    if (
-      spendCapUsd > 0 &&
-      !(
-        written.get("AI_PRICE_INPUT_PER_MTOK") &&
-        written.get("AI_PRICE_OUTPUT_PER_MTOK")
-      )
-    ) {
+    // Checked with the app's own rules, against what was written: a price
+    // adopted into AI_MODEL_PRICES counts, and a table that lacks this model
+    // does not, however many other models it prices.
+    if (spendCapUsd > 0 && !ratesFor(Object.fromEntries(written))) {
       say()
       warn(
-        `${SPEND_ENV_NAME} is set but the prices it is computed from are not.`
+        `${SPEND_ENV_NAME} is set but the current model has no price to compute it from.`
       )
+      note("Add it to AI_MODEL_PRICES (or set AI_PRICE_INPUT_PER_MTOK and")
       note(
-        "Set AI_PRICE_INPUT_PER_MTOK and AI_PRICE_OUTPUT_PER_MTOK, or the cap"
+        "AI_PRICE_OUTPUT_PER_MTOK), or the cap cannot be enforced and the app"
       )
-      note("cannot be enforced and the app will say so on every document.")
+      note("will say so on every document.")
     }
 
     say()

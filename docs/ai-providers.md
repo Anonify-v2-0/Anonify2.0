@@ -117,7 +117,42 @@ returned by your provider:
 AI_MODEL_PRICES='{"openai:your-model":{"inputPerMillion":1,"outputPerMillion":2}}'
 ```
 
-These are operator-supplied estimates, not vendor prices. Without the table,
+These are operator-supplied estimates, not vendor prices, and they are the
+only prices the app enforces.
+
+### List prices in setup
+
+`pnpm setup` shows a list price beside each model when the provider's own
+model list publishes one in a documented unit. Today that is the Vercel AI
+Gateway (USD per token) and DeepInfra (cents per token). Together AI and xAI
+also return price fields, but their units are not documented, so setup does
+not show them. Every other provider's list carries no prices, and setup says
+so. A price shown with "first tier" is tiered by prompt length. One shown with
+"varies by upstream provider" is representative only.
+
+Choosing a priced model offers to copy its list price into `AI_MODEL_PRICES`,
+with the source and age on screen. Nothing is copied without a yes. The default
+answer is no when the price is tiered, representative or stale, or when it
+would replace a price you set.
+
+Model lists are cached in `.cache/models/<provider>.json`, or under
+`ANONIFY_MODEL_CACHE_PATH`. Each file records its source URL, when it was
+fetched and which endpoint it describes, and never a credential. Prices go
+stale after 24 hours and capabilities after 7 days. A stale list is offered for
+refresh. If the refresh fails, it is shown with its age rather than hidden.
+Ollama is always read live. Cached capabilities are what the provider
+advertises; setup's probe still verifies a model before saving it.
+
+```bash
+pnpm models:warm                    # providers with credentials in .env
+pnpm models:warm --provider openai  # one provider (repeatable)
+pnpm models:warm --all              # every provider; Gateway and DeepInfra need no key
+pnpm models:warm --force            # refetch even when fresh
+pnpm models:warm --offline          # report what is cached, without the network
+```
+
+It prints provider names, counts and ages, never a credential or a provider's
+response. It exits nonzero when an attempted refresh fails. Without the table,
 the legacy `AI_PRICE_INPUT_PER_MTOK` / `AI_PRICE_OUTPUT_PER_MTOK` pair applies
 only to the currently selected usage model. Historical models need their own
 entries; missing rates produce an unknown cost and an unenforceable spend cap

@@ -1,3 +1,12 @@
+import {
+  cacheable,
+  formatAge,
+  freshness,
+  isFresh,
+  loadCatalog,
+  readCatalog,
+  type CatalogResult,
+} from "@/lib/ai/catalog"
 import { PROVIDERS, selectedProvider } from "@/lib/ai/providers"
 import {
   capabilityDeclaration,
@@ -6,21 +15,24 @@ import {
   DEFAULT_OLLAMA_URL,
   modelId,
   providerId,
+  usageModelId,
   type ModelCapabilities,
   type ProviderEnv,
 } from "@/lib/ai/providers/config"
 import {
   blockedReason,
-  discoverModels,
   DiscoveryError,
   ollamaAvailable,
+  type ListPrice,
   type ModelDefinition,
 } from "@/lib/ai/providers/discovery"
 import { probeModel } from "@/lib/ai/providers/probe"
+import { ratesFor } from "@/lib/ai/rates"
 import {
   note,
   ok,
   Prompter,
+  say,
   spin,
   warn,
   type Choice,
@@ -37,16 +49,49 @@ export function formatTokens(count: number): string {
   return String(count)
 }
 
+/** Dollars to the precision a per-million rate is actually published at. */
+export function formatUsd(amount: number): string {
+  if (amount === 0) return "$0"
+  const shown = amount.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  })
+  return shown === "0.00" ? "<$0.0001" : `$${shown}`
+}
+
+export function formatPrice(price: {
+  inputPerMillion: number
+  outputPerMillion: number
+}): string {
+  return `${formatUsd(price.inputPerMillion)} in · ${formatUsd(price.outputPerMillion)} out per 1M tokens`
+}
+
+/**
+ * How prices apply to a model list: read from it (and how fresh), zero
+ * because the model runs locally, or not carried by the list at all.
+ */
+export type PriceState = "fresh" | "stale" | "local" | undefined
+
 /**
  * What a model row says about the model, and where each claim came from. The
  * provider's catalog is *advertised*; only setup's own probe is *verified*, and
  * the two must never read alike — a catalog that says "vision" has not been
- * shown an image.
+ * shown an image. A list price is labelled as one, and as stale once it is.
  */
 export function modelDetails(
   model: ModelDefinition,
-  verified?: ModelCapabilities
+  {
+    verified,
+    prices,
+  }: { verified?: ModelCapabilities; prices?: PriceState } = {}
 ): string[] {
+  const price = model.price
+    ? `List price: ${formatPrice(model.price)}${model.price.tiered ? " · first tier; long prompts cost more" : ""}${model.price.variesByProvider ? " · varies by upstream provider" : ""}${prices === "stale" ? " · stale" : ""}`
+    : prices === "local"
+      ? "Price: none, runs locally"
+      : prices
+        ? "Price: not listed for this model"
+        : undefined
   const advertised = [
     ["text", model.textOutput],
     ["images", model.vision],
@@ -60,6 +105,7 @@ export function modelDetails(
     advertised.every(([, value]) => value === undefined)
       ? `Advertised: no capabilities listed · ${context}`
       : `Advertised: ${advertised.map(([what, value]) => `${what} ${yesNo(value)}`).join(" · ")} · ${context}`,
+    ...(price ? [price] : []),
     ...(verified
       ? [
           `Verified by setup: structured output ${yesNo(verified.structuredOutput)} · images ${yesNo(verified.vision)}`,
@@ -85,6 +131,120 @@ export const AI_ENV_KEYS = [
     "GOOGLE_VERTEX_API_KEY",
   ]),
 ]
+
+/**
+ * The provider's models, from the saved catalog when it is fresh. A stale one
+ * is offered for refresh rather than silently refetched or silently used, and
+ * a failed refresh falls back to it with its age said out loud.
+ */
+async function readModels(
+  prompt: Prompter,
+  env: ProviderEnv
+): Promise<CatalogResult | undefined> {
+  const provider = selectedProvider(env)
+  const cached = cacheable(env) ? await readCatalog(env) : undefined
+  let refresh: "auto" | "force" | "never" = "auto"
+  if (cached && !isFresh(cached))
+    refresh = (await prompt.confirm(
+      `The saved ${provider.label} model list is from ${formatAge(cached.fetchedAt)}. Refresh it now?`,
+      true
+    ))
+      ? "force"
+      : "never"
+  const live = !cached || refresh === "force"
+  const listing = spin(
+    live
+      ? "Discovering models from the selected provider"
+      : "Reading the saved model list"
+  )
+  try {
+    const result = await loadCatalog(env, { refresh })
+    if (result.origin === "stale") {
+      listing.stop()
+      warn(result.error ?? "The model list could not be refreshed.")
+      warn(
+        `Showing the list saved ${formatAge(result.catalog!.fetchedAt)}; models and prices may have changed.`
+      )
+    } else if (result.origin === "cache") {
+      listing.succeed(
+        `Found ${result.models.length} models in the list saved ${formatAge(result.catalog!.fetchedAt)}`
+      )
+      note("pnpm models:warm refreshes it.")
+    } else {
+      listing.succeed(`Found ${result.models.length} models`)
+    }
+    return result
+  } catch (error) {
+    listing.stop()
+    warn(
+      error instanceof DiscoveryError
+        ? error.message
+        : "Model discovery failed. Check this provider's configuration."
+    )
+  }
+}
+
+/**
+ * Offers the chosen model's list price for the spend estimate.
+ *
+ * Never automatic: a price read from a catalog becomes a spend limit only
+ * when somebody says yes to it, with its source and age in front of them. The
+ * default is yes only for a fresh, flat price with nothing already configured
+ * — replacing a price the operator set, or adopting a tiered, representative
+ * or stale one, defaults to no.
+ */
+async function adoptPrice(
+  prompt: Prompter,
+  env: ProviderEnv,
+  price: ListPrice,
+  source: { label: string; fetchedAt: string; stale: boolean }
+): Promise<void> {
+  const key = usageModelId(env)
+  let table: Record<string, unknown> = {}
+  if (env.AI_MODEL_PRICES?.trim()) {
+    try {
+      const parsed: unknown = JSON.parse(env.AI_MODEL_PRICES)
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        throw new Error("not an object")
+      table = parsed as Record<string, unknown>
+    } catch {
+      warn("AI_MODEL_PRICES is not a JSON object, so setup leaves it as it is.")
+      return
+    }
+  }
+  const configured = ratesFor(env)
+  const offered = {
+    inputPerMillion: price.inputPerMillion,
+    outputPerMillion: price.outputPerMillion,
+  }
+  if (
+    configured?.inputPerMillion === offered.inputPerMillion &&
+    configured.outputPerMillion === offered.outputPerMillion
+  ) {
+    note("The spend estimate already uses this model's list price.")
+    return
+  }
+
+  say()
+  note(`List price for ${key}: ${formatPrice(offered)}`)
+  note(
+    `From ${source.label}, fetched ${formatAge(source.fetchedAt)}${source.stale ? " (stale)" : ""}.`
+  )
+  if (price.tiered)
+    note("Tiered: this is the first tier's rate, and long prompts cost more.")
+  if (price.variesByProvider)
+    note("Representative: the upstream provider actually used may charge more.")
+  if (configured) note(`Configured now: ${formatPrice(configured)}`)
+  const accept = await prompt.confirm(
+    configured
+      ? "Replace the configured price with the list price?"
+      : "Use it for this model's spend estimate? It is saved in AI_MODEL_PRICES, where you can change it.",
+    !configured && !price.tiered && !price.variesByProvider && !source.stale
+  )
+  if (!accept) return
+  env.AI_MODEL_PRICES = JSON.stringify({ ...table, [key]: offered })
+  ok(`Saved the list price for ${key} to AI_MODEL_PRICES.`)
+}
 
 export async function askAiProvider(
   prompt: Prompter,
@@ -230,19 +390,15 @@ export async function askAiProvider(
       ],
     },
   ])
-  let models: ModelDefinition[] = []
-  const listing = spin("Discovering models from the selected provider")
-  try {
-    models = await discoverModels(env)
-    listing.succeed(`Found ${models.length} models`)
-  } catch (error) {
-    listing.stop()
-    warn(
-      error instanceof DiscoveryError
-        ? error.message
-        : "Model discovery failed. Check this provider's configuration."
-    )
-  }
+  const listed = await readModels(prompt, env)
+  const models: ModelDefinition[] = listed?.models ?? []
+  const catalog = listed?.catalog
+  const prices: PriceState =
+    picked === "ollama"
+      ? "local"
+      : catalog?.sources.prices
+        ? freshness(catalog).prices
+        : undefined
   const manual = Symbol("manual")
   const cancel = Symbol("cancel")
   const currentId = changed ? "" : modelId(current)
@@ -254,9 +410,17 @@ export async function askAiProvider(
     capabilityTarget(current) === capabilityTarget(env)
       ? configuredCapabilities(current)
       : undefined
-  if (models.length > 0)
+  if (models.length > 0 && prices === "fresh")
     note(
-      "Prices are not shown: model lists do not carry them reliably. Spend limits use the AI_PRICE_* values in .env."
+      `List prices from ${provider.label}'s model list, fetched ${formatAge(catalog!.fetchedAt)}. For reference: spend limits use only what is saved in .env.`
+    )
+  else if (models.length > 0 && prices === "stale")
+    note(
+      `List prices from ${provider.label}'s model list are from ${formatAge(catalog!.fetchedAt)} and may have changed. Spend limits use only what is saved in .env.`
+    )
+  else if (models.length > 0 && prices !== "local")
+    note(
+      `${provider.label}'s model list carries no prices, so none are shown. Spend estimates use AI_MODEL_PRICES in .env.`
     )
   // Kept across verification retries, so a failed model sends you back to the
   // page and search you chose it from rather than to the top of the catalog.
@@ -265,10 +429,10 @@ export async function askAiProvider(
     const choices: Choice<string | symbol>[] = models.map((model) => ({
       value: model.id as string | symbol,
       label: model.id === currentId ? `${model.label} (current)` : model.label,
-      detail: modelDetails(
-        model,
-        model.id === currentId ? verified : undefined
-      ),
+      detail: modelDetails(model, {
+        verified: model.id === currentId ? verified : undefined,
+        prices,
+      }),
       disabled: blockedReason(model, requireVision),
     }))
     const chosen = await prompt.choosePaged("Which model?", choices, {
@@ -341,6 +505,12 @@ export async function askAiProvider(
         ? "Structured output and image input verified."
         : "Structured output verified. Image analysis will be visibly skipped."
     )
+    if (known?.price && catalog)
+      await adoptPrice(prompt, env, known.price, {
+        label: `${provider.label}'s model list`,
+        fetchedAt: catalog.fetchedAt,
+        stale: prices === "stale",
+      })
     return env
   }
 }

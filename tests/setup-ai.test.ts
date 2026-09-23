@@ -1,14 +1,29 @@
-import { afterEach, expect, it, vi } from "vitest"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { askAiProvider, formatTokens, modelDetails } from "../scripts/setup-ai"
 import { Prompter, type Choice, type PagedChoiceOptions } from "../scripts/tty"
 import { configuredCapabilities } from "@/lib/ai/providers/config"
+import { buildCatalog, loadCatalog, writeCatalog } from "@/lib/ai/catalog"
+import { parseModel } from "@/lib/ai/providers/discovery"
+import { ratesFor } from "@/lib/ai/rates"
 
 const { probe } = vi.hoisted(() => ({ probe: vi.fn() }))
 vi.mock("@/lib/ai/providers/probe", () => ({ probeModel: probe }))
-afterEach(() => {
+// Every test gets its own empty model cache, never the repository's.
+let cache = ""
+beforeEach(async () => {
+  cache = await mkdtemp(path.join(tmpdir(), "anonify-models-"))
+  vi.stubEnv("ANONIFY_MODEL_CACHE_PATH", cache)
+})
+afterEach(async () => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
   probe.mockReset()
+  await rm(cache, { recursive: true, force: true })
 })
 
 function promptWith(
@@ -207,7 +222,7 @@ it("labels advertised, verified and unknown metadata differently", () => {
   expect(
     modelDetails(
       { id: "m", label: "m", vision: true, contextWindow: 1_048_576 },
-      { structuredOutput: true, vision: false }
+      { verified: { structuredOutput: true, vision: false } }
     )
   ).toEqual([
     "Advertised: text unknown · images yes · structured output unknown · 1M context",
@@ -254,4 +269,173 @@ it("marks the current model verified only when setup verified it for this target
     await detailsFor({ ...base, AI_MODEL_CAPABILITIES: declaration })
   ).toContain("Verified by setup: structured output yes · images no")
   expect((await detailsFor(base))!.join(" ")).not.toContain("Verified")
+})
+
+describe("the saved model catalog", () => {
+  const gateway = { AI_PROVIDER: "gateway", AI_GATEWAY_API_KEY: "key" }
+  const priced = {
+    data: [
+      {
+        id: "vendor/flat",
+        type: "language",
+        pricing: { input: "0.000001", output: "0.000005" },
+      },
+      {
+        id: "vendor/tiered",
+        type: "language",
+        pricing: {
+          input: "0.00000125",
+          output: "0.00001",
+          input_tiers: [{ cost: "0.00000125", min: 0 }],
+        },
+      },
+    ],
+  }
+
+  /** Picks `model`, and answers confirmations by what they ask. */
+  function picking(model: string, answers: Record<string, boolean> = {}) {
+    const prompt = promptWith((question) => {
+      if (question === "Which AI provider?") return "gateway"
+      if (question === "What should the model analyze?") return false
+      return model
+    })
+    vi.mocked(prompt.confirm).mockImplementation(async (question, fallback) => {
+      if (question.startsWith("Keep the current model")) return false
+      for (const [start, answer] of Object.entries(answers))
+        if (question.startsWith(start)) return answer
+      return fallback ?? true
+    })
+    return prompt
+  }
+
+  it("reads a fresh catalog without calling the provider, and shows its prices", async () => {
+    await loadCatalog(gateway, {
+      fetcher: vi.fn(async () => Response.json(priced)),
+    })
+    const fetcher = vi.fn()
+    vi.stubGlobal("fetch", fetcher)
+    probe.mockResolvedValue({ structuredOutput: true, vision: false })
+    const prompt = picking("vendor/flat", { "Use it": false })
+    await askAiProvider(prompt, gateway, false)
+    expect(fetcher).not.toHaveBeenCalled()
+    const choices = vi.mocked(prompt.choosePaged).mock.calls[0][1]
+    expect(choices[0].detail).toContain(
+      "List price: $1.00 in · $5.00 out per 1M tokens"
+    )
+    expect(choices[1].detail!.join(" ")).toContain(
+      "first tier; long prompts cost more"
+    )
+  })
+
+  it("offers to refresh a stale catalog, and uses it as it is if declined", async () => {
+    const stale = buildCatalog(
+      gateway,
+      priced.data.map((row) => parseModel("gateway", row)!),
+      new Date(Date.now() - 2 * 24 * 3_600_000)
+    )
+    await writeCatalog(stale, cache)
+    const fetcher = vi.fn()
+    vi.stubGlobal("fetch", fetcher)
+    probe.mockResolvedValue({ structuredOutput: true, vision: false })
+    const prompt = picking("vendor/flat", {
+      "The saved": false,
+      "Use it": false,
+    })
+    await askAiProvider(prompt, gateway, false)
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(
+      vi
+        .mocked(prompt.confirm)
+        .mock.calls.some(([question]) =>
+          /^The saved .* model list is from 2 days ago/.test(question)
+        )
+    ).toBe(true)
+    const choices = vi.mocked(prompt.choosePaged).mock.calls[0][1]
+    expect(choices[0].detail!.join(" ")).toContain("· stale")
+  })
+
+  it("saves a list price only when asked, merged into the existing table", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(priced))
+    )
+    probe.mockResolvedValue({ structuredOutput: true, vision: false })
+    const existing = {
+      "openai:older": { inputPerMillion: 9, outputPerMillion: 9 },
+    }
+    const result = await askAiProvider(
+      picking("vendor/flat"),
+      { ...gateway, AI_MODEL_PRICES: JSON.stringify(existing) },
+      false
+    )
+    expect(JSON.parse(result.AI_MODEL_PRICES!)).toEqual({
+      ...existing,
+      "vendor/flat": { inputPerMillion: 1, outputPerMillion: 5 },
+    })
+    expect(ratesFor(result)).toEqual({
+      inputPerMillion: 1,
+      outputPerMillion: 5,
+    })
+  })
+
+  it("does not default to a tiered price, or over a price the operator set", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(priced))
+    )
+    probe.mockResolvedValue({ structuredOutput: true, vision: false })
+    const tiered = picking("vendor/tiered")
+    expect(
+      (await askAiProvider(tiered, gateway, false)).AI_MODEL_PRICES
+    ).toBeFalsy()
+    const offer = vi
+      .mocked(tiered.confirm)
+      .mock.calls.find(([question]) => question.startsWith("Use it"))!
+    expect(offer[1]).toBe(false)
+
+    const mine = JSON.stringify({
+      "vendor/flat": { inputPerMillion: 3, outputPerMillion: 4 },
+    })
+    const flat = picking("vendor/flat")
+    expect(
+      (await askAiProvider(flat, { ...gateway, AI_MODEL_PRICES: mine }, false))
+        .AI_MODEL_PRICES
+    ).toBe(mine)
+    expect(
+      vi
+        .mocked(flat.confirm)
+        .mock.calls.find(([question]) => question.startsWith("Replace"))![1]
+    ).toBe(false)
+  })
+
+  it("leaves an unreadable AI_MODEL_PRICES alone", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(priced))
+    )
+    probe.mockResolvedValue({ structuredOutput: true, vision: false })
+    const result = await askAiProvider(
+      picking("vendor/flat"),
+      { ...gateway, AI_MODEL_PRICES: "{broken" },
+      false
+    )
+    expect(result.AI_MODEL_PRICES).toBe("{broken")
+  })
+
+  it("says plainly when a provider's list carries no prices", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ data: [{ id: "gpt-x" }] }))
+    )
+    const output = vi.spyOn(process.stdout, "write")
+    const prompt = promptWith((question, choices) => {
+      if (question === "Which AI provider?") return "openai"
+      if (question === "What should the model analyze?") return false
+      return choices.find((choice) => choice.label.startsWith("Keep"))!.value
+    })
+    await askAiProvider(prompt, { OPENAI_API_KEY: "k" }, false)
+    expect(output.mock.calls.join("")).toContain(
+      "model list carries no prices, so none are shown"
+    )
+  })
 })
