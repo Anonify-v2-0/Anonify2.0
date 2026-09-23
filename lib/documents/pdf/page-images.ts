@@ -19,7 +19,7 @@ import {
 /**
  * Rasterization scale for analysis. Lower than the redaction renderer's, which
  * has to produce output someone will read: this image is only ever looked at by
- * a model, and the coordinates come back normalized, so resolution beyond
+ * a model, and the coordinates come back on a 0-1000 grid, so resolution beyond
  * legibility is paid for and discarded.
  */
 export const VISION_SCALE = 1.5

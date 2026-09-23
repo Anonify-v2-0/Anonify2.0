@@ -5,7 +5,7 @@ import type { NormalizedDocument } from "@/types/document"
 /**
  * The vision pass, and specifically where its answers land.
  *
- * The model returns coordinates normalized to 0-1 with no idea which page it
+ * The model returns coordinates on a 0-1000 grid with no idea which page it
  * was shown, so the mapping back onto a page is entirely ours. Getting it wrong
  * is the quiet kind of wrong: a box drawn on page one for a signature on page
  * seven looks like a working redaction and covers nothing.
@@ -19,6 +19,7 @@ vi.mock("@/lib/ai/gateway", () => ({
 }))
 
 const { analyzeImageRegions } = await import("@/lib/ai/analyze")
+const { imageAnalysisSchema } = await import("@/lib/ai/schemas/detection")
 
 function model(): NormalizedDocument {
   return {
@@ -39,7 +40,7 @@ beforeEach(() => {
 })
 
 describe("vision regions", () => {
-  it("scales normalized coordinates onto the page it was given", async () => {
+  it("scales grid coordinates onto the page it was given", async () => {
     runStructured.mockResolvedValue({
       output: {
         regions: [
@@ -48,10 +49,10 @@ describe("vision regions", () => {
             category: "face",
             confidence: 0.9,
             reason: "a face",
-            x: 0.5,
-            y: 0.25,
-            width: 0.1,
-            height: 0.2,
+            x: 500,
+            y: 250,
+            width: 100,
+            height: 200,
           },
         ],
       },
@@ -80,8 +81,8 @@ describe("vision regions", () => {
             reason: "a signature",
             x: 0,
             y: 0,
-            width: 1,
-            height: 1,
+            width: 1000,
+            height: 1000,
           },
         ],
       },
@@ -112,6 +113,53 @@ describe("vision regions", () => {
     expect(
       (await analyzeImageRegions("doc_1", model(), image, 2)).regions
     ).toEqual([])
+  })
+
+  it("cuts a long reason to length rather than losing the region", async () => {
+    const region = {
+      kind: "sensitive-text" as const,
+      category: "person" as const,
+      confidence: 0.7,
+      reason: "A name, described at far greater length than asked. ".repeat(6),
+      x: 100,
+      y: 200,
+      width: 300,
+      height: 133,
+    }
+    // What Qwen3-VL sent: its grammar held the JSON's shape, not its lengths.
+    expect(
+      imageAnalysisSchema.safeParse({
+        imageClass: "document",
+        regions: [region],
+      }).success
+    ).toBe(true)
+    runStructured.mockResolvedValue({ output: { regions: [region] } })
+
+    const { regions } = await analyzeImageRegions("doc_1", model(), image, 2)
+
+    expect(regions[0].reason).toHaveLength(200)
+  })
+
+  it("refuses 0-1 fractions instead of reading them as a speck in the corner", () => {
+    // A model answering in the old convention: on the grid this box would be
+    // under a thousandth of the page, placed confidently over nothing.
+    const fractional = imageAnalysisSchema.safeParse({
+      imageClass: "photograph",
+      regions: [
+        {
+          kind: "face",
+          category: "face",
+          confidence: 0.9,
+          reason: "a face",
+          x: 0.4,
+          y: 0.2,
+          width: 0.3,
+          height: 0.4,
+        },
+      ],
+    })
+
+    expect(fractional.success).toBe(false)
   })
 
   it("carries the reason back, so a refused pass is not read as an empty one", async () => {

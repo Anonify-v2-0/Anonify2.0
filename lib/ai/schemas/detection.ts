@@ -76,6 +76,11 @@ export const columnAnalysisSchema = z.object({
 
 export type ColumnAnalysis = z.infer<typeof columnAnalysisSchema>
 
+/** The scale of every image coordinate: 1000 is the full width or height. */
+export const IMAGE_GRID = 1000
+
+const gridCoordinate = z.number().int().min(0).max(IMAGE_GRID)
+
 export const imageAnalysisSchema = z.object({
   imageClass: z.enum(["document", "photograph", "mixed"]),
   regions: z
@@ -84,12 +89,19 @@ export const imageAnalysisSchema = z.object({
         kind: z.enum(["face", "sensitive-text", "identifying-object"]),
         category,
         confidence: z.number().min(0).max(1),
-        reason: z.string().max(200),
-        // Normalized so the model never has to reason about pixel dimensions.
-        x: z.number().min(0).max(1).describe("Left edge, 0-1 of image width"),
-        y: z.number().min(0).max(1).describe("Top edge, 0-1 of image height"),
-        width: z.number().min(0).max(1),
-        height: z.number().min(0).max(1),
+        // Unbounded here and cut to 200 characters in analyzeImageRegions: a
+        // local model's grammar enforces the shape of the JSON but not string
+        // lengths, and a region is not worth discarding for a long sentence.
+        reason: z.string().describe("One short sentence, under 200 characters"),
+        // On a 0-1000 grid, whole numbers only. It is the convention vision
+        // models such as Qwen3-VL and Gemini are trained to answer in, so they
+        // answer in it unprompted, and the integer type is what keeps a model
+        // answering in 0-1 fractions from being read as a speck in the corner:
+        // 0.4 fails the type instead. See lib/ai/prompts/analyze-image.ts.
+        x: gridCoordinate.describe("Left edge, 0-1000 across the image width"),
+        y: gridCoordinate.describe("Top edge, 0-1000 down the image height"),
+        width: gridCoordinate.describe("0-1000 of the image width"),
+        height: gridCoordinate.describe("0-1000 of the image height"),
       })
     )
     .max(60),

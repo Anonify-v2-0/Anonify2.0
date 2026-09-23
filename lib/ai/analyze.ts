@@ -30,6 +30,7 @@ import {
   classificationSchema,
   columnAnalysisSchema,
   detectionResultSchema,
+  IMAGE_GRID,
   imageAnalysisSchema,
   verificationSchema,
   type Classification,
@@ -435,7 +436,7 @@ async function analyzeSheets(
 }
 
 /**
- * Vision pass: faces and sensitive regions, in normalized coordinates.
+ * Vision pass: faces and sensitive regions, on the model's 0-1000 grid.
  *
  * Takes a page number because this is not only for uploaded images. A PDF page
  * that paints an image gets rasterized and sent here too — a signature or a
@@ -472,13 +473,13 @@ export async function analyzeImageRegions(
     text: region.kind === "face" ? "Face" : region.reason.slice(0, 80),
     category: region.kind === "face" ? "face" : region.category,
     confidence: region.confidence,
-    reason: region.reason,
+    reason: region.reason.slice(0, 200),
     page: page.number,
     boundingBox: {
-      x: region.x * page.width,
-      y: region.y * page.height,
-      width: region.width * page.width,
-      height: region.height * page.height,
+      x: (region.x / IMAGE_GRID) * page.width,
+      y: (region.y / IMAGE_GRID) * page.height,
+      width: (region.width / IMAGE_GRID) * page.width,
+      height: (region.height / IMAGE_GRID) * page.height,
     },
   }))
 

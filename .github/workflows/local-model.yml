@@ -8,9 +8,20 @@ name: Local model
 # self-hosted install actually uses still works — Ollama's OpenAI-compatible
 # endpoint carrying JSON-schema output and an image attachment, parsed by the
 # real schemas and accounted for. This runs tests/ollama-contract.test.ts
-# against a pinned Ollama and a pinned Gemma 3 4B to show that.
+# against a pinned Ollama and a pinned Qwen3-VL 2B Instruct to show that.
 #
-# Weekly rather than per pull request: a 3.3 GB model on a CPU runner is minutes
+# Qwen3-VL rather than Gemma 3, which this pinned first, because of how each
+# reads an image. Gemma 3 scales every image to 896 x 896 before encoding it,
+# so even the probe's 32 x 32 square cost about five minutes of CPU on this
+# runner — past the probe's 120 s limit and Node's 300 s fetch timeout, so the
+# vision tests could not pass however long they were given. Qwen3-VL encodes an
+# image near its own size, and at 1.9 GB it is also the smaller download.
+#
+# The instruct tag, not `qwen3-vl:2b`: that tag is the thinking model, which
+# writes hundreds of tokens of reasoning before every answer — minutes per call
+# on a CPU, spent on output the contract never reads.
+#
+# Weekly rather than per pull request: a 1.9 GB model on a CPU runner is minutes
 # of download and inference, and what it guards against — an Ollama or AI SDK
 # change breaking the transport — does not arrive with our pull requests. It is
 # also not cached: GitHub evicts a cache unused for seven days, so a weekly job
@@ -28,12 +39,21 @@ on:
     # off the hour because on-the-hour schedules are the ones it delays most.
     - cron: "17 4 * * 1"
   workflow_dispatch:
+  # Also on a pull request that changes the contract itself: the pin, the suite,
+  # or this file. Nothing else here runs them, and this workflow's first run was
+  # after it had merged — and failed on a missing DATABASE_URL.
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/local-model.yml
+      - tests/ollama-contract.test.ts
+      - tests/fixtures/ollama/**
 
 permissions:
   contents: read
 
 concurrency:
-  group: local-model
+  group: local-model-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -45,28 +65,44 @@ jobs:
       ANONIFY_OLLAMA_TESTS: "1"
       OLLAMA_BASE_URL: http://127.0.0.1:11434
       PIN: tests/fixtures/ollama/model.json
+      # A placeholder, as in ci.yml: postinstall runs `prisma generate`, and
+      # prisma.config.ts refuses to load without a DATABASE_URL. Nothing
+      # connects to it — the suite mocks the Prisma client.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
     steps:
       - uses: actions/checkout@v5
-      - uses: ./.github/actions/setup
 
-      - name: Start Ollama
+      # The runtime image (3.7 GB) and the model (1.9 GB) are most of this job's
+      # wall clock, and neither depends on node_modules. So they download while
+      # the next step installs, and "Wait for Ollama" joins them afterwards.
+      #
+      # The script also loads the model into memory once it is pulled, and the
+      # container keeps it there (OLLAMA_KEEP_ALIVE=-1), so the first test is
+      # not the one that pays for loading the model from disk.
+      - name: Start Ollama and pull the pinned model, in the background
         run: |
           set -euo pipefail
-          docker run --detach --name ollama --publish 11434:11434 \
-            "$(jq -r .runtime "$PIN")"
-
-          for _ in $(seq 60); do
-            if curl -fsS "$OLLAMA_BASE_URL/api/version"; then exit 0; fi
-            sleep 1
-          done
-          echo "::error::Ollama did not start within a minute."
-          exit 1
-
-      - name: Pull the pinned model
-        run: |
+          script="$RUNNER_TEMP/ollama-prepare.sh"
+          cat > "$script" <<'SCRIPT'
           set -euo pipefail
+          runtime=$(jq -r .runtime "$PIN")
           model=$(jq -r .model "$PIN")
           pinned=$(jq -r .digest "$PIN")
+
+          docker pull --quiet "$runtime"
+          docker run --detach --name ollama --publish 11434:11434 \
+            --env OLLAMA_KEEP_ALIVE=-1 "$runtime"
+
+          started=
+          for _ in $(seq 60); do
+            if curl -fsS "$OLLAMA_BASE_URL/api/version"; then started=1; break; fi
+            sleep 1
+          done
+          echo
+          if [ -z "$started" ]; then
+            echo "::error::Ollama did not start within a minute."
+            exit 1
+          fi
 
           # The API rather than `ollama pull`, which draws a progress bar per
           # layer into the log.
@@ -82,9 +118,37 @@ jobs:
           fi
           echo "$model is the pinned $pinned"
 
+          # A generate request without a prompt only loads the model.
+          curl -fsS --max-time 600 "$OLLAMA_BASE_URL/api/generate" \
+            -d "$(jq -n --arg model "$model" '{model: $model, keep_alive: -1}')" >/dev/null
+          echo "$model is loaded"
+          SCRIPT
+
+          # A status file rather than `wait`, which cannot reach across steps.
+          # shellcheck disable=SC2016 # expanded by the inner bash, on purpose
+          nohup bash -c 'status=0; bash "$1" > "$1.log" 2>&1 || status=$?; echo "$status" > "$1.status"' \
+            _ "$script" >/dev/null 2>&1 &
+
+      - uses: ./.github/actions/setup
+
+      - name: Wait for Ollama
+        timeout-minutes: 35
+        run: |
+          prepare="$RUNNER_TEMP/ollama-prepare.sh"
+          until [ -s "$prepare.status" ]; do sleep 2; done
+          cat "$prepare.log"
+          exit "$(cat "$prepare.status")"
+
       - name: Contract suite
         run: pnpm exec vitest run tests/ollama-contract.test.ts
 
       - name: Show what Ollama said
         if: failure()
-        run: docker logs --tail 300 ollama
+        run: |
+          df -h /
+          if docker container inspect ollama >/dev/null 2>&1; then
+            docker logs --tail 300 ollama
+          else
+            echo "The Ollama container never started."
+            cat "$RUNNER_TEMP/ollama-prepare.sh.log" 2>/dev/null || true
+          fi
