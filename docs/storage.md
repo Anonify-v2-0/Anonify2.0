@@ -16,10 +16,14 @@ makes a backend change safe, and the encryption that seals every byte.
 export type StorageDriver = {
   name: StorageDriverName
   clientUpload: "vercel-blob" | "server-route"
-  put:   (key: string, data: Uint8Array) => Promise<StoredObject>
-  get:   (key: string) => Promise<Buffer>
-  delete:(key: string) => Promise<void>
-  exists:(key: string) => Promise<boolean>
+  put:       (key: string, data: Uint8Array) => Promise<StoredObject>
+  get:       (key: string) => Promise<Buffer>
+  getStream: (key: string) => Promise<Readable>
+  getRange:  (key: string, start: number, end: number) => Promise<Buffer>
+  putStream: (key: string, body: Readable) => Promise<StoredObject>
+  size:      (key: string) => Promise<number>
+  delete:    (key: string) => Promise<void>
+  exists:    (key: string) => Promise<boolean>
 }
 ```
 
@@ -32,6 +36,17 @@ export type StorageDriver = {
 - `clientUpload` tells the upload panel how the browser should deliver bytes.
   Vercel Blob is the only driver that answers `"vercel-blob"`; the filesystem and
   S3 both answer `"server-route"`.
+- `getStream`, `getRange` and `putStream` are the streaming half, used by
+  everything that should not hold a whole object: ingest, container
+  expansion, text/CSV/TSV extraction and the source route. `getRange` is
+  **half-open** — bytes `[start, end)` — like every other range in the
+  codebase, whatever the backend's own convention. A backend that ignores a
+  range and answers with the whole object is still answered correctly: the
+  driver slices it. Only the efficiency varies, so callers never need to know
+  which backend they are talking to.
+- `size` reads the stored length without reading the object; ingest refuses an
+  oversize upload with it before a byte is read, and chunked range reads use
+  it to find the final chunk.
 
 Everything above this file works in keys and `Uint8Array`s and never learns
 which backend answered.
@@ -73,10 +88,11 @@ backend.
 ### `localDriver` — `lib/storage/drivers.ts:53`
 
 Writes to `.anonify-storage/` under the process working directory. Keys are
-server-generated, but `localPath` (`drivers.ts:46`) still scrubs them: `..`
-segments are stripped and leading slashes are trimmed, so a traversal-shaped
-key cannot escape the store. `put` mkdirs the parent recursively; `exists` is a
-read that swallows its own error, so there is no `stat` import to maintain.
+server-generated, but `localPath` still scrubs them: `..` segments are
+stripped and leading slashes are trimmed, so a traversal-shaped key cannot
+escape the store. `put` mkdirs the parent recursively; `exists` and `size` are
+a `stat`. `putStream` writes beside the destination and renames into place, so
+a stream that fails halfway leaves nothing under the real name.
 
 ### S3-compatible storage — `createS3Driver` (`drivers.ts:122`)
 
@@ -91,13 +107,20 @@ is not configured.
 path-style addressing, while AWS does not. Setting
 `S3_FORCE_PATH_STYLE=false` overrides that inference for an edge case.
 
+`getRange` is a native `Range` GET. `putStream` is a multipart upload through
+`@aws-sdk/lib-storage`: 5 MiB parts (S3's minimum), with as many in flight as
+one document's share of the streaming budget holds (§8). `pnpm smoke:storage`
+exercises both against RustFS.
+
 ### `vercelBlobDriver` — `lib/storage/drivers.ts:188`
 
 `put` calls `@vercel/blob` `put` with `addRandomSuffix: true`, so the returned
 URL is unique; that URL **is** the key — there is no `blob:` prefix, and
 `driverForKey` returns the Blob driver for any key that is not `local:` or
-`s3:`. `get` is a `fetch` with `cache: "no-store"`; `delete` and `exists` use
-the Blob `del` / `head` helpers.
+`s3:`. `get` is a `fetch` with `cache: "no-store"`; `delete`, `exists` and
+`size` use the Blob `del` / `head` helpers. `getRange` sends a `Range` header
+and uses a `206`, slicing if the answer is a whole-object `200`; `putStream`
+hands `put` a Node stream.
 
 ---
 
@@ -150,7 +173,8 @@ artifact a document owns by prefix:
 | --- | --- | --- |
 | `documents/:id/upload/<filename>` | `uploadKey` (`blob.ts:61`) | the plaintext browser upload, before ingest re-seals it |
 | `documents/:id/source.bin` | `sourceKey` (`blob.ts:66`) | the sealed original |
-| `documents/:id/redacted.<ext>.bin` | `processedKey` (`blob.ts:70`) | a sealed redacted export |
+| `documents/:id/normalized.json.bin` | `normalizedKey` | the sealed normalized model |
+| `documents/:id/redacted.<artifactId>.<ext>.bin` | `artifactKey` / `processedKey` | a sealed redacted export |
 | `documents/:id/report.<artifactId>.json.bin` | `reportKey` (`blob.ts:75`) | the export report that accompanies one generated artifact |
 | `documents/:id/render/<name>.bin` | `renderKey` (`blob.ts:79`) | a sealed rendered page or preview |
 
@@ -185,7 +209,63 @@ key, and the data key itself is sealed under the server-held master key
 Keys are random — never derived from an IP, a MAC, browser behaviour or
 network activity, all of which are attacker-controlled and unstable.
 
-### Ciphertext layout
+### Two envelopes, chosen by the document
+
+Every document records which envelope its objects are sealed in, in
+`Document.encryptionFormat`, and every object the document owns — source,
+normalized model, exports, reports, vaults — is in that one format. Reads
+dispatch on the record, through `lib/storage/sealed.ts`, and **never on the
+bytes**: a `v0` object begins with a random IV, and a random IV can begin with
+the `v1` magic like anything else can.
+
+| Recorded | Envelope | Written by |
+| --- | --- | --- |
+| `null` / `v0` | one AES-256-GCM pass over the whole object | every document ingested before the chunked format |
+| `v1` | chunked AES-256-GCM (below) | every document ingested since, including every child of a container |
+
+A `v0` document keeps writing `v0` for the rest of its life and ages out through
+the retention sweep; nothing is backfilled. Children of a `v0` container are new
+documents and are sealed `v1`.
+
+### The chunked envelope (`v1`)
+
+`lib/storage/chunked.ts`
+
+```
+header   16 bytes, cleartext, bound into every chunk's AAD
+  magic        4   "ANFY"
+  version      1   0x01
+  chunkShift   1   log2(chunkSize); 20 = 1 MiB
+  reserved     2   zero
+  noncePrefix  8   random, per object
+
+chunk i
+  ciphertext   chunkSize bytes (the final chunk is shorter, and an empty
+               object is one empty final chunk)
+  tag          16
+```
+
+- **Nonce** = `noncePrefix(8) || counter_be32(i)` — derived, never random per
+  chunk, so it cannot repeat within an object. The counter fails closed rather
+  than wrapping, and objects are write-once, so a nonce never seals two
+  plaintexts.
+- **AAD** = `header || logicalKey || finalFlag`. The final flag closes
+  truncation (no prefix of an object is a valid object); the counter in the
+  nonce closes reordering; the **logical key** — the `documents/:id/…` path the
+  object was written under, supplied by the reader from the document and
+  artifact it is reading — closes splicing between objects that share a data
+  key. Before this, the source, model, exports and reports of one document
+  were interchangeable as far as the cipher was concerned.
+- Sealed size is exactly `16 + n·(chunkSize + 16)` less the final chunk's
+  shortfall, so a plaintext range maps to a computable run of chunks and is
+  served by one ranged read (`openSealedObject(...).range(start, end)`).
+- The chunk size is read **from the header** when opening. Configuration only
+  chooses what new objects are sealed with, so changing it never makes an
+  existing object unreadable.
+- No plaintext leaves a chunk before its tag verifies. A tampered chunk fails
+  the stream at that chunk; a truncated object fails it at the end.
+
+### The original envelope (`v0`)
 
 `sealWithKey` (`encryption.ts:49`) returns `iv || tag || ciphertext`:
 
@@ -220,3 +300,25 @@ from its origin.
 Failing on the way up means a bad key is reported at startup, next to the env
 line that caused it, and before any document is accepted — not on the first
 document through the door.
+
+---
+
+## 8. The streaming budget
+
+`lib/storage/streaming.ts`
+
+Streaming bounds one document's footprint by the chunk size rather than the
+file, but only if the chunks in flight are bounded too. The budget is stated
+once, as the product that matters:
+
+```
+chunkBytes × maxInFlightChunks × processingConcurrency() <= memoryBudget
+```
+
+`processingConcurrency()` is the existing per-owner gate from
+`lib/documents/admission.ts`, so this composes with it rather than being a
+second limiter. `ANONIFY_ENCRYPTION_CHUNK_SIZE` (default `1MB`, a power of two
+between `64KB` and `16MB`) and `ANONIFY_STREAM_MEMORY_BUDGET` (default 8 chunks
+per processing document for a demo, 16 self-hosted) configure it. A budget that
+cannot give every concurrent document two chunks is refused at startup, from
+`instrumentation.ts`, rather than quietly exceeded.

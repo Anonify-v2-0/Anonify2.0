@@ -15,8 +15,8 @@ import {
 import type { ExportReport } from "@/lib/redaction/report"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { verifyBatchToken } from "@/lib/security/signed-url"
-import { getObject } from "@/lib/storage/blob"
-import { decryptDocument } from "@/lib/storage/encryption"
+import { artifactKey, reportKey, vaultKey } from "@/lib/storage/blob"
+import { documentSeal, getSealed } from "@/lib/storage/sealed"
 import { checksumMatches, sha256 } from "@/lib/storage/integrity"
 
 export const runtime = "nodejs"
@@ -81,7 +81,7 @@ export async function GET(
 
       const record = await prisma.document.findUnique({
         where: { id: document.id },
-        select: { encryptionKey: true },
+        select: { encryptionKey: true, encryptionFormat: true },
       })
 
       if (!artifact?.reportBlobKey || !record?.encryptionKey) {
@@ -89,13 +89,15 @@ export async function GET(
         continue
       }
 
-      const [sealed, sealedReport] = await Promise.all([
-        getObject(artifact.blobKey),
-        getObject(artifact.reportBlobKey),
+      const seal = documentSeal(record)
+      const [bytes, reportBytes] = await Promise.all([
+        getSealed(
+          artifact.blobKey,
+          artifactKey(document.id, artifact.id, artifact.extension),
+          seal
+        ),
+        getSealed(artifact.reportBlobKey, reportKey(document.id, artifact.id), seal),
       ])
-
-      const bytes = decryptDocument(sealed, record.encryptionKey)
-      const reportBytes = decryptDocument(sealedReport, record.encryptionKey)
 
       if (
         !checksumMatches(artifact.checksum, sha256(bytes)) ||
@@ -136,8 +138,11 @@ export async function GET(
       // separately and is not made wrong by an unreadable vault — and the
       // batch report says which documents ended up with one.
       if (artifact.vaultBlobKey) {
-        const sealedVault = await getObject(artifact.vaultBlobKey)
-        const vaultBytes = decryptDocument(sealedVault, record.encryptionKey)
+        const vaultBytes = await getSealed(
+          artifact.vaultBlobKey,
+          vaultKey(document.id, artifact.id),
+          seal
+        )
 
         if (checksumMatches(artifact.vaultChecksum ?? "", sha256(vaultBytes))) {
           files.push({

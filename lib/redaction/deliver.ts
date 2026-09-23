@@ -24,13 +24,12 @@ import {
 } from "@/lib/redaction/vault"
 import type { ExportVariant } from "@/lib/redaction/variants"
 import {
-  getObject,
-  processedKey,
-  putObject,
+  artifactKey,
   reportKey,
+  sourceKey,
   vaultKey,
 } from "@/lib/storage/blob"
-import { decryptDocument, encryptWithDocumentKey } from "@/lib/storage/encryption"
+import { documentSeal, getSealed, putSealed } from "@/lib/storage/sealed"
 import { sha256 } from "@/lib/storage/integrity"
 import type { DocumentKind } from "@/types/document"
 
@@ -137,6 +136,7 @@ export async function exportAndStore(
       checksum: true,
       preset: true,
       encryptionKey: true,
+      encryptionFormat: true,
       sourceBlobKey: true,
       normalizedBlobKey: true,
     },
@@ -150,16 +150,20 @@ export async function exportAndStore(
     return { ok: false, reason: "not-ready" }
   }
 
+  const seal = documentSeal(document)
   const [model, rows] = await Promise.all([
-    loadNormalized(document.normalizedBlobKey, document.encryptionKey),
+    loadNormalized(document.id, document.normalizedBlobKey, seal),
     // Every redaction, not only the accepted ones: the exporter filters for
     // itself, and the report has to be able to say what was turned down.
     prisma.redaction.findMany({ where: { documentId: document.id } }),
   ])
 
   const redactions = rows.map(fromDatabaseRow)
-  const sealed = await getObject(document.sourceBlobKey)
-  const source = decryptDocument(sealed, document.encryptionKey)
+  const source = await getSealed(
+    document.sourceBlobKey,
+    sourceKey(document.id),
+    seal
+  )
   const kind = document.kind as DocumentKind
   const preset = presetById(document.preset)
 
@@ -203,9 +207,10 @@ export async function exportAndStore(
     })
 
     const artifactId = randomId("exp", 16)
-    const stored = await putObject(
-      processedKey(document.id, `${artifactId}.${result.extension}`),
-      encryptWithDocumentKey(result.bytes, document.encryptionKey)
+    const stored = await putSealed(
+      artifactKey(document.id, artifactId, result.extension),
+      result.bytes,
+      seal
     )
 
     const report = buildExportReport({
@@ -242,9 +247,10 @@ export async function exportAndStore(
     )
 
     const reportBytes = serializeExportReport(report)
-    const storedReport = await putObject(
+    const storedReport = await putSealed(
       reportKey(document.id, artifactId),
-      encryptWithDocumentKey(reportBytes, document.encryptionKey)
+      reportBytes,
+      seal
     )
 
     const vaultEntries = [
@@ -272,12 +278,10 @@ export async function exportAndStore(
     // nowhere on disk.
     const storedVault =
       vault && storeVault
-        ? await putObject(
+        ? await putSealed(
             vaultKey(document.id, artifactId),
-            encryptWithDocumentKey(
-              serializeVault(vault),
-              document.encryptionKey
-            )
+            serializeVault(vault),
+            seal
           )
         : null
 

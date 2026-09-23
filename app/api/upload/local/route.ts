@@ -1,3 +1,6 @@
+import { Readable } from "node:stream"
+import type { ReadableStream as WebReadableStream } from "node:stream/web"
+
 import {
   errorResponse,
   handleRouteError,
@@ -9,7 +12,7 @@ import { MAX_UPLOAD_BYTES } from "@/lib/config"
 import { prisma } from "@/lib/database/prisma"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
-import { putObject, uploadKey } from "@/lib/storage/blob"
+import { putObjectStream, uploadKey } from "@/lib/storage/blob"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -67,10 +70,10 @@ export async function POST(request: Request) {
       return errorResponse("This document has already been uploaded", 409)
     }
 
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    const stored = await putObject(
+    // Streamed into storage rather than copied into one more buffer first.
+    const stored = await putObjectStream(
       uploadKey(document.id, document.originalName),
-      bytes
+      Readable.fromWeb(file.stream() as WebReadableStream<Uint8Array>)
     )
 
     return jsonResponse({ url: stored.key, size: stored.size }, 201)

@@ -107,6 +107,7 @@ export async function POST(
       target: {
         id: document.id,
         encryptionKey: document.encryptionKey,
+        encryptionFormat: document.encryptionFormat,
         normalizedBlobKey: record.normalizedBlobKey,
       },
       pattern,

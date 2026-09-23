@@ -1,3 +1,5 @@
+import type { Readable } from "node:stream"
+
 import {
   driverForKey,
   selectStorageDriver,
@@ -28,6 +30,31 @@ export async function putObject(
 
 export async function getObject(key: string): Promise<Buffer> {
   return driverForKey(key).get(key)
+}
+
+/** Writes a stream; see `StorageDriver.putStream`. */
+export async function putObjectStream(
+  key: string,
+  body: Readable
+): Promise<StoredObject> {
+  return selectStorageDriver().putStream(key, body)
+}
+
+export async function getObjectStream(key: string): Promise<Readable> {
+  return driverForKey(key).getStream(key)
+}
+
+/** Bytes `[start, end)` of a stored object. */
+export async function getObjectRange(
+  key: string,
+  start: number,
+  end: number
+): Promise<Buffer> {
+  return driverForKey(key).getRange(key, start, end)
+}
+
+export async function objectSize(key: string): Promise<number> {
+  return driverForKey(key).size(key)
 }
 
 /** Deletion is idempotent: a missing object is a successful delete. */
@@ -67,8 +94,25 @@ export function sourceKey(documentId: string): string {
   return `documents/${documentId}/source.bin`
 }
 
+/** The normalized model: the document's text, so sealed like the source. */
+export function normalizedKey(documentId: string): string {
+  return `documents/${documentId}/normalized.json.bin`
+}
+
 export function processedKey(documentId: string, extension: string): string {
   return `documents/${documentId}/redacted.${extension}.bin`
+}
+
+/**
+ * One generated export. Written and read through this one function so the
+ * path a reader binds the object to is the path it was sealed under.
+ */
+export function artifactKey(
+  documentId: string,
+  artifactId: string,
+  extension: string
+): string {
+  return processedKey(documentId, `${artifactId}.${extension}`)
 }
 
 /** The export report that accompanies one generated artifact. */

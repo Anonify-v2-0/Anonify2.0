@@ -695,7 +695,7 @@ of `lib/documents/mbox/` is a splitter and a set of limits:
 
 | File | What it does |
 | --- | --- |
-| `parse.ts` | finds the seams, unwraps each message, undoes `>From ` quoting |
+| `parse.ts` | `MailboxScanner` — finds the seams as the file streams past, and locates each message as a byte range; unwraps each message and undoes `>From ` quoting when it is read out |
 | `limits.ts` | `MboxLimits` — message count, total bytes, largest message, depth |
 | `messages.ts` | what each message becomes, and what it is called |
 | `validate.ts` | conservation: every byte accounted for, every message reparses |
@@ -708,8 +708,8 @@ at the end is the output, exactly as for a batch a person uploads directly.
 
 ```mermaid
 flowchart TB
-    MBOX["archive.mbox — one upload"] --> SPLIT["splitMailbox()<br/>From-line seams, quoting undone"]
-    SPLIT --> PLAN["planMailbox()<br/>one verdict per message"]
+    MBOX["archive.mbox — one upload"] --> SPLIT["scanMailboxMessages()<br/>From-line seams, as it streams"]
+    SPLIT --> PLAN["planMailboxMessages()<br/>one verdict per message"]
     PLAN --> C1["message-0001.eml"]
     PLAN --> C2["message-0002.eml"]
     PLAN --> CN["… message-0900.eml"]
@@ -743,6 +743,21 @@ Failing any of them **merges rather than splits**, and that direction is chosen
 deliberately: an over-merged mailbox is one visibly enormous message a reviewer
 can see is wrong, and a fractured one is two plausible documents each quietly
 missing half of the other.
+
+### Never the whole mailbox at once
+
+All three tests are local: the line before a candidate, the candidate itself,
+and 16 KiB after it. So the scan reads the sealed source as it streams out of
+storage, holds a candidate until its lookahead has arrived, and reports each
+message as a byte range with its final size and the head content sniffing
+needs — never as bytes. The head is sniffed as the message closes and
+dropped. Each message is then read back on its own, by one ranged read of the
+chunked source, when it is sealed as a child; a message refused for its size,
+its format or the allowance is never read out at all.
+
+The scan is held to the whole-string splitter it replaced by
+`tests/mbox-scan.test.ts`, which keeps that splitter verbatim as a reference and
+feeds both the same mailboxes whole, a byte at a time and in random cuts.
 
 ### Naming, and why it is not the subject
 

@@ -77,6 +77,28 @@ export function usageQuantity(
   }
 }
 
+/**
+ * What a document costs, from counts rather than from a model.
+ *
+ * For an extractor that streamed its model out page by page rather than
+ * holding it, and so has only the counts left at the end. Only the kinds such
+ * an extractor produces are answered; anything else would need a model, and
+ * guessing at one is how an allowance ends up charging the wrong number.
+ */
+export function countedUsageQuantity(
+  kind: UsageKind,
+  counts: { pages: number; cells: number }
+): number {
+  switch (kind) {
+    case "xlsxCells":
+      return counts.cells
+    case "textPages":
+      return counts.pages
+    default:
+      throw new Error(`Usage for ${kind} cannot be charged from counts`)
+  }
+}
+
 function textBytes(model: NormalizedDocument): number {
   const text = model.pages.map((page) => page.text).join("\n")
   return Buffer.byteLength(text, "utf8")
@@ -221,21 +243,29 @@ export function quotaMessage(check: QuotaCheck): string {
  * stops counting — which is the one that matters, because a quota nobody is
  * charged against is not a quota.
  */
-export async function chargeDocumentUsage(input: {
-  documentId: string
-  kind: DocumentKind
-  quotaKey: string | null
-  /** The document's current metadata column. */
-  metadata: unknown
-  model: NormalizedDocument
-}): Promise<{ charged: boolean; quota: QuotaCheck | null }> {
+export async function chargeDocumentUsage(
+  input: {
+    documentId: string
+    kind: DocumentKind
+    quotaKey: string | null
+    /** The document's current metadata column. */
+    metadata: unknown
+  } & (
+    | { model: NormalizedDocument }
+    /** For a model that was streamed to storage rather than held. */
+    | { counts: { pages: number; cells: number } }
+  )
+): Promise<{ charged: boolean; quota: QuotaCheck | null }> {
   if (!input.quotaKey) return { charged: false, quota: null }
   if (asRecord(input.metadata)?.quotaCharged !== undefined) {
     return { charged: false, quota: null }
   }
 
   const kind = usageKindFor(input.kind)
-  const quantity = usageQuantity(kind, input.model)
+  const quantity =
+    "model" in input
+      ? usageQuantity(kind, input.model)
+      : countedUsageQuantity(kind, input.counts)
 
   const quota = await recordUsage({
     fingerprint: input.quotaKey,

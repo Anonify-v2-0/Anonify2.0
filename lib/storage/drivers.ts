@@ -1,5 +1,21 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { randomBytes } from "node:crypto"
+import { createWriteStream } from "node:fs"
+import {
+  mkdir,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises"
 import path from "node:path"
+import { Readable, Transform } from "node:stream"
+import type { ReadableStream as WebReadableStream } from "node:stream/web"
+import { pipeline } from "node:stream/promises"
+
+import { chain, holdErrors } from "@/lib/storage/streams"
+import { perDocumentStreamBytes, streamingLimits } from "@/lib/storage/streaming"
 
 /**
  * Storage drivers.
@@ -34,8 +50,79 @@ export type StorageDriver = {
   clientUpload: "vercel-blob" | "server-route"
   put: (key: string, data: Uint8Array) => Promise<StoredObject>
   get: (key: string) => Promise<Buffer>
+  /**
+   * The object as a stream, for a reader that should never hold all of it.
+   * Takes the stored handle, like `get`.
+   */
+  getStream: (key: string) => Promise<Readable>
+  /**
+   * Bytes `[start, end)` of the object — half-open, like every other range in
+   * this codebase, whatever the backend's own convention.
+   *
+   * Every driver answers this, and a backend that cannot honour a range falls
+   * back to reading the whole object and slicing it. Only the efficiency
+   * varies; callers never have to know which backend they are talking to.
+   */
+  getRange: (key: string, start: number, end: number) => Promise<Buffer>
+  /**
+   * Writes a stream without holding more of it than the streaming budget
+   * allows. Takes a logical key and returns the handle, like `put`.
+   */
+  putStream: (key: string, body: Readable) => Promise<StoredObject>
+  /** The stored size in bytes, without reading the object. */
+  size: (key: string) => Promise<number>
   delete: (key: string) => Promise<void>
   exists: (key: string) => Promise<boolean>
+}
+
+/** Counts what passes through, for a `StoredObject.size` nobody precomputed. */
+class ByteCounter extends Transform {
+  bytes = 0
+
+  override _transform(
+    chunk: Buffer,
+    _encoding: BufferEncoding,
+    callback: (error?: Error | null, data?: Buffer) => void
+  ): void {
+    this.bytes += chunk.byteLength
+    callback(null, chunk)
+  }
+}
+
+/** Pipes a body through a counter; see `chain` for why not plain `pipe`. */
+function counted(body: Readable): ByteCounter {
+  return chain(body, new ByteCounter())
+}
+
+/**
+ * The requested slice of a response that may or may not have honoured the
+ * range. A backend that ignored it sent the whole object, which is still an
+ * answer — just a more expensive one.
+ */
+function sliceIfWhole(
+  bytes: Buffer,
+  honoured: boolean,
+  start: number,
+  end: number
+): Buffer {
+  const slice = honoured ? bytes : bytes.subarray(start, end)
+  if (slice.byteLength !== end - start) {
+    throw new Error(
+      `Ranged read returned ${slice.byteLength} bytes, expected ${end - start}`
+    )
+  }
+  return slice
+}
+
+function assertRange(start: number, end: number): void {
+  if (
+    !Number.isInteger(start) ||
+    !Number.isInteger(end) ||
+    start < 0 ||
+    end < start
+  ) {
+    throw new RangeError(`Invalid byte range ${start}-${end}`)
+  }
 }
 
 // --- local filesystem ------------------------------------------------------
@@ -65,13 +152,72 @@ export const localDriver: StorageDriver = {
     return readFile(localPath(key))
   },
 
+  async getStream(key) {
+    // Opened eagerly so a missing object is an error here, where the caller
+    // is waiting for it, rather than an event on a stream nobody reads yet.
+    const handle = await open(localPath(key), "r")
+    return handle.createReadStream({
+      highWaterMark: streamingLimits().chunkBytes,
+    })
+  },
+
+  async getRange(key, start, end) {
+    assertRange(start, end)
+    const handle = await open(localPath(key), "r")
+    try {
+      const out = Buffer.alloc(end - start)
+      let read = 0
+      while (read < out.byteLength) {
+        const { bytesRead } = await handle.read(
+          out,
+          read,
+          out.byteLength - read,
+          start + read
+        )
+        if (bytesRead === 0) break
+        read += bytesRead
+      }
+      return sliceIfWhole(out.subarray(0, read), true, start, end)
+    } finally {
+      await handle.close()
+    }
+  },
+
+  async putStream(key, body) {
+    holdErrors(body)
+    const file = localPath(key)
+    await mkdir(path.dirname(file), { recursive: true })
+    // Written beside the destination and renamed into place, so a stream that
+    // fails halfway leaves no half an object under the real name.
+    const partial = `${file}.${randomBytes(6).toString("hex")}.partial`
+    const counter = new ByteCounter()
+    try {
+      await pipeline(
+        body,
+        counter,
+        createWriteStream(partial, {
+          highWaterMark: streamingLimits().chunkBytes,
+        })
+      )
+      await rename(partial, file)
+    } catch (error) {
+      await rm(partial, { force: true })
+      throw error
+    }
+    return { key: `${LOCAL_PREFIX}${key}`, size: counter.bytes }
+  },
+
+  async size(key) {
+    return (await stat(localPath(key))).size
+  },
+
   async delete(key) {
     await rm(localPath(key), { force: true })
   },
 
   async exists(key) {
     try {
-      await readFile(localPath(key))
+      await stat(localPath(key))
       return true
     } catch {
       return false
@@ -162,6 +308,73 @@ export function createS3Driver(config: S3Config): StorageDriver {
       return Buffer.from(await body.transformToByteArray())
     },
 
+    async getStream(key) {
+      const { GetObjectCommand } = await import("@aws-sdk/client-s3")
+      const result = await (await client).send(
+        new GetObjectCommand({ Bucket: config.bucket, Key: objectPath(key) })
+      )
+      const body = result.Body
+      if (!body) throw new Error(`Stored object is empty: ${key}`)
+      // In Node the SDK's body is a Readable with helpers mixed in.
+      return body as unknown as Readable
+    },
+
+    async getRange(key, start, end) {
+      assertRange(start, end)
+      if (end === start) return Buffer.alloc(0)
+      const { GetObjectCommand } = await import("@aws-sdk/client-s3")
+      const result = await (await client).send(
+        new GetObjectCommand({
+          Bucket: config.bucket,
+          Key: objectPath(key),
+          // HTTP ranges are inclusive at both ends.
+          Range: `bytes=${start}-${end - 1}`,
+        })
+      )
+      const body = result.Body
+      if (!body) throw new Error(`Stored object is empty: ${key}`)
+      const bytes = Buffer.from(await body.transformToByteArray())
+      return sliceIfWhole(bytes, Boolean(result.ContentRange), start, end)
+    },
+
+    async putStream(key, body) {
+      const { Upload } = await import("@aws-sdk/lib-storage")
+      // S3 will not take a part under 5 MiB, so that is the part size, and
+      // the number of parts in flight is what this document's share of the
+      // streaming budget holds.
+      const partSize = 5 * 1024 * 1024
+      const queueSize = Math.max(
+        1,
+        Math.floor(perDocumentStreamBytes() / partSize)
+      )
+      const counter = counted(body)
+      const upload = new Upload({
+        client: await client,
+        params: {
+          Bucket: config.bucket,
+          Key: objectPath(key),
+          Body: counter,
+          ContentType: "application/octet-stream",
+        },
+        partSize,
+        queueSize,
+        leavePartsOnError: false,
+      })
+      await upload.done()
+      return { key: `${S3_PREFIX}${key}`, size: counter.bytes }
+    },
+
+    async size(key) {
+      const { HeadObjectCommand } = await import("@aws-sdk/client-s3")
+      const result = await (await client).send(
+        new HeadObjectCommand({ Bucket: config.bucket, Key: objectPath(key) })
+      )
+      if (typeof result.ContentLength !== "number") {
+        throw new Error(`Stored object has no length: ${key}`)
+      }
+      return result.ContentLength
+    },
+
     async delete(key) {
       const { DeleteObjectCommand } = await import("@aws-sdk/client-s3")
       await (await client).send(
@@ -206,6 +419,47 @@ export const vercelBlobDriver: StorageDriver = {
       throw new Error(`Failed to read stored object (${response.status})`)
     }
     return Buffer.from(await response.arrayBuffer())
+  },
+
+  async getStream(key) {
+    const response = await fetch(key, { cache: "no-store" })
+    if (!response.ok || !response.body) {
+      throw new Error(`Failed to read stored object (${response.status})`)
+    }
+    return Readable.fromWeb(response.body as WebReadableStream<Uint8Array>)
+  },
+
+  async getRange(key, start, end) {
+    assertRange(start, end)
+    if (end === start) return Buffer.alloc(0)
+    const response = await fetch(key, {
+      cache: "no-store",
+      // HTTP ranges are inclusive at both ends.
+      headers: { range: `bytes=${start}-${end - 1}` },
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to read stored object (${response.status})`)
+    }
+    // 206 is the range; 200 is a server that ignored it and sent everything.
+    const bytes = Buffer.from(await response.arrayBuffer())
+    return sliceIfWhole(bytes, response.status === 206, start, end)
+  },
+
+  async putStream(key, body) {
+    const { put } = await import("@vercel/blob")
+    const counter = counted(body)
+    const result = await put(key, counter, {
+      access: "public",
+      addRandomSuffix: true,
+      contentType: "application/octet-stream",
+      cacheControlMaxAge: 0,
+    })
+    return { key: result.url, size: counter.bytes }
+  },
+
+  async size(key) {
+    const { head } = await import("@vercel/blob")
+    return (await head(key)).size
   },
 
   async delete(key) {

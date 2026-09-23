@@ -1,3 +1,5 @@
+import { Readable } from "node:stream"
+
 import { ZodError } from "zod"
 
 import { AccessError } from "@/lib/security/access-control"
@@ -65,6 +67,24 @@ export function fileResponse(
   })
 
   return new Response(body, { headers })
+}
+
+/**
+ * A file response fed from a stream that was never whole in memory.
+ *
+ * For an object in the chunked envelope, where every chunk authenticates on
+ * its own and plaintext is released one verified chunk at a time. A chunk
+ * that fails to open fails the stream, and the browser sees a broken download
+ * rather than bytes that were never authenticated. Same headers policy as
+ * `fileResponse`, for the same reasons.
+ */
+export function streamResponse(
+  body: Readable,
+  headers: Record<string, string>
+): Response {
+  return new Response(Readable.toWeb(body) as ReadableStream<Uint8Array>, {
+    headers,
+  })
 }
 
 export function jsonResponse(data: unknown, status = 200): Response {

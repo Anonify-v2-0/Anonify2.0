@@ -1,11 +1,17 @@
-import { detectDocumentType } from "@/lib/documents/detect"
+import { detectDocumentType, type DetectedType } from "@/lib/documents/detect"
 import { formatOf } from "@/lib/documents/formats"
 import {
   mboxLimits,
   MboxLimitError,
   type MboxLimits,
 } from "@/lib/documents/mbox/limits"
-import { splitMailbox, type MailboxEntry } from "@/lib/documents/mbox/parse"
+import {
+  MailboxScanner,
+  scanMailbox,
+  type MailboxSpan,
+  type ScannedMessage,
+} from "@/lib/documents/mbox/parse"
+import type { ByteSource } from "@/lib/storage/streams"
 import type { DocumentKind } from "@/types/document"
 
 /**
@@ -48,11 +54,38 @@ export type MessageRefusal =
    */
   | "quota"
 
+/**
+ * One message of a mailbox, located and sniffed but not read out.
+ *
+ * The head the scanner kept is sniffed the moment the message closes and then
+ * dropped, so planning a thousand messages holds a thousand verdicts rather
+ * than a thousand heads.
+ */
+export type MailboxMessage = MailboxSpan & {
+  /** What the message's own bytes sniff as, from its head. */
+  detected: DetectedType | null
+}
+
+/** Sniffs a message as it comes out of the scan. */
+function sniffed({ head, ...span }: ScannedMessage): MailboxMessage {
+  return { ...span, detected: detectDocumentType(head) }
+}
+
+/** Every message of a mailbox streaming past, located and sniffed. */
+export async function scanMailboxMessages(
+  source: ByteSource,
+  limits: MboxLimits = mboxLimits()
+): Promise<MailboxMessage[]> {
+  const found: MailboxMessage[] = []
+  await scanMailbox(source, limits, (message) => found.push(sniffed(message)))
+  return found
+}
+
 export type MessagePlan =
   /** Becomes a child document, sealed and processed like any other upload. */
   | {
       action: "expand"
-      entry: MailboxEntry
+      entry: MailboxMessage
       kind: DocumentKind
       mimeType: string
       name: string
@@ -67,7 +100,7 @@ export type MessagePlan =
    */
   | {
       action: "refuse"
-      entry: MailboxEntry
+      entry: MailboxMessage
       reason: MessageRefusal
       kind: DocumentKind
       mimeType: string
@@ -120,17 +153,21 @@ export function messagePartPath(index: number): string {
  * The sniff comes first and settles it, exactly as it does for an attachment
  * and for an upload — never the `From ` line, never a declared content type,
  * both of which a stranger chooses. In practice a message sniffs as `eml`,
- * because the splitter already refused to open a message on bytes that were
+ * because the scanner already refused to open a message on bytes that were
  * not a header block; the check is here anyway, because "in practice" is not a
  * property and this is the file that decides what gets processed.
+ *
+ * The sniff read the message's head, which is all sniffing ever reads — see
+ * lib/documents/sample.ts — so the verdict is the one the whole message would
+ * have produced, without the message having been read out.
  */
 export function planMessage(
-  entry: MailboxEntry,
+  entry: MailboxMessage,
   total: number,
   limits: MboxLimits = mboxLimits()
 ): MessagePlan {
   const name = messageName(entry.index, total)
-  const detected = detectDocumentType(entry.bytes)
+  const detected = entry.detected
 
   if (!detected || detected.kind !== "eml") {
     return {
@@ -143,7 +180,7 @@ export function planMessage(
     }
   }
 
-  if (entry.bytes.byteLength > limits.maxMessageBytes) {
+  if (entry.size > limits.maxMessageBytes) {
     return {
       action: "refuse",
       entry,
@@ -167,11 +204,11 @@ export function planMessage(
  * Every message of a mailbox, each with its verdict.
  *
  * The depth check is the only thing decided over the whole mailbox here — the
- * count and the total bytes are enforced by `splitMailbox`, which is where
- * they can be answered before anything has been built.
+ * count and the total bytes are enforced by the scan, which is where they can
+ * be answered before anything has been built.
  */
-export function planMailbox(
-  source: string,
+export function planMailboxMessages(
+  found: MailboxMessage[],
   options: {
     /** How deep this mailbox already sits. Zero for one somebody uploaded. */
     depth?: number
@@ -181,7 +218,6 @@ export function planMailbox(
   const limits = options.limits ?? mboxLimits()
   const depth = options.depth ?? 0
 
-  const found = splitMailbox(source, limits)
   const entries = found.map((entry) => planMessage(entry, found.length, limits))
 
   const expanding = entries.filter((entry) => entry.action === "expand")
@@ -196,8 +232,26 @@ export function planMailbox(
   return {
     entries,
     expandedBytes: expanding.reduce(
-      (total, entry) => total + entry.entry.bytes.byteLength,
+      (total, entry) => total + entry.entry.size,
       0
     ),
   }
+}
+
+/** The same plan, for a mailbox already held in memory as a string. */
+export function planMailbox(
+  source: string,
+  options: {
+    depth?: number
+    limits?: MboxLimits
+  } = {}
+): MailboxPlan {
+  const limits = options.limits ?? mboxLimits()
+  const found: MailboxMessage[] = []
+  const scanner = new MailboxScanner(limits, (message) =>
+    found.push(sniffed(message))
+  )
+  scanner.write(Buffer.from(source, "latin1"))
+  scanner.end()
+  return planMailboxMessages(found, { ...options, limits })
 }

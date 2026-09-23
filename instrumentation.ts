@@ -23,6 +23,12 @@ export async function register() {
   const { assertMasterKey } = await import("@/lib/storage/encryption")
   assertMasterKey()
 
+  // The same for the streaming budget: a chunk size nobody can use, or a
+  // budget too small for the documents allowed to process at once, is a line
+  // of configuration — and it should be reported next to it.
+  const { maxInFlightChunks } = await import("@/lib/storage/streaming")
+  maxInFlightChunks()
+
   // Unset on Vercel, where the platform's own world is selected for us. Calling
   // start() there is harmless, but skipping makes the intent explicit.
   if (!process.env.WORKFLOW_TARGET_WORLD) return

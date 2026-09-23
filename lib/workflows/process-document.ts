@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto"
+import type { Readable } from "node:stream"
+
 import {
   FatalError,
   getStepMetadata,
@@ -12,7 +15,10 @@ import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
 import { MAX_UPLOAD_BYTES } from "@/lib/config"
 import { admitAfter } from "@/lib/documents/admission"
-import { extractDelimited } from "@/lib/documents/delimited/extract"
+import {
+  DelimitedExtractionStream,
+  extractDelimited,
+} from "@/lib/documents/delimited/extract"
 import { extractDocx } from "@/lib/documents/docx/extract"
 import { extractPdf } from "@/lib/documents/pdf/extract"
 import { extractPptx } from "@/lib/documents/pptx/extract"
@@ -23,7 +29,10 @@ import {
 } from "@/lib/documents/pdf/page-images"
 import { extractEml } from "@/lib/documents/eml/extract"
 import { extractRtf } from "@/lib/documents/rtf/extract"
-import { extractText } from "@/lib/documents/text/extract"
+import {
+  extractText,
+  TextExtractionStream,
+} from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { ExpansionLimitError } from "@/lib/documents/eml/attachments"
@@ -32,21 +41,38 @@ import { MboxLimitError } from "@/lib/documents/mbox/limits"
 import { MboxParseError } from "@/lib/documents/mbox/parse"
 import { expandContainer } from "@/lib/documents/expand"
 import { newEventId } from "@/lib/documents/ids"
-import { saveNormalized } from "@/lib/documents/normalized-store"
-import { loadNormalized } from "@/lib/documents/normalized-store"
+import {
+  loadNormalized,
+  saveNormalized,
+  saveNormalizedStream,
+} from "@/lib/documents/normalized-store"
+import { DETECTION_SAMPLE_BYTES } from "@/lib/documents/sample"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
 import { categoryAllowed, presetById } from "@/lib/redaction/presets"
 import { carryBatchRules } from "@/lib/redaction/rules"
 import { chargeDocumentUsage, quotaMessage } from "@/lib/security/usage"
-import { deleteObject, getObject, putObject, sourceKey } from "@/lib/storage/blob"
-import { decryptDocument, encryptDocument } from "@/lib/storage/encryption"
+import {
+  deleteObject,
+  getObjectStream,
+  objectSize,
+  sourceKey,
+} from "@/lib/storage/blob"
 import { checksumMatches, sha256 } from "@/lib/storage/integrity"
+import {
+  documentSeal,
+  getSealed,
+  getSealedStream,
+  newDocumentSeal,
+  putSealedStream,
+  type DocumentSeal,
+} from "@/lib/storage/sealed"
+import { readHead } from "@/lib/storage/streams"
 import {
   encodeStreamEvent,
   type ProcessingStreamEvent,
 } from "@/lib/workflows/events"
 import { describeFailure } from "@/lib/workflows/failure"
-import type { DocumentKind } from "@/types/document"
+import type { DocumentKind, NormalizedDocument } from "@/types/document"
 import type {
   ProcessingEventType,
   ProcessingStatus,
@@ -153,6 +179,12 @@ async function setStatus(
  * does is take ownership of those bytes: sniff what they actually are, checksum
  * them, seal them under a fresh per-document key, and delete the plaintext
  * upload. That window is the only time the file exists unencrypted at rest.
+ *
+ * All of it happens as the upload streams past. Sniffing reads the head of the
+ * file and nothing else, so the head is read, judged, and then sent on into
+ * the hash and the sealer with the rest behind it; the file is never whole in
+ * this process, and what it costs in memory is the streaming budget in
+ * lib/storage/streaming.ts rather than the size of the upload.
  */
 async function ingestUpload(documentId: string): Promise<{ kind: DocumentKind }> {
   "use step"
@@ -186,36 +218,19 @@ async function runIngest(documentId: string): Promise<{ kind: DocumentKind }> {
     throw new FatalError("No upload to ingest")
   }
 
-  const bytes = await getObject(document.uploadBlobKey)
-
-  if (bytes.byteLength === 0) throw new FatalError("Uploaded file is empty")
-  if (bytes.byteLength > MAX_UPLOAD_BYTES) {
+  // Refused on the stored size before a byte is read. The count taken while
+  // streaming below is the authority; this is the cheap early answer.
+  const declared = await objectSize(document.uploadBlobKey)
+  if (declared === 0) throw new FatalError("Uploaded file is empty")
+  if (declared > MAX_UPLOAD_BYTES) {
     throw new FatalError("Uploaded file is too large")
   }
 
-  // The filename is passed as a hint, not as an authority: it can only choose
-  // between text formats whose bytes already decode as text.
-  const detected = detectDocumentType(bytes, document.originalName)
-  if (!detected) throw new FatalError("Unsupported file type")
-  if (!extensionMatchesKind(document.originalName, detected.kind)) {
-    throw new FatalError("File contents do not match its extension")
-  }
-
-  const checksum = sha256(bytes)
-  const { ciphertext, wrappedKey } = encryptDocument(bytes)
-  const stored = await putObject(sourceKey(documentId), ciphertext)
-
-  await prisma.document.update({
-    where: { id: documentId },
-    data: {
-      sourceBlobKey: stored.key,
-      encryptionKey: wrappedKey,
-      checksum,
-      size: bytes.byteLength,
-      kind: detected.kind,
-      mimeType: detected.mimeType,
-    },
-  })
+  const kind = await sealUpload(
+    documentId,
+    document.uploadBlobKey,
+    document.originalName
+  )
 
   await deleteObject(document.uploadBlobKey)
   await prisma.document.update({
@@ -223,7 +238,80 @@ async function runIngest(documentId: string): Promise<{ kind: DocumentKind }> {
     data: { uploadBlobKey: null },
   })
 
-  return { kind: detected.kind }
+  return { kind }
+}
+
+/**
+ * Streams the plaintext upload through the sniff, the hash and the sealer, and
+ * records the sealed copy. The upload itself is left for the caller to delete,
+ * once this has let go of it.
+ */
+async function sealUpload(
+  documentId: string,
+  uploadBlobKey: string,
+  originalName: string
+): Promise<DocumentKind> {
+  const upload = await getObjectStream(uploadBlobKey)
+  try {
+    const { head, rest } = await readHead(upload, DETECTION_SAMPLE_BYTES)
+
+    // The filename is passed as a hint, not as an authority: it can only choose
+    // between text formats whose bytes already decode as text.
+    const detected = detectDocumentType(head, originalName)
+    if (!detected) throw new FatalError("Unsupported file type")
+    if (!extensionMatchesKind(originalName, detected.kind)) {
+      throw new FatalError("File contents do not match its extension")
+    }
+
+    const hash = createHash("sha256")
+    let size = 0
+    let refusal: FatalError | null = null
+
+    async function* plaintext(): AsyncGenerator<Buffer> {
+      size += head.byteLength
+      hash.update(head)
+      yield head
+
+      for await (const piece of rest) {
+        size += piece.byteLength
+        if (size > MAX_UPLOAD_BYTES) {
+          // The object grew between the size check and the read. Refused as
+          // the size check would have refused it, and the half-sealed object
+          // is abandoned with the stream rather than stored.
+          refusal = new FatalError("Uploaded file is too large")
+          throw refusal
+        }
+        hash.update(piece)
+        yield piece
+      }
+    }
+
+    const seal = newDocumentSeal()
+    let stored
+    try {
+      stored = await putSealedStream(sourceKey(documentId), plaintext(), seal)
+    } catch (error) {
+      throw refusal ?? error
+    }
+    if (size === 0) throw new FatalError("Uploaded file is empty")
+
+    await prisma.document.update({
+      where: { id: documentId },
+      data: {
+        sourceBlobKey: stored.key,
+        encryptionKey: seal.wrappedKey,
+        encryptionFormat: seal.format,
+        checksum: hash.digest("hex"),
+        size,
+        kind: detected.kind,
+        mimeType: detected.mimeType,
+      },
+    })
+
+    return detected.kind
+  } finally {
+    upload.destroy()
+  }
 }
 
 /**
@@ -354,6 +442,7 @@ async function runExtractAndNormalize(
       kind: true,
       sourceBlobKey: true,
       encryptionKey: true,
+      encryptionFormat: true,
       checksum: true,
       quotaKey: true,
       metadata: true,
@@ -364,23 +453,24 @@ async function runExtractAndNormalize(
     throw new FatalError("Document has not been ingested")
   }
 
-  const sealed = await getObject(document.sourceBlobKey)
-  const bytes = decryptDocument(sealed, document.encryptionKey)
-
-  if (!checksumMatches(document.checksum, sha256(bytes))) {
-    throw new FatalError("Source checksum mismatch")
-  }
-
-  const model = await extractByKind(document.id, document.kind as DocumentKind, bytes)
-  const normalizedBlobKey = await saveNormalized(
+  const kind = document.kind as DocumentKind
+  const input = {
     documentId,
-    document.encryptionKey,
-    model
-  )
+    kind,
+    sourceBlobKey: document.sourceBlobKey,
+    checksum: document.checksum,
+    seal: documentSeal(document),
+  }
+  const extracted = isStreamedKind(kind)
+    ? await extractStreamed({ ...input, kind })
+    : await extractWhole(input)
 
   await prisma.document.update({
     where: { id: documentId },
-    data: { normalizedBlobKey, pageCount: model.pages.length },
+    data: {
+      normalizedBlobKey: extracted.normalizedBlobKey,
+      pageCount: extracted.pageCount,
+    },
   })
 
   // The real cost is only knowable now, so this is where the demo allowance is
@@ -389,15 +479,147 @@ async function runExtractAndNormalize(
   // step is retried and re-extracts from scratch each time.
   const { quota } = await chargeDocumentUsage({
     documentId,
-    kind: document.kind as DocumentKind,
+    kind,
     quotaKey: document.quotaKey,
     metadata: document.metadata,
-    model,
+    ...extracted.usage,
   })
 
   if (quota && !quota.allowed) throw new FatalError(quotaMessage(quota))
 
-  return { pageCount: model.pages.length }
+  return { pageCount: extracted.pageCount }
+}
+
+type ExtractionInput = {
+  documentId: string
+  kind: DocumentKind
+  sourceBlobKey: string
+  checksum: string
+  seal: DocumentSeal
+}
+
+type Extracted = {
+  normalizedBlobKey: string
+  pageCount: number
+  usage:
+    | { model: NormalizedDocument }
+    | { counts: { pages: number; cells: number } }
+}
+
+/**
+ * The kinds whose extraction streams: read a piece of the source, write a
+ * piece of the model, never hold either.
+ *
+ * The flat record formats, where a piece of the file is a piece of the
+ * answer. The rest need the whole file by their nature — pdf.js wants random
+ * access, an image is decoded whole, the package formats are archives — and
+ * take the whole-file path.
+ */
+const STREAMED_KINDS = ["txt", "csv", "tsv"] as const
+
+type StreamedKind = (typeof STREAMED_KINDS)[number]
+
+function isStreamedKind(kind: DocumentKind): kind is StreamedKind {
+  return (STREAMED_KINDS as readonly string[]).includes(kind)
+}
+
+/** Reads the whole source, verifies its checksum, and extracts it. */
+async function extractWhole(input: ExtractionInput): Promise<Extracted> {
+  const bytes = await getSealed(
+    input.sourceBlobKey,
+    sourceKey(input.documentId),
+    input.seal
+  )
+
+  if (!checksumMatches(input.checksum, sha256(bytes))) {
+    throw new FatalError("Source checksum mismatch")
+  }
+
+  const model = await extractByKind(input.documentId, input.kind, bytes)
+  const normalizedBlobKey = await saveNormalized(
+    input.documentId,
+    input.seal,
+    model
+  )
+
+  return { normalizedBlobKey, pageCount: model.pages.length, usage: { model } }
+}
+
+/**
+ * Streams the source through an extractor and the model into storage.
+ *
+ * The source is hashed as it passes, and the checksum is verified before the
+ * model is finished: a source that fails it is refused as corrupt whatever
+ * the extractor made of it, exactly as the whole-file path refuses it before
+ * extracting at all. A refusal from the extractor is held until then for the
+ * same reason. Anything that fails abandons the model mid-write, so nothing
+ * is stored and nothing is recorded.
+ */
+async function extractStreamed(
+  input: ExtractionInput & { kind: StreamedKind }
+): Promise<Extracted> {
+  const extractor =
+    input.kind === "txt"
+      ? new TextExtractionStream(input.documentId)
+      : new DelimitedExtractionStream(input.documentId, input.kind)
+
+  const source: Readable = await getSealedStream(
+    input.sourceBlobKey,
+    sourceKey(input.documentId),
+    input.seal
+  )
+  const hash = createHash("sha256")
+  let failure: unknown = null
+
+  async function* model(): AsyncGenerator<Buffer> {
+    try {
+      let refusal: unknown = null
+      for await (const piece of source as AsyncIterable<Buffer>) {
+        hash.update(piece)
+        if (refusal) continue
+        let json = ""
+        try {
+          json = extractor.write(piece)
+        } catch (error) {
+          refusal = error
+          continue
+        }
+        if (json) yield Buffer.from(json, "utf8")
+      }
+
+      if (!checksumMatches(input.checksum, hash.digest("hex"))) {
+        throw new FatalError("Source checksum mismatch")
+      }
+      if (refusal) throw refusal
+
+      yield Buffer.from(extractor.end(), "utf8")
+    } catch (error) {
+      failure = error
+      throw error
+    }
+  }
+
+  let normalizedBlobKey: string
+  try {
+    normalizedBlobKey = await saveNormalizedStream(
+      input.documentId,
+      input.seal,
+      model()
+    )
+  } catch (error) {
+    // The storage layer may wrap what the stream threw; the original is what
+    // the failure is classified by.
+    throw failure ?? error
+  } finally {
+    source.destroy()
+  }
+
+  const pageCount =
+    extractor instanceof TextExtractionStream ? extractor.pageCount : 0
+  const cells =
+    extractor instanceof DelimitedExtractionStream ? extractor.cells : 0
+
+  return { normalizedBlobKey, pageCount, usage: { counts: { pages: pageCount, cells } } }
 }
 
 async function extractByKind(
@@ -481,6 +703,7 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
       kind: true,
       mimeType: true,
       encryptionKey: true,
+      encryptionFormat: true,
       normalizedBlobKey: true,
       sourceBlobKey: true,
       preset: true,
@@ -491,9 +714,11 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
     throw new FatalError("Document has not been normalized")
   }
 
+  const seal = documentSeal(document)
   const model = await loadNormalized(
+    document.id,
     document.normalizedBlobKey,
-    document.encryptionKey
+    seal
   )
 
   // Null when no preset was chosen, which means everything is looked for.
@@ -525,8 +750,11 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
   // Pixels get a vision pass, because no amount of text analysis can see a
   // face, a signature or a photographed ID card.
   if (document.sourceBlobKey && document.kind === "image") {
-    const sealed = await getObject(document.sourceBlobKey)
-    const bytes = decryptDocument(sealed, document.encryptionKey)
+    const bytes = await getSealed(
+      document.sourceBlobKey,
+      sourceKey(document.id),
+      seal
+    )
     const analysis = await analyzeImageRegions(documentId, model, {
       data: bytes,
       mediaType: document.mimeType,
@@ -552,8 +780,11 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
       .slice(0, MAX_VISION_PAGES)
 
     if (imagePages.length > 0) {
-      const sealed = await getObject(document.sourceBlobKey)
-      const bytes = decryptDocument(sealed, document.encryptionKey)
+      const bytes = await getSealed(
+        document.sourceBlobKey,
+        sourceKey(document.id),
+        seal
+      )
       const rendered = await renderPagesForVision(bytes, imagePages)
 
       for (const [index, { page, png }] of rendered.entries()) {
