@@ -79,6 +79,11 @@ discovers installed models and verifies structured output and image capabilities
 Official AI SDK providers are available for operators bringing their own API keys
 or cloud credentials; see [AI providers](docs/ai-providers.md). Credential-free
 tests cover the local provider protocol; they do not claim live model quality.
+A weekly workflow (`.github/workflows/local-model.yml`) runs
+`tests/ollama-contract.test.ts` against a pinned Ollama and Gemma 3 4B to prove
+the transport still carries structured text and image calls end to end — the
+contract, not the model's judgement. To run it yourself, pull the model and set
+`ANONIFY_OLLAMA_TESTS=1`.
 
 ---
 
