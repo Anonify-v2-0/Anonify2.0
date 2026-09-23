@@ -14,6 +14,18 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.6.1] - 2026-09-23
+
+### Added
+
+- The model-assisted analysis pass is now tested in CI without an API key or a
+  network call, including the rule that a value the model reports but the
+  document does not contain is discarded, and that a failing provider still
+  leaves the reviewer with the pattern detections (#30)
+- Scanned images are now tested against the real OCR engine in CI, including
+  where each word's redaction box lands, so a change that moved image
+  redactions off the text they cover would fail before release (#33)
+
 ## [1.6.0] - 2026-09-23
 
 ### Changed
