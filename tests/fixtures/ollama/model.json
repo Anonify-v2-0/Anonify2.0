@@ -1,5 +1,5 @@
 {
   "runtime": "ollama/ollama:0.34.3",
-  "model": "gemma3:4b",
-  "digest": "a2af6cc3eb7fa8be8504abaf9b04e88f17a119ec3f04a3addf55f92841195f5a"
+  "model": "qwen3-vl:2b-instruct",
+  "digest": "ea422f1e73652a95479954d8572d3c8c6022f628ce2d38a1a04aae1b7f2d5300"
 }

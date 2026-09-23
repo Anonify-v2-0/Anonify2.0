@@ -8,9 +8,20 @@ name: Local model
 # self-hosted install actually uses still works — Ollama's OpenAI-compatible
 # endpoint carrying JSON-schema output and an image attachment, parsed by the
 # real schemas and accounted for. This runs tests/ollama-contract.test.ts
-# against a pinned Ollama and a pinned Gemma 3 4B to show that.
+# against a pinned Ollama and a pinned Qwen3-VL 2B Instruct to show that.
 #
-# Weekly rather than per pull request: a 3.3 GB model on a CPU runner is minutes
+# Qwen3-VL rather than Gemma 3, which this pinned first, because of how each
+# reads an image. Gemma 3 scales every image to 896 x 896 before encoding it,
+# so even the probe's 32 x 32 square cost about five minutes of CPU on this
+# runner — past the probe's 120 s limit and Node's 300 s fetch timeout, so the
+# vision tests could not pass however long they were given. Qwen3-VL encodes an
+# image near its own size, and at 1.9 GB it is also the smaller download.
+#
+# The instruct tag, not `qwen3-vl:2b`: that tag is the thinking model, which
+# writes hundreds of tokens of reasoning before every answer — minutes per call
+# on a CPU, spent on output the contract never reads.
+#
+# Weekly rather than per pull request: a 1.9 GB model on a CPU runner is minutes
 # of download and inference, and what it guards against — an Ollama or AI SDK
 # change breaking the transport — does not arrive with our pull requests. It is
 # also not cached: GitHub evicts a cache unused for seven days, so a weekly job
@@ -61,13 +72,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # The runtime image (3.7 GB) and the model (3.3 GB) are most of this job's
+      # The runtime image (3.7 GB) and the model (1.9 GB) are most of this job's
       # wall clock, and neither depends on node_modules. So they download while
       # the next step installs, and "Wait for Ollama" joins them afterwards.
       #
       # The script also loads the model into memory once it is pulled, and the
       # container keeps it there (OLLAMA_KEEP_ALIVE=-1), so the first test is
-      # not the one that pays for loading 3 GB from disk.
+      # not the one that pays for loading the model from disk.
       - name: Start Ollama and pull the pinned model, in the background
         run: |
           set -euo pipefail

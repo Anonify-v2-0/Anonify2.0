@@ -18,13 +18,13 @@ import type { NormalizedDocument } from "@/types/document"
  * transport, JSON-schema output, an image attachment, the Zod parse, usage
  * accounting, and a provider failure arriving as a skip rather than a throw.
  *
- * So these tests assert the contract and never the semantics. Whether Gemma
+ * So these tests assert the contract and never the semantics. Whether Qwen
  * thinks a name is sensitive is not something to fail a build over; whether its
  * answer validates, is located in the source, and is accounted for is.
  *
  * They need a running Ollama with the pinned model pulled, so they are opt-in:
  *
- *   ollama pull gemma3:4b
+ *   ollama pull qwen3-vl:2b-instruct
  *   ANONIFY_OLLAMA_TESTS=1 pnpm exec vitest run tests/ollama-contract.test.ts
  *
  * `.github/workflows/local-model.yml` runs them weekly against the pinned
