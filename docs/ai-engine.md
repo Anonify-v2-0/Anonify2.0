@@ -154,7 +154,7 @@ duration, token counts and an error category — nothing else.
 | `detect` | one ~6 KB chunk + values already found | verbatim spans, category, confidence, `global` |
 | `verify` | low-confidence candidates + 80 chars of context each | one verdict per candidate, batched |
 | `columns` | headers + 5 sample values per column | which columns are sensitive, and why |
-| `image` | the pixels + OCR text for context | regions in normalized 0–1 coordinates |
+| `image` | the pixels + OCR text for context | regions as whole numbers on a 0–1000 grid |
 
 Two prompt decisions worth calling out:
 
@@ -167,8 +167,12 @@ Two prompt decisions worth calling out:
   also asks for generous bounds: slightly too large is recoverable, slightly too
   small is a leak.
 
-Coordinates come back normalized to 0–1 so the model never reasons about pixel
-dimensions; the application scales them once.
+Coordinates come back as whole numbers on a 0–1000 grid, so the model never
+reasons about pixel dimensions; the application scales them once. The grid is
+the convention vision models such as Qwen3-VL and Gemini are trained on, so
+they answer in it unprompted, and requiring integers means a model that answers
+in 0–1 fractions fails validation rather than having its box read as a speck in
+the corner.
 
 ---
 
