@@ -5,8 +5,12 @@ import path from "node:path"
 import { afterAll, afterEach, describe, expect, it } from "vitest"
 
 import { detectDriver } from "@/lib/database/prisma"
-import { configuredProviderName, selectOcrProvider } from "@/lib/ocr"
-import { wordsFromBlocks } from "@/lib/ocr/mistral"
+import {
+  configuredProviderName,
+  OcrConfigurationError,
+  selectOcrProvider,
+} from "@/lib/ocr"
+import { misnamedApiKey, wordsFromBlocks } from "@/lib/ocr/mistral"
 import {
   driverForKey,
   localDriver,
@@ -26,7 +30,7 @@ const STORAGE_KEYS = [
 ]
 
 afterEach(() => {
-  for (const key of [...STORAGE_KEYS, "OCR_PROVIDER", "MISTRAL_API_KEY", "DATABASE_DRIVER"]) {
+  for (const key of [...STORAGE_KEYS, "OCR_PROVIDER", "MISTRAL_API_KEY", "MISTRAL_AI_KEY", "DATABASE_DRIVER"]) {
     delete process.env[key]
   }
 })
@@ -172,11 +176,33 @@ describe("OCR provider selection", () => {
     process.env.OCR_PROVIDER = "mistral"
 
     expect(() => selectOcrProvider()).toThrow(/MISTRAL_API_KEY/)
+    // Its own class, so the pipeline fails the document at once rather than
+    // retrying into the same missing key.
+    expect(() => selectOcrProvider()).toThrow(OcrConfigurationError)
+  })
+
+  it("names a Mistral key set under the wrong name, without its value", () => {
+    // The report that prompted this: "the key is set" — as MISTRAL_AI_KEY.
+    process.env.OCR_PROVIDER = "mistral"
+    process.env.MISTRAL_AI_KEY = "sk-do-not-print"
+
+    expect(() => selectOcrProvider()).toThrow(
+      /MISTRAL_API_KEY is not set, but MISTRAL_AI_KEY is/
+    )
+    expect(() => selectOcrProvider()).not.toThrow(/sk-do-not-print/)
+  })
+
+  it("does not call the right name misnamed, or an empty one set", () => {
+    expect(misnamedApiKey({ MISTRAL_API_KEY: "k" })).toBeUndefined()
+    expect(misnamedApiKey({ MISTRAL_KEY: "  " })).toBeUndefined()
+    expect(misnamedApiKey({ MISTRAL_OCR_MODEL: "m" })).toBeUndefined()
+    expect(misnamedApiKey({ MISTRAL_KEY: "k" })).toBe("MISTRAL_KEY")
   })
 
   it("rejects an unknown provider name", () => {
     process.env.OCR_PROVIDER = "abbyy"
     expect(() => selectOcrProvider()).toThrow(/must be one of/)
+    expect(() => selectOcrProvider()).toThrow(OcrConfigurationError)
     expect(configuredProviderName()).toBeNull()
   })
 })

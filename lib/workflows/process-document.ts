@@ -47,6 +47,7 @@ import {
   saveNormalizedStream,
 } from "@/lib/documents/normalized-store"
 import { DETECTION_SAMPLE_BYTES } from "@/lib/documents/sample"
+import { OcrConfigurationError } from "@/lib/ocr"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
 import { categoryAllowed, presetById } from "@/lib/redaction/presets"
 import { carryBatchRules } from "@/lib/redaction/rules"
@@ -461,9 +462,20 @@ async function runExtractAndNormalize(
     checksum: document.checksum,
     seal: documentSeal(document),
   }
-  const extracted = isStreamedKind(kind)
-    ? await extractStreamed({ ...input, kind })
-    : await extractWhole(input)
+  let extracted
+  try {
+    extracted = isStreamedKind(kind)
+      ? await extractStreamed({ ...input, kind })
+      : await extractWhole(input)
+  } catch (error) {
+    // An OCR provider this instance cannot run is a verdict about the
+    // environment, not weather: every retry re-reads the source and reaches
+    // the same refusal, and four of them only delay telling anyone.
+    if (error instanceof OcrConfigurationError) {
+      throw new FatalError(error.message)
+    }
+    throw error
+  }
 
   await prisma.document.update({
     where: { id: documentId },

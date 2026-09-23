@@ -62,6 +62,21 @@ export function apiKey(): string | undefined {
   return process.env.MISTRAL_API_KEY?.trim() || undefined
 }
 
+/**
+ * A Mistral key set under some other name — `MISTRAL_AI_KEY`, `MISTRAL_KEY`.
+ *
+ * The person who set one is certain the key is configured, and "not set" reads
+ * as the app failing to load it, so the refusal names the variable it did find.
+ * Only the name: the value never goes into a message.
+ */
+export function misnamedApiKey(
+  env: Record<string, string | undefined> = process.env
+): string | undefined {
+  return Object.keys(env)
+    .filter((name) => name !== "MISTRAL_API_KEY" && env[name]?.trim())
+    .find((name) => /^MISTRAL_(?:[A-Z0-9]+_)*(?:KEY|TOKEN)$/i.test(name))
+}
+
 /** Turns Mistral's blocks into the word-shaped records the pipeline consumes. */
 export function wordsFromBlocks(blocks: MistralBlock[]): OcrWord[] {
   const words: OcrWord[] = []
@@ -97,7 +112,10 @@ export const mistralProvider: OcrProvider = {
 
   unavailableReason: () => {
     if (!apiKey()) {
-      return "MISTRAL_API_KEY is not set. Set it, or use OCR_PROVIDER=tesseract."
+      const misnamed = misnamedApiKey()
+      return misnamed
+        ? `MISTRAL_API_KEY is not set, but ${misnamed} is. Rename it to MISTRAL_API_KEY, or use OCR_PROVIDER=tesseract.`
+        : "MISTRAL_API_KEY is not set. Set it, or use OCR_PROVIDER=tesseract."
     }
     // Asked here rather than left to the first page: selection is where an
     // unusable provider is meant to be reported, and a misspelled model that
