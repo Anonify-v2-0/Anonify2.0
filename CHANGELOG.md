@@ -14,6 +14,25 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.6.0] - 2026-09-23
+
+### Changed
+
+- Uploads, mailbox and email attachment expansion, and plain text, CSV and TSV
+  extraction now stream instead of holding whole files in memory, so a large
+  mailbox no longer has to fit in memory at once. New documents are stored in
+  1 MB authenticated chunks. Run the database migration before starting this
+  version. Documents already stored stay readable exactly as they are.
+  `ANONIFY_ENCRYPTION_CHUNK_SIZE` and `ANONIFY_STREAM_MEMORY_BUDGET` tune it, and
+  the defaults suit most installs (#102)
+
+### Security
+
+- Each stored file is now bound to the name it was written under. Someone with
+  write access to the storage bucket can no longer swap one of a document's
+  encrypted files for another, such as its report for its source. This covers
+  documents uploaded from this version on (#102)
+
 ## [1.5.0] - 2026-09-23
 
 ### Added
