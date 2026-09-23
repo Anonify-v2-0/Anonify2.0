@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
-import { askAiProvider } from "../scripts/setup-ai"
-import { Prompter, type Choice } from "../scripts/tty"
+import { askAiProvider, formatTokens, modelDetails } from "../scripts/setup-ai"
+import { Prompter, type Choice, type PagedChoiceOptions } from "../scripts/tty"
 import { configuredCapabilities } from "@/lib/ai/providers/config"
 
 const { probe } = vi.hoisted(() => ({ probe: vi.fn() }))
@@ -20,9 +20,18 @@ function promptWith(
   typed = ""
 ) {
   vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+  const chooseMock = vi.fn(choose)
   return {
     interactive: true,
-    choose: vi.fn(choose),
+    choose: chooseMock,
+    // Flattened, so each test can answer the model question like any menu.
+    choosePaged: vi.fn(
+      (
+        question: string,
+        choices: Choice<unknown>[],
+        options: PagedChoiceOptions<unknown> = {}
+      ) => chooseMock(question, [...choices, ...(options.actions ?? [])])
+    ),
     ask: vi.fn(async () => typed),
     secret: vi.fn(async () => "new-secret"),
     confirm: vi.fn(async () => true),
@@ -134,4 +143,115 @@ it("never echoes a retained secret in noninteractive mode", async () => {
   expect(await prompt.secret("API key", "do-not-print")).toBe("do-not-print")
   expect(output).not.toHaveBeenCalled()
   prompt.close()
+})
+
+it("hands a large catalog to the paged selector with the escape hatches pinned", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({
+        data: Array.from({ length: 120 }, (_, index) => ({
+          id: `vendor/model-${String(index).padStart(3, "0")}`,
+          name: `Model ${index}`,
+          type: "language",
+          context_window: 128_000,
+        })),
+      })
+    )
+  )
+  probe.mockResolvedValue({ structuredOutput: true, vision: true })
+  const prompt = promptWith((question) => {
+    if (question === "Which AI provider?") return "gateway"
+    if (question === "What should the model analyze?") return true
+    return "vendor/model-042"
+  })
+  vi.mocked(prompt.confirm).mockImplementation(
+    async (question) => !question.startsWith("Keep the current model")
+  )
+  const result = await askAiProvider(
+    prompt,
+    {
+      AI_PROVIDER: "gateway",
+      AI_GATEWAY_API_KEY: "key",
+      AI_MODEL: "vendor/model-007",
+    },
+    false
+  )
+  expect(result.AI_MODEL).toBe("vendor/model-042")
+
+  const [question, choices, options] = vi.mocked(prompt.choosePaged).mock
+    .calls[0] as [string, Choice<unknown>[], PagedChoiceOptions<unknown>]
+  expect(question).toBe("Which model?")
+  // Every model is paged; the two actions are not models and are never paged.
+  expect(choices).toHaveLength(120)
+  expect(options.actions!.map((action) => action.label)).toEqual([
+    "Enter a model / deployment ID and verify it",
+    "Keep the current configuration and finish setup",
+  ])
+  expect(options.initial).toBe("vendor/model-007")
+  expect(choices[7].label).toBe("vendor/model-007 (current)")
+  expect(choices[42].detail).toEqual([
+    "Model 42",
+    "Advertised: text yes · images unknown · structured output unknown · 128K context",
+  ])
+  // Searchable by ID and display name, never by the capability wording.
+  expect(options.searchText!(choices[42])).toContain("vendor/model-042")
+  expect(options.searchText!(choices[42])).toContain("Model 42")
+  expect(options.searchText!(choices[42])).not.toContain("images")
+})
+
+it("labels advertised, verified and unknown metadata differently", () => {
+  expect(modelDetails({ id: "bare", label: "bare" })).toEqual([
+    "Advertised: no capabilities listed · context unknown",
+  ])
+  expect(
+    modelDetails(
+      { id: "m", label: "m", vision: true, contextWindow: 1_048_576 },
+      { structuredOutput: true, vision: false }
+    )
+  ).toEqual([
+    "Advertised: text unknown · images yes · structured output unknown · 1M context",
+    "Verified by setup: structured output yes · images no",
+  ])
+  expect(formatTokens(200_000)).toBe("200K")
+  expect(formatTokens(1_500_000)).toBe("1.5M")
+  expect(formatTokens(512)).toBe("512")
+})
+
+it("marks the current model verified only when setup verified it for this target", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({ data: [{ id: "current" }, { id: "other" }] })
+    )
+  )
+  const detailsFor = async (current: Record<string, string>) => {
+    const prompt = promptWith((question, choices) => {
+      if (question === "Which AI provider?") return "openai"
+      if (question === "What should the model analyze?") return false
+      if (question.startsWith("Keep the current model")) return false
+      return choices.find((choice) =>
+        choice.label.startsWith("Keep the current")
+      )!.value
+    })
+    vi.mocked(prompt.confirm).mockResolvedValue(false)
+    await askAiProvider(prompt, current, false)
+    const choices = vi.mocked(prompt.choosePaged).mock
+      .calls[0][1] as Choice<unknown>[]
+    return choices.find((choice) => choice.value === "current")!.detail
+  }
+  const base = {
+    AI_PROVIDER: "openai",
+    OPENAI_API_KEY: "k",
+    AI_MODEL: "current",
+  }
+  const declaration = JSON.stringify({
+    target: JSON.stringify(["openai", "current", "", "", "", "", "", false]),
+    structuredOutput: true,
+    vision: false,
+  })
+  expect(
+    await detailsFor({ ...base, AI_MODEL_CAPABILITIES: declaration })
+  ).toContain("Verified by setup: structured output yes · images no")
+  expect((await detailsFor(base))!.join(" ")).not.toContain("Verified")
 })

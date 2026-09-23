@@ -4,6 +4,10 @@ import { ollamaUrl, type ProviderEnv } from "./config"
 export type ModelDefinition = {
   id: string
   label: string
+  /** The provider's display name, when it has one that is not just the ID. */
+  name?: string
+  /** Input context in tokens, as the provider advertises it. */
+  contextWindow?: number
   textOutput?: boolean
   structuredOutput?: boolean
   vision?: boolean
@@ -64,6 +68,62 @@ function strings(value: unknown): string[] | undefined {
     : undefined
 }
 
+const CONTEXT_KEYS = [
+  "context_window",
+  "contextWindow",
+  "context_length",
+  "contextLength",
+  "max_context_length",
+  "max_input_tokens",
+  "inputTokenLimit",
+]
+
+/** Only a plausible whole number of tokens; anything else is "unknown". */
+function tokenCount(value: unknown): number | undefined {
+  const count = typeof value === "string" ? Number(value) : value
+  return typeof count === "number" &&
+    Number.isInteger(count) &&
+    count > 0 &&
+    count <= 100_000_000
+    ? count
+    : undefined
+}
+
+function contextWindow(
+  row: Record<string, unknown>
+): number | undefined {
+  for (const key of CONTEXT_KEYS) {
+    const count = tokenCount(row[key])
+    if (count) return count
+  }
+  return tokenCount(bag(row.top_provider).context_length)
+}
+
+function displayName(
+  provider: string,
+  row: Record<string, unknown>,
+  id: string
+): string | undefined {
+  // Where there is no separate `id`, `name` *is* the ID (Azure, Google,
+  // Cohere, Fireworks), and repeating it as a display name says nothing.
+  const candidates = [
+    row.display_name,
+    row.displayName,
+    provider !== "azure" && typeof row.id === "string" ? row.name : undefined,
+  ]
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue
+    const name = candidate.trim()
+    if (
+      name &&
+      name.length <= 80 &&
+      !/[\x00-\x1f\x7f]/.test(name) &&
+      name.toLowerCase() !== id.toLowerCase()
+    )
+      return name
+  }
+}
+
 export function parseModel(
   provider: string,
   raw: unknown
@@ -97,6 +157,10 @@ export function parseModel(
   const methods = strings(row.supportedGenerationMethods)
   const endpoints = strings(row.endpoints)
   const model: ModelDefinition = { id, label: id }
+  const name = displayName(provider, row, id)
+  if (name) model.name = name
+  const context = contextWindow(row)
+  if (context) model.contextWindow = context
   if (input)
     model.vision = input.some((value) => value.toLowerCase() === "image")
   if (output)
@@ -168,6 +232,13 @@ export async function discoverModels(
             fetcher
           )
         )
+        // model_info keys are prefixed by architecture: llama.context_length.
+        const modelInfo = bag(info.model_info)
+        const context = Object.keys(modelInfo).find((key) =>
+          key.endsWith(".context_length")
+        )
+        if (context && tokenCount(modelInfo[context]))
+          model.contextWindow = tokenCount(modelInfo[context])
         const capabilities = strings(info.capabilities)
         if (capabilities) {
           model.textOutput = capabilities.includes("completion")

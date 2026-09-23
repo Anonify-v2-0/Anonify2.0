@@ -231,6 +231,48 @@ describe("live model catalog normalization", () => {
     ).toContain("text")
   })
 
+  it("reads display names and context windows only where the provider gives them", () => {
+    expect(
+      parseModel("gateway", {
+        id: "openai/gpt-4o",
+        name: "GPT-4o",
+        context_window: 128000,
+      })
+    ).toMatchObject({
+      id: "openai/gpt-4o",
+      name: "GPT-4o",
+      contextWindow: 128000,
+    })
+    expect(
+      parseModel("google", {
+        name: "models/gemini-2.5-pro",
+        displayName: "Gemini 2.5 Pro",
+        inputTokenLimit: 1048576,
+      })
+    ).toMatchObject({ name: "Gemini 2.5 Pro", contextWindow: 1048576 })
+    expect(
+      parseModel("mistral", { id: "m", max_context_length: "32768" })
+        ?.contextWindow
+    ).toBe(32768)
+    // Where `name` is the ID itself, it is not a display name.
+    const cohere = parseModel("cohere", {
+      name: "command-a",
+      context_length: 0,
+    })!
+    expect(cohere.name).toBeUndefined()
+    // Zero, fractions and nonsense are "unknown", not a context window.
+    expect(cohere.contextWindow).toBeUndefined()
+    expect(
+      parseModel("openai", { id: "x", context_window: 1.5 })?.contextWindow
+    ).toBeUndefined()
+    expect(
+      parseModel("azure", { name: "deployment", id: "/subscriptions/a" })?.name
+    ).toBeUndefined()
+    expect(
+      parseModel("openai", { id: "same", name: "SAME" })?.name
+    ).toBeUndefined()
+  })
+
   it("reads installed Ollama capabilities and disables cloud models", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
@@ -240,7 +282,10 @@ describe("live model catalog normalization", () => {
         })
       )
       .mockResolvedValueOnce(
-        Response.json({ capabilities: ["completion", "vision"] })
+        Response.json({
+          capabilities: ["completion", "vision"],
+          model_info: { "gemma3.context_length": 131072 },
+        })
       )
       .mockResolvedValueOnce(
         Response.json({ capabilities: ["completion"], remote_model: "remote" })
@@ -259,6 +304,9 @@ describe("live model catalog normalization", () => {
         false
       )
     ).toContain("cloud")
+    expect(models.find((model) => model.id === "local")?.contextWindow).toBe(
+      131072
+    )
     expect(
       blockedReason(
         models.find((model) => model.id === "embed")!,
@@ -371,20 +419,18 @@ describe("real AI SDK structured calls over local HTTP", () => {
   })
 
   it("sends direct Anthropic requests using the native adapter", async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        Response.json({
-          id: "msg_fixture",
-          type: "message",
-          role: "assistant",
-          model: "fixture-model",
-          content: [{ type: "text", text: '{"answer":5}' }],
-          stop_reason: "end_turn",
-          stop_sequence: null,
-          usage: { input_tokens: 5, output_tokens: 3 },
-        })
-      )
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        id: "msg_fixture",
+        type: "message",
+        role: "assistant",
+        model: "fixture-model",
+        content: [{ type: "text", text: '{"answer":5}' }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 5, output_tokens: 3 },
+      })
+    )
     const model = await languageModel(
       {
         AI_PROVIDER: "anthropic",

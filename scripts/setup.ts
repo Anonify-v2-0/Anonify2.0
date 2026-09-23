@@ -36,12 +36,13 @@
  */
 
 import { randomBytes } from "node:crypto"
-import { spawn } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { readFile, rename, writeFile } from "node:fs/promises"
 import { createConnection } from "node:net"
 import path from "node:path"
 import { AI_ENV_KEYS, askAiProvider } from "./setup-ai"
+import { bannerLines, fancyTerminal, setupVersion } from "./setup-banner"
+import { childRunning, finishSetup, nextSteps, type Mode } from "./setup-finish"
 import type { ProviderEnv } from "@/lib/ai/providers/config"
 
 import { formatByteSize } from "@/lib/config/bytes"
@@ -129,8 +130,6 @@ import {
 
 const ENV_PATH = path.join(process.cwd(), ".env")
 const STEPS = 5
-
-type Mode = "local" | "demo"
 
 /** 32 bytes of hex — what the crypto and identity layers expect. */
 function secret(): string {
@@ -1101,35 +1100,18 @@ const HELP = `
 
   With no flags it asks. Every limit it can set is documented in .env.example,
   and every default it prints is read from the code that enforces it.
-`
 
-const SETUP_VERSION = (() => {
-  try {
-    const packageJson = JSON.parse(
-      readFileSync(path.join(process.cwd(), "package.json"), "utf8")
-    ) as { version?: unknown }
-    return typeof packageJson.version === "string"
-      ? packageJson.version
-      : "development"
-  } catch {
-    return process.env.npm_package_version ?? "development"
-  }
-})()
+  After writing .env it offers to run the next steps for a local install,
+  one at a time and only when asked. Scripted runs never start anything.
+`
 
 function banner(): void {
   say()
-  say(`  ${paint.gray("┌──────────────┐")}`)
-  say(`  ${paint.gray("│")} ${paint.cyan("▰▰▰▰▰▰▰▰")} ${paint.gray("│")}`)
-  say(
-    `  ${paint.gray("│")} ${paint.bold(paint.cyan("ANONIFY"))} ${paint.gray("│")}`
-  )
-  say(`  ${paint.gray("│")} ${paint.red("████  ████")} ${paint.gray("│")}`)
-  say(`  ${paint.gray("└──────────────┘")}`)
-  say(`  ${paint.bold(paint.cyan("Welcome to Anonify setup"))}`)
-  say(
-    `  ${paint.gray(`v${SETUP_VERSION} · your documents stay on this machine`)}`
-  )
-  note("Let's redact the sharp edges first, then get your instance running.")
+  for (const line of bannerLines({
+    version: setupVersion(),
+    fancy: fancyTerminal(),
+  }))
+    say(line)
   rule()
 }
 
@@ -1188,97 +1170,6 @@ const MODE_LABELS: Record<Mode, string> = {
   demo: "the deployed demo's services",
 }
 
-const NEXT_STEPS: Record<Mode, string[]> = {
-  local: [
-    "docker compose up -d      # Postgres + RustFS, with the bucket created",
-    "pnpm db:migrate           # apply the schema",
-    "pnpm ocr:warm             # fetch the configured OCR model now, not mid-redaction",
-    "pnpm dev                  # http://localhost:3000",
-  ],
-  demo: [
-    "Fill in the REQUIRED values in .env",
-    "pnpm db:migrate           # apply the schema to your Neon database",
-    "pnpm dev                  # http://localhost:3000",
-  ],
-}
-
-async function runCommand(
-  command: string,
-  args: string[],
-  description: string
-): Promise<boolean> {
-  say()
-  note(`${description} …`)
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn(command, args, { stdio: "inherit", shell: true })
-      child.once("error", reject)
-      child.once("exit", (code) =>
-        code === 0
-          ? resolve()
-          : reject(new Error(`command exited with status ${code ?? "unknown"}`))
-      )
-    })
-    ok(description)
-    return true
-  } catch (error) {
-    warn(
-      `${description} failed: ${error instanceof Error ? error.message : String(error)}`
-    )
-    return false
-  }
-}
-
-async function finishSetup(
-  prompt: Prompter,
-  mode: Mode,
-  ocr: "tesseract" | "mistral"
-): Promise<void> {
-  if (!prompt.interactive) return
-
-  const action = await prompt.choose("What would you like to do next?", [
-    {
-      value: "print",
-      label: "Print the next steps and exit",
-      detail: ["You can run them whenever you are ready."],
-    },
-    ...(mode === "local"
-      ? [
-          {
-            value: "complete",
-            label: "Finish local setup",
-            detail: ["Start services, migrate the database, and warm OCR."],
-          },
-          {
-            value: "start",
-            label: "Finish setup and run the app",
-            detail: [
-              "Also starts pnpm dev after the local services are ready.",
-            ],
-          },
-        ]
-      : []),
-  ])
-  if (action === "print") return
-
-  const steps = [
-    ["docker", ["compose", "up", "-d"], "Started Postgres and RustFS"] as const,
-    ["pnpm", ["db:migrate"], "Applied database migrations"] as const,
-    ...(ocr === "tesseract"
-      ? [["pnpm", ["ocr:warm"], "Warmed the OCR model"] as const]
-      : []),
-  ]
-  for (const [command, args, description] of steps) {
-    if (!(await runCommand(command, [...args], description))) {
-      note("The remaining commands are printed below so you can retry them.")
-      return
-    }
-  }
-  if (action === "start") {
-    await runCommand("pnpm", ["dev"], "Started the Anonify app")
-  }
-}
-
 async function main(): Promise<void> {
   const argv = new Set(process.argv.slice(2))
 
@@ -1294,10 +1185,18 @@ async function main(): Promise<void> {
 
   // Ctrl-C during a question leaves the terminal in a strange state unless the
   // interface is closed, and an unexplained exit reads as a crash.
+  let envWritten = false
   const onInterrupt = () => {
+    // A command setup started owns Ctrl-C: it is how `pnpm dev` is stopped,
+    // and the child receives the same signal and exits on its own.
+    if (childRunning()) return
     prompt.close()
     say()
-    note("Stopped. Nothing was written.")
+    note(
+      envWritten
+        ? "Stopped. .env is written; the next steps are printed above."
+        : "Stopped. Nothing was written."
+    )
     say()
     process.exit(130)
   }
@@ -1552,6 +1451,7 @@ async function main(): Promise<void> {
           throw new Error(`${required} did not survive the write`)
         }
       }
+      envWritten = true
       writing.succeed("Wrote .env")
     } catch (error) {
       writing.fail("Could not write .env")
@@ -1641,8 +1541,9 @@ async function main(): Promise<void> {
     say()
     say(`  ${paint.bold("Next")}`)
     say()
-    for (const line of NEXT_STEPS[mode]) say(`    ${paint.gray(line)}`)
-    await finishSetup(prompt, mode, ocr)
+    const finish = { mode, ocr, ports }
+    for (const line of nextSteps(finish)) say(`    ${paint.gray(line)}`)
+    await finishSetup(prompt, finish)
     say()
     note("Every variable, with its units and why it exists: .env.example")
     note("The full walkthrough: README.md")

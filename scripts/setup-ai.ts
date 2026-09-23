@@ -6,6 +6,7 @@ import {
   DEFAULT_OLLAMA_URL,
   modelId,
   providerId,
+  type ModelCapabilities,
   type ProviderEnv,
 } from "@/lib/ai/providers/config"
 import {
@@ -16,27 +17,55 @@ import {
   type ModelDefinition,
 } from "@/lib/ai/providers/discovery"
 import { probeModel } from "@/lib/ai/providers/probe"
-import { note, ok, Prompter, spin, warn, type Choice } from "./tty"
+import {
+  note,
+  ok,
+  Prompter,
+  spin,
+  warn,
+  type Choice,
+  type PagedView,
+} from "./tty"
 
-function modelDetails(model: ModelDefinition): string[] {
-  const capabilities = [
-    model.textOutput === true
-      ? "text"
-      : model.textOutput === false
-        ? "no text"
-        : "text ?",
-    model.vision === true
-      ? "images"
-      : model.vision === false
-        ? "no images"
-        : "images ?",
-    model.structuredOutput === true
-      ? "structured output"
-      : model.structuredOutput === false
-        ? "no structured output"
-        : "structured output ?",
+function yesNo(value: boolean | undefined): string {
+  return value === true ? "yes" : value === false ? "no" : "unknown"
+}
+
+export function formatTokens(count: number): string {
+  if (count >= 1_000_000) return `${Number((count / 1_000_000).toFixed(1))}M`
+  if (count >= 1_000) return `${Math.round(count / 1_000)}K`
+  return String(count)
+}
+
+/**
+ * What a model row says about the model, and where each claim came from. The
+ * provider's catalog is *advertised*; only setup's own probe is *verified*, and
+ * the two must never read alike — a catalog that says "vision" has not been
+ * shown an image.
+ */
+export function modelDetails(
+  model: ModelDefinition,
+  verified?: ModelCapabilities
+): string[] {
+  const advertised = [
+    ["text", model.textOutput],
+    ["images", model.vision],
+    ["structured output", model.structuredOutput],
+  ] as const
+  const context = model.contextWindow
+    ? `${formatTokens(model.contextWindow)} context`
+    : "context unknown"
+  return [
+    ...(model.name ? [model.name] : []),
+    advertised.every(([, value]) => value === undefined)
+      ? `Advertised: no capabilities listed · ${context}`
+      : `Advertised: ${advertised.map(([what, value]) => `${what} ${yesNo(value)}`).join(" · ")} · ${context}`,
+    ...(verified
+      ? [
+          `Verified by setup: structured output ${yesNo(verified.structuredOutput)} · images ${yesNo(verified.vision)}`,
+        ]
+      : []),
   ]
-  return [capabilities.join(" · ")]
 }
 
 export const AI_ENV_KEYS = [
@@ -216,27 +245,50 @@ export async function askAiProvider(
   }
   const manual = Symbol("manual")
   const cancel = Symbol("cancel")
+  const currentId = changed ? "" : modelId(current)
+  // Only a declaration setup wrote itself, for this exact target. The Gateway
+  // upgrade fallback assumes support without checking, which is not verified.
+  const verified =
+    current.AI_MODEL_CAPABILITIES?.trim() &&
+    configuredCapabilities(current).structuredOutput &&
+    capabilityTarget(current) === capabilityTarget(env)
+      ? configuredCapabilities(current)
+      : undefined
+  if (models.length > 0)
+    note(
+      "Prices are not shown: model lists do not carry them reliably. Spend limits use the AI_PRICE_* values in .env."
+    )
+  // Kept across verification retries, so a failed model sends you back to the
+  // page and search you chose it from rather than to the top of the catalog.
+  const view: PagedView = { search: "" }
   for (;;) {
     const choices: Choice<string | symbol>[] = models.map((model) => ({
       value: model.id as string | symbol,
-      label: model.label,
-      detail: modelDetails(model),
+      label: model.id === currentId ? `${model.label} (current)` : model.label,
+      detail: modelDetails(
+        model,
+        model.id === currentId ? verified : undefined
+      ),
       disabled: blockedReason(model, requireVision),
     }))
-    const menu = [
-      ...choices,
-      { value: manual, label: "Enter a model / deployment ID and verify it" },
-      {
-        value: cancel,
-        label: "Keep the current configuration and finish setup",
+    const chosen = await prompt.choosePaged("Which model?", choices, {
+      noun: "models",
+      pageSize: 8,
+      searchHint: "Search by model ID or name",
+      searchText: (choice) => {
+        const model = models.find((entry) => entry.id === choice.value)
+        return `${model?.id ?? ""} ${model?.name ?? ""}`
       },
-    ] satisfies Choice<string | symbol>[]
-    const chosen = await (typeof prompt.choosePaged === "function"
-      ? prompt.choosePaged("Which model?", menu, {
-          pageSize: 8,
-          searchHint: "Search models",
-        })
-      : prompt.choose("Which model?", menu))
+      initial: currentId || undefined,
+      view,
+      actions: [
+        { value: manual, label: "Enter a model / deployment ID and verify it" },
+        {
+          value: cancel,
+          label: "Keep the current configuration and finish setup",
+        },
+      ],
+    })
     if (chosen === cancel) return current
     const id =
       chosen === manual
