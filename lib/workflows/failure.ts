@@ -172,6 +172,12 @@ const MATCHERS: { code: FailureCode; pattern: RegExp }[] = [
     code: "configuration",
     pattern: /environment variable|must decode to|is not configured/i,
   },
+  // Case-sensitive on purpose: an upper-case variable name is what makes "is
+  // not set" a statement about the environment rather than about a document.
+  {
+    code: "configuration",
+    pattern: /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+ is not set\b|\bOCR_PROVIDER\b/,
+  },
   {
     code: "database",
     pattern: /database_url|econnrefused|prisma|connection (pool|terminated)/i,

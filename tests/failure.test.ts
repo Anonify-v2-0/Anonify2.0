@@ -165,6 +165,30 @@ describe("classifying a processing failure", () => {
     expect(failure.retryable).toBe(false)
   })
 
+  it("reads an OCR provider the instance cannot run as configuration", () => {
+    // Verbatim from a real run, which was classified as unknown and so offered
+    // a retry that could only reach the same missing key.
+    const failure = describeFailure(
+      new Error(
+        "FatalError: OCR_PROVIDER=mistral cannot be used. MISTRAL_API_KEY is not set. Set it, or use OCR_PROVIDER=tesseract."
+      )
+    )
+
+    expect(failure.code).toBe("configuration")
+    expect(failure.retryable).toBe(false)
+    expect(failure.message).not.toContain("MISTRAL")
+  })
+
+  it("reads a missing variable as configuration, not as the file store", () => {
+    expect(describeFailure(new Error("DATABASE_URL is not set")).code).toBe(
+      "configuration"
+    )
+    // Lower case is prose, and prose can come from a document.
+    expect(describeFailure(new Error("the value is not set")).code).toBe(
+      "unknown"
+    )
+  })
+
   it("gives every code a message of its own", () => {
     const messages = FAILURE_CODES.map((code) => failureForCode(code).message)
     expect(new Set(messages).size).toBe(FAILURE_CODES.length)

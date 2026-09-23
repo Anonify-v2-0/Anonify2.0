@@ -71,6 +71,7 @@ const MATCHERS: { code: FailureCode; pattern: RegExp }[] = [
   { code: "quota",             pattern: /daily demo limit reached/i },
   { code: "internal-state",    pattern: /has not been (ingested|normalized)/i },
   { code: "configuration",      pattern: /environment variable|must decode to|is not configured/i },
+  { code: "configuration",      pattern: /[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+ is not set|OCR_PROVIDER/ },
   { code: "database",          pattern: /database_url|econnrefused|prisma|connection (pool|terminated)/i },
   { code: "storage",           pattern: /\bblob\b|\bs3\b|fetch failed|enoent|no such file/i },
   { code: "timeout",           pattern: /timeout|etimedout|timed out|\baborted\b/i },

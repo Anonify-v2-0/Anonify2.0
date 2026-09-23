@@ -33,6 +33,17 @@ export function configuredProviderName(): OcrProviderName | null {
     : null
 }
 
+/**
+ * The configured provider cannot run on this instance.
+ *
+ * Its own class so the pipeline can tell it from a page that failed to read:
+ * this one is identical on every attempt until an administrator changes the
+ * environment, so retrying it only delays the answer.
+ */
+export class OcrConfigurationError extends Error {
+  name = "OcrConfigurationError"
+}
+
 export type ProviderChoice = {
   provider: OcrProvider
   /** Why this one, for the log line and the setup output. */
@@ -47,13 +58,15 @@ export function selectOcrProvider(): ProviderChoice {
     const unavailable = provider.unavailableReason()
     if (unavailable) {
       // Falling back here would silently change the geometry of every result.
-      throw new Error(`OCR_PROVIDER=${requested} cannot be used. ${unavailable}`)
+      throw new OcrConfigurationError(
+        `OCR_PROVIDER=${requested} cannot be used. ${unavailable}`
+      )
     }
     return { provider, reason: "configured" }
   }
 
   if (process.env.OCR_PROVIDER && !requested) {
-    throw new Error(
+    throw new OcrConfigurationError(
       `OCR_PROVIDER must be one of: ${OCR_PROVIDERS.join(", ")}`
     )
   }
