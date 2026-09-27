@@ -34,6 +34,24 @@ export type SearchHit = CharRange
 
 export type CellHit = { worksheet: string; row: number; column: number }
 
+/** One hit as the results list shows it: where, and a little around it. */
+export type ListedHit = {
+  /** Position among all hits, which is what next/previous count in. */
+  index: number
+  page?: number
+  start?: number
+  end?: number
+  worksheet?: string
+  row?: number
+  column?: number
+  before: string
+  match: string
+  after: string
+}
+
+/** Hits listed with context in a summary; the counts are exact regardless. */
+export const LISTED_HIT_LIMIT = 200
+
 export type SearchSummary = {
   /** Hits across the whole document: page matches plus matching cells. */
   total: number
@@ -42,6 +60,8 @@ export type SearchSummary = {
   /** Matching cells, in sheet order. At most `CELL_HIT_LIMIT`. */
   cells: CellHit[]
   cellsTruncated: boolean
+  /** The first hits, in order, with context: the results list. */
+  list: ListedHit[]
 }
 
 /** One document's line in a search across its batch. */
@@ -66,14 +86,24 @@ export async function summarizeSearch(
   budget: PatternBudget = searchBudget()
 ): Promise<SearchSummary> {
   const pages: SearchSummary["pages"] = []
+  const list: ListedHit[] = []
   let total = 0
 
   for await (const page of reader.pages()) {
-    const count = compiled.find(page.text, budget).length
-    if (count > 0) {
-      pages.push({ page: page.number, count })
-      total += count
+    const ranges = compiled.find(page.text, budget)
+    if (ranges.length === 0) continue
+    pages.push({ page: page.number, count: ranges.length })
+    for (const [offset, range] of ranges.entries()) {
+      if (list.length >= LISTED_HIT_LIMIT) break
+      list.push({
+        index: total + offset,
+        page: page.number,
+        start: range.start,
+        end: range.end,
+        ...sampleAround(page.text, range),
+      })
     }
+    total += ranges.length
   }
 
   const cells: CellHit[] = []
@@ -81,22 +111,28 @@ export async function summarizeSearch(
   const { sheets } = await reader.outline()
   for (const sheet of sheets ?? []) {
     for (const cell of sheet.cells) {
-      if (!cell.value || compiled.find(cell.value, budget).length === 0)
-        continue
-      total += 1
-      if (cells.length < CELL_HIT_LIMIT) {
-        cells.push({
+      if (!cell.value) continue
+      const [first] = compiled.find(cell.value, budget)
+      if (!first) continue
+      if (list.length < LISTED_HIT_LIMIT) {
+        list.push({
+          index: total,
           worksheet: sheet.name,
           row: cell.row,
           column: cell.column,
+          ...sampleAround(cell.value, first),
         })
+      }
+      total += 1
+      if (cells.length < CELL_HIT_LIMIT) {
+        cells.push({ worksheet: sheet.name, row: cell.row, column: cell.column })
       } else {
         cellsTruncated = true
       }
     }
   }
 
-  return { total, pages, cells, cellsTruncated }
+  return { total, pages, cells, cellsTruncated, list }
 }
 
 /** The hits on one page, in order. Empty for a page the document does not have. */

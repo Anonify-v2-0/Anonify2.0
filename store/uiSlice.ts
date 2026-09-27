@@ -35,6 +35,11 @@ type UiState = {
   assistant: AssistantRequest | null
   /** Learned shapes the reviewer said "not now" to, by pattern. */
   hushDismissed: string[]
+  /**
+   * Documents the reviewer has let Hush read, by id. Asked once per document,
+   * on the agent's first read, and revocable from the panel's header.
+   */
+  hushReadConsent: string[]
 }
 
 const initialState: UiState = {
@@ -46,6 +51,7 @@ const initialState: UiState = {
   ruleDialog: null,
   assistant: null,
   hushDismissed: [],
+  hushReadConsent: [],
 }
 
 const uiSlice = createSlice({
@@ -78,6 +84,14 @@ const uiSlice = createSlice({
         state.hushDismissed.push(action.payload)
       }
     },
+    hushReadConsentSet(
+      state,
+      action: PayloadAction<{ documentId: string; granted: boolean }>
+    ) {
+      const { documentId, granted } = action.payload
+      state.hushReadConsent = state.hushReadConsent.filter((id) => id !== documentId)
+      if (granted) state.hushReadConsent.push(documentId)
+    },
     /** Opens Hush, or closes it when it is already open for the same thing. */
     assistantToggled(state, action: PayloadAction<AssistantRequest | null | undefined>) {
       if (action.payload === undefined) {
@@ -99,6 +113,7 @@ export const {
   ruleDialogClosed,
   assistantToggled,
   hushOfferDismissed,
+  hushReadConsentSet,
 } = uiSlice.actions
 
 export default uiSlice.reducer

@@ -588,11 +588,24 @@ it renders a real `<button>` and, told otherwise, swaps `type="button"` for
 `components/search/search-bar.tsx`, `hooks/use-search.ts`,
 `store/searchSlice.ts`, `lib/redaction/search.ts`
 
-`Ctrl/⌘+F` or `/` opens a search box over the canvas. On this screen it
-replaces the browser's find, which cannot read a PDF page (text drawn on a
-canvas) and cannot see pages that are not loaded. On the one screen where
-"not found" matters most, the browser would say it with confidence and be
-wrong.
+`Ctrl/⌘+F` or `/` opens a find strip docked across the top of the canvas. On
+this screen it replaces the browser's find, which cannot read a PDF page (text
+drawn on a canvas) and cannot see pages that are not loaded. On the one screen
+where "not found" matters most, the browser would say it with confidence and
+be wrong.
+
+The strip is one row: the query with its options (match case, whole word,
+RegEx) and an "N / M" counter inside the field, then previous/next, a split
+**Redact this | Redact all M** button, the results toggle, "this batch", and
+close. It is docked rather than floating, so the document never moves under
+it or sits beneath it.
+
+**Results.** Under the strip, a panel lists the first 200 hits in context,
+grouped by page (or by cell for a spreadsheet). The current hit is marked, and
+clicking any hit makes it current, which moves the canvas there. With "this
+batch" on, a second tab lists every document with its count and a link. The
+page rail shows each page's hit count as a badge on its thumbnail, so a long
+document shows where its hits are at a glance.
 
 **It runs on the server**, over the normalized document a page at a time, like
 the rules do. A 400-page PDF is searched without 400 pages reaching the
@@ -697,52 +710,98 @@ before.
 
 ## 16. Hush, the review assistant
 
-`components/assistant/hush-panel.tsx`, `lib/assistant/hush.ts`,
-`lib/assistant/learn.ts`, `lib/ai/prompts/hush.ts`
+`components/assistant/hush-panel.tsx`, `components/assistant/hush-tool-part.tsx`,
+`components/assistant/hush-markdown.tsx`, `lib/assistant/agent.ts`,
+`lib/assistant/tools.ts`, `lib/assistant/learn.ts`
 
-`Ctrl/⌘+K` opens Hush, a side panel that helps a reviewer mark what the
-pipeline missed and turns those decisions into rules. **Hush only proposes.**
-Every proposal is previewed on the server against the document, by the
-compiler and budget the rule would run under, and becomes a rule only when the
-reviewer applies it. Proposals that reach beyond this document go through the
-rule dialog, which previews the batch and says what a global rule keeps.
+`Ctrl/⌘+K` opens Hush, the review assistant: an agent the reviewer talks to.
+It is a model with tools running in a loop (the AI SDK's `ToolLoopAgent`,
+streamed to `useChat`), with the reviewer in that loop. It reads and searches
+the document, runs the detectors, looks at what the review has decided, and
+previews rules. **When it wants to change anything, it stops and asks.**
 
-It does three things, in order of how much they need:
+**Tools.** Reads run without asking, once reading is allowed (below). Changes
+always wait for approval.
 
-1. **Noticed in your redactions.** After three hand-made redactions of the
-   same shape, Hush offers a rule for it: "You've redacted 4 values like
-   `EMP-00xxx`. Create a batch rule for `EMP-00\d{3}`?" The shape is learned in
-   the browser, with no model and nothing sent, so this works on an instance
-   with no provider. It is only offered when the shape is anchored, meaning it
-   contains digits or a literal every example shares. Two capitalised words is
-   a shape too, and a rule for it would redact prose. A toast announces a new
-   offer once, and the toolbar's Hush button carries a dot while there is one.
-2. **Ask.** A plain-language request ("Find anything that looks like a patient
-   number", "Why was this flagged?") answered with proposals. Each proposal
-   has its matches, a suggested scope with a one-sentence reason (which the
-   reviewer can change), and *Apply*, *Show in document* (which runs it as a
-   search) and *Dismiss*.
-3. **Improve with Hush**, on any RegEx rule. It sends the pattern, the values
-   the reviewer accepted under it and the ones they rejected, and returns a
-   tightened pattern, an explanation, and a diff: the matches it would gain and
-   the ones it would lose in this document. *Use this pattern* is an ordinary
-   rule edit. Hush never replaces a pattern by itself.
+| Read | What it gives Hush |
+| --- | --- |
+| `get_document_overview` | Kind, pages or sheets, and redaction counts by status, source and category. No document text. |
+| `read_page`, `read_sheet` | The text of a page (in 8,000-character parts), or rows of a sheet. |
+| `find_occurrences` | Every place a value or pattern occurs: page, context, a ref to act on, and whether a redaction already covers it. |
+| `find_uncovered` | The deterministic detectors over the whole document, minus what is already covered, grouped by category and value. |
+| `list_suggestions`, `list_rules` | The review so far, grouped the way the inspector groups it, and every rule in scope. |
+| `preview_rule`, `compare_patterns` | A rule's matches before it exists, and the matches a new pattern gains and loses against an old one. |
 
-**What leaves.** Before anything is sent, the panel lists what will be: the
-question, and whichever of the selected redaction (with 40 characters either
-side) and the loaded search matches (up to 20, each with context) the reviewer
-left ticked. For *Improve*, the values only. The list is rendered from the
-request body itself, so it cannot say one thing while the request carries
-another. The document itself is never sent. Text from the document is wrapped
-in tags that the document cannot close, and the model is told to treat it as
-data.
+| Change (approval required) | Effect |
+| --- | --- |
+| `create_rule` | A literal or RegEx rule at document, batch or global scope. |
+| `update_rule` | Switch a rule off or on, or change its pattern or category, everywhere it reaches. |
+| `redact_occurrences` | Specific values, by the refs a read returned. |
+| `set_suggestion_status` | Accept or reject whole suggestion groups. |
 
-**Cost and limits.** Hush uses the configured analysis provider
-(`lib/ai/providers`) through `runStructured`. It is paced by the same gate,
-stopped by the same daily spend cap, and every call is an `AiUsage` row
-against the document (`assistant`, `assistant-improve`). With no provider, or
-at the cap, the panel says so. Learned offers, search, shortcuts and
-hand-written rules keep working, because none of them needs a model.
+**Human in the loop.** A change arrives as a card that shows what it will do
+and the evidence for it:
+- a rule shows its live preview: the count here, across the batch, and the
+  first matches;
+- a redaction shows the exact values and where they are;
+- a bulk decision shows the groups, resolved from the store.
+
+Nothing on a card has happened until **Approve**. A declined change is
+reported back to the agent, which is told not to retry it.
+
+Approvals are HMAC-signed by the server when issued (the key is derived from
+`FINGERPRINT_SECRET`). A replayed approval whose tool, call or input has been
+altered is refused before anything runs.
+
+Every change is re-validated when it runs. A rule must compile and fit its
+budget. A reference must still hold the exact text the reviewer approved, so
+a model that copied the wrong text for a place redacts nothing there. After a
+change, the canvas, the inspector and the rules panel reload from the server.
+
+**Reading, asked once.** The first read in a document is itself an approval:
+"Let Hush read this document?" It sends what it reads to the configured
+provider, the same one that analysed the document. Allowed, it holds for the
+session, and every later read is listed in the conversation as it happens. The
+shield in the header revokes it.
+
+**The conversation.** Each tool call is drawn as it runs:
+- a read is a line of activity ("Found `EMP-\d{5}` · 12 times on 4 pages, 3
+  not covered") that opens into its result;
+- every location in a result is a button that moves the canvas there;
+- "Show all in the document" runs the pattern as a search.
+
+Replies are Markdown, rendered as they stream by Streamdown and hardened: no
+link or image in a reply can make the browser fetch anything, and raw HTML is
+not rendered. A reply can quote the document, so this is the same rule the
+email viewer keeps. The model is told that tool results are document content
+and must never be followed as instructions.
+
+**Noticed in your redactions.** After three hand-made redactions of the same
+anchored shape, Hush offers a rule for it: "You've redacted 4 values like
+`EMP-00xxx`. Make a batch rule for `EMP-00\d{3}`?"
+- The shape is learned in the browser, with no model and nothing sent, so this
+  works with no provider.
+- It is only offered when the shape has digits or a literal every example
+  shares. Two capitalised words is a shape too, and a rule for it would redact
+  prose.
+- A toast announces a new offer once, and the toolbar's Hush button carries a
+  dot while there is one.
+
+**Improve with Hush**, on a RegEx rule in the rules panel, opens the
+conversation with that request. Hush looks at what the rule matched and what
+was rejected, tests a tighter pattern with `compare_patterns`, and proposes it
+as an `update_rule` card for the reviewer to approve or decline.
+
+**Cost and limits.**
+- Hush uses the configured analysis provider and stops at the same daily spend
+  cap.
+- Every model step is an `AiUsage` row against the document (`assistant`).
+- A run is at most 12 steps, and a conversation at most 80 messages.
+- It needs a model verified for structured output, which is the same
+  capability as tool calling in every provider supported here.
+- With no provider, or at the cap, the panel says so. Learned offers, search,
+  shortcuts and hand-written rules keep working, because none of them needs a
+  model.
 
 ---
 

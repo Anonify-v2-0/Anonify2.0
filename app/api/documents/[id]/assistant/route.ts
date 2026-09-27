@@ -1,70 +1,61 @@
+import { createAgentUIStreamResponse } from "ai"
 import { z } from "zod"
 
 import {
   errorResponse,
   handleRouteError,
-  jsonResponse,
   readJson,
 } from "@/lib/api/http"
-import { HushError, askHush, improveWithHush } from "@/lib/assistant/hush"
+import { buildHushAgent } from "@/lib/assistant/agent"
 import {
-  patternErrorResponse,
-  patternSpecSchema,
-  requireRuleContext,
-} from "@/lib/redaction/pattern-api"
+  HUSH_UNAVAILABLE_MESSAGES,
+  hushStatus,
+  recordHushStep,
+} from "@/lib/assistant/hush"
+import { requireRuleContext } from "@/lib/redaction/pattern-api"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 
 export const runtime = "nodejs"
+/** An agent run reads, searches and waits on a model several times over. */
+export const maxDuration = 300
 
 /**
- * Everything the model may be sent is named in this schema, with a length on
- * it. The panel builds the same object it shows the reviewer under "Hush will
- * send", so the list they read and the request that leaves are one value.
+ * A conversation turn is bounded here rather than trusted: the history is
+ * client-held, so its size is capped, and every approval in it is verified
+ * against this server's signature before a tool runs (see agent.ts).
  */
-const sample = z.object({
-  before: z.string().max(200),
-  match: z.string().min(1).max(500),
-  after: z.string().max(200),
-})
-
-const askSchema = z.object({
-  mode: z.literal("ask"),
-  question: z.string().trim().min(1).max(1000),
-  selection: z
+const bodySchema = z.object({
+  messages: z.array(z.record(z.string(), z.unknown())).min(1).max(80),
+  readConsent: z.boolean().default(false),
+  view: z
     .object({
-      text: z.string().min(1).max(500),
-      category: z.string().max(60).optional(),
-      source: z.string().max(20).optional(),
-      reason: z.string().max(300).optional(),
-      before: z.string().max(200).optional(),
-      after: z.string().max(200).optional(),
+      currentPage: z.number().int().positive().optional(),
+      selected: z
+        .object({
+          id: z.string().max(64),
+          text: z.string().max(500).optional(),
+          category: z.string().max(60),
+          status: z.string().max(20),
+          source: z.string().max(20),
+          page: z.number().int().positive().optional(),
+          reason: z.string().max(300).optional(),
+        })
+        .optional(),
     })
-    .optional(),
-  matches: z
-    .object({
-      query: z.string().min(1).max(500),
-      samples: z.array(sample).max(20),
-    })
-    .optional(),
+    .default({}),
 })
 
-const improveSchema = z.object({
-  mode: z.literal("improve"),
-  spec: patternSpecSchema,
-  accepted: z.array(z.string().min(1).max(500)).max(30),
-  rejected: z.array(z.string().min(1).max(500)).max(30),
-})
-
-const bodySchema = z.discriminatedUnion("mode", [askSchema, improveSchema])
+/** The largest conversation a request may carry, in bytes. */
+const MAX_BODY_BYTES = 1_500_000
 
 /**
- * Asks Hush about this document.
+ * Talks to Hush about this document, as a streamed agent run.
  *
- * `ask` answers a plain-language request with proposals, each previewed
- * against the document; `improve` tightens a RegEx rule and shows the matches
- * it would gain and lose. Neither changes anything: a proposal becomes a rule
- * only through the ordinary rules route, when the reviewer accepts it.
+ * The run reads and searches the document through tools, and stops at every
+ * change for the reviewer's approval; the panel continues the run with their
+ * answer. Nothing is written by this route except through a tool the reviewer
+ * approved.
  */
 export async function POST(
   request: Request,
@@ -75,6 +66,11 @@ export async function POST(
     const identity = await peekIdentity()
     await consumeRateLimit("processing", identity?.networkKey ?? "anonymous")
 
+    const declared = Number(request.headers.get("content-length") ?? 0)
+    if (declared > MAX_BODY_BYTES) {
+      return errorResponse("This conversation is too long. Start a new one.", 413)
+    }
+
     const parsed = bodySchema.safeParse(await readJson(request))
     if (!parsed.success) return errorResponse("Invalid request", 400)
 
@@ -82,36 +78,57 @@ export async function POST(
     if (ruleContext instanceof Response) return ruleContext
     const { document, target, batchId } = ruleContext
 
-    if (parsed.data.mode === "improve") {
-      const { spec, accepted, rejected } = parsed.data
-      if (spec.kind !== "regex") {
-        return errorResponse("Only RegEx rules can be improved", 400)
-      }
-      return jsonResponse(
-        await improveWithHush({
-          documentId: document.id,
-          target,
-          spec,
-          accepted,
-          rejected,
-        })
-      )
+    const status = await hushStatus()
+    if (!status.available) {
+      return errorResponse(HUSH_UNAVAILABLE_MESSAGES[status.reason], 503, {
+        code: status.reason,
+      })
     }
 
-    const { question, selection, matches } = parsed.data
-    return jsonResponse(
-      await askHush({
+    const agent = await buildHushAgent({
+      context: {
         documentId: document.id,
         target,
-        context: { question, selection, matches, inBatch: Boolean(batchId) },
-      })
-    )
+        batchId,
+        ownerKey: document.userFingerprint,
+        name: document.originalName,
+        kind: document.kind,
+      },
+      view: parsed.data.view,
+      readConsent: parsed.data.readConsent,
+    })
+
+    let stepStarted = Date.now()
+
+    return createAgentUIStreamResponse({
+      agent,
+      uiMessages: parsed.data.messages,
+      abortSignal: request.signal,
+      onStepEnd: async (step) => {
+        const now = Date.now()
+        await recordHushStep({
+          documentId: document.id,
+          inputTokens: step.usage.inputTokens,
+          outputTokens: step.usage.outputTokens,
+          durationMs: now - stepStarted,
+        })
+        stepStarted = now
+      },
+      // Never the raw error: a provider message can quote the prompt, and the
+      // prompt holds document text.
+      onError: (error) => {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            context: "assistant.run",
+            documentId: document.id,
+            errorName: error instanceof Error ? error.name : "unknown",
+          })
+        )
+        return "Hush hit a problem talking to the AI provider. Try again."
+      },
+    })
   } catch (error) {
-    if (error instanceof HushError) {
-      return errorResponse(error.message, 503, { code: error.reason })
-    }
-    return (
-      patternErrorResponse(error) ?? handleRouteError(error, "assistant.ask")
-    )
+    return handleRouteError(error, "assistant.run")
   }
 }

@@ -1,0 +1,217 @@
+import { afterAll, describe, expect, it } from "vitest"
+
+import { hasDatabase, testFingerprint, testId } from "./support"
+
+/**
+ * Hush's tools against Postgres, called the way the agent calls them.
+ *
+ * What is held down: occurrences say truthfully whether they are covered,
+ * the missed-value scan leaves out what is already redacted, a redaction is
+ * written only where the text at a reference is the text that was approved,
+ * and a bulk decision touches exactly the groups it names.
+ */
+
+const { prisma } = await import("@/lib/database/prisma")
+const { saveNormalized } = await import("@/lib/documents/normalized-store")
+const { newDocumentSeal } = await import("@/lib/storage/sealed")
+const { newRedactionId } = await import("@/lib/documents/ids")
+const { hushTools } = await import("@/lib/assistant/tools")
+const { asTarget, RULE_TARGET_SELECT } = await import("@/lib/redaction/rules")
+
+const owners: string[] = []
+const TEXT = "Contact jane@example.com or bob@example.com. Staff EMP-00123."
+
+async function seed() {
+  const ownerKey = testFingerprint("hush-tools")
+  owners.push(ownerKey)
+  const id = testId("doc")
+  const seal = newDocumentSeal()
+  await prisma.document.create({
+    data: {
+      id,
+      originalName: "notes.txt",
+      kind: "txt",
+      mimeType: "text/plain",
+      size: TEXT.length,
+      status: "ready",
+      userFingerprint: ownerKey,
+      encryptionKey: seal.wrappedKey,
+      encryptionFormat: seal.format,
+      ttlSeconds: 3600,
+      expiresAt: new Date(Date.now() + 3600 * 1000),
+    },
+  })
+  const saved = await saveNormalized(id, seal, {
+    documentId: id,
+    kind: "txt",
+    pages: [
+      {
+        number: 1,
+        width: 612,
+        height: 792,
+        text: TEXT,
+        spans: [{ id: "s1", text: TEXT, start: 0, end: TEXT.length }],
+      },
+    ],
+  })
+  await prisma.document.update({
+    where: { id },
+    data: { normalizedBlobKey: saved.key, normalizedIndex: saved.index },
+  })
+  const row = await prisma.document.findUniqueOrThrow({
+    where: { id },
+    select: RULE_TARGET_SELECT,
+  })
+  const tools = hushTools({
+    documentId: id,
+    target: asTarget(row)!,
+    batchId: null,
+    ownerKey,
+    name: "notes.txt",
+    kind: "txt",
+  })
+  return { id, tools }
+}
+
+/** Calls a tool the way the agent loop does, minus the model. */
+async function call<T>(
+  tool: { execute?: (...args: never[]) => unknown },
+  input: unknown
+): Promise<T> {
+  const execute = tool.execute as unknown as (
+    input: unknown,
+    options: unknown
+  ) => Promise<T>
+  return execute(input, { toolCallId: "test", messages: [] })
+}
+
+async function suggest(
+  documentId: string,
+  text: string,
+  start: number,
+  category = "email"
+) {
+  await prisma.redaction.create({
+    data: {
+      id: newRedactionId(),
+      documentId,
+      source: "ai",
+      type: "text",
+      category,
+      status: "suggested",
+      page: 1,
+      text,
+      startOffset: start,
+      endOffset: start + text.length,
+      metadata: {},
+    },
+  })
+}
+
+describe.skipIf(!hasDatabase)("Hush's tools against Postgres", () => {
+  afterAll(async () => {
+    for (const value of owners) {
+      await prisma.document.deleteMany({ where: { userFingerprint: value } })
+    }
+  })
+
+  it("lists occurrences with where they are and whether they are covered", async () => {
+    const { id, tools } = await seed()
+    await suggest(id, "jane@example.com", TEXT.indexOf("jane"))
+
+    const result = await call<{
+      total: number
+      uncovered: number
+      occurrences: { ref: string; text: string; covered: string | null }[]
+    }>(tools.find_occurrences, {
+      kind: "regex",
+      pattern: "\\w+@example\\.com",
+      matchCase: false,
+      wholeWord: true,
+      limit: 50,
+    })
+
+    expect(result.total).toBe(2)
+    expect(result.uncovered).toBe(1)
+    expect(
+      result.occurrences.map((occurrence) => [
+        occurrence.text,
+        occurrence.covered,
+      ])
+    ).toEqual([
+      ["jane@example.com", "suggested"],
+      ["bob@example.com", null],
+    ])
+    expect(result.occurrences[1].ref).toBe(
+      `p1:${TEXT.indexOf("bob")}-${TEXT.indexOf("bob") + 15}`
+    )
+  })
+
+  it("scans for what is not yet covered, leaving out what is", async () => {
+    const { id, tools } = await seed()
+    await suggest(id, "jane@example.com", TEXT.indexOf("jane"))
+
+    const result = await call<{
+      groups: { category: string; value: string }[]
+    }>(tools.find_uncovered, {})
+    const values = result.groups.map((group) => group.value)
+    expect(values).toContain("bob@example.com")
+    expect(values).not.toContain("jane@example.com")
+  })
+
+  it("redacts only where the text at a reference is the text that was approved", async () => {
+    const { id, tools } = await seed()
+    const start = TEXT.indexOf("EMP-00123")
+    const result = await call<{ redacted: number; refused: { ref: string }[] }>(
+      tools.redact_occurrences,
+      {
+        items: [
+          { ref: `p1:${start}-${start + 9}`, text: "EMP-00123" },
+          // The model copied the wrong text for this place.
+          { ref: `p1:0-7`, text: "Invoice" },
+          { ref: "not-a-ref", text: "x" },
+        ],
+        category: "customer-id",
+        reason: "Employee number",
+      }
+    )
+
+    expect(result.redacted).toBe(1)
+    expect(result.refused.map((entry) => entry.ref)).toEqual([
+      "p1:0-7",
+      "not-a-ref",
+    ])
+    const [row] = await prisma.redaction.findMany({ where: { documentId: id } })
+    expect(row).toMatchObject({
+      text: "EMP-00123",
+      status: "accepted",
+      source: "ai",
+      startOffset: start,
+    })
+  })
+
+  it("decides exactly the suggestion groups it names", async () => {
+    const { id, tools } = await seed()
+    await suggest(id, "jane@example.com", TEXT.indexOf("jane"))
+    await suggest(id, "bob@example.com", TEXT.indexOf("bob"))
+
+    const result = await call<{ updated: number }>(
+      tools.set_suggestion_status,
+      {
+        keys: ["email|jane@example.com"],
+        status: "rejected",
+        reason: "Public contact address",
+      }
+    )
+
+    expect(result.updated).toBe(1)
+    const rows = await prisma.redaction.findMany({
+      where: { documentId: id },
+      orderBy: { startOffset: "asc" },
+    })
+    expect(rows.map((row) => [row.text, row.status])).toEqual([
+      ["jane@example.com", "rejected"],
+      ["bob@example.com", "suggested"],
+    ])
+  })
+})

@@ -448,33 +448,43 @@ Removes a rule and every redaction it created, everywhere it reached.
 
 ### `POST /api/documents/:id/assistant`
 
-Asks Hush, the review assistant, through the configured AI provider. Nothing is
-changed: proposals come back previewed against the document, and become rules
-only through `POST /rules`. Bound by the daily spend cap; every call is
-recorded in `AiUsage` against this document (`task` `assistant` or
-`assistant-improve`). The body is the whole of what the model is sent — never
-the document.
+One turn of a conversation with Hush, the review assistant, streamed as an AI
+SDK UI message stream (`useChat` reads it). The server runs an agent loop with
+tools over this document (see [editor.md §16](./editor.md#16-hush-the-review-assistant)):
+
+- **Reads** run once `readConsent` is true. The first read without it becomes
+  an approval request.
+- **Changes** (`create_rule`, `update_rule`, `redact_occurrences`,
+  `set_suggestion_status`) always stop as approval requests. The client
+  continues the run by sending the conversation back with the reviewer's
+  answer.
+- Approvals are HMAC-signed when issued and verified when replayed. A forged or
+  altered approval is refused before any tool runs.
+
+The loop is bound by the daily spend cap. Each model step is recorded in
+`AiUsage` (`task: "assistant"`). A run is at most 12 steps.
 
 - **Auth:** session
 - **Rate limit:** `processing`
-- **Body (`ask`):**
+- **Body:**
   ```json
-  { "mode": "ask", "question": "Find anything that looks like a patient number",
-    "selection": { "text", "category", "source", "reason", "before", "after" },
-    "matches": { "query", "samples": [{ "before", "match", "after" }] } }
+  {
+    "messages": [ /* UIMessage[] — the conversation, at most 80 */ ],
+    "readConsent": false,
+    "view": {
+      "currentPage": 3,
+      "selected": { "id", "text", "category", "status", "source", "page", "reason" }
+    }
+  }
   ```
-  `selection` and `matches` are optional, as are the selection's fields other
-  than `text`; at most 20 samples.
-- **Response `200` (`ask`):** `{ answer, proposals: [{ kind, pattern,
-  matchCase, wholeWord, category, scope, scopeReason, explanation, preview?:
-  { count, samples }, problem? }] }`
-- **Body (`improve`):** `{ "mode": "improve", "spec": PatternSpec,
-  "accepted": string[], "rejected": string[] }` — a `regex` spec, at most 30
-  values of each.
-- **Response `200` (`improve`):** `{ spec, explanation, diff?: { before,
-  after, gainedCount, lostCount, gained, lost }, problem? }`
-- **Errors:** `400`; `409` not ready; `503` with `code` `not-configured`,
-  `unsupported`, `budget`, or the provider failure kind.
+  At most 1.5 MB.
+- **Response `200`:** a UI message stream (`text/event-stream`). Tool calls
+  appear as typed tool parts (`tool-find_occurrences`, `tool-create_rule`, …)
+  and pass through `approval-requested` when they need the reviewer.
+  `approval.requestReason` is `read-consent` or `change`.
+- **Errors:** `400` invalid body; `409` not ready; `413` conversation too long;
+  `503` with `code` `not-configured`, `unsupported` or `budget`. An error
+  inside the stream is sent as a fixed sentence, never the provider's message.
 
 ### `POST /api/documents/:id/process`
 

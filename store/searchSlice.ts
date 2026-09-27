@@ -8,6 +8,7 @@ import type { PatternSpec } from "@/lib/redaction/patterns"
 import type {
   BatchSearchDocument,
   CellHit,
+  ListedHit,
   SearchHit,
   SearchSummary,
 } from "@/lib/redaction/search"
@@ -40,6 +41,10 @@ export type SearchState = {
   pages: SearchSummary["pages"]
   cells: CellHit[]
   cellsTruncated: boolean
+  /** The first hits with context, for the results list. */
+  list: ListedHit[]
+  /** Whether the results list under the bar is open. */
+  resultsOpen: boolean
   /** Hits per page, for the current key only. */
   pageHits: Record<number, SearchHit[]>
   /** Zero-based position among all hits; -1 before there is one. */
@@ -67,6 +72,8 @@ const initialState: SearchState = {
   pages: [],
   cells: [],
   cellsTruncated: false,
+  list: [],
+  resultsOpen: true,
   pageHits: {},
   current: -1,
   batch: { open: false, status: "idle", key: null, documents: [], error: null },
@@ -101,6 +108,7 @@ function clearResults(state: SearchState) {
   state.pages = []
   state.cells = []
   state.cellsTruncated = false
+  state.list = []
   state.pageHits = {}
   state.current = -1
   state.batch = { ...initialState.batch, open: state.batch.open }
@@ -164,6 +172,7 @@ const searchSlice = createSlice({
       state.pages = summary.pages
       state.cells = summary.cells
       state.cellsTruncated = summary.cellsTruncated
+      state.list = summary.list
       // Start from where the reviewer is, not from page 1: they searched
       // because of something they were looking at.
       let before = 0
@@ -184,6 +193,7 @@ const searchSlice = createSlice({
       state.total = 0
       state.pages = []
       state.cells = []
+      state.list = []
       state.current = -1
     },
     pageHitsLoaded(
@@ -198,6 +208,9 @@ const searchSlice = createSlice({
       // Wraps, as every find does: Enter on the last hit goes to the first.
       state.current =
         ((action.payload % state.total) + state.total) % state.total
+    },
+    resultsToggled(state, action: PayloadAction<boolean | undefined>) {
+      state.resultsOpen = action.payload ?? !state.resultsOpen
     },
     batchSearchToggled(state, action: PayloadAction<boolean | undefined>) {
       state.batch.open = action.payload ?? !state.batch.open
@@ -241,6 +254,7 @@ export const {
   searchFailed,
   pageHitsLoaded,
   currentChanged,
+  resultsToggled,
   batchSearchToggled,
   batchSearchStarted,
   batchSearchSucceeded,

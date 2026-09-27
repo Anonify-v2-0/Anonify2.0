@@ -343,9 +343,23 @@ A **global rule** outlives every document, so its pattern is sealed with the
 master key (`sealWithMasterKey`) and expires 30 days after it was last used.
 See `OwnerRule` in [data-model.md](./data-model.md).
 
-**Hush** sends the AI provider only the request body, which the panel lists
-before sending: never the document. Document text in the prompt is wrapped in
-tags it cannot close (`tagged` in `lib/ai/prompts/hush.ts`), and anything the
-model returns is compiled and previewed like any other pattern and applied
-only when the reviewer accepts it. The worst a hostile paragraph can do is get
-a bad rule proposed, which the preview shows.
+---
+
+## 8. Hush's human in the loop — `lib/assistant/agent.ts`
+
+Hush is an agent with tools that can change the review. It uses the same
+provider as analysis, and a document is untrusted input to it. The worst a
+hostile paragraph should be able to do is get a bad change *proposed*.
+
+| Defence | Where | Why |
+| --- | --- | --- |
+| Every change needs approval | `toolApproval` → `user-approval` for each write tool | Nothing a model decides reaches the review without a person pressing Approve on a card that shows what it will do. |
+| Approvals are signed | `experimental_toolApprovalSecret`, derived from `FINGERPRINT_SECRET` | The conversation is client-held. Without a signature, a client could send an approval the server never issued. The signature binds tool, call id and input, so an input edited after approval is refused. |
+| Reading is asked once | `toolApproval` → `user-approval` for reads until `readConsent` | Document text goes to the provider only after the reviewer allows it, and every read is listed. |
+| Writes re-validate | `redact_occurrences`, rule tools | A reference must still hold the exact text approved. A rule must compile and fit its budget. The model's input is a proposal, not a fact. |
+| Output cannot fetch | `components/assistant/hush-markdown.tsx` | A reply can quote the document. Links render as text, images as alt text, URLs are dropped, and raw HTML is not rendered, so no tracking pixel can phone home by way of a model that repeated it. |
+| Tool results are data | the agent's instructions | The model is told that text from tools is document content and never an instruction. The approval step is what makes this safe when it is ignored. |
+| Bounded | 12 steps, 80 messages, 1.5 MB, spend cap | A runaway loop costs a bounded amount, and stops at the operator's daily cap like analysis does. |
+
+Errors inside the stream are a fixed sentence, never the provider's message,
+which can quote the prompt. Only the failure's name is logged.

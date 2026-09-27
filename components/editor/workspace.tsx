@@ -185,14 +185,16 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
           ) : null}
           <div className="flex min-h-0 flex-1">
             <PageNavigator documentId={summary.id} />
-            <div className="relative flex min-w-0 flex-1">
-              <DocumentCanvas summary={current} actions={canvasActions} />
+            <div className="flex min-w-0 flex-1 flex-col">
               <SearchBar
                 batchId={current.batch?.batchId ?? null}
                 onNext={search.next}
                 onPrevious={search.previous}
                 onRedact={canvasActions.create}
               />
+              <div className="flex min-h-0 flex-1">
+                <DocumentCanvas summary={current} actions={canvasActions} />
+              </div>
             </div>
             <RedactionInspector actions={inspectorActions} documentId={summary.id} />
           </div>
