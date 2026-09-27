@@ -10,6 +10,7 @@ import {
   headerValue,
   parseEml,
   type MimeNode,
+  type ParsedMessage,
 } from "@/lib/documents/eml/parse"
 import { DETECTION_SAMPLE_BYTES } from "@/lib/documents/sample"
 import type { DocumentKind } from "@/types/document"
@@ -264,27 +265,54 @@ export function messageAttachments(
 
   return nodes
     .filter((node) => node.attachment)
-    .map((node) => {
-      // Decoded once here, to learn its size and sniff its head, and dropped
-      // before the next part is decoded.
-      const decoded = decodeAttachment(
-        source.slice(node.bodyStart, node.end),
-        node.encoding
-      )
-      const contentId = contentIdOf(node)
-      return {
-        path: detached(node.path),
-        filename: detached(node.filename),
-        contentType: detached(node.contentType),
-        contentId: detached(contentId),
-        inline: node.disposition === "inline" || contentId !== null,
-        bodyStart: node.bodyStart,
-        bodyEnd: node.end,
-        encoding: detached(node.encoding),
-        size: decoded.byteLength,
-        head: decoded.slice(0, DETECTION_SAMPLE_BYTES),
-      }
-    })
+    .map((node) =>
+      describeAttachment(node, source.slice(node.bodyStart, node.end))
+    )
+}
+
+/**
+ * The same list, for a message parsed as it streamed: each attachment's body
+ * is read back by its range when it is reached, decoded to learn its size and
+ * sniff its head, and let go before the next is read. The message is never
+ * held; one attachment is, at a time.
+ */
+export async function attachmentsOfParsed(
+  parsed: ParsedMessage,
+  read: (start: number, end: number) => Promise<Uint8Array>
+): Promise<MessageAttachment[]> {
+  const found: MessageAttachment[] = []
+  for (const node of parsed.nodes) {
+    if (!node.attachment) continue
+    // A body that starts past its part's end is empty, as a slice of it was.
+    const raw =
+      node.bodyStart < node.end
+        ? await read(node.bodyStart, node.end)
+        : new Uint8Array(0)
+    found.push(describeAttachment(node, raw))
+  }
+  return found
+}
+
+function describeAttachment(
+  node: MimeNode,
+  raw: string | Uint8Array
+): MessageAttachment {
+  // Decoded once here, to learn its size and sniff its head, and dropped
+  // before the next part is decoded.
+  const decoded = decodeAttachment(raw, node.encoding)
+  const contentId = contentIdOf(node)
+  return {
+    path: detached(node.path),
+    filename: detached(node.filename),
+    contentType: detached(node.contentType),
+    contentId: detached(contentId),
+    inline: node.disposition === "inline" || contentId !== null,
+    bodyStart: node.bodyStart,
+    bodyEnd: node.end,
+    encoding: detached(node.encoding),
+    size: decoded.byteLength,
+    head: decoded.slice(0, DETECTION_SAMPLE_BYTES),
+  }
 }
 
 // --- classification ---------------------------------------------------------
@@ -448,11 +476,22 @@ export function planExpansion(
     parserLimits?: EmlLimits
   } = {}
 ): ExpansionPlan {
+  return planAttachments(
+    messageAttachments(source, options.parserLimits),
+    options
+  )
+}
+
+/** `planExpansion`, for attachments already described. */
+export function planAttachments(
+  attachments: MessageAttachment[],
+  options: { depth?: number; limits?: ExpansionLimits } = {}
+): ExpansionPlan {
   const limits = options.limits ?? expansionLimits()
   const depth = options.depth ?? 0
 
-  const entries = messageAttachments(source, options.parserLimits).map(
-    (attachment) => planAttachment(attachment, limits)
+  const entries = attachments.map((attachment) =>
+    planAttachment(attachment, limits)
   )
 
   const expanding = entries.filter((entry) => entry.action === "expand")

@@ -27,7 +27,9 @@ import {
   MAX_VISION_PAGES,
   renderPagesForVision,
 } from "@/lib/documents/pdf/page-images"
-import { extractEml } from "@/lib/documents/eml/extract"
+import { emlDocument, extractEml } from "@/lib/documents/eml/extract"
+import type { ParsedMessage } from "@/lib/documents/eml/parse"
+import { scanEml } from "@/lib/documents/eml/scan"
 import { extractRtf } from "@/lib/documents/rtf/extract"
 import {
   extractText,
@@ -474,7 +476,9 @@ async function runExtractAndNormalize(
   try {
     extracted = isStreamedKind(kind)
       ? await extractStreamed({ ...input, kind })
-      : isRangedKind(kind)
+      : kind === "eml"
+        ? await extractMessage(input)
+        : isRangedKind(kind)
         ? await extractRanged({ ...input, kind })
         : await extractWhole(input)
   } catch (error) {
@@ -693,6 +697,59 @@ async function storeModel(
     return await saveNormalizedStream(input.documentId, input.seal, json())
   } catch (error) {
     throw failure ?? error
+  }
+}
+
+/**
+ * A message, scanned as it streams: its headers and text parts are held, and
+ * its attachments go past without being kept (lib/documents/eml/scan.ts).
+ *
+ * The source is hashed in the same read. A message the scanner refuses is
+ * read to the end anyway, so a corrupt source is reported as corrupt rather
+ * than as whatever the corruption happened to look like to the parser — the
+ * order the whole-file path reports them in.
+ */
+async function extractMessage(input: ExtractionInput): Promise<Extracted> {
+  const stream: Readable = await getSealedStream(
+    input.sourceBlobKey,
+    sourceKey(input.documentId),
+    input.seal
+  )
+  const hash = createHash("sha256")
+  let read = false
+
+  async function* pieces(): AsyncGenerator<Buffer> {
+    for await (const piece of stream as AsyncIterable<Buffer>) {
+      hash.update(piece)
+      yield piece
+    }
+    read = true
+  }
+
+  let parsed: ParsedMessage | null = null
+  let refusal: unknown = null
+  try {
+    parsed = await scanEml(pieces())
+  } catch (error) {
+    refusal = error
+  } finally {
+    stream.destroy()
+  }
+
+  // A read that failed partway is storage weather, and is retried as such.
+  if (!read) throw refusal
+  if (!checksumMatches(input.checksum, hash.digest("hex"))) {
+    throw new FatalError("Source checksum mismatch")
+  }
+  if (refusal || !parsed) throw refusal
+
+  const model = emlDocument(input.documentId, parsed)
+  const saved = await saveNormalized(input.documentId, input.seal, model)
+  return {
+    normalizedBlobKey: saved.key,
+    normalizedIndex: saved.index,
+    pageCount: model.pages.length,
+    usage: { model },
   }
 }
 
