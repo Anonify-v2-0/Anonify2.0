@@ -264,7 +264,7 @@ describe("corpus identifier scanner", () => {
       "2a03:2880:f10c:83::25de",
     ]) {
       expect(
-        scanForIdentifiers(`Origin ${value} blocked.`).map((f) => [
+        scanForIdentifiers(`Origin ${value} blocked.`, "en-US").map((f) => [
           f.kind,
           f.value,
           f.reserved,
@@ -274,7 +274,7 @@ describe("corpus identifier scanner", () => {
     }
     for (const value of ["2001:db8:1f::2a", "::1"]) {
       expect(
-        scanForIdentifiers(`Origin ${value}.`).map((f) => [
+        scanForIdentifiers(`Origin ${value}.`, "en-US").map((f) => [
           f.kind,
           f.value,
           f.reserved,
@@ -287,12 +287,12 @@ describe("corpus identifier scanner", () => {
   it("does not take times, MAC addresses or scopes for IPv6", () => {
     const text =
       "At 10:30, 12:00:00 and 10:30:00; MAC 00:1a:2b:3c:4d:5e; std::vector, a :: b, Foo::Bar"
-    expect(scanForIdentifiers(text)).toEqual([])
+    expect(scanForIdentifiers(text, "en-US")).toEqual([])
   })
 
   it("still judges the IPv4 part of a mapped address", () => {
     expect(
-      scanForIdentifiers("From ::ffff:8.8.8.8 today").map((f) => [
+      scanForIdentifiers("From ::ffff:8.8.8.8 today", "en-US").map((f) => [
         f.kind,
         f.value,
         f.reserved,
