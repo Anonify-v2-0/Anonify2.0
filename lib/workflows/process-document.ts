@@ -19,9 +19,9 @@ import {
   DelimitedExtractionStream,
   extractDelimited,
 } from "@/lib/documents/delimited/extract"
-import { extractDocx } from "@/lib/documents/docx/extract"
+import { extractDocx, extractDocxPackage } from "@/lib/documents/docx/extract"
 import { extractPdf } from "@/lib/documents/pdf/extract"
-import { extractPptx } from "@/lib/documents/pptx/extract"
+import { extractPptx, extractPptxPackage } from "@/lib/documents/pptx/extract"
 import { extractImage } from "@/lib/documents/image/extract"
 import {
   MAX_VISION_PAGES,
@@ -35,6 +35,7 @@ import {
 } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { XlsxExtractionStream } from "@/lib/documents/xlsx/stream"
+import { openPackageFromArchive } from "@/lib/documents/ooxml/package"
 import { openZip, ZipFallback } from "@/lib/documents/ooxml/zip"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { ExpansionLimitError } from "@/lib/documents/eml/attachments"
@@ -553,7 +554,7 @@ function isStreamedKind(kind: DocumentKind): kind is StreamedKind {
  * is at the end — a zip's central directory — so they cannot be read front to
  * back, but whose parts can be read one at a time once the index is known.
  */
-const RANGED_KINDS = ["xlsx"] as const
+const RANGED_KINDS = ["xlsx", "docx", "pptx"] as const
 
 type RangedKind = (typeof RANGED_KINDS)[number]
 
@@ -608,16 +609,34 @@ async function extractRanged(
   const source = cachedRangeSource(object, streamingLimits().chunkBytes)
 
   try {
-    const extractor = new XlsxExtractionStream(
-      input.documentId,
-      await openZip(source)
-    )
-    const normalizedBlobKey = await storeModel(input, extractor.json())
+    const archive = await openZip(source)
+
+    if (input.kind === "xlsx") {
+      // Written a worksheet at a time, so only the counts are left to charge.
+      const extractor = new XlsxExtractionStream(input.documentId, archive)
+      const normalizedBlobKey = await storeModel(input, extractor.json())
+      return {
+        normalizedBlobKey,
+        normalizedIndex: extractor.index,
+        pageCount: 0,
+        usage: { counts: { pages: 0, cells: extractor.cellCount } },
+      }
+    }
+
+    // A Word document or a deck: only its XML parts are inflated and held.
+    // The model is built whole — it is the text, which is what is being
+    // reviewed — and never the pictures, fonts and embeddings around it.
+    const pkg = await openPackageFromArchive(archive)
+    const { document: model } =
+      input.kind === "docx"
+        ? extractDocxPackage(input.documentId, pkg)
+        : extractPptxPackage(input.documentId, pkg)
+    const saved = await saveNormalized(input.documentId, input.seal, model)
     return {
-      normalizedBlobKey,
-      normalizedIndex: extractor.index,
-      pageCount: 0,
-      usage: { counts: { pages: 0, cells: extractor.cellCount } },
+      normalizedBlobKey: saved.key,
+      normalizedIndex: saved.index,
+      pageCount: model.pages.length,
+      usage: { model },
     }
   } catch (error) {
     if (!(error instanceof ZipFallback)) throw error
