@@ -522,14 +522,23 @@ export function toCodexRequest(body: Json): Json {
 
 /**
  * The streamed answer, collected into the single response a non-streaming
- * call expects: the `response.completed` event carries the whole response
- * object. A stream that fails or ends without one becomes a 502, which the
- * throttle treats as the provider's failure.
+ * call expects.
+ *
+ * The `response.completed` event carries the response object, but not its
+ * answer: with `store: false` the Codex backend sends `output: []` there and
+ * delivers each finished item only as a `response.output_item.done` event.
+ * Taking the completed object alone handed the SDK an empty answer, and every
+ * model then "answered, but not with JSON". So the finished items are
+ * collected in stream order and put back into the response. A stream that
+ * fails or ends without completing becomes an error the throttle can
+ * classify.
  */
 export async function fromCodexStream(response: Response): Promise<Response> {
   const text = await response.text()
-  let completed: unknown
+  let completed: Json | undefined
   let failure: { message?: string; code?: string } | undefined
+  /** Finished output items, by their position in the answer. */
+  const items = new Map<number, Json>()
   const describe = (value: unknown) => {
     const bag = (value && typeof value === "object" ? value : {}) as Json
     return {
@@ -552,10 +561,22 @@ export async function fromCodexStream(response: Response): Promise<Response> {
     }
     const inner = (event.response ?? {}) as Json
     if (
-      (event.type === "response.completed" || event.type === "response.done") &&
-      event.response
+      event.type === "response.output_item.done" &&
+      event.item &&
+      typeof event.item === "object"
     )
-      completed = event.response
+      items.set(
+        typeof event.output_index === "number"
+          ? event.output_index
+          : items.size,
+        event.item as Json
+      )
+    else if (
+      (event.type === "response.completed" || event.type === "response.done") &&
+      event.response &&
+      typeof event.response === "object"
+    )
+      completed = event.response as Json
     else if (event.type === "response.failed") failure = describe(inner.error)
     else if (event.type === "response.incomplete")
       failure = {
@@ -599,6 +620,16 @@ export async function fromCodexStream(response: Response): Promise<Response> {
       { status, headers: { "Content-Type": "application/json" } }
     )
   }
+  // The answer, from the items streamed before completion, when the
+  // completed object leaves them out.
+  const output = Array.isArray(completed.output) ? completed.output : []
+  if (output.length === 0 && items.size > 0)
+    completed = {
+      ...completed,
+      output: [...items.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([, item]) => item),
+    }
   return new Response(JSON.stringify(completed), {
     status: 200,
     headers: { "Content-Type": "application/json" },
@@ -685,8 +716,10 @@ const MODEL_LIST_CLIENT_VERSION = "1.0.0"
  *
  * The shape is Codex's `ModelsResponse` (codex-rs/protocol, openai_models.rs):
  * `models[]` with `slug`, `display_name`, `visibility`, `priority`,
- * `input_modalities` and `context_window`. Only `visibility: "list"` models
- * are offered, as Codex does; a hidden one can still be typed and verified.
+ * `input_modalities`, `context_window` and `available_in_plans`. Only
+ * `visibility: "list"` models are offered, as Codex does; a hidden one can
+ * still be typed and verified. One whose plans exclude the signed-in plan is
+ * shown disabled.
  * `input_modalities` is what the backend advertises, and setup's probe still
  * decides. It is not the public API's list, it may change, and setup falls
  * back to a typed, verified ID when it cannot be read.
@@ -736,6 +769,7 @@ export async function discoverSubscriptionModels(
       "The ChatGPT backend returned no model list. Enter a model ID to verify it."
     )
   const listed: { model: ModelDefinition; priority: number }[] = []
+  const plan = (login.profile ?? profileOf(login.access))?.plan?.toLowerCase()
   for (const row of rows as Json[]) {
     if (!row || typeof row !== "object") continue
     const id = row.slug
@@ -762,6 +796,17 @@ export async function discoverSubscriptionModels(
       context <= 100_000_000
     )
       model.contextWindow = context
+    // Offered to some plans and not this one: shown, but not choosable. The
+    // list does not always know (a model it offers can still be refused),
+    // which is what verification is for.
+    const plans = row.available_in_plans
+    if (
+      plan &&
+      Array.isArray(plans) &&
+      plans.length > 0 &&
+      !plans.includes(plan)
+    )
+      model.unavailable = `Not included in the ${planName(plan)} plan`
     listed.push({
       model,
       priority:

@@ -163,7 +163,10 @@ How it works:
   sign-in's own tokens are removed from any refusal before it goes further.
 - The model list is read from OpenAI with the signed-in token: the Codex
   backend's `/models`, filtered and ordered the way Codex CLI's own picker
-  shows it (`visibility: "list"`, by `priority`). If it cannot be read, a
+  shows it (`visibility: "list"`, by `priority`). A model whose
+  `available_in_plans` leaves out the signed-in plan is shown disabled. The
+  list is not the last word: it can offer a model the backend then refuses,
+  which verification reports as not available. If the list cannot be read, a
   typed model ID is verified instead.
 - After signing in, `pnpm ai login` carries on into the same model picker and
   probe as `pnpm ai verify`, then writes `AI_PROVIDER`, `AI_MODEL` and

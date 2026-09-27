@@ -11,6 +11,7 @@ import { ratesFor } from "@/lib/ai/rates"
 import { resetThrottles } from "@/lib/services/throttle"
 import { parseEnv } from "../scripts/env-file"
 import type { Choice, Prompter } from "../scripts/tty"
+import { codexStream } from "./helpers/codex-stream"
 
 /**
  * What happens after `pnpm ai login`: the plan's models listed from OpenAI,
@@ -156,34 +157,10 @@ function fakeOpenAI(
             { error: { message: "Image input is not supported." } },
             { status: 400 }
           )
-        const response = {
-          id: "resp_fixture",
-          object: "response",
-          created_at: 1,
-          status: "completed",
+        return codexStream(
           model,
-          output: [
-            {
-              type: "message",
-              id: "msg_1",
-              role: "assistant",
-              status: "completed",
-              content: [
-                {
-                  type: "output_text",
-                  text: JSON.stringify(
-                    image ? { color: "red" } : { answer: 5 }
-                  ),
-                  annotations: [],
-                },
-              ],
-            },
-          ],
-          usage: { input_tokens: 12, output_tokens: 3 },
-        }
-        return new Response(
-          `data: ${JSON.stringify({ type: "response.completed", response })}\n\n`,
-          { headers: { "Content-Type": "text/event-stream" } }
+          JSON.stringify(image ? { color: "red" } : { answer: 5 }),
+          { input: 12, output: 3 }
         )
       }
       return new Response("not found", { status: 404 })
@@ -221,7 +198,9 @@ function terminal(answers: {
         options: { actions?: Choice<unknown>[] } = {}
       ) => {
         offered.push(choices)
-        if (answers.model) return answers.model
+        // The model once; asked again (after a failed verification), back
+        // out, so a failure ends the test instead of looping forever.
+        if (answers.model && offered.length === 1) return answers.model
         return options.actions!.at(-1)!.value
       }
     ),
@@ -303,6 +282,45 @@ describe("after signing in: the plan's models, from OpenAI", () => {
       "Bearer access-refreshed-1"
     )
     expect((await loadLogin())?.access).toBe("access-refreshed-1")
+  })
+
+  it("disables a model the list offers only to other plans", async () => {
+    await saveLogin({
+      access: "access-live",
+      refresh: "refresh-live",
+      expiresAt: Date.now() + 3_600_000,
+      profile: { plan: "go" },
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          models: [
+            {
+              slug: "gpt-everyone",
+              visibility: "list",
+              available_in_plans: ["go", "plus"],
+            },
+            {
+              slug: "gpt-pro-only",
+              visibility: "list",
+              available_in_plans: ["pro"],
+            },
+            { slug: "gpt-unstated", visibility: "list" },
+          ],
+        })
+      )
+    )
+
+    const models = await discoverModels(SUBSCRIPTION)
+
+    expect(
+      Object.fromEntries(models.map((model) => [model.id, model.unavailable]))
+    ).toEqual({
+      "gpt-everyone": undefined,
+      "gpt-pro-only": "Not included in the Go plan",
+      "gpt-unstated": undefined,
+    })
   })
 
   it("says to sign in, rather than failing obscurely, when nobody has", async () => {

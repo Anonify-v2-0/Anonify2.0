@@ -9,6 +9,7 @@ import { capabilityDeclaration } from "@/lib/ai/providers/config"
 import { estimateRows, ratesFor } from "@/lib/ai/rates"
 import { classifyServiceError, resetThrottles } from "@/lib/services/throttle"
 import { canOpenBrowser, startCallbackServer } from "../scripts/ai-login"
+import { codexStream } from "./helpers/codex-stream"
 
 /** The settings table, in memory: the only rows these tests read or write. */
 const settings = new Map<string, unknown>()
@@ -332,6 +333,25 @@ describe("the Codex transport", () => {
     expect(toCodexRequest({ input: [] }).instructions).toBeTruthy()
   })
 
+  it("puts back the answer the real backend streams but leaves out of response.completed", async () => {
+    const collected = await fromCodexStream(
+      codexStream("gpt-fixture", '{"answer":5}', { input: 18, output: 8 })
+    )
+    const response = await collected.json()
+    expect(response.output).toEqual([
+      {
+        id: "msg_fixture",
+        type: "message",
+        status: "completed",
+        role: "assistant",
+        content: [
+          { type: "output_text", annotations: [], text: '{"answer":5}' },
+        ],
+      },
+    ])
+    expect(response.usage).toMatchObject({ input_tokens: 18, output_tokens: 8 })
+  })
+
   it("collects the stream into the completed response, and turns anything else into a 502", async () => {
     const completed = { id: "resp_1", output: [], usage: { input_tokens: 1 } }
     const stream = [
@@ -364,32 +384,10 @@ describe("the Codex transport", () => {
       const body = JSON.parse(String(init?.body))
       seen.push({ headers: new Headers(init?.headers), body })
       const image = JSON.stringify(body.input).includes("input_image")
-      const response = {
-        id: "resp_fixture",
-        object: "response",
-        created_at: 1,
-        status: "completed",
-        model: body.model,
-        output: [
-          {
-            type: "message",
-            id: "msg_1",
-            role: "assistant",
-            status: "completed",
-            content: [
-              {
-                type: "output_text",
-                text: JSON.stringify(image ? { color: "red" } : { answer: 5 }),
-                annotations: [],
-              },
-            ],
-          },
-        ],
-        usage: { input_tokens: 11, output_tokens: 2 },
-      }
-      return new Response(
-        `data: ${JSON.stringify({ type: "response.completed", response })}\n\n`,
-        { headers: { "Content-Type": "text/event-stream" } }
+      return codexStream(
+        body.model,
+        JSON.stringify(image ? { color: "red" } : { answer: 5 }),
+        { input: 11, output: 2 }
       )
     })
 
