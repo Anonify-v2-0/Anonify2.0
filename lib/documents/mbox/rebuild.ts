@@ -36,9 +36,9 @@ import { ByteQueue, chain, readHead } from "@/lib/storage/streams"
  * as an adversary would — here, with the very scanner that splits an upload.
  * The rebuilt mailbox must split into exactly the messages that went in, each
  * equal byte for byte to what went in, with no accepted value on any separator
- * line. Between them those account for every byte of the file: a byte is
- * either inside a message that is a verified export, or on a line this code
- * wrote and then searched.
+ * line outside the constant text this code writes on every one. Between them
+ * those account for every byte of the file: a byte is either inside a message
+ * that is a verified export, or on a line this code wrote and then searched.
  *
  * Built as it is written, never held: each message is streamed out of storage,
  * quoted a piece at a time and handed on. The verifier holds one message at a
@@ -187,9 +187,31 @@ export function searchedValues(values: Iterable<string>): string[] {
   return [...kept]
 }
 
-function carriesAny(line: string, values: string[]): boolean {
+/** The start every rebuilt separator shares, whatever its date. */
+const SEPARATOR_PREFIX = `From ${REBUILT_SENDER} `
+
+/**
+ * Whether a separator line carries an accepted value in text that came from a
+ * message rather than from this file.
+ *
+ * The placeholder is a constant, and so is the `From MAILER-DAEMON ` every
+ * line starts with: a value found wholly inside them — `1970`, `00:00`, a
+ * bounce's `Mailer-Daemon` swept up by accepting every name — is there by
+ * coincidence, carries nothing of any message, and would otherwise withhold
+ * the whole mailbox. An occurrence that reaches into a date taken from a
+ * message is not excused, and neither is anything on a line this code would
+ * not have written.
+ */
+function separatorCarries(line: string, values: string[]): boolean {
+  if (line === PLACEHOLDER_SEPARATOR) return false
+  const fixed = line.startsWith(SEPARATOR_PREFIX) ? SEPARATOR_PREFIX.length : 0
   const haystack = line.toLowerCase()
-  return values.some((value) => haystack.includes(value))
+  // The last occurrence ends furthest in: if it stays inside the fixed start,
+  // every earlier one does too.
+  return values.some((value) => {
+    const at = haystack.lastIndexOf(value)
+    return at !== -1 && at + value.length > fixed
+  })
 }
 
 /**
@@ -197,15 +219,14 @@ function carriesAny(line: string, values: string[]): boolean {
  *
  * Never from the source's own separator, which this code is never even handed.
  * `values` are the accepted values already lowercased by `searchedValues`; a
- * line that would carry one falls back to the placeholder, and a placeholder
- * that would carry one is still written — and refused by the verifier, which
- * is where that decision belongs.
+ * line whose date would carry one falls back to the placeholder, which is
+ * constant text and cannot carry anything of a message.
  */
 export function separatorFor(head: Uint8Array, values: string[]): string {
   const date = messageDate(head)
   if (date) {
     const line = `From ${REBUILT_SENDER} ${asctime(date)}`
-    if (!carriesAny(line, values)) return line
+    if (!separatorCarries(line, values)) return line
   }
   return PLACEHOLDER_SEPARATOR
 }
@@ -479,7 +500,7 @@ export function assertRebuilt(
     // the values the reviewer accepted anywhere in the mailbox.
     if (
       !message.fromLine.startsWith(`From ${REBUILT_SENDER} `) ||
-      carriesAny(message.fromLine, values)
+      separatorCarries(message.fromLine, values)
     ) {
       throw new MailboxRebuildError("separator-leak", index)
     }

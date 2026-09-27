@@ -11,6 +11,7 @@ import {
 import { formatOf } from "@/lib/documents/formats"
 import {
   buildBatchReport,
+  containerNote,
   type BatchReport,
   type ContainerPlacement,
   type ContainerSummary,
@@ -77,7 +78,8 @@ import type { DocumentKind } from "@/types/document"
  * archive was assembled in memory; streamed, it is the bound on how much one
  * request is asked to read, decrypt and compress inside its time limit. What
  * does not fit is delivered as far as it fits and named as left out, rather
- * than timing out halfway through and delivering nothing usable.
+ * than timing out halfway through and delivering nothing usable. A file is
+ * charged for every read after the one that hashes it: see `deliveredIn`.
  */
 export const MAX_DOWNLOAD_BYTES = 150 * 1024 * 1024
 
@@ -108,9 +110,32 @@ export type BatchDownload =
     }
 
 export class NothingToDownloadError extends Error {
-  constructor() {
+  constructor(
+    /** What the download would have said, which `?part=report` still serves. */
+    readonly report: BatchReport
+  ) {
     super("This batch has nothing exported yet")
     this.name = "NothingToDownloadError"
+  }
+}
+
+/**
+ * Nothing to deliver, but not because nothing was exported: the only upload
+ * asked for is a mailbox that failed its own verification or had nothing
+ * that could go back into it.
+ *
+ * Its messages may every one be exported and verified, so "nothing exported
+ * yet" would be false, and would send the reviewer to export again without
+ * saying what went wrong. The message is the batch report's own note on the
+ * mailbox, which does, and the report travels with it.
+ */
+export class MailboxWithheldError extends Error {
+  constructor(
+    readonly report: BatchReport,
+    message: string
+  ) {
+    super(message)
+    this.name = "MailboxWithheldError"
   }
 }
 
@@ -197,8 +222,9 @@ async function collect(
     return "export-failed"
   }
 
-  // Charged per view it appears in: a file downloaded in both shapes is read
-  // and compressed twice.
+  // Charged per read after this one: a file downloaded in both shapes is read
+  // and compressed twice, and a message of a rebuilt mailbox is read once more
+  // by the verifier before it is delivered.
   const cost = digest.size * weight
   if (budget.used + cost > MAX_DOWNLOAD_BYTES) return "archive-full"
   budget.used += cost
@@ -242,8 +268,12 @@ async function collect(
   }
 }
 
-/** Which nodes a shape delivers as files of their own. */
-function deliveredIn(
+/**
+ * How many times a shape has each node's artifact read after the pass that
+ * hashes it — its weight against `MAX_DOWNLOAD_BYTES`. A node a shape does
+ * not deliver has none, and is not read at all.
+ */
+export function deliveredIn(
   output: BatchOutput,
   entries: OriginalEntry[],
   nodes: LayoutNode[]
@@ -254,8 +284,16 @@ function deliveredIn(
 
   if (output !== "processed") {
     for (const entry of entries) {
-      if (entry.kind === "file") add(entry.node)
-      else entry.messages.forEach(add)
+      if (entry.kind === "file") {
+        add(entry.node)
+        continue
+      }
+      // Twice: once through the verifier that builds the mailbox, and once
+      // more to deliver it. A plain file has only the delivery.
+      for (const message of entry.messages) {
+        add(message)
+        add(message)
+      }
     }
   }
   if (output !== "original") {
@@ -302,15 +340,19 @@ async function rebuildMailbox(input: {
 }): Promise<Rebuilt> {
   const { entry, collected, reasons } = input
   const included: RebuildMessage[] = []
+  /** The message number of each included message, by position. */
+  const numbers: number[] = []
   const leftOut: ContainerSummary["messages"]["leftOut"] = []
 
   for (const message of entry.messages) {
     const found = collected.get(message.document.id)
+    const number = (messageIndex(message.document.sourcePartPath) ?? 0) + 1
     if (found) {
       included.push({ checksum: found.checksum, open: found.open })
+      numbers.push(number)
     } else {
       leftOut.push({
-        message: (messageIndex(message.document.sourcePartPath) ?? 0) + 1,
+        message: number,
         documentId: message.document.id,
         reason: reasons.get(message.document.id) ?? "not-ready",
       })
@@ -322,6 +364,7 @@ async function rebuildMailbox(input: {
     kind: "mbox",
     checksum: null,
     verified: true,
+    failure: null,
     messages: {
       total: entry.messages.length,
       included: included.length,
@@ -359,6 +402,9 @@ async function rebuildMailbox(input: {
     ) {
       throw error
     }
+    const failure =
+      error instanceof MailboxRebuildError ? error.failure : "artifact-mismatch"
+    const index = error instanceof MailboxRebuildError ? error.index : null
     // The failure and the position, never the message: the log is not a
     // place for document content, and a position is enough to find it.
     console.error(
@@ -368,23 +414,42 @@ async function rebuildMailbox(input: {
         batchId: input.batchId,
         documentId: entry.node.document.id,
         errorCategory: "mailbox-verification-failed",
-        failure:
-          error instanceof MailboxRebuildError
-            ? error.failure
-            : "artifact-mismatch",
-        messageIndex: error instanceof MailboxRebuildError ? error.index : null,
+        failure,
+        messageIndex: index,
       })
     )
     summary.verified = false
+    // The same, for the reviewer: which check, and which message by the
+    // number they know it by.
+    summary.failure = {
+      check: failure,
+      message: index === null ? null : (numbers[index] ?? null),
+    }
     return { ok: false, reason: "verification-failed", summary }
   }
 }
 
 /**
+ * A mailbox that was not delivered, and not merely because its messages have
+ * not been exported yet: withheld by its own verification, or with messages
+ * left out for another reason — a stored export that no longer matched, one
+ * too large for the download, one that could not be processed.
+ */
+function withheldMailbox(summary: ContainerSummary): boolean {
+  return (
+    summary.checksum === null &&
+    (!summary.verified ||
+      summary.messages.leftOut.some((entry) => entry.reason !== "not-ready"))
+  )
+}
+
+/**
  * The download, planned and verified, ready to stream.
  *
- * Throws `NothingToDownloadError` when no file made it, and an `AccessError`
- * for a `documentId` that is not a top-level upload in this batch.
+ * Throws `MailboxWithheldError` when no file made it because a mailbox was
+ * withheld, `NothingToDownloadError` when no file made it otherwise — both
+ * carrying the report — and an `AccessError` for a `documentId` that is not a
+ * top-level upload in this batch.
  */
 export async function assembleBatchDownload(
   batchId: string,
@@ -564,8 +629,6 @@ export async function assembleBatchDownload(
     }
   }
 
-  if (files.length === 0) throw new NothingToDownloadError()
-
   // Named rather than left out: every document this download was about and
   // does not deliver, once each.
   const delivered = new Set(reported)
@@ -591,6 +654,17 @@ export async function assembleBatchDownload(
     placements: containerOf,
     containers,
   })
+
+  if (files.length === 0) {
+    const withheld = containers.filter(withheldMailbox)
+    if (withheld.length > 0) {
+      throw new MailboxWithheldError(
+        report,
+        withheld.map(containerNote).join(" ")
+      )
+    }
+    throw new NothingToDownloadError(report)
+  }
 
   // One upload, in its own format, with nothing that has to travel beside
   // it: the file itself, not a zip of one file. A vault has to travel beside

@@ -1,5 +1,5 @@
 import { unzipSync } from "fflate"
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { hasDatabase, testFingerprint, testId } from "./support"
 
@@ -14,6 +14,43 @@ import { hasDatabase, testFingerprint, testId } from "./support"
  * through, with every accepted value gone from every byte of it.
  */
 
+/**
+ * The mailbox verifier, passed straight through unless a test asks it to
+ * refuse. A real refusal takes a stored export changing between two reads in
+ * one request, which a test cannot time; how refusals come about is
+ * tests/mbox-rebuild.test.ts, and what one does to a download is here.
+ */
+const rebuild = vi.hoisted(() => ({
+  refuse: null as null | { failure: "separator-leak"; index: number },
+}))
+
+vi.mock("@/lib/documents/mbox/rebuild", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/documents/mbox/rebuild")>()
+  return {
+    ...actual,
+    buildVerifiedMailbox: async (
+      ...args: Parameters<typeof actual.buildVerifiedMailbox>
+    ) => {
+      if (rebuild.refuse) {
+        throw new actual.MailboxRebuildError(
+          rebuild.refuse.failure,
+          rebuild.refuse.index
+        )
+      }
+      return actual.buildVerifiedMailbox(...args)
+    },
+  }
+})
+
+/** Who the download route thinks is asking; there is no request cookie. */
+const session = vi.hoisted(() => ({ ownerKey: "" }))
+
+vi.mock("@/lib/security/fingerprint", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/security/fingerprint")>()),
+  peekIdentity: async () => ({ ownerKey: session.ownerKey }),
+}))
+
 const { prisma } = await import("@/lib/database/prisma")
 const { expandContainer } = await import("@/lib/documents/expand")
 const { extractEml } = await import("@/lib/documents/eml/extract")
@@ -24,8 +61,11 @@ const { exportAndStore } = await import("@/lib/redaction/deliver")
 const { defaultVariant } = await import("@/lib/redaction/variants")
 const { categoriesAllowing } = await import("@/lib/redaction/methods")
 const { toDatabaseRow } = await import("@/lib/redaction/model")
-const { assembleBatchDownload, NothingToDownloadError } =
+const { assembleBatchDownload, MailboxWithheldError, NothingToDownloadError } =
   await import("@/lib/redaction/batch-download")
+const { GET: downloadRoute } =
+  await import("@/app/api/batches/[id]/download/route")
+const { createBatchToken } = await import("@/lib/security/signed-url")
 const { streamArchive } = await import("@/lib/redaction/archive")
 const { artifactKey, sourceKey } = await import("@/lib/storage/blob")
 const { documentSeal, getSealed, newDocumentSeal, putSealed } =
@@ -219,6 +259,10 @@ function latin1(bytes: Uint8Array): string {
 describe.skipIf(!hasDatabase)(
   "downloading a batch in its original shape",
   () => {
+    afterEach(() => {
+      rebuild.refuse = null
+    })
+
     afterAll(async () => {
       for (const value of owners) {
         await prisma.document.deleteMany({ where: { userFingerprint: value } })
@@ -603,6 +647,132 @@ describe.skipIf(!hasDatabase)(
           documentId: "doc_not_in_this_batch",
         })
       ).rejects.toThrow("not an upload in this batch")
+    })
+
+    it("says a mailbox was withheld, not that nothing was exported, and still gives the report", async () => {
+      const ownerKey = owner("rebuild-withheld")
+      const source = mailbox([1, 2, 3].map((n) => numberedMessage(n)))
+      const id = await seed({
+        source,
+        ownerKey,
+        kind: "mbox",
+        name: "inbox.mbox",
+      })
+
+      const { batchId } = await expandContainer(id)
+      await prisma.document.update({
+        where: { id },
+        data: { status: "expanded" },
+      })
+      for (const message of await childrenOf(id)) {
+        await review(message.id)
+        await exportOne(message.id)
+      }
+
+      // Every message exported and verified; the mailbox, refused whole.
+      rebuild.refuse = { failure: "separator-leak", index: 1 }
+      const note =
+        "A mailbox was rebuilt from 3 of 3 messages and failed its verification, so it was withheld: the separator line before message 2 carried an accepted value, or text Anonify does not write."
+
+      for (const documentId of [null, id]) {
+        const refused = await assembleBatchDownload(batchId!, {
+          output: "original",
+          documentId,
+        }).catch((error: unknown) => error)
+
+        expect(refused).toBeInstanceOf(MailboxWithheldError)
+        expect(refused).not.toBeInstanceOf(NothingToDownloadError)
+        if (!(refused instanceof MailboxWithheldError)) return
+        expect(refused.message).toBe(note)
+        expect(refused.report.containers).toEqual([
+          expect.objectContaining({
+            documentId: id,
+            checksum: null,
+            verified: false,
+            failure: { check: "separator-leak", message: 2 },
+          }),
+        ])
+        expect(refused.report.skipped).toContainEqual({
+          documentId: id,
+          reason: "verification-failed",
+        })
+      }
+
+      // Through the route, as the workspace's "Download redacted mailbox"
+      // asks for it: a refusal that says what happened, and the report.
+      session.ownerKey = ownerKey
+      const token = createBatchToken({ batchId: batchId!, ownerKey })
+      const url = (part: string) =>
+        `http://anonify.test/api/batches/${batchId}/download?token=${token}&output=original&document=${id}${part}`
+      const context = { params: Promise.resolve({ id: batchId! }) }
+
+      const response = await downloadRoute(new Request(url("")), context)
+      expect(response.status).toBe(422)
+      expect(await response.json()).toMatchObject({ error: note })
+
+      const report = await downloadRoute(
+        new Request(url("&part=report")),
+        context
+      )
+      expect(report.status).toBe(200)
+      const body = await report.json()
+      expect(body.containers[0]).toMatchObject({
+        documentId: id,
+        verified: false,
+        failure: { check: "separator-leak", message: 2 },
+      })
+      expect(body.notes).toContain(note)
+    })
+
+    it("says a mailbox none of whose exports still match was not rebuilt", async () => {
+      const ownerKey = owner("rebuild-all-tampered")
+      const source = mailbox([1, 2].map((n) => numberedMessage(n)))
+      const id = await seed({
+        source,
+        ownerKey,
+        kind: "mbox",
+        name: "inbox.mbox",
+      })
+
+      const { batchId } = await expandContainer(id)
+      await prisma.document.update({
+        where: { id },
+        data: { status: "expanded" },
+      })
+      const messages = await childrenOf(id)
+      for (const message of messages) {
+        await review(message.id)
+        await exportOne(message.id)
+        // Replaced in storage after it passed.
+        const artifact = await prisma.exportArtifact.findFirstOrThrow({
+          where: { documentId: message.id },
+          orderBy: { createdAt: "desc" },
+        })
+        await putSealed(
+          artifactKey(message.id, artifact.id, artifact.extension),
+          bytesOf(numberedMessage(99)),
+          documentSeal(message)
+        )
+      }
+
+      const refused = await assembleBatchDownload(batchId!, {
+        output: "original",
+        documentId: id,
+      }).catch((error: unknown) => error)
+
+      // Exported, and not deliverable: "nothing exported yet" would be false.
+      expect(refused).toBeInstanceOf(MailboxWithheldError)
+      if (!(refused instanceof MailboxWithheldError)) return
+      expect(refused.message).toBe(
+        "A mailbox had none of its 2 messages to include, so it was not rebuilt."
+      )
+      expect(refused.report.containers[0].messages.leftOut).toEqual(
+        messages.map((message, index) => ({
+          message: index + 1,
+          documentId: message.id,
+          reason: "export-failed",
+        }))
+      )
     })
 
     it("says there is nothing to download before anything is exported", async () => {

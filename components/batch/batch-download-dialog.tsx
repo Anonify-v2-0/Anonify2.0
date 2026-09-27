@@ -98,7 +98,12 @@ type Fetching =
   | { phase: "idle" }
   | { phase: "assembling"; received: number; total: number | null }
   | { phase: "saved"; size: number; filename: string; archive: boolean }
-  | { phase: "failed"; message: string }
+  /**
+   * `report` when the server refused with a report worth reading: a mailbox
+   * withheld by its own verification, whose report says which check it
+   * failed and at which message.
+   */
+  | { phase: "failed"; message: string; report?: boolean }
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -235,6 +240,7 @@ export function BatchDownloadDialog({
             phase: "failed",
             message:
               payload.error?.trim() || "The archive could not be assembled.",
+            report: response.status === 422,
           })
           return
         }
@@ -408,6 +414,22 @@ export function BatchDownloadDialog({
             <p className="text-[11px] leading-relaxed text-text-muted">
               This runs on the server. You can close this window — the button
               keeps the progress, and the archive will be waiting.
+            </p>
+          ) : null}
+
+          {!active &&
+          deliverable &&
+          fetching.phase === "failed" &&
+          fetching.report ? (
+            <p className="text-[11px] leading-relaxed text-text-muted">
+              <a
+                className="underline decoration-border underline-offset-2 transition-colors hover:text-white"
+                href={withParams(deliverable, { part: "report" })}
+                download
+              >
+                Batch report
+              </a>{" "}
+              — what was withheld or left out, and why.
             </p>
           ) : null}
 

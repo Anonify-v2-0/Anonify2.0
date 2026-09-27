@@ -1,5 +1,6 @@
 import { Zip, ZipDeflate, zipSync } from "fflate"
 
+import type { MailboxRebuildFailure } from "@/lib/documents/mbox/rebuild"
 import type { BatchOutput } from "@/lib/redaction/batch-layout"
 import {
   REPORT_VERSION,
@@ -174,6 +175,13 @@ export type ContainerSummary = {
    */
   checksum: string | null
   verified: boolean
+  /**
+   * Which check a mailbox that failed verification failed, and at which
+   * message when it concerns one; null when it passed or was never built.
+   * "Withheld" alone leaves a reviewer unable to tell a changed export from a
+   * separator that would have carried a value.
+   */
+  failure: { check: MailboxRebuildFailure; message: number | null } | null
   messages: {
     total: number
     included: number
@@ -246,6 +254,28 @@ export function skipSentence(reason: SkipReason): string {
   return SKIP_SENTENCES[reason]
 }
 
+/** Which check failed, as a clause. `message` is "message 4" or "a message". */
+const FAILURE_SENTENCES: Record<
+  MailboxRebuildFailure,
+  (message: string) => string
+> = {
+  "artifact-mismatch": (message) =>
+    `${message} no longer matched the export that passed verification`,
+  "count-mismatch": () =>
+    "it did not split back into the messages that went in",
+  "message-mismatch": (message) =>
+    `${message} read back out of it was not the message that went in`,
+  "separator-leak": (message) =>
+    `the separator line before ${message} carried an accepted value, or text Anonify does not write`,
+}
+
+function failureClause(failure: ContainerSummary["failure"]): string {
+  if (!failure) return ""
+  const message =
+    failure.message === null ? "a message" : `message ${failure.message}`
+  return `: ${FAILURE_SENTENCES[failure.check](message)}`
+}
+
 /**
  * `897 of 900 messages; 3 left out: message 4 (had not finished processing), …`
  *
@@ -253,12 +283,12 @@ export function skipSentence(reason: SkipReason): string {
  * the processed layout, its row in the batch — and its subject is document
  * content.
  */
-function containerNote(summary: ContainerSummary): string {
+export function containerNote(summary: ContainerSummary): string {
   const { total, included, leftOut } = summary.messages
   const count = `${included} of ${total} ${total === 1 ? "message" : "messages"}`
 
   const head = !summary.verified
-    ? `A mailbox was rebuilt from ${count} and failed its verification, so it was withheld.`
+    ? `A mailbox was rebuilt from ${count} and failed its verification, so it was withheld${failureClause(summary.failure)}.`
     : summary.checksum === null
       ? `A mailbox had none of its ${total} ${total === 1 ? "message" : "messages"} to include, so it was not rebuilt.`
       : `A mailbox was rebuilt with ${count}.`

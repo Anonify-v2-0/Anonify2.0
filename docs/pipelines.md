@@ -907,10 +907,18 @@ written once through a reader that splits it with `MailboxScanner` — the same
 scanner that split the upload — and holds it to what went in: the same number
 of messages; each one, separator gone and quoting undone, equal byte for byte to
 the export that went in; and every separator line written by this code and
-carrying none of the values accepted anywhere in the batch. Together those
-account for every byte of the file: a byte is either inside a message that is a
-verified export, or on a line this code wrote and then searched. A mailbox that
-fails is withheld whole and named as `verification-failed`.
+carrying none of the values accepted anywhere in the batch outside the text
+that is always the same — `From MAILER-DAEMON `, and the placeholder. A value
+found only there (`1970`, or a bounce's `Mailer-Daemon` swept up by accepting
+every name) is a coincidence with a constant, not a leak, and does not
+withhold the mailbox; one that reaches into a message's own date does.
+Together those account for every byte of the file: a byte is either inside a
+message that is a verified export, or on a line this code wrote and then
+searched. A mailbox that fails is withheld whole and named as
+`verification-failed`, with the check it failed and the message it failed at
+in `containers[].failure`. A download that is only that mailbox is refused
+with the report's note on it rather than "nothing exported", and
+`?part=report` still serves the report.
 
 **Streamed.** Each message is read out of storage, quoted a piece at a time and
 handed on; the verifier holds one message and the scanner's 16 KiB lookahead,

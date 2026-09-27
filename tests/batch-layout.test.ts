@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { buildBatchReport } from "@/lib/redaction/archive"
+import { deliveredIn } from "@/lib/redaction/batch-download"
 import {
   artifactPath,
   comparePartPaths,
@@ -207,6 +208,32 @@ describe("the original format", () => {
   })
 })
 
+describe("what a download is charged against its ceiling", () => {
+  const roots = provenanceTree(BATCH)
+  const entries = originalEntries(roots)
+  const nodes = walk(roots)
+  const weights = (output: "original" | "processed" | "both") =>
+    Object.fromEntries(deliveredIn(output, entries, nodes))
+
+  it("charges a mailbox's message for the verifier's read as well as delivery", () => {
+    // A message is read once to build the mailbox through its verifier and
+    // once more to deliver it; a plain file only to deliver it.
+    expect(weights("original")).toEqual({
+      m0: 2,
+      m1: 2,
+      m2: 2,
+      letter: 1,
+      pdf: 1,
+    })
+  })
+
+  it("charges each shape a file is delivered in", () => {
+    expect(weights("processed")).toMatchObject({ m0: 1, a2x: 1, pdf: 1 })
+    expect(weights("processed")).not.toHaveProperty("mbx")
+    expect(weights("both")).toMatchObject({ m0: 3, letter: 2, pdf: 2, a10: 1 })
+  })
+})
+
 describe("the batch report says where each file went", () => {
   function reportFor(id: string): ExportReport {
     return {
@@ -232,6 +259,7 @@ describe("the batch report says where each file went", () => {
         kind: "mbox",
         checksum: "abc",
         verified: true,
+        failure: null,
         messages: {
           total: 3,
           included: 2,
@@ -276,12 +304,19 @@ describe("the batch report says where each file went", () => {
           kind: "mbox",
           checksum: null,
           verified: false,
+          failure: { check: "separator-leak", message: 2 },
           messages: { total: 3, included: 3, leftOut: [] },
         },
       ],
     })
+    // Which check, and which message: "withheld" alone leaves a reviewer
+    // unable to tell a changed export from a separator carrying a value.
+    expect(withheld.containers[0].failure).toEqual({
+      check: "separator-leak",
+      message: 2,
+    })
     expect(withheld.notes).toContain(
-      "A mailbox was rebuilt from 3 of 3 messages and failed its verification, so it was withheld."
+      "A mailbox was rebuilt from 3 of 3 messages and failed its verification, so it was withheld: the separator line before message 2 carried an accepted value, or text Anonify does not write."
     )
   })
 })

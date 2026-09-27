@@ -150,6 +150,27 @@ describe("the separator line", () => {
     )
   })
 
+  it("does not count a value found only in the text it always writes", () => {
+    // `1970` and `00:00` are the placeholder's; `Mailer-Daemon` is every
+    // line's sender, and a bounce's display name that accepting every name
+    // sweeps up. None of them says anything about a message.
+    const head = Buffer.from(numberedMessage(1), "latin1")
+    expect(separatorFor(head, searchedValues(["Mailer-Daemon"]))).toBe(
+      "From MAILER-DAEMON Tue Mar  3 09:14:02 2026"
+    )
+    expect(
+      separatorFor(head, searchedValues(["Mailer-Daemon", "2026", "1970"]))
+    ).toBe(PLACEHOLDER_SEPARATOR)
+  })
+
+  it("still counts a value that reaches into a message's own date", () => {
+    const head = Buffer.from(numberedMessage(1), "latin1")
+    // Starts in the constant sender and ends in the date the message gave.
+    expect(separatorFor(head, searchedValues(["daemon tue"]))).toBe(
+      PLACEHOLDER_SEPARATOR
+    )
+  })
+
   it("writes asctime the way every mailbox reader parses it", () => {
     expect(asctime(new Date(Date.UTC(2026, 0, 2, 3, 4, 5)))).toBe(
       "Fri Jan  2 03:04:05 2026"
@@ -221,6 +242,30 @@ describe("rebuilding a mailbox", () => {
     expect(latin1(reread[0].bytes)).toBe(`${latin1(bare)}\n`)
   })
 
+  it("is not withheld for a value that is only in its own constant text", async () => {
+    // One message with no date of its own, so its line is the placeholder.
+    const undated = Buffer.from(
+      "From: a@example.com\r\nSubject: x\r\n\r\nbody\r\n",
+      "latin1"
+    )
+    const messages = [...childrenOf(source), undated].map((bytes) =>
+      messageOf(bytes)
+    )
+    expect(splitMailbox(await written(messages))[3].fromLine).toBe(
+      PLACEHOLDER_SEPARATOR
+    )
+
+    for (const values of [["1970"], ["Mailer-Daemon"], ["00:00:00 1970"]]) {
+      // Accepted somewhere in the batch, and a coincidence on these lines: the
+      // placeholder and the sender are constants this code chose.
+      const verified = await buildVerifiedMailbox(
+        messages,
+        searchedValues(values)
+      )
+      expect(verified.messages).toBe(4)
+    }
+  })
+
   it("verifies what it built and delivers the same bytes", async () => {
     const children = childrenOf(source)
     const messages = children.map((bytes) => messageOf(bytes, 11))
@@ -260,15 +305,51 @@ describe("refusing a mailbox that does not verify", () => {
     expect(error.index).toBe(1)
   })
 
-  it("refuses a separator that would carry an accepted value", async () => {
-    // Accepted in some message, and the one date the placeholder has to use.
-    const error = await rejected(() =>
-      buildVerifiedMailbox(
-        children.map((bytes) => messageOf(bytes)),
-        searchedValues(["2026", "1970"])
+  it("falls back to the placeholder rather than carry a value in a date", async () => {
+    const messages = children.map((bytes) => messageOf(bytes))
+    const values = searchedValues(["2026", "1970"])
+
+    // 2026 is in every message's date, so every line is the placeholder —
+    // whose 1970 is its own, not a message's — and the mailbox verifies.
+    await buildVerifiedMailbox(messages, values)
+    const lines = splitMailbox(await written(messages, values)).map(
+      (entry) => entry.fromLine
+    )
+    expect(lines).toEqual([PLACEHOLDER_SEPARATOR, PLACEHOLDER_SEPARATOR])
+  })
+
+  it("refuses a separator whose date carries an accepted value", async () => {
+    const framed = children.map((bytes) => ({ checksum: sha256(bytes) }))
+    const reader = new MailboxReader()
+    // Written without the value, so the lines keep the messages' 2026 dates,
+    // and then held to it: what the verifier would see had the fallback not
+    // happened.
+    reader.write(
+      Buffer.from(
+        await written(children.map((bytes) => messageOf(bytes))),
+        "latin1"
       )
     )
-    expect(error.failure).toBe("separator-leak")
+
+    expect(() =>
+      assertRebuilt(reader.end(), framed, searchedValues(["2026"]))
+    ).toThrow(expect.objectContaining({ failure: "separator-leak", index: 0 }))
+  })
+
+  it("does not excuse a value merely because the sender is in it", async () => {
+    const framed = children.map((bytes) => ({ checksum: sha256(bytes) }))
+    const reader = new MailboxReader()
+    reader.write(
+      Buffer.from(
+        await written(children.map((bytes) => messageOf(bytes))),
+        "latin1"
+      )
+    )
+
+    // Begins in the constant sender, ends in a message's date.
+    expect(() =>
+      assertRebuilt(reader.end(), framed, searchedValues(["daemon tue"]))
+    ).toThrow(expect.objectContaining({ failure: "separator-leak" }))
   })
 
   it("refuses a message that the splitter reads back differently", async () => {

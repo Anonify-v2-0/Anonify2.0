@@ -3,9 +3,14 @@ import { Readable } from "node:stream"
 import { contentDisposition } from "@/lib/api/content-disposition"
 import { errorResponse, handleRouteError, streamResponse } from "@/lib/api/http"
 import { requireBatch } from "@/lib/documents/batches"
-import { serializeBatchReport, streamArchive } from "@/lib/redaction/archive"
+import {
+  serializeBatchReport,
+  streamArchive,
+  type BatchReport,
+} from "@/lib/redaction/archive"
 import {
   assembleBatchDownload,
+  MailboxWithheldError,
   NothingToDownloadError,
 } from "@/lib/redaction/batch-download"
 import {
@@ -41,15 +46,18 @@ const HEADERS = {
  * `?document=<id>` narrows the download to one top-level upload, which is how
  * the workspace offers a mailbox as the mailbox. `?part=report` serves the
  * batch report for the same download, for the case where the download is a
- * single file with nowhere to put one.
+ * single file with nowhere to put one — and for the case where there is no
+ * download at all, because the report is where it says why.
  */
 export async function GET(
   request: Request,
   context: RouteContext<"/api/batches/[id]/download">
 ) {
+  const url = new URL(request.url)
+  const part = url.searchParams.get("part")
+
   try {
     const { id } = await context.params
-    const url = new URL(request.url)
     const token = url.searchParams.get("token")
     if (!token) return errorResponse("Missing download token", 401)
 
@@ -76,15 +84,7 @@ export async function GET(
       documentId: url.searchParams.get("document"),
     })
 
-    if (url.searchParams.get("part") === "report") {
-      return new Response(Buffer.from(serializeBatchReport(download.report)), {
-        headers: {
-          ...HEADERS,
-          "content-type": "application/json",
-          "content-disposition": contentDisposition("batch-report.json"),
-        },
-      })
-    }
+    if (part === "report") return reportResponse(download.report)
 
     if (download.kind === "file") {
       return streamResponse(await download.open(), {
@@ -104,9 +104,30 @@ export async function GET(
       "content-disposition": contentDisposition(download.filename),
     })
   } catch (error) {
-    if (error instanceof NothingToDownloadError) {
-      return errorResponse(error.message, 409)
+    if (
+      error instanceof MailboxWithheldError ||
+      error instanceof NothingToDownloadError
+    ) {
+      // Nothing to deliver, and still a report saying why.
+      if (part === "report") return reportResponse(error.report)
+      // A withheld mailbox is not "nothing exported yet": its messages may
+      // all be exported and verified. The message is the report's own note
+      // on it, which says what did not pass.
+      return errorResponse(
+        error.message,
+        error instanceof MailboxWithheldError ? 422 : 409
+      )
     }
     return handleRouteError(error, "batches.download")
   }
+}
+
+function reportResponse(report: BatchReport): Response {
+  return new Response(Buffer.from(serializeBatchReport(report)), {
+    headers: {
+      ...HEADERS,
+      "content-type": "application/json",
+      "content-disposition": contentDisposition("batch-report.json"),
+    },
+  })
 }

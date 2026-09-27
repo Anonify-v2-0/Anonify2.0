@@ -65,6 +65,7 @@ true`, with a `Retry-After` header. Verification or storage failures surface as
 | `409` | The action conflicts with the resource's current state (expired-adjacent, not ready, already running, not in a batch, etc.). |
 | `410` | The document has expired. |
 | `413` | The uploaded file exceeds `MAX_UPLOAD_BYTES` (local upload only). |
+| `422` | Understood, and refused for what is in it: a file that cannot be restored with that vault, or a mailbox withheld from a batch download. |
 | `429` | Rate limit or quota refused; carries `retryAfterSeconds`. |
 | `500` | Verification failure, storage failure, or an unexpected server error. |
 | `503` | A required environment variable or the database is unavailable. |
@@ -570,9 +571,13 @@ and named in the batch report rather than failing the whole download.
   message's own date, never copied from the source), `>From ` quoting
   reapplied as mboxrd — and then verified as its own export by splitting it
   with the upload's scanner: the same message count, each message equal byte
-  for byte to its export, no accepted value on any separator line. A message
-  with no verified export is left out and named in the report; a mailbox that
-  fails verification is withheld whole. A message carrying attachments is its
+  for byte to its export, no accepted value on any separator line outside the
+  text that is always the same (`From MAILER-DAEMON `, and the placeholder
+  date). A message with no verified export is left out and named in the
+  report; a mailbox that fails verification is withheld whole, and the
+  report's `containers[].failure` says which check it failed
+  (`artifact-mismatch`, `count-mismatch`, `message-mismatch`,
+  `separator-leak`) and at which message. A message carrying attachments is its
   own export, which already carries its redacted enclosures. One upload is
   served as that file, bare (`inbox-redacted.mbox`, `application/mbox`);
   several are zipped.
@@ -591,7 +596,9 @@ first read through a hash and kept nowhere, and a mailbox is built once through
 its verifier, which decides what goes in before a byte is sent; then the files
 are sent as they are read, each checked again on the way through, a rebuilt
 mailbox against the checksum its verification computed. A 150 MiB ceiling
-bounds one request's work; what does not fit is named as skipped.
+bounds one request's work, charging each file for every read after the hash —
+a message of a rebuilt mailbox twice, once for its verifier and once for its
+delivery; what does not fit is named as skipped.
 
 A document the reviewer had tokenized or encrypted also gets its vault,
 **beside the file and never inside it** — `<name>-vault.json`, or
@@ -610,14 +617,21 @@ verified on its own.
   top-level upload's id, to download only that upload (the workspace uses this
   to offer a mailbox as a mailbox); `part=report` — the batch report for the
   same download as JSON, for a download that is a single file with nowhere to
-  put one.
+  put one, and served for a download that would be refused `409` or `422` too,
+  since the report is what says why. It runs the same verification as the
+  download, a rebuilt mailbox included, so it costs what the download does
+  less sending the files.
 - **Response `200`:** the upload's own type and name for a single original
   file (e.g. `application/mbox`, `filename="inbox-redacted.mbox"`); otherwise
   `application/zip`, `filename="anonify-batch-redacted.zip"` (or
   `<name>-redacted.zip` when `document` names one upload). `maxDuration` 300s.
 - **Errors:** `400` unknown `output`; `401` missing / invalid / expired token;
   `403` token is not yours; `404` batch not found / foreign, or `document` is
-  not a top-level upload in this batch; `409` nothing exported yet.
+  not a top-level upload in this batch; `409` nothing exported yet; `422`
+  nothing to deliver because a mailbox was withheld — it failed its own
+  verification, or none of its messages' exports could go in — with the
+  report's note on it as `error`. Its messages may well be exported; the
+  report says which check failed.
 
 ### `DELETE /api/batches/:id/rules`
 
