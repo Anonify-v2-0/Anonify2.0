@@ -14,6 +14,56 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.8.0] - 2026-09-27
+
+### Added
+
+- More places the contextual pass can run. Setup and the new `pnpm ai` command
+  offer OpenRouter, Synthetic, LM Studio, llama.cpp, and any other
+  OpenAI-compatible endpoint by `AI_BASE_URL`. Each gets the same model
+  discovery, verification and visible "unsupported" degradation as the existing
+  providers, and adding a vendor is one row in a table. LM Studio and llama.cpp
+  are treated like Ollama: no spend, one request at a time, and reachable from
+  Docker. `pnpm ai login --provider openai` signs in with a ChatGPT subscription
+  and keeps the token sealed in the database, never in `.env`. It then lists
+  your plan's models from OpenAI, verifies the one you pick, and offers to record
+  a price for it. It uses Codex CLI's public client, and OpenAI's terms decide
+  whether a plan may be used this way, so read the caveat in
+  `docs/connect-openai.md` and prefer an API key for anything deployed. There is
+  no Anthropic subscription sign-in, because Anthropic's terms do not allow it.
+  `pnpm ai verify` verifies a model and writes it to `.env` without running the
+  rest of setup. `pnpm ai status` shows what is in force: for a ChatGPT
+  sign-in, the account, plan and the plan's usage limits from OpenAI, and for
+  any provider, the calls and tokens this instance has sent it. A model that fails
+  verification now says why: which check failed, the HTTP status, and what the
+  provider said, with credentials redacted. Existing configurations and their
+  verifications are unchanged (#126)
+
+### Fixed
+
+- Link previews of a self-hosted instance point at its own address instead of
+  `http://localhost:3000`. Set `ANONIFY_PUBLIC_URL` to the address people reach
+  it at, and rebuild the image after changing it (Docker Compose passes it to the
+  build). Vercel deployments keep using their own address, and `next build` no
+  longer warns that `metadataBase` is unset (#139)
+- The expiry sweep no longer fails with "No record was found for a delete" when
+  a document is removed by something else while the sweep is running, for
+  example a person deleting it, `pnpm cleanup`, or a second sweep. A document
+  already gone now counts as deleted, and one document that cannot be purged no
+  longer stops the rest of the run: it is counted, logged and retried next time (#140)
+
+### Security
+
+- A standalone build (`NEXT_OUTPUT=standalone`) no longer copies the working tree
+  into its server output. Before, it copied the source, tests and docs, every
+  document in local storage (`.anonify-storage`), and downloaded OCR models.
+  Documents stay encrypted, but the build also carries `.env` with the key that
+  opens them. Container images and Vercel deployments were not affected, since
+  neither build sees those folders. If you built standalone on a machine that
+  stores documents locally and copied `.next/standalone` elsewhere, delete that
+  copy's `.anonify-storage`. The output is also smaller (about 155 MB down to
+  138 MB here), and `next build` no longer warns about tracing the whole project (#139)
+
 ## [1.7.0] - 2026-09-27
 
 ### Changed
