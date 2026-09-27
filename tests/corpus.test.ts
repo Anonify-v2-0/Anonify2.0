@@ -4,6 +4,7 @@ import path from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
+import { int } from "@/benchmarks/corpus/lib/args"
 import { createBackend } from "@/benchmarks/corpus/lib/backends"
 import { buildDocument, countWords } from "@/benchmarks/corpus/lib/build"
 import {
@@ -840,5 +841,28 @@ describe("corpus command backend", () => {
       backend("sleep 5; echo late", 200).complete(request)
     ).rejects.toThrow(/timed out/)
     expect(Date.now() - started).toBeLessThan(3000)
+  })
+})
+
+describe("corpus command-line numbers", () => {
+  it("reads whole numbers", () => {
+    expect(int("limit", "0")).toBe(0)
+    expect(int("timeout", "600", 1)).toBe(600)
+    expect(int("concurrency", " 4 ", 1)).toBe(4)
+  })
+
+  it.each([
+    ["timeout", "10m", 1],
+    ["concurrency", "x", 1],
+    ["limit", "", 0],
+    ["limit", "-1", 0],
+    ["limit", "2.5", 0],
+    ["timeout", "1e3", 1],
+    ["concurrency", "0", 1],
+    ["timeout", "0", 1],
+  ])("refuses --%s %j", (name, value, min) => {
+    expect(() => int(name, value, min)).toThrow(
+      `--${name} must be a whole number`
+    )
   })
 })

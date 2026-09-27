@@ -23,6 +23,7 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { parseArgs } from "node:util"
 
+import { int } from "./lib/args"
 import { createBackend, DEFAULT_MODELS, type Backend } from "./lib/backends"
 import { buildDocument } from "./lib/build"
 import { buildManifest } from "./lib/manifest"
@@ -124,12 +125,6 @@ function parseOptions(argv: string[]): Options {
   if (values.help) {
     process.stdout.write(USAGE)
     process.exit(0)
-  }
-  const int = (name: string, value: string) => {
-    const parsed = Number(value)
-    if (!Number.isInteger(parsed) || parsed < 0)
-      throw new Error(`--${name} must be a whole number`)
-    return parsed
   }
   return {
     backend: values.backend,
