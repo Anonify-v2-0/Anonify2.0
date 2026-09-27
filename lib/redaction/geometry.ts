@@ -98,13 +98,25 @@ export function boxesForRedaction(
 ): BoundingBox[] {
   if (redaction.boundingBox) return [redaction.boundingBox]
   if (redaction.start === undefined || redaction.end === undefined) return []
+  return boxesForRange(page, redaction.start, redaction.end)
+}
 
+/**
+ * Where a range of the page's text sits, by the same resolution a redaction
+ * gets. A search hit is drawn with this, so a hit and the redaction it would
+ * become cover the same rectangle.
+ */
+export function boxesForRange(
+  page: Pick<NormalizedPage, "spans">,
+  start: number,
+  end: number
+): BoundingBox[] {
   const boxes: BoundingBox[] = []
   for (const span of page.spans) {
     if (!span.boundingBox) continue
-    if (span.end <= redaction.start || span.start >= redaction.end) continue
+    if (span.end <= start || span.start >= end) continue
 
-    const box = boxForRange(span, redaction.start, redaction.end)
+    const box = boxForRange(span, start, end)
     if (box) boxes.push(box)
   }
 

@@ -452,7 +452,7 @@ of this sweep routinely holds both. Purging the message takes its attachments
 with it — their rows cascade from its — so the ones already gone are skipped
 rather than purged into a row that is no longer there.
 
-**Pruning side-effects.** After the document sweep, two more tables are
+**Pruning side-effects.** After the document sweep, three more tables are
 tidied on the same run, both swallowing errors to `0` so a prune failure cannot
 abort the expiry pass that does the load-bearing work:
 
@@ -460,6 +460,10 @@ abort the expiry pass that does the load-bearing work:
   (patterns a person typed, which is document content in the plainest sense).
   Once its documents are gone nothing points at them, so the batch row goes on
   the same sweep. The count pruned is returned in `CleanupResult.batchesPruned`.
+- `pruneOwnerRules` — global rules outlive every document, so the purge above
+  never reaches them. One that has gone unused for 30 days (the life of the
+  session cookie that owns it) is deleted. The count pruned is returned in
+  `CleanupResult.ownerRulesPruned`.
 - `pruneRateLimits` — drops rate-limit windows that have aged out. The count
   pruned is returned in `CleanupResult.rateLimitsPruned`.
 

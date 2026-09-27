@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { describeWait, rateLimitResponse } from "@/lib/api/http"
+import { describeWait, rateLimitResponse, readJsonWithin } from "@/lib/api/http"
 import { readFailure } from "@/lib/api/errors"
 import { usedFraction } from "@/types/limits"
 
@@ -92,5 +92,75 @@ describe("allowance arithmetic", () => {
     // Page counts are charged after extraction, so usage can land above the
     // limit; the meter should sit at full rather than overflow its track.
     expect(usedFraction(14, 10)).toBe(1)
+  })
+})
+
+describe("bounded request bodies", () => {
+  /** A request with no declared length, the way a chunked upload arrives. */
+  function chunked(parts: string[]): {
+    request: Request
+    pulled: () => number
+  } {
+    let index = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (index === parts.length) return controller.close()
+        controller.enqueue(new TextEncoder().encode(parts[index++]))
+      },
+    })
+    const request = new Request("http://localhost/api", {
+      method: "POST",
+      body,
+      duplex: "half",
+    } as RequestInit)
+    return { request, pulled: () => index }
+  }
+
+  it("refuses a body past the limit that declared no length, without reading the rest", async () => {
+    const { request, pulled } = chunked([
+      '{"messages":["',
+      "x".repeat(600),
+      "x".repeat(600),
+      "x".repeat(600),
+      '"]}',
+    ])
+    expect(request.headers.get("content-length")).toBeNull()
+
+    expect(await readJsonWithin(request, 1_000)).toEqual({ tooLarge: true })
+    // Refused on the chunk that crossed the limit; the last was never pulled.
+    expect(pulled()).toBeLessThan(5)
+  })
+
+  it("refuses a declared length past the limit before reading anything", async () => {
+    const request = new Request("http://localhost/api", {
+      method: "POST",
+      body: "{}",
+      headers: { "content-length": "5000" },
+    })
+
+    expect(await readJsonWithin(request, 1_000)).toEqual({ tooLarge: true })
+    expect(request.bodyUsed).toBe(false)
+  })
+
+  it("parses a body within the limit, chunked or not", async () => {
+    const { request } = chunked(['{"a":', "[1,2]}"])
+    expect(await readJsonWithin(request, 1_000)).toEqual({
+      tooLarge: false,
+      value: { a: [1, 2] },
+    })
+  })
+
+  it("treats a malformed or absent body as no value, not as too large", async () => {
+    const { request } = chunked(["{not json"])
+    expect(await readJsonWithin(request, 1_000)).toEqual({
+      tooLarge: false,
+      value: undefined,
+    })
+    expect(
+      await readJsonWithin(
+        new Request("http://localhost/api", { method: "POST" }),
+        1_000
+      )
+    ).toEqual({ tooLarge: false, value: undefined })
   })
 })

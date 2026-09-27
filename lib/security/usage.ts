@@ -220,6 +220,7 @@ export function quotaMessage(check: QuotaCheck): string {
     emailKilobytes: "kibibytes of email content",
     pptxSlides: "slides",
     uploads: "uploads",
+    assistantTokens: "Hush tokens",
   }
 
   return `Daily demo limit reached for ${labels[check.kind]} (${check.limit}). It resets at midnight UTC.`

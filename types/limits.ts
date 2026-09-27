@@ -57,6 +57,7 @@ export const RATE_LIMIT_LABELS: Record<RateLimitName, string> = {
   processing: "Processing",
   export: "Exports",
   read: "Reads",
+  search: "Searches",
 }
 
 export const QUOTA_LABELS: Record<UsageKind, string> = {
@@ -69,6 +70,7 @@ export const QUOTA_LABELS: Record<UsageKind, string> = {
   emailKilobytes: "Email content (KiB)",
   pptxSlides: "Slides",
   uploads: "Uploads",
+  assistantTokens: "Hush tokens",
 }
 
 /** Share of an allowance consumed, 0-1. Unlimited allowances have no share. */

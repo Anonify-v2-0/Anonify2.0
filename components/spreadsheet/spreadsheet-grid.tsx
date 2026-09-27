@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { EyeOff, Square } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -8,12 +8,15 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   cellSelected,
   columnSelected,
+  focusCleared,
   rowSelected,
   selectionCleared,
   sheetChanged,
 } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { selectRedactions } from "@/store/selectors"
+import { selectCurrentHit } from "@/store/searchSlice"
+import type { CellHit } from "@/lib/redaction/search"
 import { normalizeValue } from "@/lib/documents/shared/text"
 import { cn } from "@/lib/utils"
 import type { NormalizedDocument, SpreadsheetSheet } from "@/types/document"
@@ -184,6 +187,8 @@ function sheetRedactions(sheetName: string, redactions: Redaction[]) {
   }
 }
 
+const NO_CELLS: CellHit[] = []
+
 export type SpreadsheetActions = {
   create: (input: Omit<Redaction, "id" | "documentId">) => void
 }
@@ -208,6 +213,50 @@ export function SpreadsheetGrid({
     () => sheetRedactions(sheet?.name ?? "", redactions),
     [redactions, sheet?.name]
   )
+
+  // Search hits are cells: a cell is redacted whole, so it is found whole.
+  const searchCells = useAppSelector((state) =>
+    state.search.open ? state.search.cells : NO_CELLS
+  )
+  const currentHit = useAppSelector(selectCurrentHit)
+  const sheetName = sheet?.name
+  const hitKeys = useMemo(
+    () =>
+      new Set(
+        searchCells
+          .filter((cell) => cell.worksheet === sheetName)
+          .map((cell) => cellKey(cell.row, cell.column))
+      ),
+    [searchCells, sheetName]
+  )
+  const currentKey =
+    currentHit?.kind === "cell" && currentHit.cell.worksheet === sheetName
+      ? cellKey(currentHit.cell.row, currentHit.cell.column)
+      : null
+  const tableRef = useRef<HTMLTableElement>(null)
+  useEffect(() => {
+    if (!currentKey) return
+    tableRef.current
+      ?.querySelector(`[data-cell="${currentKey}"]`)
+      ?.scrollIntoView({ block: "center", inline: "center" })
+  }, [currentKey])
+
+  // A cell something asked to be shown (a location chip in Hush): scrolled to
+  // and marked until the focus clears. See `focusRequested`.
+  const focus = useAppSelector((state) => state.editor.focus)
+  const focusKey =
+    focus?.kind === "cell" && focus.sheet === sheetName
+      ? cellKey(focus.row, focus.column)
+      : null
+  const focusNonce = focus?.nonce
+  useEffect(() => {
+    if (!focusKey || focusNonce === undefined) return
+    tableRef.current
+      ?.querySelector(`[data-cell="${focusKey}"]`)
+      ?.scrollIntoView({ block: "center", inline: "center" })
+    const timer = setTimeout(() => dispatch(focusCleared(focusNonce)), 2_400)
+    return () => clearTimeout(timer)
+  }, [dispatch, focusKey, focusNonce])
 
   if (!sheet) {
     return (
@@ -360,7 +409,9 @@ export function SpreadsheetGrid({
 
       <ScrollArea className="flex-1">
         <div className="min-w-max p-4">
-          <table className="border-separate border-spacing-0 bg-document text-[13px] text-document-foreground shadow-document">
+          <table
+            ref={tableRef}
+            className="border-separate border-spacing-0 bg-document text-[13px] text-document-foreground shadow-document">
             <thead>
               <tr>
                 <th className="sticky left-0 z-10 w-10 border-r border-b border-neutral-300 bg-neutral-100 px-2 py-1 text-[11px] font-medium text-neutral-500" />
@@ -452,6 +503,7 @@ export function SpreadsheetGrid({
                       return (
                         <td
                           key={column}
+                          data-cell={cellKey(row, column)}
                           onClick={(event) =>
                             dispatch(
                               cellSelected({
@@ -472,6 +524,13 @@ export function SpreadsheetGrid({
                           className={cn(
                             "max-w-[260px] truncate border-r border-b border-neutral-200 px-2 py-1 transition-colors",
                             state === "accepted" && "bg-black text-black",
+                            cellKey(row, column) === focusKey &&
+                              "animate-pulse outline-2 -outline-offset-2 outline-search-current-edge",
+                            state !== "accepted" &&
+                              hitKeys.has(cellKey(row, column)) &&
+                              (cellKey(row, column) === currentKey
+                                ? "bg-search-current outline-2 -outline-offset-2 outline-search-current-edge"
+                                : "bg-search-hit"),
                             state === "suggested" &&
                               "bg-primary/15 outline-1 -outline-offset-1 outline-dashed outline-red-border",
                             isSelected

@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+/* Hush renders its replies with Streamdown, whose classes live in its bundle. */
+@source "../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -25,6 +27,9 @@
     --color-red-soft: var(--red-soft);
     --color-red-border: var(--red-border);
     --color-red-hover: var(--red-hover);
+    --color-search-hit: var(--search-hit);
+    --color-search-current: var(--search-current);
+    --color-search-current-edge: var(--search-current-edge);
     --color-text-secondary: var(--text-secondary);
     --color-text-muted: var(--text-muted);
     --color-border-strong: var(--border-strong);
@@ -89,6 +94,16 @@
     --red-hover: #e60000;
     --red-soft: rgba(255, 0, 0, 0.12);
     --red-border: rgba(255, 0, 0, 0.55);
+
+    /*
+      Search hits. Amber, because red is a suggestion and black is a decision:
+      a hit is neither, and must never be mistaken for either. Chosen against
+      the document surface, which is white whatever the interface theme is, so
+      the same values read in both.
+    */
+    --search-hit: rgba(250, 204, 21, 0.45);
+    --search-current: rgba(245, 158, 11, 0.85);
+    --search-current-edge: #b45309;
 
     --text-secondary: #d1d5db;
     --text-muted: #a3a0a7;

@@ -672,11 +672,18 @@ export function codexFetch(
       !new URL(url).pathname.endsWith("/responses")
     )
       return inner(input, init)
+    const body = JSON.parse(init.body) as Json
     const response = await inner(input, {
       ...init,
-      body: JSON.stringify(toCodexRequest(JSON.parse(init.body))),
+      body: JSON.stringify(toCodexRequest(body)),
     })
-    return response.ok ? fromCodexStream(response) : scrubbed(response, secrets)
+    if (!response.ok) return scrubbed(response, secrets)
+    // A caller that asked for a stream — the Hush agent does — reads the
+    // backend's events itself, as it would from the public API. Collecting
+    // them into one object here handed it JSON where it expected events, and
+    // it finished every reply with nothing in it. Only a caller that asked
+    // for one answer gets the collected one.
+    return body.stream === true ? response : fromCodexStream(response)
   }) as typeof fetch
 }
 
@@ -693,13 +700,37 @@ export async function subscriptionModel(
   fetcher: typeof fetch = fetch
 ): Promise<LanguageModel> {
   const login = await currentLogin(fetcher)
-  const { createOpenAI } = await import("@ai-sdk/openai")
-  return createOpenAI({
+  const [{ createOpenAI }, { wrapLanguageModel }] = await Promise.all([
+    import("@ai-sdk/openai"),
+    import("ai"),
+  ])
+  const model = createOpenAI({
     baseURL: OPENAI_LOGIN.api,
     apiKey: login.access,
     headers: backendHeaders(login),
     fetch: codexFetch(fetcher, [login.access, login.refresh]),
   }).responses(modelId)
+  // The backend stores nothing (`toCodexRequest` sends `store: false`), so a
+  // multi-step call must not refer back to an earlier item by id: the SDK
+  // does that unless it knows, and the second step of every tool loop failed
+  // with "Item … not found". Told, it sends earlier items whole, and asks for
+  // reasoning in the encrypted form that can be sent back that way.
+  return wrapLanguageModel({
+    model,
+    middleware: {
+      transformParams: async ({ params }) => ({
+        ...params,
+        providerOptions: {
+          ...params.providerOptions,
+          openai: {
+            ...(params.providerOptions?.openai ?? {}),
+            store: false,
+            include: ["reasoning.encrypted_content"],
+          },
+        },
+      }),
+    },
+  })
 }
 
 /**

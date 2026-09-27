@@ -105,6 +105,7 @@ function Inline({
         const content = (
           <span
             data-span-id={run.spanId ?? undefined}
+            data-offset={run.role === "image" ? undefined : (run.start ?? undefined)}
             className={classOf(run.role)}
             style={styleOf(run)}
           >
@@ -420,10 +421,20 @@ function Plain({
       }}
     >
       {piecesOf(page, section.start, section.end).map((piece) => {
-        if (!piece.span) return <span key={`g${piece.start}`}>{piece.text}</span>
+        if (!piece.span) {
+          return (
+            <span key={`g${piece.start}`} data-offset={piece.start}>
+              {piece.text}
+            </span>
+          )
+        }
 
         const span = piece.span
-        const content = <span data-span-id={span.id}>{piece.text}</span>
+        const content = (
+          <span data-span-id={span.id} data-offset={piece.start}>
+            {piece.text}
+          </span>
+        )
         return (
           <Fragment key={`s${piece.start}`}>
             {renderSpan ? renderSpan(span.id, content) : content}

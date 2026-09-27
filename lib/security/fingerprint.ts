@@ -84,8 +84,32 @@ async function observedIp(): Promise<string> {
 }
 
 /**
- * Reads the caller's identity, issuing a session cookie when absent. Must be
- * called from a route handler or server action so the cookie can be written.
+ * Sets the session cookie with a full lifetime from now.
+ *
+ * The lifetime rolls: every write starts the 30 days again. What the session
+ * owns beyond its documents — global rules — is kept for 30 days after it was
+ * last used, and every request that uses one writes this first: an upload,
+ * which the rules are carried into, and a create or an edit. So a rule never
+ * outlives the cookie that reaches it, and a session in use is not cut off on
+ * the day it turns 30 (see lib/redaction/owner-rules.ts).
+ */
+function writeSession(
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
+  sessionId: string
+) {
+  cookieStore.set(SESSION_COOKIE, sessionId, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: SESSION_MAX_AGE,
+  })
+}
+
+/**
+ * Reads the caller's identity, issuing a session cookie when absent and
+ * renewing it when present. Must be called from a route handler or server
+ * action, before any response is streamed, so the cookie can be written.
  */
 export async function getIdentity(): Promise<Identity> {
   const cookieStore = await cookies()
@@ -93,15 +117,26 @@ export async function getIdentity(): Promise<Identity> {
   let sessionId = cookieStore.get(SESSION_COOKIE)?.value
   if (!sessionId || sessionId.length < 32) {
     sessionId = randomBytes(24).toString("hex")
-    cookieStore.set(SESSION_COOKIE, sessionId, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: SESSION_MAX_AGE,
-    })
   }
+  writeSession(cookieStore, sessionId)
 
+  return buildIdentity(sessionId, await observedIp())
+}
+
+/**
+ * Reads the caller's identity and renews the session, without issuing one.
+ *
+ * For route handlers that use a global rule — create, edit or switch one on —
+ * where no session means nothing to act on. Same constraint as `getIdentity`:
+ * call it before the response starts.
+ */
+export async function renewIdentity(): Promise<Identity | null> {
+  const cookieStore = await cookies()
+  const sessionId = cookieStore.get(SESSION_COOKIE)?.value
+  if (!sessionId) return null
+
+  // Only an id this server could have issued is worth keeping alive.
+  if (sessionId.length >= 32) writeSession(cookieStore, sessionId)
   return buildIdentity(sessionId, await observedIp())
 }
 

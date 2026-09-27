@@ -5,6 +5,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist"
 
 import { DocxViewer } from "@/components/document-viewer/docx-viewer"
 import { EmlViewer } from "@/components/document-viewer/eml-viewer"
+import { TextViewer } from "@/components/document-viewer/text-viewer"
 import { boxesForRedaction } from "@/components/redaction/redaction-layer"
 import { cn } from "@/lib/utils"
 import type { NormalizedPage } from "@/types/document"
@@ -94,6 +95,12 @@ export type PageThumbnailProps = {
   redactions: Redaction[]
   selected: boolean
   pdf: PDFDocumentProxy | null
+  /**
+   * Draw the page's text as the miniature: for plain text, RTF and slides,
+   * which have neither a raster to show nor DOCX blocks or EML sections.
+   * Without it their tiles were blank.
+   */
+  textPreview?: boolean
   onSelect: () => void
 }
 
@@ -104,6 +111,7 @@ export function PageThumbnail({
   redactions,
   selected,
   pdf,
+  textPreview = false,
   onSelect,
 }: PageThumbnailProps) {
   const [source, setSource] = useState<string | null>(
@@ -226,6 +234,20 @@ export function PageThumbnail({
                 // DOCX spans carry no geometry, so the boxes drawn below this
                 // find nothing to place. Blacking the run out here is what
                 // keeps the rail a progress view for a Word document too.
+                coveredByAccepted(page, spanId, redactions) ? (
+                  <span className="bg-black text-black">{children}</span>
+                ) : (
+                  children
+                )
+              }
+            />
+          </span>
+        ) : textPreview && page && previewZoom > 0 ? (
+          <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+            <TextViewer
+              page={page}
+              zoom={previewZoom}
+              renderSpan={(spanId, children) =>
                 coveredByAccepted(page, spanId, redactions) ? (
                   <span className="bg-black text-black">{children}</span>
                 ) : (

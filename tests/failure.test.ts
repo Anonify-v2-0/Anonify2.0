@@ -6,6 +6,7 @@ import {
   isRetryable,
   FAILURE_CODES,
 } from "@/lib/workflows/failure"
+import { PatternBudgetError, PatternError } from "@/lib/redaction/patterns"
 import { quotaMessage } from "@/lib/security/usage"
 import { isReviewable } from "@/types/document"
 
@@ -54,6 +55,21 @@ describe("classifying a processing failure", () => {
     ["No extractor registered for pptx", "unsupported-type"],
   ])("reads %j as %s", (message, code) => {
     expect(describeFailure(new Error(`FatalError: ${message}`)).code).toBe(code)
+  })
+
+  it("reads a carried rule that ran out of budget as the rule's fault, and retryable", () => {
+    // Built from the real errors, as the carry step rethrows them, so a change
+    // of wording cannot quietly turn this back into "something went wrong".
+    for (const error of [
+      new PatternBudgetError("matches"),
+      new PatternBudgetError("time"),
+      new PatternError("syntax", "Not a valid pattern: missing closing ]."),
+    ]) {
+      const failure = describeFailure(new Error(`FatalError: ${error.message}`))
+      expect(failure.code).toBe("rule-too-broad")
+      expect(failure.retryable).toBe(true)
+      expect(failure.message).toMatch(/narrow the rule or switch it off/i)
+    }
   })
 
   it("recognises the quota message the pipeline actually throws", () => {

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/database/prisma"
 import { pruneEmptyBatches } from "@/lib/documents/batches"
 import { purgeDocument, PURGE_SELECT } from "@/lib/documents/purge"
+import { pruneOwnerRules } from "@/lib/redaction/owner-rules"
 import { pruneRateLimits } from "@/lib/security/rate-limit"
 
 /**
@@ -19,6 +20,8 @@ export type CleanupResult = {
   objectsDeleted: number
   failures: number
   batchesPruned: number
+  /** Global rules nobody had used for the idle window. */
+  ownerRulesPruned: number
   rateLimitsPruned: number
 }
 
@@ -76,6 +79,10 @@ export async function cleanupExpired(now = new Date()): Promise<CleanupResult> {
   // typed, which is document content in the plainest sense. Once its documents
   // are gone nothing points at them, so they go on the same sweep.
   const batchesPruned = await pruneEmptyBatches().catch(() => 0)
+  // Global rules outlive documents, so they are not reached by the purge above.
+  // One unused for as long as the session that owns it can live is a pattern
+  // kept for nobody.
+  const ownerRulesPruned = await pruneOwnerRules(now).catch(() => 0)
   const rateLimitsPruned = await pruneRateLimits().catch(() => 0)
 
   console.log(
@@ -86,6 +93,7 @@ export async function cleanupExpired(now = new Date()): Promise<CleanupResult> {
       objectsDeleted,
       failures,
       batchesPruned,
+      ownerRulesPruned,
       rateLimitsPruned,
     })
   )
@@ -95,6 +103,7 @@ export async function cleanupExpired(now = new Date()): Promise<CleanupResult> {
     objectsDeleted,
     failures,
     batchesPruned,
+    ownerRulesPruned,
     rateLimitsPruned,
   }
 }

@@ -24,6 +24,10 @@ export function PageNavigator({ documentId }: { documentId: string }) {
   const summary = useAppSelector((state) => state.document.summary)
   const normalized = useAppSelector((state) => state.document.normalized)
   const redactions = useAppSelector(selectRedactions)
+  // Search hits per page, so a long document shows where they are at a glance.
+  const hitsByPage = useAppSelector((state) =>
+    state.search.open ? state.search.pages : null
+  )
 
   const isPdf = summary?.kind === "pdf"
   const { pdf } = usePdfDocument(documentId, isPdf)
@@ -59,13 +63,21 @@ export function PageNavigator({ documentId }: { documentId: string }) {
         <nav aria-labelledby="page-rail-label">
           <ul className="flex flex-col gap-3 px-4 pb-4">
             {pageNumbers.map((pageNumber) => (
-              <li key={pageNumber}>
+              <li key={pageNumber} className="relative">
+                <SearchBadge
+                  count={hitsByPage?.find((entry) => entry.page === pageNumber)?.count}
+                />
                 <RailThumbnail
                   documentId={documentId}
                   pageNumber={pageNumber}
                   redactions={byPage.get(pageNumber) ?? []}
                   selected={pageNumber === currentPage}
                   pdf={pdf}
+                  textPreview={
+                    summary?.kind === "txt" ||
+                    summary?.kind === "rtf" ||
+                    summary?.kind === "pptx"
+                  }
                   onSelect={() => dispatch(pageChanged(pageNumber))}
                 />
               </li>
@@ -107,5 +119,18 @@ function RailThumbnail(props: Omit<ComponentProps<typeof PageThumbnail>, "page">
     <div ref={anchor}>
       <PageThumbnail {...props} page={page ?? undefined} />
     </div>
+  )
+}
+
+/** How many search hits a page holds, over its thumbnail. */
+function SearchBadge({ count }: { count: number | undefined }) {
+  if (!count) return null
+  return (
+    <span
+      className="pointer-events-none absolute top-1.5 right-1.5 z-10 min-w-5 rounded-full bg-search-current px-1.5 py-px text-center text-[10px] font-semibold text-surface-3 tabular-nums shadow-sm"
+    >
+      {count > 99 ? "99+" : count}
+      <span className="sr-only"> search {count === 1 ? "match" : "matches"}</span>
+    </span>
   )
 }
