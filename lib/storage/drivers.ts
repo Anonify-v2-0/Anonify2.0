@@ -128,7 +128,13 @@ function assertRange(start: number, end: number): void {
 // --- local filesystem ------------------------------------------------------
 
 const LOCAL_PREFIX = "local:"
-const LOCAL_ROOT = path.join(process.cwd(), ".anonify-storage")
+// Kept out of file tracing: a path Turbopack can resolve is copied into the
+// server output, and this one holds every document stored on the machine
+// that ran the build.
+const LOCAL_ROOT = path.join(
+  /* turbopackIgnore: true */ process.cwd(),
+  ".anonify-storage"
+)
 
 function localPath(key: string): string {
   const relative = key.startsWith(LOCAL_PREFIX) ? key.slice(LOCAL_PREFIX.length) : key

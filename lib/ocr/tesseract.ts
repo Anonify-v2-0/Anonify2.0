@@ -45,7 +45,13 @@ export function cachePath(): string {
   const configured = process.env.TESSERACT_CACHE_PATH?.trim()
   if (configured) return configured
   if (process.env.VERCEL) return "/tmp"
-  return path.join(process.cwd(), ".cache", "tesseract")
+  // Not traced: a resolvable path would copy the build machine's downloaded
+  // models into the server output.
+  return path.join(
+    /* turbopackIgnore: true */ process.cwd(),
+    ".cache",
+    "tesseract"
+  )
 }
 
 /**
@@ -64,7 +70,11 @@ export function cachePath(): string {
 export function cacheDirectory(): string {
   const base = cachePath()
   const variant = tesseractModel()
-  return variant === "standard" ? base : path.join(base, variant)
+  // A download cache, not something to ship: without the ignore, Turbopack
+  // cannot resolve the path and traces the whole project into the output.
+  return variant === "standard"
+    ? base
+    : path.join(/* turbopackIgnore: true */ base, variant)
 }
 
 /** Where a given language's model lands on disk, for `pnpm ocr:warm`. */

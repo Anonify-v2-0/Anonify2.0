@@ -475,6 +475,11 @@ clone works before anything is decided.
 | `STORAGE_DRIVER` | `s3`, `vercel-blob`, `local` | Inferred from what is configured |
 | `OCR_PROVIDER` | `tesseract`, `mistral` | `tesseract` — local, no account |
 | `ANONIFY_PROFILE` | `self-hosted`, `demo` | `self-hosted` |
+| `ANONIFY_PUBLIC_URL` | The address people reach the instance at | Vercel's own on Vercel; `http://localhost:3000` elsewhere |
+
+`ANONIFY_PUBLIC_URL` is used only for absolute URLs in link previews. Set it on
+a self-hosted instance whose links get shared, and rebuild the image after
+changing it, because prerendered pages resolve it at build time.
 
 Reads pick their driver from the stored key rather than the current setting, so
 changing backends does not orphan documents that are already stored.

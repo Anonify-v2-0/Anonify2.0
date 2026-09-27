@@ -128,6 +128,9 @@ services:
     build:
       context: .
       target: runner
+      args:
+        # Baked into the prerendered pages' link previews; see .env.example.
+        ANONIFY_PUBLIC_URL: ${ANONIFY_PUBLIC_URL:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -157,6 +160,7 @@ services:
       FINGERPRINT_SECRET: ${FINGERPRINT_SECRET:?set it in .env, or run `pnpm setup` to generate one}
 
       ANONIFY_PROFILE: ${ANONIFY_PROFILE:-self-hosted}
+      ANONIFY_PUBLIC_URL: ${ANONIFY_PUBLIC_URL:-}
       ANONIFY_RATE_LIMIT_UPLOAD: ${ANONIFY_RATE_LIMIT_UPLOAD:-}
       ANONIFY_RATE_LIMIT_PROCESSING: ${ANONIFY_RATE_LIMIT_PROCESSING:-}
       ANONIFY_RATE_LIMIT_EXPORT: ${ANONIFY_RATE_LIMIT_EXPORT:-}

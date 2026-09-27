@@ -3,6 +3,7 @@ import { Poppins } from "next/font/google"
 
 import "./globals.css"
 import { Providers } from "@/components/providers"
+import { publicUrl } from "@/lib/config/public-url"
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -12,6 +13,8 @@ const poppins = Poppins({
 })
 
 export const metadata: Metadata = {
+  // What the preview images below are resolved against; see ANONIFY_PUBLIC_URL.
+  metadataBase: publicUrl(),
   title: "Anonify — AI-assisted document redaction",
   description:
     "Redact sensitive information from PDF, Word, Excel, PowerPoint, email, CSV, text and image files without destroying the document. AI proposes, you decide, the export is permanent.",
