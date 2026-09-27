@@ -24,7 +24,7 @@ import type { NormalizedDocument } from "@/types/document"
  *
  * They need a running Ollama with the pinned model pulled, so they are opt-in:
  *
- *   ollama pull qwen3-vl:2b-instruct
+ *   ollama pull qwen3-vl:4b-instruct
  *   ANONIFY_OLLAMA_TESTS=1 pnpm exec vitest run tests/ollama-contract.test.ts
  *
  * `.github/workflows/local-model.yml` runs them weekly against the pinned

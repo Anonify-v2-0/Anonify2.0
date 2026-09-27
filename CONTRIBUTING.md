@@ -86,12 +86,12 @@ model quality.
 
 The model is the one service too slow to boot on every pull request, so
 `.github/workflows/local-model.yml` runs it weekly, and on pull requests that
-change the provider layer, against a pinned Ollama and Qwen3-VL 2B Instruct. One
+change the provider layer, against a pinned Ollama and Qwen3-VL 4B Instruct. One
 job runs `tests/ollama-contract.test.ts`. The other boots the Compose stack with
 that model and redacts a document through it with `pnpm smoke --ai`. Both test
 the contract, not the model's judgement. To run the suite yourself, pull the
 model and set `ANONIFY_OLLAMA_TESTS=1`. To run the whole install, verify the
-model with `pnpm ai verify --provider ollama --model qwen3-vl:2b-instruct`,
+model with `pnpm ai verify --provider ollama --model qwen3-vl:4b-instruct`,
 bring up Compose, and run `pnpm smoke --ai`.
 
 ---

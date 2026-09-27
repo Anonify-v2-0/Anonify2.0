@@ -8,20 +8,27 @@ name: Local model
 # self-hosted install actually uses still works — Ollama's OpenAI-compatible
 # endpoint carrying JSON-schema output and an image attachment, parsed by the
 # real schemas and accounted for. This runs tests/ollama-contract.test.ts
-# against a pinned Ollama and a pinned Qwen3-VL 2B Instruct to show that.
+# against a pinned Ollama and a pinned Qwen3-VL 4B Instruct to show that.
 #
 # Qwen3-VL rather than Gemma 3, which this pinned first, because of how each
 # reads an image. Gemma 3 scales every image to 896 x 896 before encoding it,
 # so even the probe's 32 x 32 square cost about five minutes of CPU on this
 # runner — past the probe's 120 s limit and Node's 300 s fetch timeout, so the
 # vision tests could not pass however long they were given. Qwen3-VL encodes an
-# image near its own size, and at 1.9 GB it is also the smaller download.
+# image near its own size.
 #
-# The instruct tag, not `qwen3-vl:2b`: that tag is the thinking model, which
+# 4B rather than 2B, which this pinned next. The 2B passed some runs and not
+# others: on a long prompt it would sometimes run on to the token limit instead
+# of closing its JSON, which cost 270 s of CPU for an answer that did not parse
+# and failed the analysis pass as invalid output. A contract suite that fails
+# on the model's mood is not guarding the contract. The 4B is slower per token
+# but closes its answers.
+#
+# The instruct tag, not `qwen3-vl:4b`: that tag is the thinking model, which
 # writes hundreds of tokens of reasoning before every answer — minutes per call
 # on a CPU, spent on output the contract never reads.
 #
-# Weekly rather than per pull request: a 1.9 GB model on a CPU runner is minutes
+# Weekly rather than per pull request: a 3.3 GB model on a CPU runner is minutes
 # of download and inference, and what it guards against — an Ollama or AI SDK
 # change breaking the transport — does not arrive with our pull requests. It is
 # also not cached: GitHub evicts a cache unused for seven days, so a weekly job

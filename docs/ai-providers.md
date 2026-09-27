@@ -332,7 +332,7 @@ transport against fixtures. No live ChatGPT account is used in CI.
 
 `.github/workflows/local-model.yml` runs a real model weekly, and on pull
 requests that change the provider layer. Its Ollama contract job runs
-`tests/ollama-contract.test.ts` against a pinned Ollama and Qwen3-VL 2B
+`tests/ollama-contract.test.ts` against a pinned Ollama and Qwen3-VL 4B
 Instruct. Its Local install job boots the Compose stack with that model
 configured through `pnpm ai verify`. It then runs `pnpm smoke --ai`, which
 uploads a letter, lets the model analyse it, and redacts, exports and reads

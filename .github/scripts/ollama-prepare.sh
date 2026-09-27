@@ -4,7 +4,7 @@
 #
 # Expects PIN (tests/fixtures/ollama/model.json) and OLLAMA_BASE_URL. Meant to
 # run in the background while the job installs dependencies or builds images,
-# since the runtime image (3.7 GB) and the model (1.9 GB) are most of the wall
+# since the runtime image (3.7 GB) and the model (3.3 GB) are most of the wall
 # clock and depend on neither.
 set -euo pipefail
 
