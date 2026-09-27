@@ -12,6 +12,7 @@ import {
   hushStatus,
   recordHushStep,
 } from "@/lib/assistant/hush"
+import { SubscriptionAuthError } from "@/lib/ai/providers/subscription"
 import { requireRuleContext } from "@/lib/redaction/pattern-api"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
@@ -129,6 +130,12 @@ export async function POST(
       },
     })
   } catch (error) {
+    // The ChatGPT sign-in lives in the database; missing or expired, the model
+    // cannot be built at all. Say what fixes it rather than "something went
+    // wrong".
+    if (error instanceof SubscriptionAuthError) {
+      return errorResponse(error.message, 503, { code: "authorization" })
+    }
     return handleRouteError(error, "assistant.run")
   }
 }

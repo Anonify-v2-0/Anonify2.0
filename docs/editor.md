@@ -764,6 +764,12 @@ provider, the same one that analysed the document. Allowed, it holds for the
 session, and every later read is listed in the conversation as it happens. The
 shield in the header revokes it.
 
+**The header** shows where answers come from as badges: the provider, the
+model, and whether the provider is a hosted API, a local model, a ChatGPT plan
+or the gateway. That last one changes what "sent to the provider" means, and
+each badge explains itself on hover. A local model also gets a "Stays on this
+machine" badge. The icons describe the kind of provider, not a vendor's logo.
+
 **The conversation.** Each tool call is drawn as it runs:
 - a read is a line of activity ("Found `EMP-\d{5}` · 12 times on 4 pages, 3
   not covered") that opens into its result;

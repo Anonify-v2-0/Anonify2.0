@@ -876,8 +876,11 @@ are skipped. Imported rules reach future uploads only.
 
 ### `GET /api/assistant`
 
-Whether Hush can answer on this instance: `{ available: true, model }` or
-`{ available: false, reason: "not-configured" | "unsupported" | "budget" }`.
+Whether Hush can answer on this instance, and through what: `{ available:
+true, model, provider }` or `{ available: false, reason: "not-configured" |
+"unsupported" | "budget", provider? }`. `provider` is `{ id, label, kind,
+model }`, where `kind` is `cloud`, `local`, `subscription` or `gateway`. The
+panel's header badges are drawn from it.
 Search, shortcuts and hand-written rules never ask, because none of them needs
 a model.
 

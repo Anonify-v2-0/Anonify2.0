@@ -117,7 +117,33 @@ export async function buildHushAgent(input: {
 }) {
   const tools = hushTools(input.context)
 
+  const safeErrors = {
+    // The SDK's default prints a failed call whole, and the call carries the
+    // prompt, which carries document text. Log the shape of the failure only.
+    onError: ({ error }: { error: unknown }) => {
+      const failure = error as {
+        name?: string
+        statusCode?: number
+        data?: { error?: { code?: unknown; type?: unknown } }
+      }
+      console.error(
+        JSON.stringify({
+          level: "error",
+          context: "assistant.model",
+          documentId: input.context.documentId,
+          errorName: failure?.name ?? "unknown",
+          status: failure?.statusCode ?? null,
+          code:
+            failure?.data?.error?.code ?? failure?.data?.error?.type ?? null,
+        })
+      )
+    },
+  }
+
   return new ToolLoopAgent({
+    // `onError` is not in the agent's settings type, but the agent hands its
+    // settings to `streamText` whole, where it is read.
+    ...(safeErrors as object),
     model: await languageModel(),
     instructions: instructions(input.context, input.view, input.readConsent),
     tools,

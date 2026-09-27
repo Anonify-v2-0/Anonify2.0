@@ -1,5 +1,10 @@
 import { aiConfigured, recordUsage, resolveModel } from "@/lib/ai/gateway"
-import { configuredCapabilities } from "@/lib/ai/providers/config"
+import { selectedProvider } from "@/lib/ai/providers"
+import {
+  configuredCapabilities,
+  isLocalProvider,
+  modelId,
+} from "@/lib/ai/providers/config"
 import { spendAllows, spendStatus } from "@/lib/ai/spend"
 
 /**
@@ -13,21 +18,60 @@ import { spendAllows, spendStatus } from "@/lib/ai/spend"
 
 export type HushUnavailable = "not-configured" | "unsupported" | "budget"
 
+/**
+ * How the instance reaches its model, for the badges in Hush's header.
+ *
+ * `kind` is what a reviewer cares about: a hosted API is billed per call and
+ * sees the text sent to it; a local server keeps everything on the machine; a
+ * subscription runs on somebody's ChatGPT plan; a gateway routes to whichever
+ * vendor it was pointed at.
+ */
+export type HushProvider = {
+  id: string
+  label: string
+  kind: "cloud" | "local" | "subscription" | "gateway"
+  model: string
+}
+
 export type HushStatus =
-  | { available: true; model: string }
-  | { available: false; reason: HushUnavailable }
+  | { available: true; model: string; provider: HushProvider }
+  | { available: false; reason: HushUnavailable; provider?: HushProvider }
+
+export function hushProvider(): HushProvider | undefined {
+  try {
+    const provider = selectedProvider()
+    return {
+      id: provider.id,
+      // The registry's labels are written for setup, where they say how to
+      // sign in; the header only needs the name.
+      label: provider.label.replace(/\s*\(.*\)\s*$/, ""),
+      kind: provider.login
+        ? "subscription"
+        : provider.id === "gateway"
+          ? "gateway"
+          : isLocalProvider(provider.id)
+            ? "local"
+            : "cloud",
+      model: modelId(),
+    }
+  } catch {
+    return undefined
+  }
+}
 
 export async function hushStatus(): Promise<HushStatus> {
   if (!aiConfigured()) return { available: false, reason: "not-configured" }
+  const provider = hushProvider()
   // Tool calling is not probed separately; a model verified for structured
   // output is the same capability in every provider this codebase supports.
   if (!configuredCapabilities().structuredOutput) {
-    return { available: false, reason: "unsupported" }
+    return { available: false, reason: "unsupported", provider }
   }
   if (!spendAllows(await spendStatus())) {
-    return { available: false, reason: "budget" }
+    return { available: false, reason: "budget", provider }
   }
-  return { available: true, model: resolveModel() }
+  if (!provider) return { available: false, reason: "not-configured" }
+  return { available: true, model: resolveModel(), provider }
 }
 
 export const HUSH_UNAVAILABLE_MESSAGES: Record<HushUnavailable, string> = {

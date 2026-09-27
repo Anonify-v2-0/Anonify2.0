@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react"
 
+import { HushBadges } from "@/components/assistant/hush-badges"
 import { HushMarkdown } from "@/components/assistant/hush-markdown"
 import {
   HushToolPart,
@@ -34,6 +35,7 @@ import {
 } from "@/hooks/use-learned-shapes"
 import { useRules } from "@/hooks/use-rules"
 import type { HushUIMessage, HushView } from "@/lib/assistant/agent"
+import type { HushProvider } from "@/lib/assistant/hush"
 import { shortcutHint } from "@/lib/editor/shortcuts"
 import { cn } from "@/lib/utils"
 import { useAppDispatch, useAppSelector, useAppStore } from "@/store/hooks"
@@ -69,8 +71,13 @@ import type { RuleView } from "@/types/rules"
 
 type Status =
   | { state: "loading" }
-  | { state: "ready"; available: true; model: string }
-  | { state: "ready"; available: false; reason: string }
+  | { state: "ready"; available: true; model: string; provider: HushProvider }
+  | {
+      state: "ready"
+      available: false
+      reason: string
+      provider?: HushProvider
+    }
 
 const UNAVAILABLE: Record<string, string> = {
   "not-configured":
@@ -97,8 +104,8 @@ function useHushStatus(open: boolean): Status {
       try {
         const response = await fetch("/api/assistant", { cache: "no-store" })
         const payload = (await response.json()) as
-          | { available: true; model: string }
-          | { available: false; reason: string }
+          | { available: true; model: string; provider: HushProvider }
+          | { available: false; reason: string; provider?: HushProvider }
         if (!cancelled) setStatus({ state: "ready", ...payload })
       } catch {
         if (!cancelled)
@@ -260,70 +267,74 @@ export function HushPanel({ documentId }: { documentId: string }) {
       }}
       className="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-border bg-surface-2 shadow-panel sm:w-[440px]"
     >
-      <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <span
-          aria-hidden
-          className="flex size-8 items-center justify-center rounded-md bg-red-soft text-primary"
-        >
-          <Sparkles className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h2 id="hush-title" className="text-sm font-semibold text-white">
+      <header className="flex flex-col gap-2.5 border-b border-border px-4 pt-3 pb-3">
+        <div className="flex items-center gap-2.5">
+          <span
+            aria-hidden
+            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-red-soft text-primary"
+          >
+            <Sparkles className="size-3.5" />
+          </span>
+          <h2
+            id="hush-title"
+            className="min-w-0 flex-1 text-sm font-semibold text-white"
+          >
             Hush
+            <span className="ml-2 font-normal text-text-muted">
+              Review assistant
+            </span>
           </h2>
-          <p className="truncate text-[11px] text-text-muted">
-            {status.state === "loading"
-              ? "Connecting…"
-              : status.available
-                ? `Review assistant · ${status.model}`
-                : "Unavailable on this instance"}
-          </p>
-        </div>
-        {consent ? (
+          {consent ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title="Hush may read this document. Click to stop it."
+              onClick={() =>
+                dispatch(hushReadConsentSet({ documentId, granted: false }))
+              }
+            >
+              <ShieldCheck className="size-4 text-text-secondary" />
+              <span className="sr-only">Stop Hush reading this document</span>
+            </Button>
+          ) : (
+            <span
+              title="Hush will ask before reading this document"
+              className="px-1.5"
+            >
+              <ShieldOff aria-hidden className="size-4 text-text-muted" />
+              <span className="sr-only">
+                Hush has not been allowed to read this document
+              </span>
+            </span>
+          )}
           <Button
             variant="ghost"
             size="icon-sm"
-            title="Hush may read this document. Click to stop it."
-            onClick={() =>
-              dispatch(hushReadConsentSet({ documentId, granted: false }))
-            }
+            title="New conversation"
+            disabled={messages.length === 0 || busy}
+            onClick={() => {
+              applied.current.clear()
+              setMessages([])
+            }}
           >
-            <ShieldCheck className="size-4 text-text-secondary" />
-            <span className="sr-only">Stop Hush reading this document</span>
+            <Eraser className="size-4" />
+            <span className="sr-only">New conversation</span>
           </Button>
-        ) : (
-          <span
-            title="Hush will ask before reading this document"
-            className="px-1.5"
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title={`Close (${shortcutHint("assistant")})`}
+            onClick={() => dispatch(assistantToggled(null))}
           >
-            <ShieldOff aria-hidden className="size-4 text-text-muted" />
-            <span className="sr-only">
-              Hush has not been allowed to read this document
-            </span>
-          </span>
-        )}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          title="New conversation"
-          disabled={messages.length === 0 || busy}
-          onClick={() => {
-            applied.current.clear()
-            setMessages([])
-          }}
-        >
-          <Eraser className="size-4" />
-          <span className="sr-only">New conversation</span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          title={`Close (${shortcutHint("assistant")})`}
-          onClick={() => dispatch(assistantToggled(null))}
-        >
-          <X className="size-4" />
-          <span className="sr-only">Close Hush</span>
-        </Button>
+            <X className="size-4" />
+            <span className="sr-only">Close Hush</span>
+          </Button>
+        </div>
+        <HushBadges
+          loading={status.state === "loading"}
+          available={available}
+          provider={status.state === "ready" ? status.provider : undefined}
+        />
       </header>
 
       <Conversation

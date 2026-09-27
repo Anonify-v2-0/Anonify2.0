@@ -84,7 +84,7 @@ export const HushMarkdown = memo(function HushMarkdown({
       }}
       className={cn(
         "hush-markdown space-y-2 text-[13px] leading-relaxed text-text-secondary",
-        "[&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:text-white [&_ul]:list-disc [&_ul]:pl-5",
+        "[&_[data-streamdown=strong]]:text-white [&_li]:my-0.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:text-white [&_ul]:list-disc [&_ul]:pl-5",
         "[&_h1]:text-sm [&_h1]:font-semibold [&_h1]:text-white [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:text-white [&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:text-white",
         "[&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-surface-3 [&_pre]:p-2.5 [&_pre]:text-xs",
         className
