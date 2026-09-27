@@ -269,19 +269,35 @@ export class Prompter {
     }
   }
 
-  private async read(question: string): Promise<string> {
+  private async read(question: string, signal?: AbortSignal): Promise<string> {
     if (!this.rl) return ""
-    return (await this.rl.question(question)).trim()
+    return (
+      await (signal
+        ? this.rl.question(question, { signal })
+        : this.rl.question(question))
+    ).trim()
   }
 
-  async secret(question: string, fallback = ""): Promise<string> {
+  /**
+   * Concealed entry. `signal` withdraws the question — when the answer
+   * arrived another way, as a sign-in's browser callback does — and the
+   * result is then the fallback.
+   */
+  async secret(
+    question: string,
+    fallback = "",
+    signal?: AbortSignal
+  ): Promise<string> {
     if (!this.rl) return fallback
     process.stdout.write(
       `  ${question}${fallback ? " [Enter keeps existing credential]" : ""}: `
     )
     this.muted = true
     try {
-      return (await this.read("")) || fallback
+      return (await this.read("", signal)) || fallback
+    } catch (error) {
+      if (signal?.aborted) return fallback
+      throw error
     } finally {
       this.muted = false
       process.stdout.write("\n")

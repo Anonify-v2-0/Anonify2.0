@@ -69,21 +69,30 @@ Usage counters are local rows in your own database. Nothing phones home.
 ### No vendor lock-in that breaks local dev
 
 Vercel Blob, Neon and the AI Gateway are the *deployed* defaults, not
-requirements. A clone runs against local Postgres, local RustFS and local
-Tesseract with no account anywhere, and CI proves it on every pull request by
-booting that stack and redacting a document through it. If you find a code path
-that only works on Vercel, that is a bug — report it as one.
+requirements. A clone runs against local Postgres, local RustFS, local
+Tesseract and a local model with no account anywhere. CI proves the first
+three on every pull request by booting that stack and redacting a document
+through it. If you find a code path that only works on Vercel, that is a bug —
+report it as one.
 
-The optional contextual model pass can also run locally through Ollama. Setup
-discovers installed models and verifies structured output and image capabilities.
-Official AI SDK providers are available for operators bringing their own API keys
-or cloud credentials; see [AI providers](docs/ai-providers.md). Credential-free
-tests cover the local provider protocol; they do not claim live model quality.
-A weekly workflow (`.github/workflows/local-model.yml`) runs
-`tests/ollama-contract.test.ts` against a pinned Ollama and Qwen3-VL 2B Instruct to prove
-the transport still carries structured text and image calls end to end — the
-contract, not the model's judgement. To run it yourself, pull the model and set
-`ANONIFY_OLLAMA_TESTS=1`.
+The optional contextual model pass runs locally through Ollama, LM Studio or
+llama.cpp. Setup, or `pnpm ai verify`, discovers installed models and verifies
+structured output and image capabilities. Official AI SDK providers,
+OpenAI-compatible endpoints and a ChatGPT subscription sign-in are available for
+operators bringing their own credentials; see [AI providers](docs/ai-providers.md).
+An OpenAI-compatible vendor is a row in `lib/ai/providers/compatible.ts`, not
+code. Credential-free tests cover each provider protocol; they do not claim live
+model quality.
+
+The model is the one service too slow to boot on every pull request, so
+`.github/workflows/local-model.yml` runs it weekly, and on pull requests that
+change the provider layer, against a pinned Ollama and Qwen3-VL 4B Instruct. One
+job runs `tests/ollama-contract.test.ts`. The other boots the Compose stack with
+that model and redacts a document through it with `pnpm smoke --ai`. Both test
+the contract, not the model's judgement. To run the suite yourself, pull the
+model and set `ANONIFY_OLLAMA_TESTS=1`. To run the whole install, verify the
+model with `pnpm ai verify --provider ollama --model qwen3-vl:4b-instruct`,
+bring up Compose, and run `pnpm smoke --ai`.
 
 ---
 

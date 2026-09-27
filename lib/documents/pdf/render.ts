@@ -58,8 +58,16 @@ function pdfjsRoot(): string {
   )
 }
 
+/**
+ * Ignored by Turbopack's file tracing on purpose. A path it cannot resolve at
+ * build time makes it trace the entire project into the server output: every
+ * source file, the tests, and whatever sits in the working tree, local
+ * document storage included. The files this reads are named in
+ * next.config.ts's `outputFileTracingIncludes` instead, which is the one place
+ * that decides what a bundle ships.
+ */
 function pdfjsAsset(...segments: string[]): string {
-  return path.join(pdfjsRoot(), ...segments)
+  return path.join(/* turbopackIgnore: true */ pdfjsRoot(), ...segments)
 }
 
 /**

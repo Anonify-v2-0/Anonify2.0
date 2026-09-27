@@ -337,8 +337,8 @@ describe("pnpm models:warm", () => {
 
   it("refuses a provider it does not know", async () => {
     await expect(
-      warmCatalogs({}, { providers: ["openrouter"], directory })
-    ).rejects.toThrow('Unknown provider "openrouter"')
+      warmCatalogs({}, { providers: ["made-up"], directory })
+    ).rejects.toThrow('Unknown provider "made-up"')
   })
 })
 

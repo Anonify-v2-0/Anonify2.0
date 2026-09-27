@@ -67,41 +67,39 @@ describe("provider selection and compatibility", () => {
     expect(
       providerConfigured({ AI_PROVIDER: "anthropic", ANTHROPIC_API_KEY: "key" })
     ).toBe(true)
-    for (const id of [
-      "openrouter",
-      "synthetic",
-      "lm-studio",
-      "openai-compatible",
-      "llama-cpp",
-    ]) {
+    for (const id of ["made-up", "anthropic-subscription", "OPENROUTER"]) {
       expect(() => selectedProvider({ AI_PROVIDER: id })).toThrow(
         "Unsupported AI_PROVIDER"
       )
     }
   })
 
-  it.each(PROVIDERS.map((provider) => [provider.id]))(
-    "constructs the official %s adapter without network access",
-    async (id) => {
-      const provider = selectedProvider({ AI_PROVIDER: id })
-      const fetcher = vi.fn<typeof fetch>()
-      const model = await languageModel(
-        {
-          AI_PROVIDER: id,
-          AI_MODEL: "fixture-model",
-          [provider.envKey || "KEY"]: "fixture-key",
-          AZURE_RESOURCE_NAME: "fixture-resource",
-          AWS_REGION: "us-east-1",
-          GOOGLE_VERTEX_PROJECT: "fixture-project",
-          GOOGLE_VERTEX_LOCATION: "us-central1",
-        },
-        fetcher
-      )
-      expect(typeof model).toBe("object")
-      expect((model as { modelId: string }).modelId).toBe("fixture-model")
-      expect(fetcher).not.toHaveBeenCalled()
-    }
-  )
+  // A signed-in subscription needs a stored token; tests/ai-subscription.test.ts
+  // constructs that one against a fake settings table.
+  it.each(
+    PROVIDERS.filter((provider) => !provider.login).map((provider) => [
+      provider.id,
+    ])
+  )("constructs the official %s adapter without network access", async (id) => {
+    const provider = selectedProvider({ AI_PROVIDER: id })
+    const fetcher = vi.fn<typeof fetch>()
+    const model = await languageModel(
+      {
+        AI_PROVIDER: id,
+        AI_MODEL: "fixture-model",
+        AI_BASE_URL: "http://127.0.0.1:9/v1",
+        [provider.envKey || "KEY"]: "fixture-key",
+        AZURE_RESOURCE_NAME: "fixture-resource",
+        AWS_REGION: "us-east-1",
+        GOOGLE_VERTEX_PROJECT: "fixture-project",
+        GOOGLE_VERTEX_LOCATION: "us-central1",
+      },
+      fetcher
+    )
+    expect(typeof model).toBe("object")
+    expect((model as { modelId: string }).modelId).toBe("fixture-model")
+    expect(fetcher).not.toHaveBeenCalled()
+  })
 
   it("invalidates verification when model, provider or destination changes", () => {
     const env = {

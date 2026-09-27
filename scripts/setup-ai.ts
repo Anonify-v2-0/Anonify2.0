@@ -11,8 +11,10 @@ import { PROVIDERS, selectedProvider } from "@/lib/ai/providers"
 import {
   capabilityDeclaration,
   capabilityTarget,
+  compatibleBaseUrl,
   configuredCapabilities,
   DEFAULT_OLLAMA_URL,
+  isLocalProvider,
   modelId,
   providerId,
   usageModelId,
@@ -22,11 +24,12 @@ import {
 import {
   blockedReason,
   DiscoveryError,
-  ollamaAvailable,
+  localServerAvailable,
   type ListPrice,
   type ModelDefinition,
 } from "@/lib/ai/providers/discovery"
 import { probeModel } from "@/lib/ai/providers/probe"
+import type { ProbeFailureReason } from "@/lib/ai/providers/probe-errors"
 import { ratesFor } from "@/lib/ai/rates"
 import {
   note,
@@ -185,6 +188,118 @@ async function readModels(
 }
 
 /**
+ * AI_MODEL_PRICES as an object, or undefined (with a warning) when it is set
+ * to something that is not one. A table somebody wrote by hand is never
+ * overwritten because it did not parse.
+ */
+function priceTable(env: ProviderEnv): Record<string, unknown> | undefined {
+  if (!env.AI_MODEL_PRICES?.trim()) return {}
+  try {
+    const parsed: unknown = JSON.parse(env.AI_MODEL_PRICES)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new Error("not an object")
+    return parsed as Record<string, unknown>
+  } catch {
+    warn("AI_MODEL_PRICES is not a JSON object, so it is left as it is.")
+  }
+}
+
+/** A price that is really there, as opposed to the $0 a subscription falls back to. */
+function recordedPrice(
+  table: Record<string, unknown>,
+  key: string
+): { inputPerMillion: number; outputPerMillion: number } | undefined {
+  const entry = table[key] as Record<string, unknown> | undefined
+  if (
+    entry &&
+    typeof entry.inputPerMillion === "number" &&
+    typeof entry.outputPerMillion === "number" &&
+    entry.inputPerMillion >= 0 &&
+    entry.outputPerMillion >= 0
+  )
+    return {
+      inputPerMillion: entry.inputPerMillion,
+      outputPerMillion: entry.outputPerMillion,
+    }
+}
+
+/**
+ * Records a price for the configured model in AI_MODEL_PRICES, keeping every
+ * other model's entry. False, with a warning, when the table cannot be read
+ * or the amounts are not dollars.
+ */
+export function setModelPrice(
+  env: ProviderEnv,
+  price: { inputPerMillion: number; outputPerMillion: number }
+): boolean {
+  if (
+    ![price.inputPerMillion, price.outputPerMillion].every(
+      (value) => Number.isFinite(value) && value >= 0
+    )
+  ) {
+    warn("A price is a nonnegative amount of US dollars per million tokens.")
+    return false
+  }
+  const table = priceTable(env)
+  if (!table) return false
+  env.AI_MODEL_PRICES = JSON.stringify({
+    ...table,
+    [usageModelId(env)]: {
+      inputPerMillion: price.inputPerMillion,
+      outputPerMillion: price.outputPerMillion,
+    },
+  })
+  return true
+}
+
+/**
+ * Asks whether to record a price for a model its provider does not bill per
+ * token: a ChatGPT subscription. Without one its calls count as $0, which is
+ * true of the bill and keeps the spend cap enforceable. With one, usage
+ * estimates show what the same calls would cost at that price, and the daily
+ * cap can limit them. The default is no, and a price already recorded is
+ * kept unless changed.
+ */
+export async function askModelPrice(
+  prompt: Prompter,
+  env: ProviderEnv
+): Promise<void> {
+  const table = priceTable(env)
+  if (!table) return
+  const key = usageModelId(env)
+  const recorded = recordedPrice(table, key)
+  say()
+  note(
+    "Your ChatGPT plan is billed per month, not per token, so calls on it count as $0 in usage estimates and against the daily spend cap."
+  )
+  note(
+    "Record a price per million tokens (OpenAI's API price for this model, say) to see what the usage would cost, or to let ANONIFY_AI_DAILY_SPEND_USD limit it."
+  )
+  if (recorded) note(`Recorded now for ${key}: ${formatPrice(recorded)}`)
+  if (
+    !(await prompt.confirm(
+      recorded
+        ? "Change the recorded price?"
+        : "Record a price for this model?",
+      false
+    ))
+  )
+    return
+  const inputPerMillion = await prompt.askAmount("Input", {
+    fallback: recorded?.inputPerMillion ?? 0,
+    unit: "USD per 1M tokens",
+  })
+  const outputPerMillion = await prompt.askAmount("Output", {
+    fallback: recorded?.outputPerMillion ?? 0,
+    unit: "USD per 1M tokens",
+  })
+  if (setModelPrice(env, { inputPerMillion, outputPerMillion }))
+    ok(
+      `Saved ${formatPrice({ inputPerMillion, outputPerMillion })} for ${key} to AI_MODEL_PRICES.`
+    )
+}
+
+/**
  * Offers the chosen model's list price for the spend estimate.
  *
  * Never automatic: a price read from a catalog becomes a spend limit only
@@ -200,18 +315,8 @@ async function adoptPrice(
   source: { label: string; fetchedAt: string; stale: boolean }
 ): Promise<void> {
   const key = usageModelId(env)
-  let table: Record<string, unknown> = {}
-  if (env.AI_MODEL_PRICES?.trim()) {
-    try {
-      const parsed: unknown = JSON.parse(env.AI_MODEL_PRICES)
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-        throw new Error("not an object")
-      table = parsed as Record<string, unknown>
-    } catch {
-      warn("AI_MODEL_PRICES is not a JSON object, so setup leaves it as it is.")
-      return
-    }
-  }
+  const table = priceTable(env)
+  if (!table) return
   const configured = ratesFor(env)
   const offered = {
     inputPerMillion: price.inputPerMillion,
@@ -246,6 +351,24 @@ async function adoptPrice(
   ok(`Saved the list price for ${key} to AI_MODEL_PRICES.`)
 }
 
+/** Failures that belong to the model rather than to the account or connection. */
+function modelSpecific(reason: ProbeFailureReason | undefined): boolean {
+  return (
+    reason === undefined ||
+    reason === "not-found" ||
+    reason === "rejected" ||
+    reason === "invalid-output" ||
+    reason === "wrong-answer"
+  )
+}
+
+const REASON_LABELS: Partial<Record<ProbeFailureReason, string>> = {
+  "not-found": "not available to this account",
+  rejected: "the provider refused the request",
+  "invalid-output": "no valid structured output",
+  "wrong-answer": "wrong answer",
+}
+
 export async function askAiProvider(
   prompt: Prompter,
   current: ProviderEnv,
@@ -261,10 +384,19 @@ export async function askAiProvider(
     env.VERCEL_OIDC_TOKEN ||
     env.AI_MODEL
   )
-  const defaultId =
-    !existing && local && (await ollamaAvailable(env))
-      ? "ollama"
-      : providerId(env)
+  // `--local` means local: the first local server that answers is offered
+  // first, on a fresh configuration only. An existing choice is never replaced.
+  let defaultId = providerId(env)
+  if (!existing && local) {
+    for (const entry of PROVIDERS.filter((entry) =>
+      isLocalProvider(entry.id)
+    )) {
+      if (await localServerAvailable({ ...env, AI_PROVIDER: entry.id })) {
+        defaultId = entry.id
+        break
+      }
+    }
+  }
   const picked = await prompt.choose(
     "Which AI provider?",
     PROVIDERS.map((entry) => ({ value: entry.id, label: entry.label })),
@@ -278,23 +410,60 @@ export async function askAiProvider(
   if (changed) {
     env.AI_MODEL = ""
     env.AI_MODEL_CAPABILITIES = ""
+    // One provider's server is not another's default.
+    env.AI_BASE_URL = ""
   }
   const provider = selectedProvider(env)
-  if (provider.envKey)
+  if (provider.login) {
+    note(
+      "Signing in uses the public client OpenAI ships with Codex CLI, against the backend Codex uses. OpenAI's terms decide whether a subscription may be used this way, and they can change. For a deployed instance, use an OpenAI API key instead."
+    )
+    const signedIn = await import("@/lib/ai/providers/subscription")
+      .then(({ loadLogin }) => loadLogin())
+      .then(Boolean)
+      .catch(() => false)
+    if (!signedIn) {
+      note(
+        "Once the database is up: pnpm ai login --provider openai, then pnpm ai verify to choose and verify a model."
+      )
+      return env
+    }
+  }
+  if (provider.envKey) {
+    if (provider.keyOptional)
+      note("Leave the key blank if the endpoint does not take one.")
     env[provider.envKey] = await prompt.secret(
       provider.envKey,
       env[provider.envKey]
     )
+  }
   for (const field of provider.fields ?? []) {
-    env[field] = await prompt.ask(field, {
-      fallback:
-        env[field] ||
-        (field === "OLLAMA_BASE_URL"
-          ? DEFAULT_OLLAMA_URL
-          : field === "FIREWORKS_ACCOUNT_ID"
-            ? "fireworks"
-            : ""),
-    })
+    for (;;) {
+      env[field] = await prompt.ask(field, {
+        fallback:
+          env[field] ||
+          (field === "OLLAMA_BASE_URL"
+            ? DEFAULT_OLLAMA_URL
+            : field === "FIREWORKS_ACCOUNT_ID"
+              ? "fireworks"
+              : field === "AI_BASE_URL"
+                ? (provider.compatible?.baseUrl ?? "")
+                : ""),
+        hint:
+          field === "AI_BASE_URL"
+            ? "The base URL the endpoint's /chat/completions and /models sit under, usually ending in /v1."
+            : undefined,
+      })
+      if (field !== "AI_BASE_URL") break
+      try {
+        compatibleBaseUrl(env, false)
+        break
+      } catch (error) {
+        // Our own validation message; it never repeats the value.
+        warn((error as Error).message)
+        env[field] = ""
+      }
+    }
   }
   if (picked === "amazon-bedrock")
     note(
@@ -355,6 +524,7 @@ export async function askAiProvider(
   }
   if (
     provider.envKey &&
+    !provider.keyOptional &&
     !env[provider.envKey] &&
     !(picked === "gateway" && env.VERCEL_OIDC_TOKEN)
   ) {
@@ -376,6 +546,31 @@ export async function askAiProvider(
   )
     return env
 
+  const chosen = await chooseModel(prompt, env, current)
+  // A subscription has no list price to adopt; offer to record one instead.
+  if (
+    provider.login &&
+    chosen !== current &&
+    configuredCapabilities(chosen).structuredOutput
+  )
+    await askModelPrice(prompt, chosen)
+  return chosen
+}
+
+/**
+ * Discover, choose and verify a model for the provider already in `env`, and
+ * return `env` with it declared; or `current` if the operator backs out.
+ * Shared by setup and `pnpm ai verify`.
+ */
+export async function chooseModel(
+  prompt: Prompter,
+  env: ProviderEnv,
+  current: ProviderEnv
+): Promise<ProviderEnv> {
+  env = { ...env }
+  const picked = providerId(env)
+  const provider = selectedProvider(env)
+  const changed = picked !== providerId(current)
   const requireVision = await prompt.choose("What should the model analyze?", [
     {
       value: true,
@@ -393,12 +588,11 @@ export async function askAiProvider(
   const listed = await readModels(prompt, env)
   const models: ModelDefinition[] = listed?.models ?? []
   const catalog = listed?.catalog
-  const prices: PriceState =
-    picked === "ollama"
-      ? "local"
-      : catalog?.sources.prices
-        ? freshness(catalog).prices
-        : undefined
+  const prices: PriceState = isLocalProvider(picked)
+    ? "local"
+    : catalog?.sources.prices
+      ? freshness(catalog).prices
+      : undefined
   const manual = Symbol("manual")
   const cancel = Symbol("cancel")
   const currentId = changed ? "" : modelId(current)
@@ -490,12 +684,29 @@ export async function askAiProvider(
     const result = await probeModel(candidate)
     checking.stop()
     if (!result.structuredOutput || (requireVision && !result.vision)) {
-      const reason = !result.structuredOutput
-        ? "Structured-output verification failed; check model support, credentials, access and connectivity"
-        : "Image verification failed; choose a vision model or rerun setup for text-only analysis"
-      warn(reason)
-      if (known) known.unavailable = reason
-      else models.push({ id, label: id, unavailable: reason })
+      warn(
+        !result.structuredOutput
+          ? `Structured-output verification of ${id} failed.`
+          : `Image verification of ${id} failed. Choose a vision model, or rerun for text-only analysis.`
+      )
+      if (result.detail) note(result.detail)
+      // Only a failure that is about this model marks it. A rejected key, an
+      // unreachable server or a rate limit would fail every model alike, and
+      // disabling them one by one would hide the real problem.
+      if (modelSpecific(result.reason)) {
+        const reason = result.reason && REASON_LABELS[result.reason]
+        const label = reason
+          ? `Failed verification: ${reason}`
+          : !result.structuredOutput
+            ? "Structured-output verification failed"
+            : "Image verification failed; choose a vision model or rerun setup for text-only analysis"
+        if (known) known.unavailable = label
+        else models.push({ id, label: id, unavailable: label })
+      } else if (result.reason) {
+        note(
+          "This is not about the model, so it is still offered; fix the cause above and verify again."
+        )
+      }
       continue
     }
     env.AI_MODEL = id

@@ -131,7 +131,14 @@ export async function purgeDocument(
   }
 
   // Redactions, rules, events and exports cascade from the document.
-  await prisma.document.delete({ where: { id: document.id } })
+  //
+  // `deleteMany`, not `delete`: three things purge documents without
+  // coordinating (the expiry sweep, `pnpm cleanup`, and a person pressing
+  // delete), and whichever finishes second finds the row already gone.
+  // `delete` threw on that ("No record was found for a delete") and failed
+  // the whole sweep. Gone is the state this function exists to reach, and
+  // its own storage is cleared by this point either way, so it is success.
+  await prisma.document.deleteMany({ where: { id: document.id } })
   return {
     objectsDeleted,
     storageCleared: true,

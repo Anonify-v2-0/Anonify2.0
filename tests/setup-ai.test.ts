@@ -439,3 +439,164 @@ describe("the saved model catalog", () => {
     )
   })
 })
+
+function scripted(answers: {
+  provider: string
+  typed?: string[]
+  secret?: string
+}) {
+  vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+  const typed = [...(answers.typed ?? [])]
+  const asked: string[] = []
+  const prompt = {
+    interactive: true,
+    choose: vi.fn(async (question: string, choices: Choice<unknown>[]) => {
+      if (question === "Which AI provider?") return answers.provider
+      if (question === "What should the model analyze?") return true
+      return choices.at(-1)!.value
+    }),
+    // The first discovered model; the probe is mocked to pass it.
+    choosePaged: vi.fn(
+      async (_: string, choices: Choice<unknown>[]) => choices[0].value
+    ),
+    ask: vi.fn(async (question: string, options?: { fallback?: string }) => {
+      asked.push(question)
+      return typed.shift() ?? options?.fallback ?? ""
+    }),
+    secret: vi.fn(async () => answers.secret ?? ""),
+    confirm: vi.fn(async () => true),
+  } as unknown as Prompter
+  return { prompt, asked }
+}
+
+describe("OpenAI-compatible providers in setup", () => {
+  beforeEach(() => {
+    probe.mockResolvedValue({ structuredOutput: true, vision: true })
+  })
+
+  it("asks for the endpoint's URL, rejects a bad one, and takes a blank key", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ data: [{ id: "m" }] }))
+    )
+    const { prompt, asked } = scripted({
+      provider: "openai-compatible",
+      typed: ["http://user:pw@host/v1", "http://vllm.internal:8000/v1"],
+    })
+    const env = await askAiProvider(prompt, {}, false)
+    expect(asked).toEqual(["AI_BASE_URL", "AI_BASE_URL"])
+    expect(env).toMatchObject({
+      AI_PROVIDER: "openai-compatible",
+      AI_BASE_URL: "http://vllm.internal:8000/v1",
+      AI_API_KEY: "",
+      AI_MODEL: "m",
+    })
+    expect(configuredCapabilities(env).structuredOutput).toBe(true)
+  })
+
+  it("offers a local server's default URL, and forgets another provider's", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ data: [{ id: "m" }] }))
+    )
+    const { prompt } = scripted({ provider: "lm-studio" })
+    const env = await askAiProvider(
+      prompt,
+      { AI_PROVIDER: "llama-cpp", AI_BASE_URL: "http://localhost:8080/v1" },
+      false
+    )
+    expect(env.AI_BASE_URL).toBe("http://localhost:1234/v1")
+    expect(prompt.secret).not.toHaveBeenCalled()
+  })
+
+  it("offers the first local server that answers on --local", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) =>
+        String(url).startsWith("http://localhost:1234/v1/models")
+          ? Response.json({ data: [{ id: "m" }] })
+          : new Response("", { status: 404 })
+      )
+    )
+    const { prompt } = scripted({ provider: "lm-studio" })
+    await askAiProvider(prompt, {}, true)
+    const [, choices, fallback] = vi.mocked(prompt.choose).mock.calls[0] as [
+      string,
+      Choice<string>[],
+      number,
+    ]
+    expect(choices[fallback].value).toBe("lm-studio")
+  })
+})
+
+describe("a verification failure in the picker", () => {
+  it("shows why, and does not disable a model for a failure that is not about it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ data: [{ id: "m1", type: "language" }] })
+      )
+    )
+    probe.mockResolvedValue({
+      structuredOutput: false,
+      vision: false,
+      failure: "structured-output",
+      reason: "authorization",
+      detail: "The provider rejected the credentials (HTTP 401).",
+    })
+    const offered: Choice<unknown>[][] = []
+    const prompt = promptWith((question, choices) => {
+      if (question === "Which AI provider?") return "openai"
+      if (question === "What should the model analyze?") return true
+      offered.push(choices)
+      return offered.length === 1
+        ? "m1"
+        : choices.find((choice) => choice.label.startsWith("Keep the current"))!
+            .value
+    })
+
+    await askAiProvider(prompt, { OPENAI_API_KEY: "sk-test" }, false)
+
+    const output = vi
+      .mocked(process.stdout.write)
+      .mock.calls.map(([chunk]) => String(chunk))
+      .join("")
+    expect(output).toContain("Structured-output verification of m1 failed")
+    expect(output).toContain("rejected the credentials (HTTP 401)")
+    expect(
+      offered[1].find((choice) => choice.value === "m1")?.disabled
+    ).toBeUndefined()
+  })
+
+  it("disables a model that failed because of the model", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ data: [{ id: "m1", type: "language" }] })
+      )
+    )
+    probe.mockResolvedValue({
+      structuredOutput: false,
+      vision: false,
+      failure: "structured-output",
+      reason: "invalid-output",
+      detail: "The model answered, but not with JSON.",
+    })
+    const offered: Choice<unknown>[][] = []
+    const prompt = promptWith((question, choices) => {
+      if (question === "Which AI provider?") return "openai"
+      if (question === "What should the model analyze?") return true
+      offered.push(choices)
+      return offered.length === 1
+        ? "m1"
+        : choices.find((choice) => choice.label.startsWith("Keep the current"))!
+            .value
+    })
+
+    await askAiProvider(prompt, { OPENAI_API_KEY: "sk-test" }, false)
+
+    expect(offered[1].find((choice) => choice.value === "m1")?.disabled).toBe(
+      "Failed verification: no valid structured output"
+    )
+  })
+})

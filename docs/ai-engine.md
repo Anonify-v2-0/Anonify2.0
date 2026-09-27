@@ -79,9 +79,10 @@ call is a classic and very quiet bug. There is a test for it.
 
 `lib/ai/gateway.ts`, `lib/ai/prompts/*`, `lib/ai/schemas/*`
 
-Calls use the selected official AI SDK provider or local Ollama. Provider and
-model selection, live discovery and capability verification are documented in
-[AI providers](ai-providers.md). Gateway remains the backward-compatible default,
+Calls use the selected provider: an official AI SDK adapter, a local server
+(Ollama, LM Studio, llama.cpp), an OpenAI-compatible endpoint, or a signed-in
+ChatGPT subscription. Provider and model selection, live discovery and
+capability verification are documented in [AI providers](ai-providers.md). Gateway remains the backward-compatible default,
 with a small, fast, vision-capable model — the shape of work here is many short structured
 extractions, not long reasoning.
 

@@ -4,6 +4,7 @@ import {
   decodesTo32Bytes,
   parseEnv,
   renderEnv,
+  updateEnv,
   type EnvGroup,
 } from "../scripts/env-file"
 
@@ -115,5 +116,53 @@ describe("writing the file", () => {
     expect(renderEnv("Test", [{ heading: "Empty", lines: [] }])).not.toContain(
       "Empty"
     )
+  })
+})
+
+describe("changing a few values in place", () => {
+  const source = [
+    "# ---- AI detection",
+    "# A note somebody wrote by hand",
+    "AI_PROVIDER=gateway",
+    "# AI_MODEL=anthropic/claude-haiku-4.5   # the default",
+    "export AI_MODEL_CAPABILITIES=old",
+    "ENCRYPTION_KEY=keep-me",
+    "",
+  ].join("\n")
+
+  it("replaces live lines where they stand and leaves everything else alone", () => {
+    const next = updateEnv(source, {
+      AI_PROVIDER: "ollama",
+      AI_MODEL_CAPABILITIES: '{"target":"[\\"ollama\\"]"}',
+    })
+    expect(next.split("\n")).toEqual([
+      "# ---- AI detection",
+      "# A note somebody wrote by hand",
+      "AI_PROVIDER=ollama",
+      "# AI_MODEL=anthropic/claude-haiku-4.5   # the default",
+      `AI_MODEL_CAPABILITIES='{"target":"[\\"ollama\\"]"}'`,
+      "ENCRYPTION_KEY=keep-me",
+      "",
+    ])
+    expect(parseEnv(next).get("AI_MODEL_CAPABILITIES")).toBe(
+      '{"target":"[\\"ollama\\"]"}'
+    )
+  })
+
+  it("appends a key with no live line, and leaves its commented default as a record", () => {
+    const next = updateEnv(source, { AI_MODEL: "qwen3-vl:2b-instruct" })
+    expect(next).toContain("# AI_MODEL=anthropic/claude-haiku-4.5")
+    expect(next.endsWith("AI_MODEL=qwen3-vl:2b-instruct\n")).toBe(true)
+    expect(parseEnv(next).get("AI_MODEL")).toBe("qwen3-vl:2b-instruct")
+  })
+
+  it("updates every duplicate, since the last one is the one that counts", () => {
+    const next = updateEnv("AI_MODEL=a\nAI_MODEL=b\n", { AI_MODEL: "c" })
+    expect(next).toBe("AI_MODEL=c\nAI_MODEL=c\n")
+  })
+
+  it("keeps Windows line endings, and starts an empty file", () => {
+    expect(updateEnv("A=1\r\nB=2\r\n", { B: "3" })).toBe("A=1\r\nB=3\r\n")
+    expect(updateEnv("", { A: "1" })).toBe("A=1\n")
   })
 })

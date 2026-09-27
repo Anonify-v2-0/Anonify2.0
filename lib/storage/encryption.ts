@@ -69,6 +69,22 @@ export function openWithKey(sealed: Uint8Array, key: Buffer): Buffer {
   return Buffer.concat([decipher.update(body), decipher.final()])
 }
 
+/**
+ * Seals a small secret the server keeps for itself (a sign-in token, say)
+ * directly under the master key. It gets no data key of its own because it is
+ * one short value rather than a document: the envelope exists so a document
+ * can be deleted by forgetting its key, and a credential is deleted by
+ * deleting its row.
+ */
+export function sealWithMasterKey(plaintext: Uint8Array): Buffer {
+  return sealWithKey(plaintext, masterKey())
+}
+
+/** Opens what `sealWithMasterKey` sealed. Throws if authentication fails. */
+export function openWithMasterKey(sealed: Uint8Array): Buffer {
+  return openWithKey(sealed, masterKey())
+}
+
 export type EncryptedPayload = {
   ciphertext: Buffer
   /** The document's data key, sealed under the master key, base64-encoded. */

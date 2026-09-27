@@ -34,6 +34,10 @@ ENV ENCRYPTION_KEY="000000000000000000000000000000000000000000000000000000000000
 ENV FINGERPRINT_SECRET="1111111111111111111111111111111111111111111111111111111111111111"
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_OUTPUT=standalone
+# Prerendered pages resolve link-preview URLs at build time, so the public
+# address has to be known here as well as at run time. Optional.
+ARG ANONIFY_PUBLIC_URL=""
+ENV ANONIFY_PUBLIC_URL=$ANONIFY_PUBLIC_URL
 # Selected at build time as well as at runtime: withWorkflow() falls back to the
 # local file-backed world when this is unset, and the build bakes that choice in.
 ENV WORKFLOW_TARGET_WORLD="@workflow/world-postgres"

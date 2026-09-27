@@ -1,19 +1,68 @@
 import type { LanguageModel } from "ai"
-import { modelId, ollamaUrl, providerId, type ProviderEnv } from "./config"
+import {
+  COMPATIBLE_PROFILES,
+  takesBaseUrl,
+  type CompatibleProfile,
+} from "./compatible"
+import {
+  compatibleBaseUrl,
+  modelId,
+  ollamaUrl,
+  providerId,
+  type ProviderEnv,
+} from "./config"
 
 export type ProviderDefinition = {
   id: string
   label: string
   envKey?: string
+  /** `envKey` may be blank: an endpoint that may or may not take a key. */
+  keyOptional?: boolean
   fields?: string[]
   modelsUrl?: string
+  /** Set for the rows built from ./compatible's profile table. */
+  compatible?: CompatibleProfile
+  /**
+   * Signs in with `pnpm ai login` rather than a key in `.env`; the token is
+   * sealed in the database and refreshed on use.
+   */
+  login?: "openai"
   languageModel: (
     env: ProviderEnv,
     fetcher?: typeof fetch
   ) => Promise<LanguageModel>
 }
 
-/** Only explicitly supported vendors appear here; a compatible protocol is not a provider. */
+/**
+ * One OpenAI-compatible profile as a provider. The same official adapter
+ * Ollama uses, pointed at the profile's URL.
+ */
+function compatibleProvider(profile: CompatibleProfile): ProviderDefinition {
+  return {
+    id: profile.id,
+    label: profile.label,
+    envKey: profile.envKey,
+    keyOptional: profile.keyOptional,
+    fields: takesBaseUrl(profile) ? ["AI_BASE_URL"] : undefined,
+    compatible: profile,
+    languageModel: async (env, fetch) =>
+      (await import("@ai-sdk/openai-compatible")).createOpenAICompatible({
+        name: profile.id,
+        baseURL: compatibleBaseUrl(env),
+        apiKey: (profile.envKey && env[profile.envKey]?.trim()) || undefined,
+        // Sent as a JSON schema. An endpoint that cannot honour one fails
+        // setup's probe, and is never enabled.
+        supportsStructuredOutputs: true,
+        fetch,
+      })(modelId(env)),
+  }
+}
+
+/**
+ * The vendors and servers an instance can use. Official AI SDK adapters by
+ * name; everything that speaks only the OpenAI protocol comes from the profile
+ * table in ./compatible, one row each.
+ */
 export const PROVIDERS: ProviderDefinition[] = [
   {
     id: "gateway",
@@ -37,6 +86,13 @@ export const PROVIDERS: ProviderDefinition[] = [
         baseURL: "https://api.openai.com/v1",
         fetch,
       })(modelId(env)),
+  },
+  {
+    id: "openai-subscription",
+    label: "ChatGPT subscription (sign in with pnpm ai login)",
+    login: "openai",
+    languageModel: async (env, fetch) =>
+      (await import("./subscription")).subscriptionModel(modelId(env), fetch),
   },
   {
     id: "anthropic",
@@ -245,6 +301,7 @@ export const PROVIDERS: ProviderDefinition[] = [
         fetch,
       })(modelId(env)),
   },
+  ...COMPATIBLE_PROFILES.map(compatibleProvider),
 ]
 
 export function selectedProvider(
@@ -266,8 +323,10 @@ export function providerConfigured(env: ProviderEnv = process.env): boolean {
     return Boolean(
       env.AI_GATEWAY_API_KEY?.trim() || env.VERCEL_OIDC_TOKEN?.trim()
     )
-  if (provider.envKey) return Boolean(env[provider.envKey]?.trim())
-  // IAM and local connectivity are resolved on use, with visible failures.
+  if (provider.envKey && !provider.keyOptional)
+    return Boolean(env[provider.envKey]?.trim())
+  // IAM, local connectivity and a stored login are resolved on use, with
+  // visible failures: a missing login is `authorization`, like a bad key.
   return true
 }
 

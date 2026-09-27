@@ -90,7 +90,7 @@ export function parseEnv(source: string): Map<string, string> {
   return new Map(Object.entries(parse(source)))
 }
 
-function quoteEnvValue(value: string): string {
+export function quoteEnvValue(value: string): string {
   if (!/[\s#'"`]/.test(value)) return value
   for (const quote of ["'", '"', "`"]) {
     if (!value.includes(quote)) return `${quote}${value}${quote}`
@@ -115,4 +115,42 @@ export function decodesTo32Bytes(value: string): boolean {
   // Buffer.from is lenient with base64 — it skips what it cannot read rather
   // than throwing — so the length of what came back is the real check.
   return Buffer.from(value, "base64").length === 32
+}
+
+/**
+ * `source` with some values replaced, and everything else left exactly as it
+ * was: comments, order, spacing, and every line this does not name.
+ *
+ * For a command that changes one or two settings in a `.env` somebody may
+ * have edited by hand. Regenerating the whole file, as setup does, would be
+ * the wrong tool there. A live `KEY=` line is replaced where it stands; a key
+ * with no live line is appended, and a commented `# KEY=` default is left as
+ * the record of what the default was.
+ */
+export function updateEnv(
+  source: string,
+  updates: Record<string, string>
+): string {
+  const newline = source.includes("\r\n") ? "\r\n" : "\n"
+  const lines = source.length > 0 ? source.split(/\r?\n/) : []
+  const values = new Map(Object.entries(updates))
+  const pending = new Map(values)
+
+  // Every live line for a key, not only the first: dotenv lets the last one
+  // win, so a duplicate left alone would silently undo the update.
+  const out = lines.map((line) => {
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line)
+    if (!match || !values.has(match[1])) return line
+    const key = match[1]
+    pending.delete(key)
+    return `${key}=${quoteEnvValue(values.get(key)!)}`
+  })
+
+  if (pending.size > 0) {
+    while (out.length > 0 && out[out.length - 1] === "") out.pop()
+    for (const [key, value] of pending)
+      out.push(`${key}=${quoteEnvValue(value)}`)
+    out.push("")
+  }
+  return out.join(newline)
 }

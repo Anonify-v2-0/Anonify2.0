@@ -475,6 +475,11 @@ clone works before anything is decided.
 | `STORAGE_DRIVER` | `s3`, `vercel-blob`, `local` | Inferred from what is configured |
 | `OCR_PROVIDER` | `tesseract`, `mistral` | `tesseract` — local, no account |
 | `ANONIFY_PROFILE` | `self-hosted`, `demo` | `self-hosted` |
+| `ANONIFY_PUBLIC_URL` | The address people reach the instance at | Vercel's own on Vercel; `http://localhost:3000` elsewhere |
+
+`ANONIFY_PUBLIC_URL` is used only for absolute URLs in link previews. Set it on
+a self-hosted instance whose links get shared, and rebuild the image after
+changing it, because prerendered pages resolve it at build time.
 
 Reads pick their driver from the stored key rather than the current setting, so
 changing backends does not orphan documents that are already stored.
@@ -514,12 +519,17 @@ readable, which is the half that has to work first.
 
 ### AI detection, model, and cost
 
-The contextual pass supports official AI SDK providers and local Ollama.
-`pnpm setup` asks for the provider and credentials, discovers models, disables
-known incompatible choices, and verifies structured output and image input.
-See [AI providers](docs/ai-providers.md) for the complete provider list, cloud
-credentials, Docker/Ollama setup and text-only analysis. Existing Gateway
-configurations keep working unchanged.
+The contextual pass supports official AI SDK providers, local models through
+Ollama, LM Studio or llama.cpp, OpenRouter, Synthetic, any other
+OpenAI-compatible endpoint by URL, and a ChatGPT subscription signed in with
+`pnpm ai login --provider openai`. For that last option, read the caveat in the
+provider docs first. `pnpm setup` asks for the provider and credentials,
+discovers models, disables known incompatible choices, and verifies structured
+output and image input. `pnpm ai verify` runs the same verification without
+the rest of setup. To use OpenAI, follow [Connecting to OpenAI](docs/connect-openai.md).
+See [AI providers](docs/ai-providers.md) for the complete
+provider list, cloud credentials, Docker and local-server setup, and text-only
+analysis. Existing Gateway configurations keep working unchanged.
 
 | Variable | What it does | Default |
 | --- | --- | --- |
@@ -552,7 +562,7 @@ already uploaded — so a request that arrives too early waits instead.
 
 | Variable | What it bounds | Default |
 | --- | --- | --- |
-| `ANONIFY_AI_CONCURRENCY` | Model calls in flight, across every document | `4` hosted, `1` Ollama |
+| `ANONIFY_AI_CONCURRENCY` | Model calls in flight, across every document | `4` hosted, `1` local server |
 | `ANONIFY_AI_REQUESTS_PER_MINUTE` | Sustained model-call rate; `0` paces nothing | `0` |
 | `ANONIFY_AI_MAX_ATTEMPTS` | Tries per call before it is given up | `4` |
 | `ANONIFY_OCR_CONCURRENCY` | Hosted-OCR requests in flight | `2` |
@@ -768,6 +778,7 @@ pnpm db:migrate:deploy # apply existing migrations
 pnpm rate-limit show   # inspect the limits in force
 pnpm ocr:warm          # pre-download the Tesseract model
 pnpm models:warm       # refresh the model lists and list prices setup shows
+pnpm ai status         # the AI provider and model in force, and whether it is verified
 pnpm cleanup           # run the expiry sweep once
 pnpm smoke             # every format, against a running instance
 pnpm smoke --only=eml  # or one of them
