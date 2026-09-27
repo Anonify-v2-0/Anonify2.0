@@ -29,6 +29,9 @@
     "smoke:storage": "tsx scripts/storage-smoke.ts",
     "smoke:blob": "tsx scripts/blob-smoke.ts",
     "bench": "tsx scripts/bench-formats.ts",
+    "corpus:generate": "tsx benchmarks/corpus/generate.ts",
+    "corpus:validate": "tsx benchmarks/corpus/validate.ts",
+    "corpus:check": "tsx benchmarks/corpus/check.ts",
     "workflow:bootstrap": "node node_modules/@workflow/world-postgres/bin/setup.js"
   },
   "dependencies": {

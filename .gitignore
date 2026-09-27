@@ -55,3 +55,6 @@ next-env.d.ts
 *.traineddata
 
 .vscode
+
+# corpus generator: cached model responses and the rejection log
+/benchmarks/corpus/.cache/
