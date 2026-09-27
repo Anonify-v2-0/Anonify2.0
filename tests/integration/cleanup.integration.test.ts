@@ -223,6 +223,63 @@ describe.skipIf(!hasDatabase)("cleanup against Postgres", () => {
     ).toBeNull()
   })
 
+  it("finishes when another process deletes a document mid-sweep", async () => {
+    // Three things purge documents and none of them coordinate: this sweep,
+    // `pnpm cleanup`, and a person pressing delete. Here the sweep is parked
+    // on one document's storage while something else removes that document
+    // outright, which is what threw "No record was found for a delete" and
+    // failed the whole run with a 500.
+    const contested = await seed({ expiresAt: past() })
+    const bystander = await seed({ expiresAt: past() })
+    const parked = contested.keys[0]
+
+    let release = () => {}
+    storage.gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    storage.gated.add(parked)
+
+    const sweep = cleanupExpired()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    // The other process: its purge has cleared storage and removed the row.
+    await prisma.document.delete({ where: { id: contested.id } })
+
+    release()
+    storage.gate = null
+    storage.gated.delete(parked)
+
+    const result = await sweep
+    expect(result.failures).toBe(0)
+    // Gone is what the sweep wanted; it is not a failure that it was not
+    // the one to do it. And the rest of the page was still swept.
+    expect(
+      await prisma.document.findUnique({ where: { id: contested.id } })
+    ).toBeNull()
+    expect(
+      await prisma.document.findUnique({ where: { id: bystander.id } })
+    ).toBeNull()
+    for (const key of [...contested.keys, ...bystander.keys]) {
+      expect(await objectExists(key)).toBe(false)
+    }
+  })
+
+  it("survives two sweeps running at once", async () => {
+    const seeded = await Promise.all([
+      seed({ expiresAt: past() }),
+      seed({ expiresAt: past() }),
+      seed({ expiresAt: past() }),
+    ])
+
+    const results = await Promise.all([cleanupExpired(), cleanupExpired()])
+
+    for (const result of results) expect(result.failures).toBe(0)
+    for (const document of seeded)
+      expect(
+        await prisma.document.findUnique({ where: { id: document.id } })
+      ).toBeNull()
+  })
+
   it("leaves a document that has not expired completely alone", async () => {
     const seeded = await seed({ expiresAt: future(), exports: 1 })
 

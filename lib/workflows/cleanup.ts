@@ -45,7 +45,24 @@ export async function cleanupExpired(now = new Date()): Promise<CleanupResult> {
   for (const document of expired) {
     if (purged.has(document.id)) continue
 
-    const result = await purgeDocument(document)
+    // One document that cannot be purged must not cost the rest of the page
+    // their deletion: count it, say so, and carry on. The next run retries
+    // it, because its row is still there.
+    let result: Awaited<ReturnType<typeof purgeDocument>>
+    try {
+      result = await purgeDocument(document)
+    } catch {
+      failures += 1
+      console.error(
+        JSON.stringify({
+          level: "error",
+          context: "cleanup.document",
+          documentId: document.id,
+          errorCategory: "unexpected",
+        })
+      )
+      continue
+    }
     objectsDeleted += result.objectsDeleted
     documentsDeleted += result.deletedIds.length
     for (const id of result.deletedIds) purged.add(id)
