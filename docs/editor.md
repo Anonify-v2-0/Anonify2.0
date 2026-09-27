@@ -755,7 +755,7 @@ always wait for approval.
 
 | Read | What it gives Hush |
 | --- | --- |
-| `get_document_overview` | Kind, pages or sheets, and redaction counts by status, source and category. No document text. |
+| `get_document_overview` | Name, kind, pages or sheets, and redaction counts by status, source and category. No page or cell text. |
 | `read_page`, `read_sheet` | The text of a page (in 8,000-character parts), or rows of a sheet. |
 | `find_occurrences` | Every place a value or pattern occurs: page, context, a ref to act on, and whether a redaction already covers it. |
 | `find_uncovered` | The deterministic detectors over the whole document, minus what is already covered, grouped by category and value. |
@@ -792,7 +792,9 @@ change, the canvas, the inspector and the rules panel reload from the server.
 "Let Hush read this document?" It sends what it reads to the configured
 provider, the same one that analysed the document. Allowed, it holds for the
 session, and every later read is listed in the conversation as it happens. The
-shield in the header revokes it.
+shield in the header revokes it. Until then Hush is not told the file's name,
+and knows a selected redaction only by its category, status and page, not its
+value or reason.
 
 **The header** shows where answers come from as badges: the provider, the
 model, and whether the provider is a hosted API, a local model, a ChatGPT plan

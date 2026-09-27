@@ -141,28 +141,27 @@ export function HushPanel({ documentId }: { documentId: string }) {
         // gave, and the page and selection they are on right now.
         prepareSendMessagesRequest: ({ messages }) => {
           const state = store.getState()
+          const readConsent = state.ui.hushReadConsent.includes(documentId)
           const selected = selectSelectedRedaction(state)
+          // The selected value and its reason are document content: they
+          // leave the browser only once the reviewer has let Hush read.
           const view: HushView = {
             currentPage: state.editor.currentPage,
             selected: selected
               ? {
                   id: selected.id,
-                  text: selected.text?.slice(0, 500),
+                  text: readConsent ? selected.text?.slice(0, 500) : undefined,
                   category: selected.category,
                   status: selected.status,
                   source: selected.source,
                   page: selected.page,
-                  reason: selected.reason?.slice(0, 300),
+                  reason: readConsent
+                    ? selected.reason?.slice(0, 300)
+                    : undefined,
                 }
               : undefined,
           }
-          return {
-            body: {
-              messages,
-              readConsent: state.ui.hushReadConsent.includes(documentId),
-              view,
-            },
-          }
+          return { body: { messages, readConsent, view } }
         },
       }),
     [documentId, store]

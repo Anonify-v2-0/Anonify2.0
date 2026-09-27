@@ -164,7 +164,7 @@ export function hushTools(context: HushContext) {
 
     get_document_overview: tool({
       description:
-        "What the document is and where its review stands: kind, pages or sheets, and counts of redactions by status, source and category. Contains no document text. Start here.",
+        "What the document is and where its review stands: name, kind, pages or sheets, and counts of redactions by status, source and category. Contains no page or cell text. Start here.",
       inputSchema: z.object({}),
       execute: async () => {
         const outline = await reader().outline()
@@ -752,8 +752,13 @@ export function hushTools(context: HushContext) {
 export type HushTools = ReturnType<typeof hushTools>
 export type HushToolName = keyof HushTools
 
-/** Tools that return document text: the first one needs the reviewer's yes. */
+/**
+ * Tools that return anything taken from the document — its text, but also its
+ * file name and sheet names: the first one needs the reviewer's yes. Every
+ * tool is either here or in `WRITE_TOOLS`.
+ */
 export const READ_TOOLS: readonly HushToolName[] = [
+  "get_document_overview",
   "read_page",
   "read_sheet",
   "find_occurrences",

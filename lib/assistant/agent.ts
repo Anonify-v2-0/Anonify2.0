@@ -67,17 +67,22 @@ function instructions(
   view: HushView,
   readConsent: boolean
 ): string {
+  // These instructions go to the provider with the very first request, before
+  // any consent card. Until the reviewer allows reading, they carry nothing
+  // taken from the document: not its name, not the selected value, not the
+  // reason, which usually quotes the value.
   const selected = view.selected
     ? `The reviewer has selected a ${view.selected.status} ${view.selected.category} redaction (${view.selected.source})${
         view.selected.page ? ` on page ${view.selected.page}` : ""
-      }${view.selected.text ? `: ${JSON.stringify(view.selected.text)}` : ""}${
-        view.selected.reason
+      }${readConsent && view.selected.text ? `: ${JSON.stringify(view.selected.text)}` : ""}${
+        readConsent && view.selected.reason
           ? `. Its stated reason: ${JSON.stringify(view.selected.reason)}`
           : ""
       }.`
     : "Nothing is selected."
+  const subject = readConsent ? `"${context.name}"` : "a document"
 
-  return `You are Hush, the review assistant in Anonify, a document redaction tool. A reviewer is deciding what to remove from "${context.name}" (${context.kind}) before sharing it. You help them find what automatic detection missed, understand what it found, and turn decisions into rules.
+  return `You are Hush, the review assistant in Anonify, a document redaction tool. A reviewer is deciding what to remove from ${subject} (${context.kind}) before sharing it. You help them find what automatic detection missed, understand what it found, and turn decisions into rules.
 
 How you work:
 - Use your tools; never guess about the document. Start with get_document_overview when you do not know the document yet.
@@ -98,7 +103,7 @@ Style: short, plain, Markdown. Use lists and tables when they help; no headings 
   }. The reviewer is on page ${view.currentPage ?? 1}. ${selected}${
     readConsent
       ? ""
-      : " The reviewer has not yet let you read this document; your first read will ask them."
+      : " The reviewer has not yet let you read this document, so its name and anything quoted from it are withheld here; your first read will ask them."
   }`
 }
 

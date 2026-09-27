@@ -36,10 +36,13 @@ type Step = {
 
 let script: Step[] = []
 let calls = 0
+/** Every prompt the model was sent, system instructions included. */
+let sent: unknown[] = []
 
 function modelFrom(steps: () => Step[]) {
   return new MockLanguageModelV4({
-    doGenerate: async () => {
+    doGenerate: async ({ prompt }) => {
+      sent.push(prompt)
       const step = steps()[calls] ?? { text: "Done." }
       calls += 1
       const content = step.toolCalls
@@ -89,6 +92,8 @@ vi.mock("@/lib/database/prisma", () => ({
 }))
 
 const { buildHushAgent } = await import("@/lib/assistant/agent")
+const { hushTools, READ_TOOLS, WRITE_TOOLS } =
+  await import("@/lib/assistant/tools")
 
 const ROOT = path.join(process.cwd(), ".anonify-storage", "documents")
 const created: string[] = []
@@ -101,6 +106,7 @@ beforeAll(() => {
 afterEach(() => {
   script = []
   calls = 0
+  sent = []
   transaction.mockClear()
 })
 
@@ -254,6 +260,84 @@ describe("reading the document", () => {
     const read = result.steps[0].toolResults[0]
     expect((read.output as { text: string }).text).toContain("EMP-00123")
     expect(result.text).toBe("Two IDs.")
+  })
+})
+
+describe("before reading is allowed", () => {
+  // A file name, a selected value and a reason that quotes it: all document
+  // content, and all in hand before the reviewer has been asked anything.
+  const secrets = ["Jane Roe payroll.txt", "EMP-00123", "matches EMP-00123"]
+
+  async function agentWith(readConsent: boolean) {
+    const document = await target("Staff EMP-00123 and EMP-00456.")
+    return buildHushAgent({
+      context: {
+        documentId: document.id,
+        target: document,
+        batchId: null,
+        ownerKey: "owner",
+        name: "Jane Roe payroll.txt",
+        kind: "txt",
+      },
+      view: {
+        currentPage: 1,
+        selected: {
+          id: "red_1",
+          text: "EMP-00123",
+          category: "customer-id",
+          status: "suggested",
+          source: "ai",
+          page: 1,
+          reason: "matches EMP-00123",
+        },
+      },
+      readConsent,
+    })
+  }
+
+  it("sends the provider nothing from the document", async () => {
+    script = [{ text: "Hello." }]
+    await (await agentWith(false)).generate({ prompt: "hi" })
+
+    const prompt = JSON.stringify(sent)
+    expect(sent).toHaveLength(1)
+    for (const secret of secrets) expect(prompt).not.toContain(secret)
+    // What is selected is still described, by category and place.
+    expect(prompt).toContain("suggested customer-id redaction (ai) on page 1")
+  })
+
+  it("names the document and the selection once reading is allowed", async () => {
+    script = [{ text: "Hello." }]
+    await (await agentWith(true)).generate({ prompt: "hi" })
+
+    const prompt = JSON.stringify(sent)
+    for (const secret of secrets) expect(prompt).toContain(secret)
+  })
+
+  it("asks before the overview, which carries the file and sheet names", async () => {
+    script = [{ toolCalls: [{ toolName: "get_document_overview", input: {} }] }]
+    const result = await (await agentWith(false)).generate({ prompt: "hi" })
+    const [approval] = approvalsIn(result.content)
+
+    expect(approval.toolCall.toolName).toBe("get_document_overview")
+    expect(result.content.some((part) => part.type === "tool-result")).toBe(
+      false
+    )
+  })
+
+  it("has no tool that is neither a read nor a write", () => {
+    const tools = Object.keys(
+      hushTools({
+        documentId: "doc",
+        target: {} as RuleTarget,
+        batchId: null,
+        ownerKey: "owner",
+        name: "notes.txt",
+        kind: "txt",
+      })
+    )
+    const known = new Set<string>([...READ_TOOLS, ...WRITE_TOOLS])
+    expect(tools.filter((name) => !known.has(name))).toEqual([])
   })
 })
 
