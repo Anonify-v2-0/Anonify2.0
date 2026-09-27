@@ -18,8 +18,10 @@ import { ImageCanvas } from "@/components/image-editor/image-canvas"
 import { RedactionLayer } from "@/components/redaction/redaction-layer"
 import {
   caretAt,
+  coarseRedactionClass,
   pageOffsetOf,
   SearchBoxes,
+  useHighlightsSupported,
   useTextHighlights,
 } from "@/components/search/search-highlights"
 import { wordAt } from "@/lib/redaction/words"
@@ -33,6 +35,7 @@ import { fitModeChanged, zoomChanged } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { redactionSelected } from "@/store/redactionSlice"
 import { selectRedactions } from "@/store/selectors"
+import { cn } from "@/lib/utils"
 import type { BoundingBox, DocumentSummary } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
 
@@ -95,6 +98,7 @@ export function DocumentCanvas({
   // a focused place. PDF and image draw theirs as boxes.
   const textFlow = summary.kind !== "pdf" && summary.kind !== "image"
   useTextHighlights(containerRef, page, textFlow, pageRedactions, selectedId)
+  const paintsCharacters = useHighlightsSupported()
 
   const createRegion = useCallback(
     (boundingBox: BoundingBox) => {
@@ -294,8 +298,13 @@ export function DocumentCanvas({
         }}
         // What a redaction covers is painted by its characters (see
         // useTextHighlights), not by the span it falls in: a span is a whole
-        // line in some formats, and styling it marked the line.
-        className="cursor-pointer rounded-[2px] focus-visible:outline-1 focus-visible:outline-primary"
+        // line in some formats, and styling it marked the line. Only a
+        // browser that cannot paint characters gets the span styled.
+        className={cn(
+          "cursor-pointer rounded-[2px] focus-visible:outline-1 focus-visible:outline-primary",
+          !paintsCharacters &&
+            coarseRedactionClass(span, pageRedactions, selectedId)
+        )}
       >
         {children}
       </span>

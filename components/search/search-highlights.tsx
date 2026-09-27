@@ -1,6 +1,12 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react"
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useSyncExternalStore,
+  type RefObject,
+} from "react"
 
 import { boxesForRange } from "@/lib/redaction/geometry"
 import type { SearchHit } from "@/lib/redaction/search"
@@ -23,7 +29,9 @@ import { cn } from "@/lib/utils"
  *               touched blacked out a line to show one ID on it being removed
  *               — a canvas that overstates a redaction is as wrong as one that
  *               understates it. Splitting spans instead would change the
- *               elements a click redacts.
+ *               elements a click redacts. A browser without the API gets
+ *               redactions by span instead (`coarseRedactionClass`): coarse,
+ *               but a canvas that shows nothing at all is worse.
  *   geometry    PDF and images. The hit is resolved to rectangles by
  *               `boxesForRange`, the resolution a redaction gets, so a hit and
  *               the redaction it would become cover the same place.
@@ -181,6 +189,47 @@ function rangesFor(hit: SearchHit, segments: Segment[]): Range[] {
 
 function highlightsSupported(): boolean {
   return typeof CSS !== "undefined" && "highlights" in CSS
+}
+
+const subscribeNever = () => () => {}
+
+/**
+ * Whether this browser paints by characters. Assumed on the server, so the
+ * first render in the browser matches what the server sent.
+ */
+export function useHighlightsSupported(): boolean {
+  return useSyncExternalStore(subscribeNever, highlightsSupported, () => true)
+}
+
+/**
+ * How a span is styled for the redactions on it, in a browser that cannot
+ * paint characters: the whole span, the way the canvas drew every redaction
+ * before it painted characters. It overstates a redaction on a line, but
+ * without it an accepted value reads as untouched, and clicking it again reads
+ * as doing nothing. Accepted wins over suggested, as the paint does.
+ */
+export function coarseRedactionClass(
+  span: { start: number; end: number } | undefined,
+  redactions: Redaction[],
+  selectedId: string | null
+): string | undefined {
+  if (!span) return undefined
+  const covering = redactions.filter(
+    (redaction) =>
+      redaction.status !== "rejected" &&
+      redaction.start !== undefined &&
+      redaction.end !== undefined &&
+      redaction.start < span.end &&
+      redaction.end > span.start
+  )
+  if (covering.length === 0) return undefined
+  return cn(
+    covering.some((redaction) => redaction.status === "accepted")
+      ? "bg-black text-black selection:bg-black"
+      : "bg-red-soft outline-1 outline-red-border outline-dashed",
+    covering.some((redaction) => redaction.id === selectedId) &&
+      "outline-1 outline-primary outline-solid"
+  )
 }
 
 /**
