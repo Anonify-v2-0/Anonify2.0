@@ -14,6 +14,25 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.7.0] - 2026-09-27
+
+### Changed
+
+- Documents are read a piece at a time instead of whole, so processing and
+  downloading a large file needs far less memory. The editor loads the pages you
+  look at rather than the whole document; Word, PowerPoint, Excel and PDF files
+  are read by ranged reads, with pictures and other media no longer unpacked;
+  emails are parsed without holding their attachments; and downloads, single and
+  batch, stream while their checksum is verified. Output is unchanged. Adds a
+  `Document.normalizedIndex` column, so run `pnpm db:migrate:deploy` (the
+  container image does this for you); documents processed before the upgrade
+  keep working and are read whole (#129)
+
+### Fixed
+
+- A download the browser abandoned partway no longer leaves the stored file's
+  handle or storage connection open until the process cleans it up (#129)
+
 ## [1.6.3] - 2026-09-23
 
 ### Fixed
