@@ -526,7 +526,8 @@ OpenAI-compatible endpoint by URL, and a ChatGPT subscription signed in with
 provider docs first. `pnpm setup` asks for the provider and credentials,
 discovers models, disables known incompatible choices, and verifies structured
 output and image input. `pnpm ai verify` runs the same verification without
-the rest of setup. See [AI providers](docs/ai-providers.md) for the complete
+the rest of setup. To use OpenAI, follow [Connecting to OpenAI](docs/connect-openai.md).
+See [AI providers](docs/ai-providers.md) for the complete
 provider list, cloud credentials, Docker and local-server setup, and text-only
 analysis. Existing Gateway configurations keep working unchanged.
 

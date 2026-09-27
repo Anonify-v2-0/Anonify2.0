@@ -119,6 +119,10 @@ start `llama-server` with a chat template. It needs a multimodal projector
 
 ## ChatGPT subscription sign-in
 
+For a step-by-step guide to both OpenAI routes, an API key or a ChatGPT
+sign-in, including headless servers and troubleshooting, see
+[Connecting to OpenAI](connect-openai.md).
+
 ```bash
 pnpm ai login --provider openai     # opens a browser, or prints a link on a headless host
 pnpm ai verify                      # choose and verify a model; writes AI_PROVIDER/AI_MODEL
