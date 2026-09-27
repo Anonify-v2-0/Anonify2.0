@@ -34,6 +34,8 @@ import {
   TextExtractionStream,
 } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
+import { XlsxExtractionStream } from "@/lib/documents/xlsx/stream"
+import { openZip, ZipFallback } from "@/lib/documents/ooxml/zip"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { ExpansionLimitError } from "@/lib/documents/eml/attachments"
 import { EmlLimitError } from "@/lib/documents/eml/limits"
@@ -66,10 +68,13 @@ import {
   getSealed,
   getSealedStream,
   newDocumentSeal,
+  openSealedObject,
   putSealedStream,
   type DocumentSeal,
 } from "@/lib/storage/sealed"
+import { cachedRangeSource } from "@/lib/storage/range-source"
 import { readHead } from "@/lib/storage/streams"
+import { streamingLimits } from "@/lib/storage/streaming"
 import {
   encodeStreamEvent,
   type ProcessingStreamEvent,
@@ -468,7 +473,9 @@ async function runExtractAndNormalize(
   try {
     extracted = isStreamedKind(kind)
       ? await extractStreamed({ ...input, kind })
-      : await extractWhole(input)
+      : isRangedKind(kind)
+        ? await extractRanged({ ...input, kind })
+        : await extractWhole(input)
   } catch (error) {
     // An OCR provider this instance cannot run is a verdict about the
     // environment, not weather: every retry re-reads the source and reaches
@@ -539,6 +546,119 @@ type StreamedKind = (typeof STREAMED_KINDS)[number]
 
 function isStreamedKind(kind: DocumentKind): kind is StreamedKind {
   return (STREAMED_KINDS as readonly string[]).includes(kind)
+}
+
+/**
+ * The kinds whose extraction reads the source by ranges: formats whose index
+ * is at the end — a zip's central directory — so they cannot be read front to
+ * back, but whose parts can be read one at a time once the index is known.
+ */
+const RANGED_KINDS = ["xlsx"] as const
+
+type RangedKind = (typeof RANGED_KINDS)[number]
+
+function isRangedKind(kind: DocumentKind): kind is RangedKind {
+  return (RANGED_KINDS as readonly string[]).includes(kind)
+}
+
+/**
+ * Verifies the source against the checksum ingest recorded, reading it once
+ * as a stream and holding none of it.
+ *
+ * The ranged readers never read the source front to back, so this is the one
+ * pass that does. It comes first: a source that fails it is refused as
+ * corrupt before anything is made of it, as the whole-file path refuses it.
+ */
+async function verifySourceChecksum(input: ExtractionInput): Promise<void> {
+  const source: Readable = await getSealedStream(
+    input.sourceBlobKey,
+    sourceKey(input.documentId),
+    input.seal
+  )
+  const hash = createHash("sha256")
+  try {
+    for await (const piece of source as AsyncIterable<Buffer>) hash.update(piece)
+  } finally {
+    source.destroy()
+  }
+  if (!checksumMatches(input.checksum, hash.digest("hex"))) {
+    throw new FatalError("Source checksum mismatch")
+  }
+}
+
+/**
+ * Extracts a document by ranged reads of its source, writing the model as it
+ * goes.
+ *
+ * An archive the ranged reader cannot be sure of reading exactly as the
+ * whole-file parser would (lib/documents/ooxml/zip.ts) is handed to the
+ * whole-file path instead, which is what it always was: slower to hold,
+ * never a different answer.
+ */
+async function extractRanged(
+  input: ExtractionInput & { kind: RangedKind }
+): Promise<Extracted> {
+  await verifySourceChecksum(input)
+
+  const object = await openSealedObject(
+    input.sourceBlobKey,
+    sourceKey(input.documentId),
+    input.seal
+  )
+  const source = cachedRangeSource(object, streamingLimits().chunkBytes)
+
+  try {
+    const extractor = new XlsxExtractionStream(
+      input.documentId,
+      await openZip(source)
+    )
+    const normalizedBlobKey = await storeModel(input, extractor.json())
+    return {
+      normalizedBlobKey,
+      normalizedIndex: extractor.index,
+      pageCount: 0,
+      usage: { counts: { pages: 0, cells: extractor.cellCount } },
+    }
+  } catch (error) {
+    if (!(error instanceof ZipFallback)) throw error
+    console.info(
+      JSON.stringify({
+        level: "info",
+        context: "workflow.extract",
+        documentId: input.documentId,
+        kind: input.kind,
+        // A fixed phrase naming what the archive did, never its contents.
+        fallback: error.message,
+      })
+    )
+    return extractWhole(input)
+  }
+}
+
+/**
+ * Stores a model written as JSON pieces, reporting what the writer threw
+ * rather than whatever the storage layer wrapped it in.
+ */
+async function storeModel(
+  input: ExtractionInput,
+  pieces: AsyncIterable<string>
+): Promise<string> {
+  let failure: unknown = null
+  async function* json(): AsyncGenerator<Buffer> {
+    try {
+      for await (const piece of pieces) {
+        if (piece) yield Buffer.from(piece, "utf8")
+      }
+    } catch (error) {
+      failure = error
+      throw error
+    }
+  }
+  try {
+    return await saveNormalizedStream(input.documentId, input.seal, json())
+  } catch (error) {
+    throw failure ?? error
+  }
 }
 
 /** Reads the whole source, verifies its checksum, and extracts it. */
