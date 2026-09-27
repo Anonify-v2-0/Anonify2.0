@@ -1,7 +1,8 @@
 /**
  * The model layer, from the command line.
  *
- *   pnpm ai status                        what is configured, and whether it is verified
+ *   pnpm ai status                        what is configured, whether it is verified,
+ *                                         usage, and the ChatGPT account and plan
  *   pnpm ai verify [--model ID]           probe the configured model and declare it in .env
  *   pnpm ai login --provider openai       sign in with a ChatGPT subscription,
  *                                         then choose, verify and price a model
@@ -39,6 +40,12 @@ import {
 } from "./ai-configure"
 import { canOpenBrowser, openBrowser, startCallbackServer } from "./ai-login"
 import {
+  accountLines,
+  instanceUsageLines,
+  planUsageLines,
+  type Line,
+} from "./ai-status"
+import {
   fail,
   note,
   ok,
@@ -53,7 +60,10 @@ import {
 const HELP = `
   ${paint.bold("pnpm ai")} — the instance's AI provider
 
-    status                       provider, model, verification and sign-in state
+    status                       provider, model, verification, and usage by this
+                                 instance; for a ChatGPT sign-in, the account,
+                                 plan and the plan's usage limits too
+      --offline                  do not ask OpenAI for the plan's usage
     verify                       probe the configured model; write the result to .env
       --provider <id>            switch provider as well (written to .env)
       --model <id>               the model to verify (written to .env)
@@ -96,6 +106,7 @@ type Args = {
   print: boolean
   browser: boolean
   help: boolean
+  offline: boolean
   price?: Price
 }
 
@@ -106,6 +117,7 @@ function parseArgs(argv: string[]): Args {
     print: false,
     browser: true,
     help: false,
+    offline: false,
   }
   let inputPrice: string | undefined
   let outputPrice: string | undefined
@@ -124,6 +136,7 @@ function parseArgs(argv: string[]): Args {
     else if (token === "--text-only") args.textOnly = true
     else if (token === "--print") args.print = true
     else if (token === "--no-browser") args.browser = false
+    else if (token === "--offline") args.offline = true
     else if (token === "--input-price") inputPrice = value()
     else if (token === "--output-price") outputPrice = value()
     else if (!token.startsWith("-") && !args.command) args.command = token
@@ -162,7 +175,7 @@ function loginProvider(args: Args): "openai" | null {
 
 // --- status -------------------------------------------------------------------
 
-async function status(): Promise<void> {
+async function status(args: Args): Promise<void> {
   const env: ProviderEnv = process.env
   const provider = selectedProvider(env)
   say()
@@ -197,28 +210,88 @@ async function status(): Promise<void> {
       "Not verified for this model and endpoint. Run pnpm ai verify; until then the contextual pass reports itself unsupported."
     )
 
-  if (provider.login) {
-    const { loadLogin } = await import("@/lib/ai/providers/subscription")
+  if (provider.login) await subscriptionStatus(args)
+  await instanceUsage(provider.id)
+  say()
+}
+
+function print(lines: Line[]): void {
+  for (const line of lines) {
+    if (line.level === "say") {
+      say()
+      say(`  ${paint.bold(line.text)}`)
+    } else if (line.level === "ok") ok(line.text)
+    else if (line.level === "warn") warn(line.text)
+    // Indented to line up with a warning's "! " and a check's "✓ ".
+    else note(`  ${line.text}`)
+  }
+}
+
+/**
+ * Who is signed in, on which plan, and how much of the plan is used. The
+ * account comes from the stored token's claims; the usage, unless --offline,
+ * from OpenAI, which may refresh the token first, as any use does.
+ */
+async function subscriptionStatus(args: Args): Promise<void> {
+  const subscription = await import("@/lib/ai/providers/subscription")
+  let login
+  try {
+    login = await subscription.loadLogin()
+  } catch (error) {
+    warn(
+      error instanceof Error && error.name === "SubscriptionAuthError"
+        ? error.message
+        : "Could not read the stored sign-in. Check DATABASE_URL and that the database is migrated."
+    )
+    return
+  }
+  if (!login) {
+    warn("Not signed in. Run pnpm ai login --provider openai.")
+    return
+  }
+
+  let usage:
+    Awaited<ReturnType<typeof subscription.fetchSubscriptionUsage>> | undefined
+  let usageError: string | undefined
+  if (!args.offline) {
+    const reading = spin("Reading the plan's usage from OpenAI")
     try {
-      const login = await loadLogin()
-      if (!login) warn("Not signed in. Run pnpm ai login --provider openai.")
-      else {
-        const minutes = Math.round((login.expiresAt - Date.now()) / 60_000)
-        ok(
-          minutes > 0
-            ? `Signed in; the access token expires in ${minutes} minutes and is refreshed on use`
-            : "Signed in; the access token has expired and is refreshed on next use"
-        )
-      }
+      usage = await subscription.fetchSubscriptionUsage()
+      // Reading may have refreshed the token; show the one now stored.
+      login = (await subscription.loadLogin()) ?? login
     } catch (error) {
-      warn(
-        error instanceof Error && error.name === "SubscriptionAuthError"
+      usageError =
+        error instanceof Error &&
+        ["UsageError", "SubscriptionAuthError", "LoginError"].includes(
+          error.name
+        )
           ? error.message
-          : "Could not read the stored sign-in. Check DATABASE_URL and that the database is migrated."
-      )
+          : "The plan's usage could not be read."
+    } finally {
+      reading.stop()
     }
   }
-  say()
+
+  const profile = login.profile ?? subscription.profileOf(login.access)
+  print(accountLines({ ...login, profile }, Date.now(), usage?.plan))
+  if (usage) print(planUsageLines(usage, Date.now()))
+  else if (usageError) {
+    say()
+    say(`  ${paint.bold("Plan usage (from OpenAI)")}`)
+    warn(usageError)
+  }
+}
+
+/** What this instance has sent the selected provider, from its usage rows. */
+async function instanceUsage(provider: string): Promise<void> {
+  if (!process.env.DATABASE_URL?.trim()) return
+  const { providerUsage } = await import("@/lib/ai/usage-report")
+  try {
+    print(instanceUsageLines(await providerUsage(provider), provider))
+  } catch {
+    say()
+    note("Usage by this instance: the database could not be read.")
+  }
 }
 
 // --- verify -------------------------------------------------------------------
@@ -387,7 +460,7 @@ async function main(): Promise<void> {
   }
   switch (args.command) {
     case "status":
-      return status()
+      return status(args)
     case "verify":
       return verify(args)
     case "login":

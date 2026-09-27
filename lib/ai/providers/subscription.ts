@@ -43,6 +43,8 @@ export const OPENAI_LOGIN = {
   callbackPath: "/auth/callback",
   scope: "openid profile email offline_access",
   api: "https://chatgpt.com/backend-api/codex",
+  /** The plan's rate-limit windows and credits, as Codex CLI's /status reads them. */
+  usage: "https://chatgpt.com/backend-api/wham/usage",
 } as const
 
 export const OPENAI_REDIRECT_URI = `http://localhost:${OPENAI_LOGIN.port}${OPENAI_LOGIN.callbackPath}`
@@ -69,6 +71,15 @@ export type StoredLogin = {
   expiresAt: number
   /** The ChatGPT workspace the backend bills, from the token's claims. */
   accountId?: string
+  /** Who signed in and on which plan, from the ID token; shown by status. */
+  profile?: LoginProfile
+}
+
+export type LoginProfile = {
+  email?: string
+  /** The raw plan type, such as "plus" or "pro"; see planName(). */
+  plan?: string
+  userId?: string
 }
 
 /** A sign-in failure the CLI can print as it is: it never carries a secret. */
@@ -203,6 +214,66 @@ export function accountIdOf(...tokens: unknown[]): string | undefined {
   }
 }
 
+/**
+ * Who signed in and on which plan, read from the claims the way Codex CLI
+ * reads them (codex-rs/login, token_data.rs). The ID token is asked first,
+ * then the access token, which carries the same claims; so a sign-in stored
+ * before this was recorded still has an answer.
+ */
+export function profileOf(...tokens: unknown[]): LoginProfile | undefined {
+  const profile: LoginProfile = {}
+  for (const token of tokens) {
+    const payload = claims(token)
+    const auth = (payload["https://api.openai.com/auth"] ?? {}) as Record<
+      string,
+      unknown
+    >
+    const named = (payload["https://api.openai.com/profile"] ?? {}) as Record<
+      string,
+      unknown
+    >
+    const text = (value: unknown) =>
+      typeof value === "string" && value.trim() && value.length <= 200
+        ? value.trim()
+        : undefined
+    profile.email ??= text(payload.email) ?? text(named.email)
+    profile.plan ??= text(auth.chatgpt_plan_type)
+    profile.userId ??= text(auth.chatgpt_user_id) ?? text(auth.user_id)
+  }
+  return Object.keys(profile).some(
+    (key) => profile[key as keyof LoginProfile] !== undefined
+  )
+    ? profile
+    : undefined
+}
+
+/** Plan names as Codex CLI shows them (codex-rs/protocol, auth.rs). */
+const PLAN_NAMES: Record<string, string> = {
+  guest: "Guest",
+  free: "Free",
+  go: "Go",
+  plus: "Plus",
+  pro: "Pro (More)",
+  prolite: "Pro",
+  promax: "Pro (Max)",
+  team: "Team",
+  self_serve_business_prolite: "Self Serve Business ProLite",
+  self_serve_business_usage_based: "Self Serve Business Usage Based",
+  business: "Business",
+  ent26: "Enterprise",
+  enterprise_cbp_automation: "Enterprise (Automation)",
+  enterprise_cbp_usage_based: "Enterprise CBP Usage Based",
+  enterprise: "Enterprise",
+  edu: "Edu",
+  edu_plus: "Edu Plus",
+  edu_pro: "Edu Pro",
+}
+
+/** A plan's display name; one this list does not know is shown as sent. */
+export function planName(plan: string): string {
+  return PLAN_NAMES[plan.toLowerCase()] ?? plan
+}
+
 async function tokenRequest(
   body: Record<string, string>,
   fetcher: typeof fetch,
@@ -251,6 +322,7 @@ async function tokenRequest(
         ? exp * 1000
         : now + 60 * 60_000,
     accountId: accountIdOf(json.id_token, access),
+    profile: profileOf(json.id_token, access),
   }
 }
 
@@ -288,7 +360,12 @@ export async function refreshLogin(
     fetcher,
     now
   )
-  return { ...next, accountId: next.accountId ?? login.accountId }
+  return {
+    ...next,
+    accountId: next.accountId ?? login.accountId,
+    // A refresh answer may carry no ID token; keep what the last one said.
+    profile: next.profile ?? login.profile,
+  }
 }
 
 // --- the sealed store --------------------------------------------------------
@@ -698,4 +775,144 @@ export async function discoverSubscriptionModels(
       (a, b) => a.priority - b.priority || a.model.id.localeCompare(b.model.id)
     )
     .map((entry) => entry.model)
+}
+
+// --- the plan's usage ---------------------------------------------------------
+
+export type UsageWindow = {
+  usedPercent: number
+  /** How long the window is, in seconds: 18000 is five hours. */
+  windowSeconds: number
+  /** When it resets, in milliseconds since the epoch. */
+  resetsAt?: number
+}
+
+export type SubscriptionUsage = {
+  plan?: string
+  /** Whether the plan will take another request right now. */
+  allowed?: boolean
+  limitReached?: boolean
+  /** What stopped it, when something has: "rate_limit_reached", say. */
+  reachedType?: string
+  windows: UsageWindow[]
+  credits?: { hasCredits: boolean; unlimited: boolean; balance?: string }
+  /** Separate limits, such as one per model family. */
+  additional: { name: string; windows: UsageWindow[]; limitReached?: boolean }[]
+}
+
+/** Thrown with a message that is safe to print; it never quotes a response. */
+export class UsageError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "UsageError"
+  }
+}
+
+function numberOr(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function windowOf(value: unknown): UsageWindow | undefined {
+  if (!value || typeof value !== "object") return
+  const row = value as Json
+  const usedPercent = numberOr(row.used_percent)
+  const windowSeconds = numberOr(row.limit_window_seconds)
+  if (usedPercent === undefined || windowSeconds === undefined) return
+  const resetAt = numberOr(row.reset_at)
+  return {
+    usedPercent: Math.max(0, Math.min(100, usedPercent)),
+    windowSeconds,
+    ...(resetAt !== undefined && resetAt > 0
+      ? { resetsAt: resetAt * 1000 }
+      : {}),
+  }
+}
+
+function windowsOf(limit: unknown): UsageWindow[] {
+  if (!limit || typeof limit !== "object") return []
+  const row = limit as Json
+  return [windowOf(row.primary_window), windowOf(row.secondary_window)].filter(
+    (window): window is UsageWindow => Boolean(window)
+  )
+}
+
+/**
+ * Reads a usage response, Codex's `RateLimitStatusPayload` (codex-rs,
+ * codex-backend-openapi-models): `plan_type`, `rate_limit` with a primary and
+ * secondary window, `credits`, `additional_rate_limits`. Anything missing is
+ * left out rather than guessed.
+ */
+export function parseUsage(raw: unknown): SubscriptionUsage {
+  const row = (raw && typeof raw === "object" ? raw : {}) as Json
+  const limit = (row.rate_limit ?? undefined) as Json | undefined
+  const credits = row.credits as Json | undefined
+  const reached = row.rate_limit_reached_type as Json | undefined
+  return {
+    ...(typeof row.plan_type === "string" ? { plan: row.plan_type } : {}),
+    ...(typeof limit?.allowed === "boolean" ? { allowed: limit.allowed } : {}),
+    ...(typeof limit?.limit_reached === "boolean"
+      ? { limitReached: limit.limit_reached }
+      : {}),
+    ...(typeof reached?.type === "string" ? { reachedType: reached.type } : {}),
+    windows: windowsOf(limit),
+    ...(credits && typeof credits === "object"
+      ? {
+          credits: {
+            hasCredits: credits.has_credits === true,
+            unlimited: credits.unlimited === true,
+            ...(typeof credits.balance === "string"
+              ? { balance: credits.balance }
+              : {}),
+          },
+        }
+      : {}),
+    additional: (Array.isArray(row.additional_rate_limits)
+      ? (row.additional_rate_limits as Json[])
+      : []
+    )
+      .filter((entry) => entry && typeof entry.limit_name === "string")
+      .map((entry) => {
+        const details = (entry.rate_limit ?? {}) as Json
+        return {
+          name: String(entry.limit_name),
+          windows: windowsOf(details),
+          ...(typeof details.limit_reached === "boolean"
+            ? { limitReached: details.limit_reached }
+            : {}),
+        }
+      }),
+  }
+}
+
+/** The signed-in plan's current usage, from OpenAI. */
+export async function fetchSubscriptionUsage(
+  fetcher: typeof fetch = fetch
+): Promise<SubscriptionUsage> {
+  const login = await currentLogin(fetcher)
+  let response: Response
+  try {
+    response = await fetcher(OPENAI_LOGIN.usage, {
+      headers: {
+        Authorization: `Bearer ${login.access}`,
+        ...backendHeaders(login),
+      },
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+    })
+  } catch {
+    throw new UsageError("Could not reach OpenAI to read the plan's usage.")
+  }
+  if (!response.ok)
+    throw new UsageError(
+      response.status === 401 || response.status === 403
+        ? `OpenAI refused the usage request (HTTP ${response.status}). Run pnpm ai login --provider openai again.`
+        : `OpenAI did not return the plan's usage (HTTP ${response.status}).`
+    )
+  let raw: unknown
+  try {
+    raw = await response.json()
+  } catch {
+    throw new UsageError("OpenAI's usage answer was not JSON.")
+  }
+  return parseUsage(raw)
 }

@@ -69,7 +69,6 @@ export function redact(text: string, env: ProviderEnv = {}): string {
     .replace(/\b(sk|rk|pk|gsk|xai|sess)[-_][\w-]{8,}/gi, "[redacted]")
     .replace(/\bAIza[\w-]{20,}/g, "[redacted]")
     .replace(/\b[\w-]{40,}\b/g, "[redacted]")
-    // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x1f\x7f]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()

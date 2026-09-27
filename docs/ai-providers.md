@@ -126,7 +126,7 @@ sign-in, including headless servers and troubleshooting, see
 ```bash
 pnpm ai login --provider openai     # sign in, then choose, verify and price a model
 pnpm ai verify --provider openai-subscription   # choose another model later
-pnpm ai status                      # signed in? token expiry? model verified?
+pnpm ai status                      # account, plan, the plan's usage limits, this instance's usage
 pnpm ai logout --provider openai    # deletes the stored token
 ```
 

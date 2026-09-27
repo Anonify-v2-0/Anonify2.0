@@ -225,8 +225,39 @@ pnpm ai status
   Model     <model id>
   Usage rows and prices are keyed as openai-subscription:<model id>
   ✓ Verified: structured output and images
-  ✓ Signed in; the access token expires in 52 minutes and is refreshed on use
+
+  ChatGPT account
+    Signed in as   you@example.org
+    Plan           Plus
+    Workspace      …abcdef
+    Access token   expires in 52 min; refreshed on use
+
+  Plan usage (from OpenAI)
+    5-hour limit   ███████░░░░░░░░░░░░░ 35% used · resets in 2 h 10 min
+  ! Weekly limit   ██████████████████░░ 92% used · resets in 3 days
+    Credits        none
+
+  Usage by this instance (openai-subscription)
+    Today (UTC)    14 calls · 21K tokens in · 1K out
+    All time       212 calls · 1.5M tokens in · 31K out
 ```
+
+For a ChatGPT sign-in, `status` shows:
+
+- **The account:** the email and plan the sign-in carries, and the end of
+  the workspace ID. These come from the claims in OpenAI's own token and are
+  stored sealed, with the token.
+- **The plan's usage:** each usage window (usually five hours and a week),
+  how much of it is used and when it resets, plus any credits. This is read
+  live from OpenAI, from the endpoint Codex CLI's own `/status` reads, and
+  it covers everything on the plan, including your own ChatGPT and Codex use.
+  A window over 90% is flagged. A reached limit says so, because model calls
+  are refused until it resets. `--offline` skips this request.
+- **Usage by this instance:** the calls and tokens Anonify itself has sent,
+  today and all time, per model, from its own usage records. A price, if you
+  recorded one, turns this into an estimate.
+
+For any other provider, `status` still shows this instance's usage for it.
 
 `status` never prints a key or a token. For an API key, it says only whether
 `OPENAI_API_KEY` is set.

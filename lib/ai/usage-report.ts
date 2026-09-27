@@ -157,3 +157,62 @@ export async function aggregateUsage(
     estimatedCostUsd: estimateRows(rows),
   }
 }
+
+export type ProviderUsageRow = {
+  model: string
+  calls: number
+  inputTokens: number
+  outputTokens: number
+}
+
+export type ProviderUsage = {
+  today: ProviderUsageRow[]
+  allTime: ProviderUsageRow[]
+  /** Null when some model has no price; see ./rates. */
+  estimatedTodayUsd: number | null
+  estimatedAllTimeUsd: number | null
+}
+
+/**
+ * What this instance has sent one provider, from the usage rows every model
+ * call writes: today (UTC) and all time, per model. For the operator's CLI;
+ * like the spend cap, it spans every owner, because it describes one account
+ * the instance shares, and it holds counts and never content.
+ */
+export async function providerUsage(
+  provider: string,
+  now: Date = new Date()
+): Promise<ProviderUsage> {
+  // Gateway rows keep the vendor/model IDs they always had; every other
+  // provider's are `provider:model`.
+  const model =
+    provider === "gateway"
+      ? { not: { contains: ":" } }
+      : { startsWith: `${provider}:` }
+  const startOfDay = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  )
+  const read = async (since?: Date): Promise<ProviderUsageRow[]> => {
+    const groups = await prisma.aiUsage.groupBy({
+      by: ["model"],
+      where: { model, ...(since ? { createdAt: { gte: since } } : {}) },
+      _count: { _all: true },
+      _sum: { inputTokens: true, outputTokens: true },
+    })
+    return groups
+      .map((group) => ({
+        model: group.model,
+        calls: group._count._all,
+        inputTokens: group._sum.inputTokens ?? 0,
+        outputTokens: group._sum.outputTokens ?? 0,
+      }))
+      .sort((a, b) => b.calls - a.calls || a.model.localeCompare(b.model))
+  }
+  const [today, allTime] = await Promise.all([read(startOfDay), read()])
+  return {
+    today,
+    allTime,
+    estimatedTodayUsd: estimateRows(today),
+    estimatedAllTimeUsd: estimateRows(allTime),
+  }
+}
