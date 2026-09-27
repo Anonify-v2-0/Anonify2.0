@@ -38,7 +38,9 @@ export type StorageDriver = {
   S3 both answer `"server-route"`.
 - `getStream`, `getRange` and `putStream` are the streaming half, used by
   everything that should not hold a whole object: ingest, container
-  expansion, text/CSV/TSV extraction and the source route. `getRange` is
+  expansion, extraction of every format but images and RTF, the editor's
+  page-at-a-time model, the source route and both download routes. What each
+  of them reads, and why, is [streaming.md](./streaming.md). `getRange` is
   **half-open** — bytes `[start, end)` — like every other range in the
   codebase, whatever the backend's own convention. A backend that ignores a
   range and answers with the whole object is still answered correctly: the
@@ -120,7 +122,10 @@ URL is unique; that URL **is** the key — there is no `blob:` prefix, and
 `s3:`. `get` is a `fetch` with `cache: "no-store"`; `delete`, `exists` and
 `size` use the Blob `del` / `head` helpers. `getRange` sends a `Range` header
 and uses a `206`, slicing if the answer is a whole-object `200`; `putStream`
-hands `put` a Node stream.
+hands `put` a Node stream. `pnpm smoke:blob` asks a real store for a range
+directly and fails on anything but a `206`, because the driver's slicing would
+otherwise hide a store that ignores ranges; run against Vercel Blob on
+2026-09-27, ranges are honoured.
 
 ---
 
@@ -322,3 +327,21 @@ between `64KB` and `16MB`) and `ANONIFY_STREAM_MEMORY_BUDGET` (default 8 chunks
 per processing document for a demo, 16 self-hosted) configure it. A budget that
 cannot give every concurrent document two chunks is refused at startup, from
 `instrumentation.ts`, rather than quietly exceeded.
+
+---
+
+## 9. Reading less than the whole object
+
+The streaming budget bounds what is in flight; the readers built on it are what
+keep it small. [streaming.md](./streaming.md) walks through each, with the
+reasoning and the figures:
+
+| Reader | Where | Holds |
+| --- | --- | --- |
+| page index over the normalized model | `lib/documents/normalized-json.ts`, `normalized-store.ts` | one page, or a page and a chunk while streaming the rest |
+| ranged zip reader | `lib/documents/ooxml/zip.ts` | the central directory and one entry's window; refuses any archive two zip parsers could read differently (`ZipFallback`) |
+| chunk cache | `lib/storage/range-source.ts` | the last four chunks read, so small neighbouring reads cost one fetch |
+| workbook, a sheet at a time | `lib/documents/xlsx/stream.ts` | shared strings, styles, and one worksheet |
+| PDF range transport | `lib/documents/pdf/render.ts` | what pdf.js asks for |
+| forward MIME scan | `lib/documents/eml/scan.ts` | header blocks and text parts, never attachments |
+| verified download | `lib/storage/integrity.ts` (`ChecksumVerifier`) | one piece, held until the checksum matches |
