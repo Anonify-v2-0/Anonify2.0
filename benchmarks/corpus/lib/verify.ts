@@ -101,13 +101,28 @@ export function checkDocument(document: LabelledDocument): string[] {
   // And nothing unreserved anywhere else in the text.
   for (const finding of scanForIdentifiers(text)) {
     if (finding.reserved) continue
-    const covering = spans.filter((span) => overlaps(span, finding))
-    // A span of this kind was already judged above.
-    if (covering.some((span) => span.category === KIND_CATEGORY[finding.kind]))
+    // Only a label that covers the whole finding can speak for it; one that
+    // merely overlaps ("[[email|john]]@gmail.com") leaves the rest unjudged.
+    const inside = spans.filter(
+      (span) => span.start <= finding.start && finding.end <= span.end
+    )
+    // An email, phone or URL label was judged by its own value above. An IP
+    // labelled "other" was not, so it gets no pass here.
+    if (
+      finding.kind !== "ip" &&
+      inside.some((span) => span.category === KIND_CATEGORY[finding.kind])
+    )
       continue
     // Digits inside a generated IBAN or card number can look like a phone
-    // number, and a generated token can look like a domain.
-    if (covering.some((span) => span.placeholder)) continue
+    // number, and a generated token can look like a domain. A generated value
+    // is never excused as its own kind.
+    if (
+      inside.some(
+        (span) =>
+          span.placeholder && span.category !== KIND_CATEGORY[finding.kind]
+      )
+    )
+      continue
     problems.push(
       `${finding.kind} outside the reserved ranges at ${finding.start}: ${JSON.stringify(finding.value)}`
     )

@@ -461,6 +461,41 @@ describe("corpus check", () => {
     delete document.spans[document.spans.length - 1].placeholder
     expect(checkDocument(document).join("\n")).toContain("labelled phone")
   })
+
+  it("judges a value that a label only partly covers", () => {
+    const document = accepted()
+    const at = document.text.length + 13
+    document.text += " Reach me at john.smith@gmail.com today"
+    document.spans.push({
+      start: at,
+      end: at + 10,
+      category: "email",
+      value: "john.smith",
+    })
+    expect(checkDocument(document).join("\n")).toContain(
+      `email outside the reserved ranges at ${at}: "john.smith@gmail.com"`
+    )
+  })
+
+  it("judges an IP address labelled as other", () => {
+    const document = accepted()
+    const at = document.text.length + 8
+    document.text += " Origin 93.184.216.34 blocked"
+    document.spans.push({
+      start: at,
+      end: at + 13,
+      category: "other",
+      value: "93.184.216.34",
+    })
+    expect(checkDocument(document).join("\n")).toContain(
+      `ip outside the reserved ranges at ${at}: "93.184.216.34"`
+    )
+    // Nor does claiming the script filled it in.
+    document.spans[document.spans.length - 1].placeholder = "IP"
+    expect(checkDocument(document).join("\n")).toContain(
+      "ip outside the reserved ranges"
+    )
+  })
 })
 
 describe("corpus markup repair", () => {
