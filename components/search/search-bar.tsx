@@ -12,7 +12,6 @@ import {
   Loader2,
   Regex,
   Search,
-  SquareDashed,
   WholeWord,
   X,
 } from "lucide-react"
@@ -219,11 +218,6 @@ export function SearchBar({
     )
   }
 
-  const showPanel =
-    Boolean(search.query) &&
-    (search.resultsOpen || search.batch.open) &&
-    (search.status === "ready" || search.batch.open)
-
   return (
     <div role="search" aria-label="Search this document" className="relative z-20 shrink-0">
       <div className="flex h-12 items-center gap-2 border-b border-border bg-surface-2 px-3">
@@ -344,7 +338,7 @@ export function SearchBar({
             onClick={redactCurrent}
             className="flex h-8 items-center gap-1.5 px-2.5 text-xs text-white transition-colors hover:bg-white/5 disabled:pointer-events-none disabled:opacity-40"
           >
-            <SquareDashed className="size-3.5" />
+            <span aria-hidden className="h-2.5 w-3.5 rounded-[1px] bg-current" />
             Redact this
           </button>
           <span aria-hidden className="h-5 w-px bg-border" />
@@ -395,13 +389,32 @@ export function SearchBar({
         </p>
       ) : null}
 
-      {showPanel ? <ResultsPanel inBatch={inBatch && Boolean(batchId)} /> : null}
     </div>
   )
 }
 
 function where(hit: ListedHit): string {
   return hit.worksheet ? `${hit.worksheet} · R${hit.row}C${hit.column}` : `Page ${hit.page}`
+}
+
+/**
+ * The results, docked beside the canvas rather than floating over it: a list
+ * that covered the right half of the page hid the very text it was listing.
+ * Rendered by the workspace next to the canvas; nothing when there is nothing
+ * to list or the reviewer has closed it.
+ */
+export function SearchResults({ batchId }: { batchId: string | null }) {
+  const search = useAppSelector((state) => state.search)
+  const inBatch = useAppSelector(
+    (state) => (state.document.summary?.batch?.total ?? 0) > 1
+  )
+  const show =
+    search.open &&
+    Boolean(search.query) &&
+    (search.resultsOpen || search.batch.open) &&
+    (search.status === "ready" || search.batch.open)
+  if (!show) return null
+  return <ResultsPanel inBatch={inBatch && Boolean(batchId)} />
 }
 
 /**
@@ -433,7 +446,10 @@ function ResultsPanel({ inBatch }: { inBatch: boolean }) {
   }, [position])
 
   return (
-    <div className="absolute top-full right-3 left-3 mt-2 flex max-h-[min(55vh,520px)] flex-col overflow-hidden rounded-lg border border-border bg-surface-2 shadow-panel sm:left-auto sm:w-[440px]">
+    <aside
+      aria-label="Search results"
+      className="hidden w-[320px] shrink-0 flex-col border-l border-border bg-surface-2 md:flex"
+    >
       <div className="flex items-center gap-1 border-b border-border px-2 pt-2">
         <PanelTab selected={active === "document"} onClick={() => setTab("document")}>
           This document
@@ -446,6 +462,18 @@ function ResultsPanel({ inBatch }: { inBatch: boolean }) {
             This batch
           </PanelTab>
         ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            dispatch(resultsToggled(false))
+            if (search.batch.open) dispatch(batchSearchToggled(false))
+          }}
+          className="mb-1.5 ml-auto rounded p-1 text-text-muted transition-colors hover:bg-white/6 hover:text-white"
+          title="Hide results"
+        >
+          <X className="size-3.5" />
+          <span className="sr-only">Hide results</span>
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -506,7 +534,7 @@ function ResultsPanel({ inBatch }: { inBatch: boolean }) {
           </>
         )}
       </div>
-    </div>
+    </aside>
   )
 }
 

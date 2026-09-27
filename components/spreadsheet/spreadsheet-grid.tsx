@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   cellSelected,
   columnSelected,
+  focusCleared,
   rowSelected,
   selectionCleared,
   sheetChanged,
@@ -239,6 +240,23 @@ export function SpreadsheetGrid({
       ?.querySelector(`[data-cell="${currentKey}"]`)
       ?.scrollIntoView({ block: "center", inline: "center" })
   }, [currentKey])
+
+  // A cell something asked to be shown (a location chip in Hush): scrolled to
+  // and marked until the focus clears. See `focusRequested`.
+  const focus = useAppSelector((state) => state.editor.focus)
+  const focusKey =
+    focus?.kind === "cell" && focus.sheet === sheetName
+      ? cellKey(focus.row, focus.column)
+      : null
+  const focusNonce = focus?.nonce
+  useEffect(() => {
+    if (!focusKey || focusNonce === undefined) return
+    tableRef.current
+      ?.querySelector(`[data-cell="${focusKey}"]`)
+      ?.scrollIntoView({ block: "center", inline: "center" })
+    const timer = setTimeout(() => dispatch(focusCleared(focusNonce)), 2_400)
+    return () => clearTimeout(timer)
+  }, [dispatch, focusKey, focusNonce])
 
   if (!sheet) {
     return (
@@ -506,6 +524,8 @@ export function SpreadsheetGrid({
                           className={cn(
                             "max-w-[260px] truncate border-r border-b border-neutral-200 px-2 py-1 transition-colors",
                             state === "accepted" && "bg-black text-black",
+                            cellKey(row, column) === focusKey &&
+                              "animate-pulse outline-2 -outline-offset-2 outline-search-current-edge",
                             state !== "accepted" &&
                               hitKeys.has(cellKey(row, column)) &&
                               (cellKey(row, column) === currentKey

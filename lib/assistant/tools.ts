@@ -105,6 +105,16 @@ async function redactionsOf(documentId: string): Promise<Redaction[]> {
 
 type Coverage = "accepted" | "suggested" | "rejected" | null
 
+/**
+ * Whether the review already has a place in hand: redacted, or flagged and
+ * waiting on the reviewer. A rejected redaction is neither — the reviewer
+ * decided to keep the value in the file — so it counts as uncovered, which is
+ * what "not redacted" means to anyone reading the answer.
+ */
+function flags(state: Coverage): boolean {
+  return state === "accepted" || state === "suggested"
+}
+
 /** Whether something already covers a place, and how decided it is. */
 function coverageFinder(redactions: Redaction[]) {
   const rank = { accepted: 3, suggested: 2, rejected: 1 } as const
@@ -243,7 +253,7 @@ export function hushTools(context: HushContext) {
 
     find_occurrences: tool({
       description:
-        "Every place a value or pattern occurs, with page, context, a ref to act on, and whether a redaction already covers it (accepted, suggested, rejected or null). Use it to answer 'where does X appear' and before proposing any redaction.",
+        "Every place a value or pattern occurs, with page, context, a ref to act on, and its state: accepted (redacted), suggested (flagged, awaiting review), rejected (the reviewer chose to keep it in the file) or null (nothing addresses it). `uncovered` counts rejected and null across every occurrence. Use it to answer 'where does X appear' and before proposing any redaction.",
       inputSchema: specSchema.extend({
         limit: z.number().int().min(1).max(LIST_LIMIT).default(50),
       }),
@@ -262,11 +272,15 @@ export function hushTools(context: HushContext) {
           }[] = []
           const byPage: Record<number, number> = {}
           let total = 0
+          // Counted over every occurrence, not only the ones listed.
+          let uncovered = 0
 
           for await (const page of reader().pages()) {
             for (const range of compiled.find(page.text)) {
               total += 1
               byPage[page.number] = (byPage[page.number] ?? 0) + 1
+              const state = covered.text(page.number, range.start, range.end)
+              if (!flags(state)) uncovered += 1
               if (occurrences.length >= limit) continue
               const around = sampleAround(page.text, range)
               occurrences.push({
@@ -275,7 +289,7 @@ export function hushTools(context: HushContext) {
                 text: around.match,
                 before: around.before,
                 after: around.after,
-                covered: covered.text(page.number, range.start, range.end),
+                covered: state,
               })
             }
           }
@@ -286,12 +300,14 @@ export function hushTools(context: HushContext) {
               if (!cell.value || compiled.find(cell.value).length === 0)
                 continue
               total += 1
+              const state = covered.cell(sheet.name, cell.row, cell.column)
+              if (!flags(state)) uncovered += 1
               if (occurrences.length >= limit) continue
               occurrences.push({
                 ref: cellReference(index, cell.row, cell.column),
                 sheet: sheet.name,
                 text: cell.value,
-                covered: covered.cell(sheet.name, cell.row, cell.column),
+                covered: state,
               })
             }
           }
@@ -300,8 +316,7 @@ export function hushTools(context: HushContext) {
             spec: compiled.spec,
             total,
             byPage,
-            uncovered: occurrences.filter((occurrence) => !occurrence.covered)
-              .length,
+            uncovered,
             occurrences,
             truncated: total > occurrences.length,
           }
@@ -357,7 +372,7 @@ export function hushTools(context: HushContext) {
             page: page.number,
           })) {
             if (found.start === undefined || found.end === undefined) continue
-            if (covered.text(page.number, found.start, found.end)) continue
+            if (flags(covered.text(page.number, found.start, found.end))) continue
             add(
               found.category,
               found.text,
@@ -372,7 +387,7 @@ export function hushTools(context: HushContext) {
         for (const [index, sheet] of (sheets ?? []).entries()) {
           for (const cell of sheet.cells) {
             if (!cell.value) continue
-            if (covered.cell(sheet.name, cell.row, cell.column)) continue
+            if (flags(covered.cell(sheet.name, cell.row, cell.column))) continue
             for (const found of detectPatterns(cell.value)) {
               add(
                 found.category,

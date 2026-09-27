@@ -2,29 +2,22 @@
 
 import {
   Keyboard,
-  Maximize2,
   MousePointer2,
   Redo2,
   Search,
   Sparkles,
   SquareDashed,
   Undo2,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { ZoomControl } from "@/components/editor/zoom-control"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useLearnedShapes } from "@/hooks/use-learned-shapes"
 import { shortcutHint, type ShortcutId } from "@/lib/editor/shortcuts"
 import { searchOpened } from "@/store/searchSlice"
 import { assistantToggled, shortcutsToggled } from "@/store/uiSlice"
-import {
-  fitModeChanged,
-  toolChanged,
-  zoomStepped,
-  type EditorTool,
-} from "@/store/editorSlice"
+import { toolChanged, type EditorTool } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { selectCanRedo, selectCanUndo } from "@/store/selectors"
 import { cn } from "@/lib/utils"
@@ -48,7 +41,7 @@ export function EditorToolbar({
   onExport?: () => void
 }) {
   const dispatch = useAppDispatch()
-  const { tool, zoom } = useAppSelector((state) => state.editor)
+  const tool = useAppSelector((state) => state.editor.tool)
   const canUndo = useAppSelector(selectCanUndo)
   const canRedo = useAppSelector(selectCanRedo)
   const searchOpen = useAppSelector((state) => state.search.open)
@@ -145,35 +138,7 @@ export function EditorToolbar({
         </Tooltip>
       </div>
 
-      <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => dispatch(zoomStepped(-0.1))}
-        >
-          <ZoomOut className="size-4" />
-          <span className="sr-only">Zoom out</span>
-        </Button>
-        <span className="w-12 text-center text-xs text-text-muted tabular-nums">
-          {Math.round(zoom * 100)}%
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => dispatch(zoomStepped(0.1))}
-        >
-          <ZoomIn className="size-4" />
-          <span className="sr-only">Zoom in</span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => dispatch(fitModeChanged("page"))}
-        >
-          <Maximize2 className="size-4" />
-          <span className="sr-only">Fit page</span>
-        </Button>
-      </div>
+      <ZoomControl />
 
       <div className="flex items-center gap-1">
         <Tooltip>

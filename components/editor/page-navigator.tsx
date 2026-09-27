@@ -73,6 +73,11 @@ export function PageNavigator({ documentId }: { documentId: string }) {
                   redactions={byPage.get(pageNumber) ?? []}
                   selected={pageNumber === currentPage}
                   pdf={pdf}
+                  textPreview={
+                    summary?.kind === "txt" ||
+                    summary?.kind === "rtf" ||
+                    summary?.kind === "pptx"
+                  }
                   onSelect={() => dispatch(pageChanged(pageNumber))}
                 />
               </li>

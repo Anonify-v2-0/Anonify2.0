@@ -10,7 +10,6 @@ import {
   ArrowUp,
   Eraser,
   Lightbulb,
-  Loader2,
   RotateCcw,
   ShieldCheck,
   ShieldOff,
@@ -265,7 +264,9 @@ export function HushPanel({ documentId }: { documentId: string }) {
           dispatch(assistantToggled(null))
         }
       }}
-      className="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-border bg-surface-2 shadow-panel sm:w-[440px]"
+      // A rail beside the page on a wide screen; a sheet over it on a narrow
+      // one, where there is no room for both.
+      className="fixed inset-0 z-40 flex w-full flex-col border-l border-border bg-surface-2 shadow-panel lg:static lg:inset-auto lg:z-auto lg:w-[400px] lg:shrink-0 lg:shadow-none xl:w-[420px]"
     >
       <header className="flex flex-col gap-2.5 border-b border-border px-4 pt-3 pb-3">
         <div className="flex items-center gap-2.5">
@@ -390,42 +391,98 @@ function Conversation({
   handlers: ApprovalHandlers
   empty: ReactNode
 }) {
-  const bottom = useRef<HTMLDivElement>(null)
+  const scroller = useRef<HTMLDivElement>(null)
+  const content = useRef<HTMLDivElement>(null)
+  const pinned = useRef(true)
   const last = messages.at(-1)
-  const lastSize = last ? JSON.stringify(last.parts).length : 0
 
-  // Follow the conversation as it grows, the way a reader of a stream does.
+  // Follow the conversation while the reviewer is at the bottom of it, as a
+  // reader of a stream does — including when a card grows after it arrives
+  // (a rule's preview loads a moment later), which moved the Approve button
+  // out of sight. Scrolling up to reread stops the following; returning to
+  // the bottom resumes it.
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" })
-  }, [messages.length, lastSize])
+    const box = scroller.current
+    const inner = content.current
+    if (!box || !inner) return
+    const onScroll = () => {
+      pinned.current = box.scrollHeight - box.scrollTop - box.clientHeight < 48
+    }
+    const follow = () => {
+      if (pinned.current) box.scrollTop = box.scrollHeight
+    }
+    box.addEventListener("scroll", onScroll, { passive: true })
+    const observer = new ResizeObserver(follow)
+    observer.observe(inner)
+    return () => {
+      box.removeEventListener("scroll", onScroll)
+      observer.disconnect()
+    }
+  }, [])
+
+  // A new message from the reviewer always brings the view down to it.
+  useEffect(() => {
+    if (last?.role !== "user") return
+    pinned.current = true
+    const box = scroller.current
+    if (box) box.scrollTop = box.scrollHeight
+  }, [last?.id, last?.role])
+
+  // Whether Hush is still going but has nothing on screen that says so: a
+  // tool running shows its own spinner, and text shows itself arriving.
+  const lastPart = last?.role === "assistant" ? last.parts.at(-1) : undefined
+  const showsProgress =
+    lastPart !== undefined &&
+    (("toolCallId" in lastPart &&
+      (lastPart.state === "input-streaming" ||
+        lastPart.state === "input-available")) ||
+      (lastPart.type === "text" && lastPart.state === "streaming"))
+  const waitingOnReviewer =
+    last?.role === "assistant" &&
+    last.parts.some(
+      (part) => "toolCallId" in part && part.state === "approval-requested"
+    )
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4" aria-busy={busy}>
-      {messages.length === 0 ? (
-        empty
-      ) : (
-        <ol className="flex flex-col gap-5">
-          {messages.map((message, index) => (
-            <li key={message.id}>
-              {message.role === "user" ? (
-                <UserMessage message={message} />
-              ) : (
-                <AssistantMessage
-                  message={message}
-                  streaming={streaming && index === messages.length - 1}
-                  handlers={handlers}
-                />
-              )}
-            </li>
-          ))}
-          {busy && last?.role === "user" ? (
-            <li className="flex items-center gap-2 text-xs text-text-muted">
-              <Loader2 className="size-3.5 animate-spin" /> Hush is working…
-            </li>
-          ) : null}
-        </ol>
-      )}
-      <div ref={bottom} />
+    <div
+      ref={scroller}
+      className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+      aria-busy={busy}
+    >
+      <div ref={content}>
+        {messages.length === 0 ? (
+          empty
+        ) : (
+          <ol className="flex flex-col gap-5">
+            {messages.map((message, index) => (
+              <li key={message.id}>
+                {message.role === "user" ? (
+                  <UserMessage message={message} />
+                ) : (
+                  <AssistantMessage
+                    message={message}
+                    streaming={streaming && index === messages.length - 1}
+                    handlers={handlers}
+                  />
+                )}
+              </li>
+            ))}
+            {busy && !showsProgress && !waitingOnReviewer ? (
+              <li
+                role="status"
+                className="flex items-center gap-2 text-xs text-text-muted"
+              >
+                <span aria-hidden className="flex gap-1">
+                  <span className="size-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.3s]" />
+                  <span className="size-1.5 animate-bounce rounded-full bg-text-muted [animation-delay:-0.15s]" />
+                  <span className="size-1.5 animate-bounce rounded-full bg-text-muted" />
+                </span>
+                Hush is working…
+              </li>
+            ) : null}
+          </ol>
+        )}
+      </div>
     </div>
   )
 }
@@ -451,6 +508,16 @@ function AssistantMessage({
   handlers: ApprovalHandlers
 }) {
   const lastText = message.parts.findLastIndex((part) => part.type === "text")
+  // Reads made in parallel each wait on the same question. Ask it once: the
+  // first waiting read carries the card, and one answer covers them all.
+  const consentLeader = message.parts.find(
+    (part) =>
+      "toolCallId" in part &&
+      part.state === "approval-requested" &&
+      part.approval.requestReason === "read-consent"
+  )
+  const leaderId =
+    consentLeader && "toolCallId" in consentLeader ? consentLeader.toolCallId : null
   return (
     <div className="flex flex-col gap-2">
       {message.parts.map((part, index) => {
@@ -478,6 +545,7 @@ function AssistantMessage({
               key={part.toolCallId}
               part={part}
               handlers={handlers}
+              askConsent={leaderId === null || part.toolCallId === leaderId}
             />
           )
         }

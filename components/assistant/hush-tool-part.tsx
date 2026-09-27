@@ -27,7 +27,7 @@ import { suggestionKeyOf } from "@/lib/assistant/keys"
 import type { PatternSpec } from "@/lib/redaction/patterns"
 import type { MatchPreview, MatchSample } from "@/lib/redaction/search"
 import { cn } from "@/lib/utils"
-import { pageChanged, sheetChanged } from "@/store/editorSlice"
+import { focusRequested } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { searchSet } from "@/store/searchSlice"
 import { selectRedactions } from "@/store/selectors"
@@ -123,24 +123,32 @@ function Activity({
   )
 }
 
-function Locate({
-  reference,
-  children,
-}: {
-  reference: string
-  children: ReactNode
-}) {
+/**
+ * A place in a tool result, as a button that takes the canvas there: the page
+ * or sheet changes, the place scrolls into view and is marked for a moment.
+ */
+function Locate({ reference, children }: { reference: string; children: ReactNode }) {
   const dispatch = useAppDispatch()
   const sheets = useAppSelector((state) => state.document.normalized?.sheets)
   const ref = parseReference(reference)
   return (
     <button
       type="button"
+      title="Show this in the document"
       onClick={() => {
         if (!ref) return
-        if (ref.kind === "text") dispatch(pageChanged(ref.page))
-        else if (sheets?.[ref.sheet])
-          dispatch(sheetChanged(sheets[ref.sheet].name))
+        if (ref.kind === "text") {
+          dispatch(focusRequested({ kind: "text", page: ref.page, start: ref.start, end: ref.end }))
+        } else if (sheets?.[ref.sheet]) {
+          dispatch(
+            focusRequested({
+              kind: "cell",
+              sheet: sheets[ref.sheet].name,
+              row: ref.row,
+              column: ref.column,
+            })
+          )
+        }
       }}
       className="shrink-0 rounded bg-white/6 px-1.5 py-0.5 font-mono text-[10px] text-text-secondary transition-colors hover:bg-white/12 hover:text-white"
     >
@@ -150,7 +158,14 @@ function Locate({
 }
 
 function CoverageBadge({ covered }: { covered: string | null }) {
-  const label = covered === "accepted" ? "redacted" : (covered ?? "not covered")
+  const label =
+    covered === "accepted"
+      ? "redacted"
+      : covered === "suggested"
+        ? "suggested"
+        : covered === "rejected"
+          ? "kept in file"
+          : "not covered"
   return (
     <span
       className={cn(
@@ -900,9 +915,12 @@ export function isChangePart(type: string): boolean {
 export function HushToolPart({
   part,
   handlers,
+  askConsent = true,
 }: {
   part: Part
   handlers: ApprovalHandlers
+  /** False for a read whose consent question another read is already asking. */
+  askConsent?: boolean
 }) {
   if (isChangePart(part.type))
     return <ChangeCard part={part} handlers={handlers} />
@@ -910,7 +928,7 @@ export function HushToolPart({
     part.state === "approval-requested" &&
     part.approval.requestReason === "read-consent"
   ) {
-    return <ConsentCard part={part} handlers={handlers} />
+    return askConsent ? <ConsentCard part={part} handlers={handlers} /> : null
   }
   if (
     part.state === "output-denied" ||

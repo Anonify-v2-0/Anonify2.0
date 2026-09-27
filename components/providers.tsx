@@ -18,7 +18,9 @@ export function Providers({ children }: { children: ReactNode }) {
     >
       <StoreProvider>
         <TooltipProvider>{children}</TooltipProvider>
-        <Toaster position="bottom-right" />
+        {/* Bottom-centre, above the editor toolbar: bottom-right sat on
+            Hush's message box and on the inspector's last actions. */}
+        <Toaster position="bottom-center" offset={{ bottom: 64 }} />
       </StoreProvider>
     </ThemeProvider>
   )

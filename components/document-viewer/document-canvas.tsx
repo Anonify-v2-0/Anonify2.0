@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react"
 import { FileWarning } from "lucide-react"
 
 import { DocxViewer } from "@/components/document-viewer/docx-viewer"
@@ -9,7 +16,13 @@ import { PdfViewer } from "@/components/document-viewer/pdf-viewer"
 import { TextViewer } from "@/components/document-viewer/text-viewer"
 import { ImageCanvas } from "@/components/image-editor/image-canvas"
 import { RedactionLayer } from "@/components/redaction/redaction-layer"
-import { SearchBoxes, useTextHighlights } from "@/components/search/search-highlights"
+import {
+  caretAt,
+  pageOffsetOf,
+  SearchBoxes,
+  useTextHighlights,
+} from "@/components/search/search-highlights"
+import { wordAt } from "@/lib/redaction/words"
 import { SpreadsheetGrid } from "@/components/spreadsheet/spreadsheet-grid"
 import {
   useNormalizedDocument,
@@ -20,24 +33,11 @@ import { fitModeChanged, zoomChanged } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { redactionSelected } from "@/store/redactionSlice"
 import { selectRedactions } from "@/store/selectors"
-import { cn } from "@/lib/utils"
 import type { BoundingBox, DocumentSummary } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
 
 /** Horizontal breathing room kept around the page when fitting to width. */
 const CANVAS_PADDING = 64
-
-/** True when a redaction's offsets cover the run identified by `spanId`. */
-function coversSpan(
-  redaction: Redaction,
-  page: { spans: { id: string; start: number; end: number }[] },
-  spanId: string
-): boolean {
-  if (redaction.start === undefined || redaction.end === undefined) return false
-  const span = page.spans.find((candidate) => candidate.id === spanId)
-  if (!span) return false
-  return span.start < redaction.end && span.end > redaction.start
-}
 
 export type CanvasActions = {
   create: (input: Omit<Redaction, "id" | "documentId">) => void
@@ -52,6 +52,8 @@ export function DocumentCanvas({
 }) {
   const dispatch = useAppDispatch()
   const containerRef = useRef<HTMLDivElement>(null)
+  /** Set for the click that ends a text selection; see `onSelectionEnd`. */
+  const justSelected = useRef(false)
   const normalized = useNormalizedDocument(summary)
   const { currentPage, zoom, fitMode, tool } = useAppSelector(
     (state) => state.editor
@@ -71,13 +73,6 @@ export function DocumentCanvas({
     pageNumber === undefined ? undefined : pageNumber + 1,
   ])
 
-  // Search hits over text drawn as text; PDF and image draw theirs as boxes.
-  useTextHighlights(
-    containerRef,
-    page,
-    summary.kind !== "pdf" && summary.kind !== "image"
-  )
-
   const pageRedactions = useMemo(
     () =>
       redactions.filter(
@@ -87,6 +82,19 @@ export function DocumentCanvas({
       ),
     [page?.number, redactions]
   )
+
+  // A new page opens at its top. Declared before the painter below, whose
+  // scroll to a hit or a focused place has to win when it has somewhere to go:
+  // layout effects run in the order they are declared.
+  const shownPage = page?.number
+  useLayoutEffect(() => {
+    containerRef.current?.scrollTo({ top: 0 })
+  }, [shownPage])
+
+  // Text drawn as text is painted by exact characters: hits, redactions and
+  // a focused place. PDF and image draw theirs as boxes.
+  const textFlow = summary.kind !== "pdf" && summary.kind !== "image"
+  useTextHighlights(containerRef, page, textFlow, pageRedactions, selectedId)
 
   const createRegion = useCallback(
     (boundingBox: BoundingBox) => {
@@ -195,20 +203,70 @@ export function DocumentCanvas({
    * would be two places for the highlight, the accepted state and the keyboard
    * affordance to drift apart.
    */
+  /**
+   * Redacting by pointing, in text drawn as text.
+   *
+   * A click redacts the value under the pointer — the token around the
+   * character clicked, see `wordAt` — and a click inside an existing
+   * redaction selects it. Selecting text with the mouse redacts exactly the
+   * selection, across lines if need be. Neither redacts the span: a span is a
+   * whole line of a text file, and redacting it to remove the one ID on it was
+   * the most common way to over-redact a document.
+   */
+  const redactionAt = (offset: number) =>
+    pageRedactions.find(
+      (redaction) =>
+        redaction.start !== undefined &&
+        redaction.end !== undefined &&
+        redaction.start <= offset &&
+        offset < redaction.end
+    )
+
+  const redactRange = (start: number, end: number) => {
+    if (!page) return
+    // Whitespace at either end of a selection is never the point.
+    while (start < end && /\s/.test(page.text[start])) start += 1
+    while (end > start && /\s/.test(page.text[end - 1])) end -= 1
+    if (end <= start) return
+    redactSpan({ start, end, text: page.text.slice(start, end) })
+  }
+
+  const onSelectionEnd = () => {
+    const root = containerRef.current
+    const selection = window.getSelection()
+    if (!root || !page || !selection || selection.isCollapsed) return
+    if (!selection.anchorNode || !selection.focusNode) return
+    if (!root.contains(selection.anchorNode) || !root.contains(selection.focusNode)) return
+    const from = pageOffsetOf(root, page, selection.anchorNode, selection.anchorOffset)
+    const to = pageOffsetOf(root, page, selection.focusNode, selection.focusOffset)
+    if (from === null || to === null || from === to) return
+    redactRange(Math.min(from, to), Math.max(from, to))
+    selection.removeAllRanges()
+    // The click that ends a drag must not also redact the word under it.
+    justSelected.current = true
+    setTimeout(() => (justSelected.current = false), 0)
+  }
+
   const renderSpan = (spanId: string, children: ReactNode) => {
     if (!page) return children
 
-    const covering = pageRedactions.find((redaction) =>
-      coversSpan(redaction, page, spanId)
-    )
     const span = page.spans.find((candidate) => candidate.id === spanId)
 
-    const redactThisSpan = () => {
-      if (covering) {
-        dispatch(redactionSelected(covering.id))
-      } else if (span) {
-        redactSpan({ start: span.start, end: span.end, text: span.text })
+    const onPoint = (x: number, y: number) => {
+      if (justSelected.current) return
+      const root = containerRef.current
+      const caret = caretAt(x, y)
+      const offset =
+        root && caret ? pageOffsetOf(root, page, caret.node, caret.offset) : null
+      if (offset === null) return
+
+      const existing = redactionAt(offset)
+      if (existing) {
+        dispatch(redactionSelected(existing.id))
+        return
       }
+      const word = wordAt(page.text, offset)
+      if (word) redactRange(word.start, word.end)
     }
 
     return (
@@ -216,22 +274,28 @@ export function DocumentCanvas({
         key={spanId}
         role="button"
         tabIndex={0}
-        title={covering ? covering.category : "Redact this text"}
-        onClick={redactThisSpan}
+        title="Click a value to redact it, or select text to redact exactly that"
+        onClick={(event) => onPoint(event.clientX, event.clientY)}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return
           event.preventDefault()
-          if (!covering) redactThisSpan()
+          // From the keyboard there is no pointer to aim with: the span is the
+          // unit, unless something in it is already redacted, which selects.
+          if (!span) return
+          const existing = pageRedactions.find(
+            (redaction) =>
+              redaction.start !== undefined &&
+              redaction.end !== undefined &&
+              redaction.start < span.end &&
+              redaction.end > span.start
+          )
+          if (existing) dispatch(redactionSelected(existing.id))
+          else redactRange(span.start, span.end)
         }}
-        className={cn(
-          "cursor-pointer rounded-[2px] transition-colors",
-          covering?.status === "accepted"
-            ? "bg-black text-black selection:bg-black"
-            : covering
-              ? "bg-red-soft outline-1 outline-dashed outline-red-border"
-              : "hover:bg-primary/15",
-          covering?.id === selectedId && "outline-1 outline-primary"
-        )}
+        // What a redaction covers is painted by its characters (see
+        // useTextHighlights), not by the span it falls in: a span is a whole
+        // line in some formats, and styling it marked the line.
+        className="cursor-pointer rounded-[2px] focus-visible:outline-1 focus-visible:outline-primary"
       >
         {children}
       </span>
@@ -257,6 +321,7 @@ export function DocumentCanvas({
   return (
     <section
       ref={containerRef}
+      onMouseUp={textFlow ? onSelectionEnd : undefined}
       className="flex min-w-0 flex-1 justify-center overflow-auto bg-surface-1 p-8"
     >
       {summary.kind === "pdf" && page ? (

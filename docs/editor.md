@@ -228,10 +228,27 @@ to a reviewer: a piece of the document you can point at and remove. Two copies
 of that logic would be two places for the highlight, the accepted state, and the
 keyboard affordance to drift apart.
 
-`renderSpan` checks whether any redaction on the page covers the span (by
-offset overlap, via `coversSpan`) and renders it accordingly: solid black for
-accepted, dashed red for suggested, hover tint for unredacted. Clicking a
-covered span selects its redaction; clicking an uncovered span creates one.
+`renderSpan` makes each span a click target. It does **not** style the span
+by the redactions on it: a span is a whole line of a text file, and styling it
+blacked out the line to show one ID on it being removed. Redactions are
+painted by their exact characters instead, with the CSS Custom Highlight API
+(`useTextHighlights`, see §14): black for accepted, dashed red for suggested,
+red underline for the selected one.
+
+What a click does is decided by the character under the pointer, which the
+browser's caret gives and the viewer's `data-offset` markers place in the
+page's text (`pageOffsetOf`):
+
+- inside an existing redaction, the click selects it;
+- anywhere else, it redacts the token around that character (`wordAt` in
+  `lib/redaction/words.ts`): letters and digits joined by the punctuation
+  identifiers, emails and phone numbers use, without the sentence punctuation
+  around them, so `EMP-10007`, `jane.doe1@example.com`, `Doe`.
+
+Dragging a selection across the text redacts exactly the selection, across
+lines if need be, with whitespace at either end trimmed. From the keyboard,
+with no pointer to aim, Enter or Space on a span redacts the span, or selects
+the redaction already in it.
 
 ### Fit-to-width
 
@@ -261,7 +278,7 @@ kinds of element:
 
 | Element | Source | Behavior |
 | --- | --- | --- |
-| Word hit targets | `page.spans` with `boundingBox` | Transparent until hovered; click redacts the span by offset |
+| Word hit targets | `page.spans` with `boundingBox` | Transparent until hovered; a click redacts the token under the pointer, found from the run's measured character positions (`span.offsets`, `characterAtX`) and widened by `wordAt`. An OCR word is already the unit, as is a run whose characters were never measured. |
 | Redaction boxes | `boxesForRedaction(page, redaction)` | Solid black if accepted, dashed red if suggested; click selects |
 | Draft region | pointer drag | Live rectangle; on release, creates a region if larger than `MIN_DRAG_PX` |
 
@@ -425,7 +442,8 @@ back.
 | `WorkspaceHeader` | `workspace-header.tsx` | Top bar (see §4) |
 | `PageNavigator` | `page-navigator.tsx` | Thumbnail rail; shows accepted redactions per page as a progress view; real navigation list for keyboard |
 | `PageThumbnail` | `page-thumbnail.tsx` | One thumbnail, with redaction marks |
-| `EditorToolbar` | `editor-toolbar.tsx` | Tool selection (select/redact), zoom, fit-page, undo/redo |
+| `EditorToolbar` | `editor-toolbar.tsx` | Tool selection (select/redact), search, Hush, shortcuts, zoom, undo/redo |
+| `ZoomControl` | `zoom-control.tsx` | Zoom out, a log-scale slider (100% in the middle, a native range input for the keyboard and screen readers), zoom in, a percentage that resets to 100%, fit width and fit page |
 | `LiveAnnouncer` | `live-announcer.tsx` | a11y live region (see §9) |
 
 `EditorToolbar` reads tool, zoom, and undo/redo availability from the store.
@@ -600,8 +618,10 @@ RegEx) and an "N / M" counter inside the field, then previous/next, a split
 close. It is docked rather than floating, so the document never moves under
 it or sits beneath it.
 
-**Results.** Under the strip, a panel lists the first 200 hits in context,
-grouped by page (or by cell for a spreadsheet). The current hit is marked, and
+**Results.** A column docked beside the canvas lists the first 200 hits in
+context, grouped by page (or by cell for a spreadsheet). It is docked rather
+than floating over the page: a list over the right half of the page hid the
+text it was listing. The current hit is marked, and
 clicking any hit makes it current, which moves the canvas there. With "this
 batch" on, a second tab lists every document with its count and a link. The
 page rail shows each page's hit count as a badge on its thumbnail, so a long
@@ -719,6 +739,16 @@ It is a model with tools running in a loop (the AI SDK's `ToolLoopAgent`,
 streamed to `useChat`), with the reviewer in that loop. It reads and searches
 the document, runs the detectors, looks at what the review has decided, and
 previews rules. **When it wants to change anything, it stops and asks.**
+
+On a wide screen Hush takes the right rail in place of the inspector, beside
+the page rather than over it; closing Hush brings the inspector back. On a
+narrow screen it opens as a sheet over the page.
+
+In `find_occurrences` and `find_uncovered`, a place counts as covered only
+when a redaction there is accepted or still suggested. A rejected redaction
+means the reviewer chose to keep the value in the file, so it counts as
+uncovered ("kept in file" in the panel). `uncovered` is counted over every
+occurrence, not only the ones listed.
 
 **Tools.** Reads run without asking, once reading is allowed (below). Changes
 always wait for approval.

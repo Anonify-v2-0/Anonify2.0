@@ -253,7 +253,9 @@ export function learnShapes(
       spec: learned.spec,
       examples: group.values,
       category: mostCommon(group.categories),
-      display: learned.display,
+      // A shape whose letters vary has nothing readable to show for them
+      // ("…-xxxxx"); a real example says more.
+      display: learned.display.includes("…") ? group.values[0] : learned.display,
     })
   }
 

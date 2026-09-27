@@ -16,7 +16,7 @@ import { ExportDialog } from "@/components/redaction/export-dialog"
 import { MobileInspector } from "@/components/redaction/mobile-inspector"
 import { RedactionInspector } from "@/components/redaction/redaction-inspector"
 import { RuleDialog } from "@/components/rules/rule-dialog"
-import { SearchBar } from "@/components/search/search-bar"
+import { SearchBar, SearchResults } from "@/components/search/search-bar"
 import { useLearnedShapeNudge } from "@/hooks/use-learned-shapes"
 import { useProcessingStream } from "@/hooks/use-processing-stream"
 import { useRedactions, type RuleScope } from "@/hooks/use-redactions"
@@ -39,6 +39,7 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
   const current = stored?.id === summary.id ? stored : summary
   const selected = useAppSelector(selectSelectedRedaction)
   const currentPage = useAppSelector((state) => state.editor.currentPage)
+  const hushOpen = useAppSelector((state) => state.ui.assistant !== null)
 
   useEffect(() => {
     dispatch(documentLoaded(summary))
@@ -194,9 +195,17 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
               />
               <div className="flex min-h-0 flex-1">
                 <DocumentCanvas summary={current} actions={canvasActions} />
+                <SearchResults batchId={current.batch?.batchId ?? null} />
               </div>
             </div>
-            <RedactionInspector actions={inspectorActions} documentId={summary.id} />
+            {/* Hush takes the right rail while it is open, rather than
+                floating over the page and the search strip. Closing it
+                brings the inspector back. */}
+            {hushOpen ? (
+              <HushPanel documentId={summary.id} />
+            ) : (
+              <RedactionInspector actions={inspectorActions} documentId={summary.id} />
+            )}
           </div>
           <MobileInspector actions={inspectorActions} documentId={summary.id} />
           <EditorToolbar onUndo={undo} onRedo={redo} onExport={onExport} />
@@ -206,12 +215,7 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
       )}
 
       <ExportDialog summary={current} />
-      {reviewable ? (
-        <>
-          <RuleDialog documentId={summary.id} />
-          <HushPanel documentId={summary.id} />
-        </>
-      ) : null}
+      {reviewable ? <RuleDialog documentId={summary.id} /> : null}
       <ShortcutSheet />
       <LiveAnnouncer />
     </div>

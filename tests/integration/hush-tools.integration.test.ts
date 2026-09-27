@@ -159,6 +159,23 @@ describe.skipIf(!hasDatabase)("Hush's tools against Postgres", () => {
     expect(values).not.toContain("jane@example.com")
   })
 
+  it("counts a value the reviewer rejected as not covered, everywhere", async () => {
+    const { id, tools } = await seed()
+    await suggest(id, "jane@example.com", TEXT.indexOf("jane"))
+    await prisma.redaction.updateMany({ where: { documentId: id }, data: { status: "rejected" } })
+
+    const found = await call<{ uncovered: number; occurrences: { covered: string | null }[] }>(
+      tools.find_occurrences,
+      { kind: "literal", pattern: "@example.com", matchCase: false, wholeWord: false, limit: 1 }
+    )
+    // Both, though only one is listed: the count is over every occurrence.
+    expect(found.uncovered).toBe(2)
+    expect(found.occurrences).toHaveLength(1)
+
+    const scan = await call<{ groups: { value: string }[] }>(tools.find_uncovered, {})
+    expect(scan.groups.map((group) => group.value)).toContain("jane@example.com")
+  })
+
   it("redacts only where the text at a reference is the text that was approved", async () => {
     const { id, tools } = await seed()
     const start = TEXT.indexOf("EMP-00123")
