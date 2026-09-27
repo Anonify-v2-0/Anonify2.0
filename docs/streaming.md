@@ -109,15 +109,26 @@ where each page's JSON sits:
 
 ```mermaid
 flowchart LR
-    subgraph JSON["normalized.json.bin — one JSON document, sealed in 1 MiB chunks"]
+    subgraph JSON["normalized.json.bin - one JSON document, sealed in 1 MiB chunks"]
         direction LR
-        H["{ documentId, kind,<br/>&quot;pages&quot;:"] --> O["["] --> P1["page 1"] --> C1[","] --> P2["page 2"] --> C2[", …"] --> PN["page N"] --> CL["]"] --> T[", metadata, sheets … }"]
+
+        H["Document header"] --> O["Pages array begins"]
+        O --> P1["Page 1"]
+        P1 --> C1["Next page"]
+        C1 --> P2["Page 2"]
+        P2 --> C2["More pages"]
+        C2 --> PN["Page N"]
+        PN --> CL["Pages array ends"]
+        CL --> T["Metadata and sheets"]
     end
-    I["normalizedIndex<br/>{ open, close, size,<br/>pages: [[1, s1, e1], [2, s2, e2], …] }"] -.->|"byte offsets"| P1
-    I -.-> P2
-    I -.-> PN
-    I -.->|"open / close"| O
-    I -.-> CL
+
+    I["normalizedIndex<br/>open, close, size<br/>pages: page number + start + end offsets"]
+
+    I -.->|"byte offset"| O
+    I -.->|"byte offset"| P1
+    I -.->|"byte offset"| P2
+    I -.->|"byte offset"| PN
+    I -.->|"byte offset"| CL
 ```
 
 - **A page** is `range(start, end)` — one ranged read of the chunks covering
