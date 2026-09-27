@@ -21,7 +21,7 @@ const { asTarget, RULE_TARGET_SELECT } = await import("@/lib/redaction/rules")
 const owners: string[] = []
 const TEXT = "Contact jane@example.com or bob@example.com. Staff EMP-00123."
 
-async function seed() {
+async function seed(text = TEXT) {
   const ownerKey = testFingerprint("hush-tools")
   owners.push(ownerKey)
   const id = testId("doc")
@@ -32,7 +32,7 @@ async function seed() {
       originalName: "notes.txt",
       kind: "txt",
       mimeType: "text/plain",
-      size: TEXT.length,
+      size: text.length,
       status: "ready",
       userFingerprint: ownerKey,
       encryptionKey: seal.wrappedKey,
@@ -49,8 +49,8 @@ async function seed() {
         number: 1,
         width: 612,
         height: 792,
-        text: TEXT,
-        spans: [{ id: "s1", text: TEXT, start: 0, end: TEXT.length }],
+        text,
+        spans: [{ id: "s1", text, start: 0, end: text.length }],
       },
     ],
   })
@@ -89,16 +89,17 @@ async function suggest(
   documentId: string,
   text: string,
   start: number,
-  category = "email"
+  category = "email",
+  decided: { status?: string; source?: string } = {}
 ) {
   await prisma.redaction.create({
     data: {
       id: newRedactionId(),
       documentId,
-      source: "ai",
+      source: decided.source ?? "ai",
       type: "text",
       category,
-      status: "suggested",
+      status: decided.status ?? "suggested",
       page: 1,
       text,
       startOffset: start,
@@ -145,6 +146,69 @@ describe.skipIf(!hasDatabase)("Hush's tools against Postgres", () => {
     expect(result.occurrences[1].ref).toBe(
       `p1:${TEXT.indexOf("bob")}-${TEXT.indexOf("bob") + 15}`
     )
+  })
+
+  it("counts a place only partly redacted as not covered", async () => {
+    const { id, tools } = await seed()
+    // The reviewer clicked "jane"; the rest of the address is still in the file.
+    await suggest(id, "jane", TEXT.indexOf("jane"), "email", {
+      status: "accepted",
+      source: "user",
+    })
+
+    const found = await call<{
+      uncovered: number
+      occurrences: { text: string; covered: string | null }[]
+    }>(tools.find_occurrences, {
+      kind: "literal",
+      pattern: "jane@example.com",
+      matchCase: false,
+      wholeWord: true,
+      limit: 50,
+    })
+    expect(found.uncovered).toBe(1)
+    expect(found.occurrences.map((occurrence) => occurrence.covered)).toEqual([
+      "partial",
+    ])
+
+    const scan = await call<{ groups: { value: string }[] }>(
+      tools.find_uncovered,
+      {}
+    )
+    expect(scan.groups.map((group) => group.value)).toContain(
+      "jane@example.com"
+    )
+  })
+
+  it("covers a value redacted word by word, at the least decided word's level", async () => {
+    const text = "Signed by Jane Doe and Mary Roe."
+    const { id, tools } = await seed(text)
+    const words = { status: "accepted", source: "user" }
+    await suggest(id, "Jane", text.indexOf("Jane"), "person", words)
+    await suggest(id, "Doe", text.indexOf("Doe"), "person", words)
+    await suggest(id, "Mary", text.indexOf("Mary"), "person", words)
+    await suggest(id, "Roe", text.indexOf("Roe"), "person")
+
+    const found = await call<{
+      uncovered: number
+      occurrences: { text: string; covered: string | null }[]
+    }>(tools.find_occurrences, {
+      kind: "regex",
+      pattern: "(Jane Doe|Mary Roe)",
+      matchCase: true,
+      wholeWord: true,
+      limit: 50,
+    })
+    expect(found.uncovered).toBe(0)
+    expect(
+      found.occurrences.map((occurrence) => [
+        occurrence.text,
+        occurrence.covered,
+      ])
+    ).toEqual([
+      ["Jane Doe", "accepted"],
+      ["Mary Roe", "suggested"],
+    ])
   })
 
   it("scans for what is not yet covered, leaving out what is", async () => {

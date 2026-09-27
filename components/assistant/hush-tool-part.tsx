@@ -163,9 +163,11 @@ function CoverageBadge({ covered }: { covered: string | null }) {
       ? "redacted"
       : covered === "suggested"
         ? "suggested"
-        : covered === "rejected"
-          ? "kept in file"
-          : "not covered"
+        : covered === "partial"
+          ? "partly covered"
+          : covered === "rejected"
+            ? "kept in file"
+            : "not covered"
   return (
     <span
       className={cn(

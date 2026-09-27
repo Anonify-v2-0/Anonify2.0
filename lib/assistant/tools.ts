@@ -103,23 +103,31 @@ async function redactionsOf(documentId: string): Promise<Redaction[]> {
   return rows.map(fromDatabaseRow)
 }
 
-type Coverage = "accepted" | "suggested" | "rejected" | null
+type Coverage = "accepted" | "suggested" | "partial" | "rejected" | null
 
 /**
  * Whether the review already has a place in hand: redacted, or flagged and
  * waiting on the reviewer. A rejected redaction is neither — the reviewer
  * decided to keep the value in the file — so it counts as uncovered, which is
- * what "not redacted" means to anyone reading the answer.
+ * what "not redacted" means to anyone reading the answer. So does a partial
+ * one: "Jane" redacted inside "Jane Doe" still leaves "Doe" in the export.
  */
 function flags(state: Coverage): boolean {
   return state === "accepted" || state === "suggested"
 }
 
-/** Whether something already covers a place, and how decided it is. */
+/**
+ * Whether something already covers a place, and how decided it is.
+ *
+ * A place is covered at a level only when redactions at that level or better
+ * span every character of it; touching it is not covering it. Short of that
+ * it is `partial` when some of it is redacted or flagged, and `rejected` when
+ * everything touching it is something the reviewer chose to keep.
+ */
 function coverageFinder(redactions: Redaction[]) {
   const rank = { accepted: 3, suggested: 2, rejected: 1 } as const
-  const best = (found: Redaction[]): Coverage =>
-    found.reduce<Coverage>(
+  const best = (found: Redaction[]) =>
+    found.reduce<Redaction["status"] | null>(
       (current, redaction) =>
         !current || rank[redaction.status] > rank[current]
           ? redaction.status
@@ -128,18 +136,44 @@ function coverageFinder(redactions: Redaction[]) {
     )
 
   return {
-    text(page: number, start: number, end: number): Coverage {
-      return best(
-        redactions.filter(
+    text(
+      page: { number: number; text: string },
+      start: number,
+      end: number
+    ): Coverage {
+      const overlapping = redactions
+        .filter(
           (redaction) =>
-            (redaction.page ?? 1) === page &&
+            (redaction.page ?? 1) === page.number &&
             redaction.start !== undefined &&
             redaction.end !== undefined &&
             redaction.start < end &&
             redaction.end > start
         )
-      )
+        .sort((a, b) => a.start! - b.start!)
+      // Whitespace between two redactions leaks nothing: "Jane" and "Doe"
+      // redacted word by word cover "Jane Doe".
+      const blank = (from: number, to: number) =>
+        from >= to || !/\S/.test(page.text.slice(from, to))
+      const spans = (allowed: Redaction["status"][]) => {
+        let reached = start
+        let used = false
+        for (const redaction of overlapping) {
+          if (!allowed.includes(redaction.status)) continue
+          if (!blank(reached, redaction.start!)) break
+          reached = Math.max(reached, redaction.end!)
+          used = true
+        }
+        return used && blank(reached, end)
+      }
+      if (spans(["accepted"])) return "accepted"
+      if (spans(["accepted", "suggested"])) return "suggested"
+      const touching = best(overlapping)
+      if (touching === "rejected") return "rejected"
+      return touching ? "partial" : null
     },
+    // A cell, row or column redaction blanks the whole cell, so a cell is
+    // covered or not; there is no part of one.
     cell(sheet: string, row: number, column: number): Coverage {
       return best(
         redactions.filter(
@@ -253,7 +287,7 @@ export function hushTools(context: HushContext) {
 
     find_occurrences: tool({
       description:
-        "Every place a value or pattern occurs, with page, context, a ref to act on, and its state: accepted (redacted), suggested (flagged, awaiting review), rejected (the reviewer chose to keep it in the file) or null (nothing addresses it). `uncovered` counts rejected and null across every occurrence. Use it to answer 'where does X appear' and before proposing any redaction.",
+        "Every place a value or pattern occurs, with page, context, a ref to act on, and its state: accepted (redacted), suggested (flagged, awaiting review), partial (only part of the match is redacted or flagged; the rest would stay in the file), rejected (the reviewer chose to keep it in the file) or null (nothing addresses it). `uncovered` counts partial, rejected and null across every occurrence. Use it to answer 'where does X appear' and before proposing any redaction.",
       inputSchema: specSchema.extend({
         limit: z.number().int().min(1).max(LIST_LIMIT).default(50),
       }),
@@ -279,7 +313,7 @@ export function hushTools(context: HushContext) {
             for (const range of compiled.find(page.text)) {
               total += 1
               byPage[page.number] = (byPage[page.number] ?? 0) + 1
-              const state = covered.text(page.number, range.start, range.end)
+              const state = covered.text(page, range.start, range.end)
               if (!flags(state)) uncovered += 1
               if (occurrences.length >= limit) continue
               const around = sampleAround(page.text, range)
@@ -328,7 +362,7 @@ export function hushTools(context: HushContext) {
 
     find_uncovered: tool({
       description:
-        "Runs the deterministic detectors (emails, phones, IDs, cards, IBANs, addresses, credentials, dates of birth…) over the whole document and returns what no redaction covers yet, grouped by category and value, with refs. Names and context-dependent secrets need read_page and your own judgement.",
+        "Runs the deterministic detectors (emails, phones, IDs, cards, IBANs, addresses, credentials, dates of birth…) over the whole document and returns what no redaction fully covers yet (a hit only partly redacted is listed), grouped by category and value, with refs. Names and context-dependent secrets need read_page and your own judgement.",
       inputSchema: z.object({
         categories: z.array(categorySchema).optional(),
       }),
@@ -372,7 +406,7 @@ export function hushTools(context: HushContext) {
             page: page.number,
           })) {
             if (found.start === undefined || found.end === undefined) continue
-            if (flags(covered.text(page.number, found.start, found.end))) continue
+            if (flags(covered.text(page, found.start, found.end))) continue
             add(
               found.category,
               found.text,
