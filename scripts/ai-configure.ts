@@ -98,17 +98,18 @@ export async function configureModel(options: {
     const result = await probeModel(env)
     checking.stop()
     if (!result.structuredOutput) {
-      fail(
-        "Structured-output verification failed. Check the model, its credentials, access and connectivity."
-      )
+      fail(`Structured-output verification of ${modelId(env)} failed.`)
+      if (result.detail) note(result.detail)
       return null
     }
     if (!result.vision && !options.textOnly) {
       fail(
-        "Image verification failed. Choose a vision model, or pass --text-only to have image analysis skipped and reported."
+        `Image verification of ${modelId(env)} failed. Choose a vision model, or pass --text-only to have image analysis skipped and reported.`
       )
+      if (result.detail) note(result.detail)
       return null
     }
+    if (!result.vision && result.detail) note(`Images: ${result.detail}`)
     env.AI_MODEL_CAPABILITIES = capabilityDeclaration(env, result)
     ok(
       result.vision

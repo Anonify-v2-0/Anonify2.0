@@ -29,6 +29,7 @@ import {
   type ModelDefinition,
 } from "@/lib/ai/providers/discovery"
 import { probeModel } from "@/lib/ai/providers/probe"
+import type { ProbeFailureReason } from "@/lib/ai/providers/probe-errors"
 import { ratesFor } from "@/lib/ai/rates"
 import {
   note,
@@ -350,6 +351,24 @@ async function adoptPrice(
   ok(`Saved the list price for ${key} to AI_MODEL_PRICES.`)
 }
 
+/** Failures that belong to the model rather than to the account or connection. */
+function modelSpecific(reason: ProbeFailureReason | undefined): boolean {
+  return (
+    reason === undefined ||
+    reason === "not-found" ||
+    reason === "rejected" ||
+    reason === "invalid-output" ||
+    reason === "wrong-answer"
+  )
+}
+
+const REASON_LABELS: Partial<Record<ProbeFailureReason, string>> = {
+  "not-found": "not available to this account",
+  rejected: "the provider refused the request",
+  "invalid-output": "no valid structured output",
+  "wrong-answer": "wrong answer",
+}
+
 export async function askAiProvider(
   prompt: Prompter,
   current: ProviderEnv,
@@ -665,12 +684,29 @@ export async function chooseModel(
     const result = await probeModel(candidate)
     checking.stop()
     if (!result.structuredOutput || (requireVision && !result.vision)) {
-      const reason = !result.structuredOutput
-        ? "Structured-output verification failed; check model support, credentials, access and connectivity"
-        : "Image verification failed; choose a vision model or rerun setup for text-only analysis"
-      warn(reason)
-      if (known) known.unavailable = reason
-      else models.push({ id, label: id, unavailable: reason })
+      warn(
+        !result.structuredOutput
+          ? `Structured-output verification of ${id} failed.`
+          : `Image verification of ${id} failed. Choose a vision model, or rerun for text-only analysis.`
+      )
+      if (result.detail) note(result.detail)
+      // Only a failure that is about this model marks it. A rejected key, an
+      // unreachable server or a rate limit would fail every model alike, and
+      // disabling them one by one would hide the real problem.
+      if (modelSpecific(result.reason)) {
+        const reason = result.reason && REASON_LABELS[result.reason]
+        const label = reason
+          ? `Failed verification: ${reason}`
+          : !result.structuredOutput
+            ? "Structured-output verification failed"
+            : "Image verification failed; choose a vision model or rerun setup for text-only analysis"
+        if (known) known.unavailable = label
+        else models.push({ id, label: id, unavailable: label })
+      } else if (result.reason) {
+        note(
+          "This is not about the model, so it is still offered; fix the cause above and verify again."
+        )
+      }
       continue
     }
     env.AI_MODEL = id

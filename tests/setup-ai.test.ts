@@ -528,3 +528,75 @@ describe("OpenAI-compatible providers in setup", () => {
     expect(choices[fallback].value).toBe("lm-studio")
   })
 })
+
+describe("a verification failure in the picker", () => {
+  it("shows why, and does not disable a model for a failure that is not about it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ data: [{ id: "m1", type: "language" }] })
+      )
+    )
+    probe.mockResolvedValue({
+      structuredOutput: false,
+      vision: false,
+      failure: "structured-output",
+      reason: "authorization",
+      detail: "The provider rejected the credentials (HTTP 401).",
+    })
+    const offered: Choice<unknown>[][] = []
+    const prompt = promptWith((question, choices) => {
+      if (question === "Which AI provider?") return "openai"
+      if (question === "What should the model analyze?") return true
+      offered.push(choices)
+      return offered.length === 1
+        ? "m1"
+        : choices.find((choice) => choice.label.startsWith("Keep the current"))!
+            .value
+    })
+
+    await askAiProvider(prompt, { OPENAI_API_KEY: "sk-test" }, false)
+
+    const output = vi
+      .mocked(process.stdout.write)
+      .mock.calls.map(([chunk]) => String(chunk))
+      .join("")
+    expect(output).toContain("Structured-output verification of m1 failed")
+    expect(output).toContain("rejected the credentials (HTTP 401)")
+    expect(
+      offered[1].find((choice) => choice.value === "m1")?.disabled
+    ).toBeUndefined()
+  })
+
+  it("disables a model that failed because of the model", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ data: [{ id: "m1", type: "language" }] })
+      )
+    )
+    probe.mockResolvedValue({
+      structuredOutput: false,
+      vision: false,
+      failure: "structured-output",
+      reason: "invalid-output",
+      detail: "The model answered, but not with JSON.",
+    })
+    const offered: Choice<unknown>[][] = []
+    const prompt = promptWith((question, choices) => {
+      if (question === "Which AI provider?") return "openai"
+      if (question === "What should the model analyze?") return true
+      offered.push(choices)
+      return offered.length === 1
+        ? "m1"
+        : choices.find((choice) => choice.label.startsWith("Keep the current"))!
+            .value
+    })
+
+    await askAiProvider(prompt, { OPENAI_API_KEY: "sk-test" }, false)
+
+    expect(offered[1].find((choice) => choice.value === "m1")?.disabled).toBe(
+      "Failed verification: no valid structured output"
+    )
+  })
+})

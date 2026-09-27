@@ -206,7 +206,8 @@ pass reports `authorization` until you sign in again or switch provider.
 - **Never stored in `.env`:** the token. `.env` holds only which provider
   and model to use.
 - **Never printed or logged:** the tokens, the authorization code or the
-  `state` value. Errors give an HTTP status, not the provider's response.
+  `state` value. When verification fails, what OpenAI said is shown, with
+  your tokens and anything shaped like a key taken out.
 - **Never read:** another tool's credentials. Codex CLI's `~/.codex/auth.json`
   is not used. Two tools sharing one refresh token log each other out, so
   Anonify has its own sign-in.
@@ -252,7 +253,7 @@ their own provider prefix, so estimates for past documents are unaffected.
 | `Port 1455 is in use and there is no terminal to paste into` | Another program, often Codex CLI's own login, holds the callback port, and there is no terminal to paste into. | Close the other program, or run the command in an interactive terminal and use the paste method. |
 | `The redirect is not from this sign-in attempt` | The pasted address came from an older or different attempt. | Start a new `pnpm ai login` and paste the address from that attempt. |
 | `The sign-in was refused (access_denied)` | You declined in the browser, or the account cannot use this sign-in. | Try again, or use an API key. |
-| `Structured-output verification failed` | The model could not be reached, is not available to you, or did not return the required JSON. | Check the model ID. For a subscription, run `pnpm ai status` to confirm you are signed in, then try another model. |
+| `Structured-output verification of <model> failed` | The line under it says why: rejected credentials, a model not on your plan, a refused request with OpenAI's own explanation, a usage limit, an unreachable server, or an answer that was not valid JSON. | Act on that line. For a subscription, `pnpm ai status` confirms you are still signed in. If it quotes OpenAI and the cause isn't clear, include that line when you report it. |
 | `OpenAI refused the model list (HTTP 401)` | The sign-in is no longer accepted. | `pnpm ai login --provider openai` again. |
 | `Model discovery failed (HTTP …)` | OpenAI's model list could not be read this time. | Choose **Enter a model / deployment ID and verify it**, and type the model ID. |
 | `Image verification failed` | The model cannot read images. | Choose a vision model, or verify again with `--text-only`. |

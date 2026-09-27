@@ -94,7 +94,13 @@ const PLAN_MODELS = [
 type Seen = { url: URL; headers: Headers; body?: Record<string, unknown> }
 
 /** A fake of OpenAI's side of the conversation. */
-function fakeOpenAI(options: { refusedModels?: string[] } = {}) {
+function fakeOpenAI(
+  options: {
+    refusedModels?: string[]
+    /** Every model request answered with this instead. */
+    failWith?: { status?: number; stream?: unknown[]; body?: unknown }
+  } = {}
+) {
   const seen: Seen[] = []
   let issued = 0
   const fetcher = vi.fn(
@@ -125,6 +131,17 @@ function fakeOpenAI(options: { refusedModels?: string[] } = {}) {
         url.origin + url.pathname ===
         "https://chatgpt.com/backend-api/codex/responses"
       ) {
+        if (options.failWith?.stream)
+          return new Response(
+            options.failWith.stream
+              .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+              .join(""),
+            { headers: { "Content-Type": "text/event-stream" } }
+          )
+        if (options.failWith)
+          return Response.json(options.failWith.body, {
+            status: options.failWith.status,
+          })
         const model = String(body?.model)
         const image = JSON.stringify(body?.input).includes("input_image")
         const known = PLAN_MODELS.some((entry) => entry.slug === model)
@@ -522,5 +539,82 @@ describe("pnpm setup, for a subscription already signed in", () => {
     expect(env.AI_PROVIDER).toBe("openai-subscription")
     expect(env.AI_MODEL).toBe("")
     expect(prompt.choosePaged).not.toHaveBeenCalled()
+  })
+})
+
+describe("when verification fails, the operator is told why", () => {
+  function printed() {
+    return vi
+      .mocked(process.stdout.write)
+      .mock.calls.map(([chunk]) => String(chunk))
+      .join("")
+  }
+
+  it("quotes the backend's refusal, with the token redacted", async () => {
+    await signIn()
+    fakeOpenAI({
+      failWith: {
+        status: 400,
+        body: { detail: "Instructions are not valid (token access-live)" },
+      },
+    })
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+
+    const updates = await configureModel({
+      env: switchProvider({}, "openai-subscription", "gpt-vision"),
+      before: {},
+    })
+
+    expect(updates).toBeNull()
+    const output = printed()
+    expect(output).toContain(
+      "Structured-output verification of gpt-vision failed"
+    )
+    expect(output).toContain("HTTP 400")
+    expect(output).toContain("Instructions are not valid")
+    expect(output).not.toContain("access-live")
+  })
+
+  it("carries a failure reported inside the stream, such as a usage limit", async () => {
+    await signIn()
+    fakeOpenAI({
+      failWith: {
+        stream: [
+          {
+            type: "response.failed",
+            response: {
+              error: {
+                code: "usage_limit_reached",
+                message: "You have reached your plan's usage limit.",
+              },
+            },
+          },
+        ],
+      },
+    })
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+
+    await configureModel({
+      env: switchProvider({}, "openai-subscription", "gpt-vision"),
+      before: {},
+    })
+
+    const output = printed()
+    expect(output).toContain("HTTP 429")
+    expect(output).toContain("You have reached your plan's usage limit.")
+    expect(output).toContain("usage_limit_reached")
+  })
+
+  it("says to sign in again when the sign-in is refused", async () => {
+    await signIn()
+    fakeOpenAI({ failWith: { status: 401, body: { detail: "Unauthorized" } } })
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+
+    await configureModel({
+      env: switchProvider({}, "openai-subscription", "gpt-vision"),
+      before: {},
+    })
+
+    expect(printed()).toContain("rejected the credentials (HTTP 401)")
   })
 })

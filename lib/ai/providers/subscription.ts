@@ -452,6 +452,14 @@ export function toCodexRequest(body: Json): Json {
 export async function fromCodexStream(response: Response): Promise<Response> {
   const text = await response.text()
   let completed: unknown
+  let failure: { message?: string; code?: string } | undefined
+  const describe = (value: unknown) => {
+    const bag = (value && typeof value === "object" ? value : {}) as Json
+    return {
+      message: typeof bag.message === "string" ? bag.message : undefined,
+      code: typeof bag.code === "string" ? bag.code : undefined,
+    }
+  }
   for (const block of text.split(/\r?\n\r?\n/)) {
     const data = block
       .split(/\r?\n/)
@@ -465,29 +473,84 @@ export async function fromCodexStream(response: Response): Promise<Response> {
     } catch {
       continue
     }
+    const inner = (event.response ?? {}) as Json
     if (
       (event.type === "response.completed" || event.type === "response.done") &&
       event.response
     )
       completed = event.response
+    else if (event.type === "response.failed") failure = describe(inner.error)
+    else if (event.type === "response.incomplete")
+      failure = {
+        message: `The response stopped early (${String((inner.incomplete_details as Json | undefined)?.reason ?? "no reason given")}).`,
+      }
+    else if (event.type === "error") failure = describe(event.error ?? event)
   }
-  if (!completed)
+  // A backend that answered with one JSON object rather than a stream.
+  if (!completed && !failure) {
+    try {
+      const whole = JSON.parse(text) as Json
+      if (whole.object === "response" && Array.isArray(whole.output))
+        completed = whole
+    } catch {
+      /* not JSON either */
+    }
+  }
+  if (!completed) {
+    // Said in the shape the OpenAI adapter reads, so the backend's own words
+    // reach the probe's description (redacted there) instead of a generic
+    // failure. Usage limits are a rate limit, whatever the plan calls them.
+    const code = failure?.code ?? ""
+    const status = /rate|usage_limit|quota|too_many/i.test(code)
+      ? 429
+      : /invalid|unsupported|not_found|bad_request/i.test(code)
+        ? 400
+        : 502
+    const reason = failure?.message
+      ? `${failure.message}${failure.code ? ` (${failure.code})` : ""}`
+      : failure?.code
     return new Response(
       JSON.stringify({
         error: {
-          message: "The ChatGPT backend did not complete the response.",
-          type: "server_error",
+          message: reason
+            ? `The ChatGPT backend failed the response: ${reason}`
+            : "The ChatGPT backend did not complete the response.",
+          type: status === 502 ? "server_error" : "invalid_request_error",
+          code: failure?.code,
         },
       }),
-      { status: 502, headers: { "Content-Type": "application/json" } }
+      { status, headers: { "Content-Type": "application/json" } }
     )
+  }
   return new Response(JSON.stringify(completed), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   })
 }
 
-export function codexFetch(inner: typeof fetch): typeof fetch {
+/**
+ * A refusal with the sign-in's own tokens taken out of its body. The body
+ * goes on to the SDK's error, and from there, redacted again, to whoever ran
+ * the probe; a backend that echoes the bearer token must not print it.
+ */
+async function scrubbed(
+  response: Response,
+  secrets: string[]
+): Promise<Response> {
+  let body = await response.text()
+  for (const secret of secrets)
+    if (secret.length >= 8) body = body.split(secret).join("[redacted]")
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
+}
+
+export function codexFetch(
+  inner: typeof fetch,
+  secrets: string[] = []
+): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url =
       typeof input === "string"
@@ -505,7 +568,7 @@ export function codexFetch(inner: typeof fetch): typeof fetch {
       ...init,
       body: JSON.stringify(toCodexRequest(JSON.parse(init.body))),
     })
-    return response.ok ? fromCodexStream(response) : response
+    return response.ok ? fromCodexStream(response) : scrubbed(response, secrets)
   }) as typeof fetch
 }
 
@@ -527,7 +590,7 @@ export async function subscriptionModel(
     baseURL: OPENAI_LOGIN.api,
     apiKey: login.access,
     headers: backendHeaders(login),
-    fetch: codexFetch(fetcher),
+    fetch: codexFetch(fetcher, [login.access, login.refresh]),
   }).responses(modelId)
 }
 

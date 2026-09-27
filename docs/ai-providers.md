@@ -159,8 +159,8 @@ How it works:
 - Anonify never reads another tool's credentials. It does not use Codex CLI's
   `auth.json`, Claude Code's store, or anything else on the host. Sharing a
   refresh token between two tools logs one of them out at random.
-- No token, authorization code or `state` value is printed or logged. Errors
-  report status codes, never the provider's response body.
+- No token, authorization code or `state` value is printed or logged. The
+  sign-in's own tokens are removed from any refusal before it goes further.
 - The model list is read from OpenAI with the signed-in token: the Codex
   backend's `/models`, filtered and ordered the way Codex CLI's own picker
   shows it (`visibility: "list"`, by `priority`). If it cannot be read, a
@@ -228,7 +228,32 @@ Compose passes runtime environment credentials but does not mount your host's
 credential stores. Mount the chosen AWS profile or Google credential file
 read-only with a local Compose override, and set paths as seen **inside** the
 container. Use workload roles where available. Setup stores API keys in `.env`
-(gitignored); no keys or raw provider errors are printed or put in the web UI.
+(gitignored); no keys are printed or put in the web UI, and the running app
+logs a failure's category, never what the provider said.
+
+### When verification fails
+
+Setup, `pnpm ai verify` and `pnpm ai login` say which request failed (the
+structured-output check or the image check) and why:
+
+- **Credentials rejected** (HTTP 401/403), **not found** (404: a model this
+  account cannot use, or a wrong base URL), **refused** (400: often a model
+  without JSON-schema output or image input, or a parameter the endpoint does
+  not accept), **rate-limited or over quota** (429), **out of credit** (402),
+  or **the provider failed** (5xx), each with what the provider said.
+- **Unreachable**: connection refused (nothing listening), a host name that
+  does not resolve, a TLS certificate that is not accepted, or no answer
+  within two minutes.
+- **The model answered badly**: not JSON, JSON that does not fit the schema
+  (with the start of what it said), or the wrong answer.
+
+What the provider said is quoted only here, and only because verification
+sends synthetic requests, so it cannot quote a document. It is redacted
+first: the configured credential values, then anything shaped like a key, a
+bearer token or a JWT, and it is cut to 300 characters. In the picker, a
+failure that is about the model marks it as failed. A failure that would hit
+every model alike, such as a rejected key or a server that is down, leaves the
+model available, so the cause gets fixed rather than hidden.
 
 ## Prices and limits
 
