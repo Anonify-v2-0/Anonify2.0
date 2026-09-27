@@ -112,12 +112,19 @@ export async function readHead(
   const overflow = queue.drain()
 
   async function* rest(): AsyncGenerator<Buffer> {
-    if (overflow.byteLength > 0) yield overflow
-    if (done) return
-    for (;;) {
-      const next = await iterator.next()
-      if (next.done) return
-      yield Buffer.isBuffer(next.value) ? next.value : Buffer.from(next.value)
+    try {
+      if (overflow.byteLength > 0) yield overflow
+      if (done) return
+      for (;;) {
+        const next = await iterator.next()
+        if (next.done) return
+        yield Buffer.isBuffer(next.value) ? next.value : Buffer.from(next.value)
+      }
+    } finally {
+      // A reader that stops early returns this generator, and the iterator is
+      // pulled by hand, so nothing else passes that on: a stream source would
+      // be left open, paused on a full buffer, behind a read nobody finishes.
+      await iterator.return?.()
     }
   }
 

@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { Readable } from "node:stream"
+
+import { describe, expect, it, vi } from "vitest"
 
 import { splitMailbox } from "@/lib/documents/mbox/parse"
 import {
@@ -16,8 +18,8 @@ import {
   writeMailbox,
   type RebuildMessage,
 } from "@/lib/documents/mbox/rebuild"
-import { collect } from "@/lib/storage/streams"
-import { sha256 } from "@/lib/storage/integrity"
+import { chain, collect } from "@/lib/storage/streams"
+import { ChecksumVerifier, sha256 } from "@/lib/storage/integrity"
 
 import { EML } from "./eml-fixtures"
 import {
@@ -43,12 +45,13 @@ import {
 function messageOf(bytes: Uint8Array, size = 7): RebuildMessage {
   return {
     checksum: sha256(bytes),
-    open: async () =>
-      (async function* () {
-        for (let offset = 0; offset < bytes.byteLength; offset += size) {
-          yield bytes.subarray(offset, offset + size)
-        }
-      })(),
+    open: async () => Readable.from(piecesOf(bytes, size)),
+  }
+}
+
+function* piecesOf(bytes: Uint8Array, size: number): Generator<Uint8Array> {
+  for (let offset = 0; offset < bytes.byteLength; offset += size) {
+    yield bytes.subarray(offset, offset + size)
   }
 }
 
@@ -313,5 +316,123 @@ describe("refusing a mailbox that does not verify", () => {
   it("refuses an empty mailbox rather than delivering one", async () => {
     const error = await rejected(() => buildVerifiedMailbox([], []))
     expect(error.failure).toBe("count-mismatch")
+  })
+})
+
+describe("letting go of a download nobody finishes", () => {
+  /**
+   * A message longer than the head read before its separator, so that there
+   * is a `rest` to be suspended inside, and longer than every buffer between
+   * the writer and a reader put together, so that a reader who stops early
+   * stops partway through it.
+   */
+  const long = Buffer.from(
+    "From: a@example.com\nDate: Mon, 5 Jan 2026 10:00:00 +0000\n\n" +
+      "A line of body text that goes on for a while.\n".repeat(20_000),
+    "latin1"
+  )
+
+  /**
+   * Opened the way the batch download opens an export: a storage stream,
+   * chained into the verifier that holds it to its checksum. Both are kept,
+   * because the storage stream is the one that holds the socket.
+   */
+  function stored(
+    bytes: Uint8Array,
+    opened: Readable[],
+    onMismatch?: () => void
+  ): RebuildMessage {
+    const checksum = sha256(bytes)
+    return {
+      checksum,
+      open: async () => {
+        const storage = Readable.from(piecesOf(bytes, 1024))
+        const verified = chain(
+          storage,
+          new ChecksumVerifier(checksum, onMismatch)
+        )
+        opened.push(storage, verified)
+        return verified
+      },
+    }
+  }
+
+  function allDestroyed(opened: Readable[]): void {
+    expect(opened.length).toBeGreaterThan(0)
+    for (const stream of opened) expect(stream.destroyed).toBe(true)
+  }
+
+  it("closes the message it stopped on, before its body was started", async () => {
+    const opened: Readable[] = []
+    const writer = writeMailbox([stored(long, opened), stored(long, opened)], {
+      values: [],
+    })
+
+    const separator = await writer.next()
+    expect(latin1(separator.value as Buffer)).toMatch(/^From MAILER-DAEMON /)
+    await writer.return(undefined)
+
+    // The second message was never opened, and the first is closed.
+    expect(opened).toHaveLength(2)
+    await vi.waitFor(() => allDestroyed(opened))
+  })
+
+  it("closes the message it stopped on, partway through its body", async () => {
+    const opened: Readable[] = []
+    const writer = writeMailbox([stored(long, opened), stored(long, opened)], {
+      values: [],
+    })
+
+    // Past the head, so the writer is inside the rest of the message.
+    let out = 0
+    while (out < long.byteLength / 2) {
+      const next = await writer.next()
+      out += (next.value as Buffer).byteLength
+    }
+    await writer.throw(new Error("the reader went away")).catch(() => {})
+
+    expect(opened).toHaveLength(2)
+    await vi.waitFor(() => allDestroyed(opened))
+  })
+
+  it("closes every stream behind a delivery that is destroyed", async () => {
+    const opened: Readable[] = []
+    const onMismatch = vi.fn()
+    const messages = [long, long, long].map((bytes) =>
+      stored(bytes, opened, onMismatch)
+    )
+    const verified = await buildVerifiedMailbox(messages, [])
+    // The verification pass read every message to its end.
+    expect(opened).toHaveLength(6)
+    allDestroyed(opened)
+    opened.length = 0
+
+    const delivery = streamRebuiltMailbox(messages, [], verified, onMismatch)
+    for await (const piece of delivery) {
+      expect(piece.byteLength).toBeGreaterThan(0)
+      break
+    }
+
+    await vi.waitFor(() => allDestroyed(opened))
+    // Abandoned is not tampered with: nothing is reported as a mismatch.
+    expect(onMismatch).not.toHaveBeenCalled()
+  })
+
+  it("closes nothing early for a delivery that is read to its end", async () => {
+    const opened: Readable[] = []
+    const onMismatch = vi.fn()
+    const messages = [long, long].map((bytes) =>
+      stored(bytes, opened, onMismatch)
+    )
+    const verified = await buildVerifiedMailbox(messages, [])
+
+    const delivered = await collect(
+      streamRebuiltMailbox(messages, [], verified, onMismatch)
+    )
+
+    expect(sha256(delivered)).toBe(verified.checksum)
+    expect(splitMailbox(latin1(delivered))).toHaveLength(2)
+    expect(onMismatch).not.toHaveBeenCalled()
+    allDestroyed(opened)
   })
 })

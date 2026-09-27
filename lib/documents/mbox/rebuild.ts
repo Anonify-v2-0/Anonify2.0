@@ -81,7 +81,7 @@ const MIN_SEARCHED_LENGTH = 4
  * mailbox, exactly as a mismatch breaks off a single download.
  */
 export type RebuildMessage = {
-  open: () => Promise<AsyncIterable<Uint8Array>>
+  open: () => Promise<Readable>
   checksum: string
 }
 
@@ -334,46 +334,57 @@ export async function* writeMailbox(
   }
 ): AsyncGenerator<Buffer> {
   for (const [index, message] of messages.entries()) {
-    const { head, rest } = await readHead(await message.open(), HEAD_BYTES)
+    const source = await message.open()
+    try {
+      const { head, rest } = await readHead(source, HEAD_BYTES)
 
-    yield Buffer.from(`${separatorFor(head, options.values)}\n`, "latin1")
+      yield Buffer.from(`${separatorFor(head, options.values)}\n`, "latin1")
 
-    const quoter = new FromQuoter()
-    const recorded = createHash("sha256")
-    const framed = createHash("sha256")
-    let last = -1
-    let beforeLast = -1
+      const quoter = new FromQuoter()
+      const recorded = createHash("sha256")
+      const framed = createHash("sha256")
+      let last = -1
+      let beforeLast = -1
 
-    const pass = (piece: Buffer): Buffer[] => {
-      if (piece.length === 0) return []
-      recorded.update(piece)
-      framed.update(piece)
-      beforeLast = piece.length >= 2 ? piece[piece.length - 2] : last
-      last = piece[piece.length - 1]
-      return quoter.push(piece)
-    }
+      const pass = (piece: Buffer): Buffer[] => {
+        if (piece.length === 0) return []
+        recorded.update(piece)
+        framed.update(piece)
+        beforeLast = piece.length >= 2 ? piece[piece.length - 2] : last
+        last = piece[piece.length - 1]
+        return quoter.push(piece)
+      }
 
-    yield* pass(head)
-    for await (const piece of rest) yield* pass(asBuffer(piece))
-    yield* quoter.end()
+      yield* pass(head)
+      for await (const piece of rest) yield* pass(asBuffer(piece))
+      yield* quoter.end()
 
-    if (!checksumMatches(message.checksum, recorded.digest("hex"))) {
-      throw new MailboxRebuildError("artifact-mismatch", index)
-    }
+      if (!checksumMatches(message.checksum, recorded.digest("hex"))) {
+        throw new MailboxRebuildError("artifact-mismatch", index)
+      }
 
-    let ending: Buffer
-    if (last === LF) {
-      ending = Buffer.from(beforeLast === 0x0d ? "\r\n" : "\n", "latin1")
-    } else {
-      ending = Buffer.from("\n", "latin1")
-      framed.update(ending)
+      let ending: Buffer
+      if (last === LF) {
+        ending = Buffer.from(beforeLast === 0x0d ? "\r\n" : "\n", "latin1")
+      } else {
+        ending = Buffer.from("\n", "latin1")
+        framed.update(ending)
+        yield ending
+      }
+
+      // The blank line that ends a message, in the message's own line ending
+      // so a CRLF message stays CRLF to the end.
       yield ending
+      options.onMessage?.({ checksum: framed.digest("hex") })
+    } finally {
+      // A download abandoned partway returns this generator wherever it is
+      // suspended — on the separator, before `rest` has started, or inside it
+      // — and nothing else holds `source`. Left alone, the storage stream
+      // behind it stays open, paused on a full buffer, and so does the file
+      // handle or socket under that. A message read to its end is a stream
+      // that has already closed, and this changes nothing about it.
+      source.destroy()
     }
-
-    // The blank line that ends a message, in the message's own line ending so
-    // a CRLF message stays CRLF to the end.
-    yield ending
-    options.onMessage?.({ checksum: framed.digest("hex") })
   }
 }
 
