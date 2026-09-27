@@ -77,7 +77,18 @@ function run(
     })
     let stdout = ""
     let stderr = ""
-    const timer = setTimeout(() => child.kill("SIGTERM"), options.timeoutMs)
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM")
+      // Not waiting for "close": that waits for the pipes, and a process the
+      // shell started can hold them open after the shell itself has gone.
+      child.stdout.destroy()
+      child.stderr.destroy()
+      reject(
+        new Error(
+          `\`${command}\` timed out after ${Math.round(options.timeoutMs / 1000)}s`
+        )
+      )
+    }, options.timeoutMs)
     child.stdout.on("data", (chunk) => (stdout += chunk))
     child.stderr.on("data", (chunk) => (stderr += chunk))
     child.on("error", (error) => {
@@ -92,6 +103,10 @@ function run(
       clearTimeout(timer)
       resolve({ stdout, stderr, code })
     })
+    // A CLI that exits without reading its input (signed out, an unknown
+    // flag, a --command that is not installed) closes the pipe first. The
+    // exit code reaches "close" above; the EPIPE must not crash the run.
+    child.stdin.on("error", () => {})
     child.stdin.end(options.input)
   })
 }
@@ -263,6 +278,14 @@ function commandBackend(options: BackendOptions): Backend {
           signal,
           env: { ...files, CORPUS_SYSTEM: system, CORPUS_USER: user },
         })
+        // The shell's "command not found". It fails the same way for every
+        // document, so it is worded the way a missing claude or codex is,
+        // which stops the run instead of retrying each document.
+        if (result.code === 127) {
+          throw new Error(
+            `${failure(command, result).message}\n(the command was not found on PATH)`
+          )
+        }
         if (result.code !== 0) throw failure(command, result)
         return { text: result.stdout }
       }),

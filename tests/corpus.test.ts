@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { createBackend } from "@/benchmarks/corpus/lib/backends"
 import { buildDocument, countWords } from "@/benchmarks/corpus/lib/build"
 import {
   fillPlaceholder,
@@ -707,5 +708,43 @@ describe("corpus operator identity", () => {
       expect(result.reasons).toContain(
         "mentions the operator's identity (qu***)"
       )
+  })
+})
+
+describe("corpus command backend", () => {
+  const backend = (command: string, timeoutMs = 10_000) =>
+    createBackend({
+      backend: "command",
+      command,
+      extraArgs: [],
+      timeoutMs,
+      thinkingTokens: 0,
+    })
+  const request = {
+    system: "s".repeat(100_000),
+    user: "u".repeat(100_000),
+    schema: {},
+  }
+
+  it("returns what the command prints", async () => {
+    const completion = await backend(
+      `cat >/dev/null; echo '{"ok":1}'`
+    ).complete(request)
+    expect(completion.text.trim()).toBe(`{"ok":1}`)
+  })
+
+  it("reports a command that is not installed, rather than crashing on its input", async () => {
+    // sh exits before reading 200 KB of prompt, so the write gets EPIPE.
+    await expect(
+      backend("corpus-no-such-command --flag").complete(request)
+    ).rejects.toThrow(/exited with 127[\s\S]*not found on PATH/)
+  })
+
+  it("gives up on a command that outlives its timeout", async () => {
+    const started = Date.now()
+    await expect(
+      backend("sleep 5; echo late", 200).complete(request)
+    ).rejects.toThrow(/timed out/)
+    expect(Date.now() - started).toBeLessThan(3000)
   })
 })
