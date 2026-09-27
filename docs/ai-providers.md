@@ -124,8 +124,8 @@ sign-in, including headless servers and troubleshooting, see
 [Connecting to OpenAI](connect-openai.md).
 
 ```bash
-pnpm ai login --provider openai     # opens a browser, or prints a link on a headless host
-pnpm ai verify                      # choose and verify a model; writes AI_PROVIDER/AI_MODEL
+pnpm ai login --provider openai     # sign in, then choose, verify and price a model
+pnpm ai verify --provider openai-subscription   # choose another model later
 pnpm ai status                      # signed in? token expiry? model verified?
 pnpm ai logout --provider openai    # deletes the stored token
 ```
@@ -161,10 +161,21 @@ How it works:
   refresh token between two tools logs one of them out at random.
 - No token, authorization code or `state` value is printed or logged. Errors
   report status codes, never the provider's response body.
+- The model list is read from OpenAI with the signed-in token: the Codex
+  backend's `/models`, filtered and ordered the way Codex CLI's own picker
+  shows it (`visibility: "list"`, by `priority`). If it cannot be read, a
+  typed model ID is verified instead.
+- After signing in, `pnpm ai login` carries on into the same model picker and
+  probe as `pnpm ai verify`, then writes `AI_PROVIDER`, `AI_MODEL` and
+  `AI_MODEL_CAPABILITIES` to `.env`. With `--model`, it does this without
+  asking.
 - Usage rows are keyed `openai-subscription:<model>`. The plan is not billed
-  per token, so these rows cost $0 in estimates and against the spend cap, as
-  local models do. The plan's own usage limits still apply. A call refused for
-  them arrives as `rate-limit` or `budget`, as it would from an API key.
+  per token, so by default these rows cost $0 in estimates and against the
+  spend cap. Login and setup offer to record a price instead, in
+  `AI_MODEL_PRICES` (or pass `--input-price` and `--output-price`). A recorded
+  price is used for estimates and the cap. The plan's own usage limits still
+  apply. A call refused for them arrives as `rate-limit` or `budget`, as it
+  would from an API key.
 - Logging out deletes the row. It does not revoke the token at OpenAI, which
   lapses when it expires.
 
@@ -182,6 +193,7 @@ configured, it shows setup's model picker. Without a terminal, name the model:
 ```bash
 pnpm ai verify --provider ollama --model qwen3-vl:2b-instruct
 pnpm ai verify --text-only        # accept a model that cannot read images
+pnpm ai verify --input-price 1.25 --output-price 10   # record USD per 1M tokens
 pnpm ai verify --print            # print the settings instead of writing .env
 ```
 

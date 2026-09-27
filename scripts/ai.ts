@@ -3,7 +3,8 @@
  *
  *   pnpm ai status                        what is configured, and whether it is verified
  *   pnpm ai verify [--model ID]           probe the configured model and declare it in .env
- *   pnpm ai login --provider openai       sign in with a ChatGPT subscription
+ *   pnpm ai login --provider openai       sign in with a ChatGPT subscription,
+ *                                         then choose, verify and price a model
  *   pnpm ai logout --provider openai      delete the stored sign-in
  *
  * `verify` is setup's probe without the rest of setup: two small synthetic
@@ -19,12 +20,8 @@
 // First, so every module below sees the configured environment.
 import "dotenv/config"
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
-
-import { PROVIDERS, selectedProvider } from "@/lib/ai/providers"
+import { selectedProvider } from "@/lib/ai/providers"
 import {
-  capabilityDeclaration,
-  capabilityTarget,
   compatibleBaseUrl,
   configuredCapabilities,
   modelId,
@@ -33,11 +30,14 @@ import {
   usageModelId,
   type ProviderEnv,
 } from "@/lib/ai/providers/config"
-import { probeModel } from "@/lib/ai/providers/probe"
 
+import {
+  configureModel,
+  switchProvider,
+  writeSettings,
+  type Price,
+} from "./ai-configure"
 import { canOpenBrowser, openBrowser, startCallbackServer } from "./ai-login"
-import { quoteEnvValue, updateEnv } from "./env-file"
-import { chooseModel } from "./setup-ai"
 import {
   fail,
   note,
@@ -58,9 +58,14 @@ const HELP = `
       --provider <id>            switch provider as well (written to .env)
       --model <id>               the model to verify (written to .env)
       --text-only                accept a model that cannot read images
+      --input-price <usd>        record a price per 1M input tokens (with
+      --output-price <usd>         --output-price) in AI_MODEL_PRICES
       --print                    print the settings instead of writing .env
-    login --provider openai      sign in with a ChatGPT subscription
+    login --provider openai      sign in with a ChatGPT subscription, then
+                                 choose, verify and price a model as verify does
+      --model <id>               verify this one without asking
       --no-browser               print the link rather than opening it
+      (and verify's --text-only, --input-price, --output-price, --print)
     logout --provider openai     delete the stored sign-in
     --no-color                   plain text
     --help, -h                   this
@@ -91,6 +96,7 @@ type Args = {
   print: boolean
   browser: boolean
   help: boolean
+  price?: Price
 }
 
 function parseArgs(argv: string[]): Args {
@@ -101,6 +107,8 @@ function parseArgs(argv: string[]): Args {
     browser: true,
     help: false,
   }
+  let inputPrice: string | undefined
+  let outputPrice: string | undefined
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
     const value = () => {
@@ -116,8 +124,27 @@ function parseArgs(argv: string[]): Args {
     else if (token === "--text-only") args.textOnly = true
     else if (token === "--print") args.print = true
     else if (token === "--no-browser") args.browser = false
+    else if (token === "--input-price") inputPrice = value()
+    else if (token === "--output-price") outputPrice = value()
     else if (!token.startsWith("-") && !args.command) args.command = token
     else throw new Error(`Unknown option "${token}". See pnpm ai --help.`)
+  }
+  if (inputPrice !== undefined || outputPrice !== undefined) {
+    if (inputPrice === undefined || outputPrice === undefined)
+      throw new Error("Give --input-price and --output-price together.")
+    const price = {
+      inputPerMillion: Number(inputPrice.replace(/^\$/, "")),
+      outputPerMillion: Number(outputPrice.replace(/^\$/, "")),
+    }
+    if (
+      !Object.values(price).every(
+        (amount) => Number.isFinite(amount) && amount >= 0
+      )
+    )
+      throw new Error(
+        "--input-price and --output-price are US dollars per million tokens, such as 1.25."
+      )
+    args.price = price
   }
   return args
 }
@@ -196,94 +223,33 @@ async function status(): Promise<void> {
 
 // --- verify -------------------------------------------------------------------
 
-async function verify(args: Args): Promise<void> {
+/**
+ * Chooses (with a terminal) or takes (`--model`), verifies and prices a model,
+ * then writes it to `.env`. Shared by `verify` and by `login` once signed in.
+ */
+async function configure(args: Args, provider?: string): Promise<boolean> {
   const before: ProviderEnv = { ...process.env }
-  let env: ProviderEnv = { ...process.env }
-  if (args.provider) {
-    if (!PROVIDERS.some((entry) => entry.id === args.provider))
-      throw new Error(
-        `Unknown provider "${args.provider}". One of: ${PROVIDERS.map((entry) => entry.id).join(", ")}.`
-      )
-    if (args.provider !== providerId(env)) {
-      env.AI_PROVIDER = args.provider
-      env.AI_MODEL_CAPABILITIES = ""
-      if (!args.model) env.AI_MODEL = ""
-    }
+  const id = provider ?? args.provider ?? providerId(before)
+  const env = switchProvider(before, id, args.model)
+  const prompt = process.stdin.isTTY ? new Prompter(true) : undefined
+  try {
+    const updates = await configureModel({
+      env,
+      before,
+      prompt,
+      textOnly: args.textOnly,
+      price: args.price,
+    })
+    if (!updates) return false
+    writeSettings(updates, { print: args.print })
+    return true
+  } finally {
+    prompt?.close()
   }
-  if (args.model) env.AI_MODEL = args.model
-  selectedProvider(env)
+}
 
-  const interactive = Boolean(process.stdin.isTTY)
-  if (!modelId(env)) {
-    if (!interactive)
-      throw new Error("No model is configured. Name one with --model <id>.")
-    const prompt = new Prompter(true)
-    try {
-      env = await chooseModel(prompt, env, before)
-    } finally {
-      prompt.close()
-    }
-    if (!modelId(env) || !configuredCapabilities(env).structuredOutput) {
-      warn("Nothing verified, so nothing was changed.")
-      process.exitCode = 1
-      return
-    }
-  } else {
-    note(
-      `Verifying ${modelId(env)} on ${selectedProvider(env).label} with two small synthetic requests. Hosted providers may bill them.`
-    )
-    const checking = spin(
-      "Verifying structured output and image input (up to two minutes per request)"
-    )
-    const result = await probeModel(env)
-    checking.stop()
-    if (!result.structuredOutput) {
-      fail(
-        "Structured-output verification failed. Check the model, its credentials, access and connectivity."
-      )
-      process.exitCode = 1
-      return
-    }
-    if (!result.vision && !args.textOnly) {
-      fail(
-        "Image verification failed. Choose a vision model, or pass --text-only to have image analysis skipped and reported."
-      )
-      process.exitCode = 1
-      return
-    }
-    env.AI_MODEL_CAPABILITIES = capabilityDeclaration(env, result)
-    ok(
-      result.vision
-        ? "Structured output and image input verified."
-        : "Structured output verified. Image analysis will be visibly skipped."
-    )
-  }
-
-  const updates: Record<string, string> = {
-    AI_PROVIDER: providerId(env),
-    AI_MODEL: modelId(env),
-    AI_MODEL_CAPABILITIES: env.AI_MODEL_CAPABILITIES ?? "",
-  }
-  // A price setup adopted for the chosen model, if the picker offered one.
-  if (env.AI_MODEL_PRICES && env.AI_MODEL_PRICES !== before.AI_MODEL_PRICES)
-    updates.AI_MODEL_PRICES = env.AI_MODEL_PRICES
-  // Guards the declaration against a mismatch this command would write itself.
-  if (
-    JSON.parse(updates.AI_MODEL_CAPABILITIES).target !== capabilityTarget(env)
-  )
-    throw new Error("The verification does not match the configuration.")
-
-  if (args.print || !existsSync(".env")) {
-    if (!args.print)
-      note("No .env here; set these where the app reads its environment:")
-    for (const [key, value] of Object.entries(updates))
-      say(`${key}=${quoteEnvValue(value)}`)
-    return
-  }
-  writeFileSync(".env", updateEnv(readFileSync(".env", "utf8"), updates))
-  ok(
-    `Wrote ${Object.keys(updates).join(", ")} to .env. Restart the app to use it.`
-  )
+async function verify(args: Args): Promise<void> {
+  if (!(await configure(args))) process.exitCode = 1
 }
 
 // --- login --------------------------------------------------------------------
@@ -369,12 +335,36 @@ async function login(args: Args): Promise<void> {
   ok("Signed in. The token is sealed in the database and refreshed on use.")
   if (!token.accountId)
     warn("The token names no ChatGPT workspace; calls may be refused.")
-  if (providerId() !== "openai-subscription")
+
+  // Signed in is not configured: carry on to the model, the same way verify
+  // does, so one command leaves the instance using the subscription. Asked
+  // first in a terminal; done at once when --model says which.
+  let proceed = Boolean(args.model)
+  if (!proceed && interactive) {
+    const ask = new Prompter(true)
+    try {
+      say()
+      proceed = await ask.confirm(
+        "Choose a model from your ChatGPT plan and verify it now?",
+        true
+      )
+    } finally {
+      ask.close()
+    }
+  }
+  if (!proceed) {
     note(
-      "To use it: pnpm ai verify --provider openai-subscription --model <model id>, or pnpm setup."
+      "When you are ready: pnpm ai verify --provider openai-subscription, to choose and verify a model."
     )
-  else if (!configuredCapabilities().structuredOutput)
-    note("Next: pnpm ai verify, to choose and verify a model.")
+    return
+  }
+  say()
+  if (!(await configure(args, "openai-subscription"))) {
+    note(
+      "You are still signed in. Try another model with pnpm ai verify --provider openai-subscription."
+    )
+    process.exitCode = 1
+  }
 }
 
 async function logout(args: Args): Promise<void> {

@@ -447,6 +447,25 @@ describe("the provider", () => {
     )
   })
 
+  it("uses a price the operator recorded for it, and $0 otherwise", () => {
+    const priced = {
+      AI_MODEL_PRICES: JSON.stringify({
+        "openai-subscription:gpt-fixture": {
+          inputPerMillion: 1.25,
+          outputPerMillion: 10,
+        },
+      }),
+    }
+    expect(ratesFor(priced, "openai-subscription:gpt-fixture")).toEqual({
+      inputPerMillion: 1.25,
+      outputPerMillion: 10,
+    })
+    expect(ratesFor(priced, "openai-subscription:other")).toEqual({
+      inputPerMillion: 0,
+      outputPerMillion: 0,
+    })
+  })
+
   it("costs nothing per token, so an unpriced row cannot disable the spend cap", () => {
     vi.stubEnv("AI_MODEL_PRICES", "")
     expect(ratesFor({}, "openai-subscription:gpt-fixture")).toEqual({

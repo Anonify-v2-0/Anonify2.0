@@ -532,9 +532,24 @@ export async function subscriptionModel(
 }
 
 /**
- * The models this account's plan offers, from the backend's own list. Its
- * shape is not the public API's (`models[].slug`), it may change, and setup
- * falls back to a typed, verified ID when it cannot be read.
+ * Sent as `client_version` on the model list. Codex CLI sends its own version,
+ * and the backend uses it to leave out models a client is too old to drive. We
+ * drive every model the same way, through the Responses API, so we ask as a
+ * current client rather than as any particular Codex release.
+ */
+const MODEL_LIST_CLIENT_VERSION = "1.0.0"
+
+/**
+ * The models this account's plan offers, read from OpenAI with the signed-in
+ * token: the same list, in the same order, that Codex CLI's own picker shows.
+ *
+ * The shape is Codex's `ModelsResponse` (codex-rs/protocol, openai_models.rs):
+ * `models[]` with `slug`, `display_name`, `visibility`, `priority`,
+ * `input_modalities` and `context_window`. Only `visibility: "list"` models
+ * are offered, as Codex does; a hidden one can still be typed and verified.
+ * `input_modalities` is what the backend advertises, and setup's probe still
+ * decides. It is not the public API's list, it may change, and setup falls
+ * back to a typed, verified ID when it cannot be read.
  */
 export async function discoverSubscriptionModels(
   fetcher: typeof fetch = fetch
@@ -552,7 +567,7 @@ export async function discoverSubscriptionModels(
   let raw: unknown
   try {
     const response = await fetcher(
-      `${OPENAI_LOGIN.api}/models?client_version=1.0.0`,
+      `${OPENAI_LOGIN.api}/models?client_version=${MODEL_LIST_CLIENT_VERSION}`,
       {
         headers: {
           Authorization: `Bearer ${login.access}`,
@@ -564,7 +579,9 @@ export async function discoverSubscriptionModels(
     )
     if (!response.ok)
       throw new DiscoveryError(
-        `Model discovery failed (HTTP ${response.status}). Enter a model ID to verify it.`
+        response.status === 401 || response.status === 403
+          ? `OpenAI refused the model list (HTTP ${response.status}). Run pnpm ai login --provider openai again.`
+          : `Model discovery failed (HTTP ${response.status}). Enter a model ID to verify it.`
       )
     raw = await response.json()
   } catch (error) {
@@ -578,17 +595,44 @@ export async function discoverSubscriptionModels(
     throw new DiscoveryError(
       "The ChatGPT backend returned no model list. Enter a model ID to verify it."
     )
-  const models: ModelDefinition[] = []
+  const listed: { model: ModelDefinition; priority: number }[] = []
   for (const row of rows as Json[]) {
-    const id = row.slug ?? row.id
+    if (!row || typeof row !== "object") continue
+    const id = row.slug
     if (typeof id !== "string" || !id || /[\x00-\x1f\x7f]/.test(id)) continue
+    // Absent means an older payload, which Codex shows; anything but "list" it hides.
+    if (row.visibility !== undefined && row.visibility !== "list") continue
     const model: ModelDefinition = { id, label: id, textOutput: true }
     const name = row.display_name
-    if (typeof name === "string" && name && name.length <= 80 && name !== id)
+    if (
+      typeof name === "string" &&
+      name &&
+      name.length <= 80 &&
+      !/[\x00-\x1f\x7f]/.test(name) &&
+      name !== id
+    )
       model.name = name
     const input = row.input_modalities
     if (Array.isArray(input)) model.vision = input.includes("image")
-    models.push(model)
+    const context = row.context_window
+    if (
+      typeof context === "number" &&
+      Number.isInteger(context) &&
+      context > 0 &&
+      context <= 100_000_000
+    )
+      model.contextWindow = context
+    listed.push({
+      model,
+      priority:
+        typeof row.priority === "number" && Number.isFinite(row.priority)
+          ? row.priority
+          : Number.MAX_SAFE_INTEGER,
+    })
   }
-  return models.sort((a, b) => a.id.localeCompare(b.id))
+  return listed
+    .sort(
+      (a, b) => a.priority - b.priority || a.model.id.localeCompare(b.model.id)
+    )
+    .map((entry) => entry.model)
 }

@@ -137,24 +137,42 @@ On success:
 
 ```
   ✓ Signed in. The token is sealed in the database and refreshed on use.
-  To use it: pnpm ai verify --provider openai-subscription --model <model id>, or pnpm setup.
+
+  Choose a model from your ChatGPT plan and verify it now? [Y/n]:
 ```
 
-### 2. Choose and verify a model
+### 2. Choose, verify and price a model
+
+Answer yes, and the same command carries on:
+
+1. **What should the model analyze?** *Text and images*, or *Text (image
+   support optional)*. With the first, models your plan offers without image
+   input are listed but disabled.
+2. **Which model?** The list comes from OpenAI, read with your sign-in: the
+   models your plan offers, in the order Codex CLI shows them. Search it by ID
+   or name. If it can't be read, choose **Enter a model / deployment ID and
+   verify it** and type one.
+3. **Verify.** Two small synthetic requests to that model: one structured
+   answer and one image. No document is sent. A model OpenAI refuses, or one
+   that fails a check, is marked and you choose again.
+4. **Price.** Your plan is billed per month, not per token, so by default its
+   calls count as $0 in usage estimates and against the daily spend cap. You
+   can record a price per million tokens instead, such as OpenAI's API price
+   for that model. Usage estimates then show what the same calls would cost,
+   and `ANONIFY_AI_DAILY_SPEND_USD` can limit them. The default answer is no.
+5. **Write.** `AI_PROVIDER`, `AI_MODEL`, `AI_MODEL_CAPABILITIES` and, if you
+   recorded one, the price in `AI_MODEL_PRICES` go into `.env`. Every other
+   line is left alone.
+
+Answer no, and you can do the same thing later with
+`pnpm ai verify --provider openai-subscription`, or `pnpm setup`.
+
+To do it all without prompts, for example in a script, name the model and,
+optionally, the price:
 
 ```bash
-pnpm ai verify --provider openai-subscription
-```
-
-When no model is configured for it yet, this lists the models your plan
-offers, when OpenAI's backend will say. If the list can't be read, choose **Enter a model / deployment ID and
-verify it** and type one. Either way, the model is verified before it is
-saved, and the result is written to `.env`, as in Option A.
-
-Without a terminal, name the model:
-
-```bash
-pnpm ai verify --provider openai-subscription --model <model id>
+pnpm ai login --provider openai --model <model id>
+pnpm ai login --provider openai --model <model id> --input-price 1.25 --output-price 10
 ```
 
 If the model cannot read images, verification fails unless you add
@@ -235,6 +253,8 @@ their own provider prefix, so estimates for past documents are unaffected.
 | `The redirect is not from this sign-in attempt` | The pasted address came from an older or different attempt. | Start a new `pnpm ai login` and paste the address from that attempt. |
 | `The sign-in was refused (access_denied)` | You declined in the browser, or the account cannot use this sign-in. | Try again, or use an API key. |
 | `Structured-output verification failed` | The model could not be reached, is not available to you, or did not return the required JSON. | Check the model ID. For a subscription, run `pnpm ai status` to confirm you are signed in, then try another model. |
+| `OpenAI refused the model list (HTTP 401)` | The sign-in is no longer accepted. | `pnpm ai login --provider openai` again. |
+| `Model discovery failed (HTTP …)` | OpenAI's model list could not be read this time. | Choose **Enter a model / deployment ID and verify it**, and type the model ID. |
 | `Image verification failed` | The model cannot read images. | Choose a vision model, or verify again with `--text-only`. |
 | The reviewer sees *"the AI provider rejected this instance's key"* | The sign-in expired and could not be refreshed, or was revoked. For an API key, the key is invalid. | `pnpm ai login --provider openai` again, or replace `OPENAI_API_KEY`. |
 | `Not verified for this model and endpoint` in `pnpm ai status` | The provider or model changed after the last verification. | `pnpm ai verify`. |

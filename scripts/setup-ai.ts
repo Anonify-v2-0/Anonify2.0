@@ -187,6 +187,118 @@ async function readModels(
 }
 
 /**
+ * AI_MODEL_PRICES as an object, or undefined (with a warning) when it is set
+ * to something that is not one. A table somebody wrote by hand is never
+ * overwritten because it did not parse.
+ */
+function priceTable(env: ProviderEnv): Record<string, unknown> | undefined {
+  if (!env.AI_MODEL_PRICES?.trim()) return {}
+  try {
+    const parsed: unknown = JSON.parse(env.AI_MODEL_PRICES)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new Error("not an object")
+    return parsed as Record<string, unknown>
+  } catch {
+    warn("AI_MODEL_PRICES is not a JSON object, so it is left as it is.")
+  }
+}
+
+/** A price that is really there, as opposed to the $0 a subscription falls back to. */
+function recordedPrice(
+  table: Record<string, unknown>,
+  key: string
+): { inputPerMillion: number; outputPerMillion: number } | undefined {
+  const entry = table[key] as Record<string, unknown> | undefined
+  if (
+    entry &&
+    typeof entry.inputPerMillion === "number" &&
+    typeof entry.outputPerMillion === "number" &&
+    entry.inputPerMillion >= 0 &&
+    entry.outputPerMillion >= 0
+  )
+    return {
+      inputPerMillion: entry.inputPerMillion,
+      outputPerMillion: entry.outputPerMillion,
+    }
+}
+
+/**
+ * Records a price for the configured model in AI_MODEL_PRICES, keeping every
+ * other model's entry. False, with a warning, when the table cannot be read
+ * or the amounts are not dollars.
+ */
+export function setModelPrice(
+  env: ProviderEnv,
+  price: { inputPerMillion: number; outputPerMillion: number }
+): boolean {
+  if (
+    ![price.inputPerMillion, price.outputPerMillion].every(
+      (value) => Number.isFinite(value) && value >= 0
+    )
+  ) {
+    warn("A price is a nonnegative amount of US dollars per million tokens.")
+    return false
+  }
+  const table = priceTable(env)
+  if (!table) return false
+  env.AI_MODEL_PRICES = JSON.stringify({
+    ...table,
+    [usageModelId(env)]: {
+      inputPerMillion: price.inputPerMillion,
+      outputPerMillion: price.outputPerMillion,
+    },
+  })
+  return true
+}
+
+/**
+ * Asks whether to record a price for a model its provider does not bill per
+ * token: a ChatGPT subscription. Without one its calls count as $0, which is
+ * true of the bill and keeps the spend cap enforceable. With one, usage
+ * estimates show what the same calls would cost at that price, and the daily
+ * cap can limit them. The default is no, and a price already recorded is
+ * kept unless changed.
+ */
+export async function askModelPrice(
+  prompt: Prompter,
+  env: ProviderEnv
+): Promise<void> {
+  const table = priceTable(env)
+  if (!table) return
+  const key = usageModelId(env)
+  const recorded = recordedPrice(table, key)
+  say()
+  note(
+    "Your ChatGPT plan is billed per month, not per token, so calls on it count as $0 in usage estimates and against the daily spend cap."
+  )
+  note(
+    "Record a price per million tokens (OpenAI's API price for this model, say) to see what the usage would cost, or to let ANONIFY_AI_DAILY_SPEND_USD limit it."
+  )
+  if (recorded) note(`Recorded now for ${key}: ${formatPrice(recorded)}`)
+  if (
+    !(await prompt.confirm(
+      recorded
+        ? "Change the recorded price?"
+        : "Record a price for this model?",
+      false
+    ))
+  )
+    return
+  const inputPerMillion = await prompt.askAmount("Input", {
+    fallback: recorded?.inputPerMillion ?? 0,
+    unit: "USD per 1M tokens",
+  })
+  const outputPerMillion = await prompt.askAmount("Output", {
+    fallback: recorded?.outputPerMillion ?? 0,
+    unit: "USD per 1M tokens",
+  })
+  if (setModelPrice(env, { inputPerMillion, outputPerMillion }))
+    ok(
+      `Saved ${formatPrice({ inputPerMillion, outputPerMillion })} for ${key} to AI_MODEL_PRICES.`
+    )
+}
+
+/**
  * Offers the chosen model's list price for the spend estimate.
  *
  * Never automatic: a price read from a catalog becomes a spend limit only
@@ -202,18 +314,8 @@ async function adoptPrice(
   source: { label: string; fetchedAt: string; stale: boolean }
 ): Promise<void> {
   const key = usageModelId(env)
-  let table: Record<string, unknown> = {}
-  if (env.AI_MODEL_PRICES?.trim()) {
-    try {
-      const parsed: unknown = JSON.parse(env.AI_MODEL_PRICES)
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-        throw new Error("not an object")
-      table = parsed as Record<string, unknown>
-    } catch {
-      warn("AI_MODEL_PRICES is not a JSON object, so setup leaves it as it is.")
-      return
-    }
-  }
+  const table = priceTable(env)
+  if (!table) return
   const configured = ratesFor(env)
   const offered = {
     inputPerMillion: price.inputPerMillion,
@@ -425,7 +527,15 @@ export async function askAiProvider(
   )
     return env
 
-  return chooseModel(prompt, env, current)
+  const chosen = await chooseModel(prompt, env, current)
+  // A subscription has no list price to adopt; offer to record one instead.
+  if (
+    provider.login &&
+    chosen !== current &&
+    configuredCapabilities(chosen).structuredOutput
+  )
+    await askModelPrice(prompt, chosen)
+  return chosen
 }
 
 /**
