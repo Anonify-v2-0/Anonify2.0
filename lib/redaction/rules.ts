@@ -194,9 +194,8 @@ export function batchRuleReason(pattern: string | PatternSpec): string {
 
 export function documentRuleReason(pattern: string | PatternSpec): string {
   const spec = typeof pattern === "string" ? specOf({ pattern }) : pattern
-  return spec.kind === "regex"
-    ? `Matches the rule ${quoted(spec)}`
-    : `Matches the global rule for ${quoted(spec)}`
+  // Not "global": that word belongs to the owner's rules, `ownerRuleReason`.
+  return `Matches the rule ${quoted(spec)}`
 }
 
 export function ownerRuleReason(spec: PatternSpec): string {
