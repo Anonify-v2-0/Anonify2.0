@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
+
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { createBackend } from "@/benchmarks/corpus/lib/backends"
 import { buildDocument, countWords } from "@/benchmarks/corpus/lib/build"
@@ -16,6 +20,7 @@ import {
 } from "@/benchmarks/corpus/lib/markup"
 import { denyTokens, findDenied } from "@/benchmarks/corpus/lib/operator"
 import { createRng } from "@/benchmarks/corpus/lib/random"
+import { documentPath, rebuild } from "@/benchmarks/corpus/lib/rebuild"
 import { readReview, withMarkup } from "@/benchmarks/corpus/lib/review"
 import {
   isReservedEmail,
@@ -708,6 +713,95 @@ describe("corpus operator identity", () => {
       expect(result.reasons).toContain(
         "mentions the operator's identity (qu***)"
       )
+  })
+})
+
+describe("corpus rebuild", () => {
+  const deny = denyTokens(["Ada Quill"])
+  const good = `Dear [[person|Priya Raman]], ${FILLER} [[email|{{EMAIL:p1}}]] [[person|Priya]].`
+  const first = spec({ id: "syn-v1-0001", index: 0 })
+  const second = spec({ id: "syn-v1-0002", index: 1 })
+  let dir: string
+  let out: string
+  let responses: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "corpus-rebuild-"))
+    out = path.join(dir, "synthetic-v1")
+    responses = path.join(dir, "responses")
+    await mkdir(responses, { recursive: true })
+  })
+  afterEach(() => rm(dir, { recursive: true, force: true }))
+
+  async function cache(id: string, attempt: number, body: string) {
+    await writeFile(
+      path.join(responses, `${id}.${attempt}.json`),
+      JSON.stringify({
+        ...GENERATOR,
+        id,
+        attempt,
+        text: response(body),
+        createdAt: "2026-01-01T00:00:00Z",
+      })
+    )
+  }
+
+  async function onDisk(target: DocumentSpec, body: string, reviewed = false) {
+    const result = buildDocument(target, response(body), GENERATOR)
+    if (!result.ok) throw new Error(result.reasons.join("; "))
+    result.document.generator.reviewedByHuman = reviewed
+    const file = documentPath(out, target)
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, JSON.stringify(result.document))
+    return file
+  }
+
+  const run = (specs: DocumentSpec[], lines: string[] = []) =>
+    rebuild(specs, { out, responses, seed: 57, deny }, (line) =>
+      lines.push(line)
+    )
+
+  it("re-derives a document from its first acceptable response", async () => {
+    await cache(first.id, 1, `${good} Approved by Quill.`)
+    await cache(first.id, 2, good)
+    const summary = await run([first])
+    expect(summary).toMatchObject({ written: 1, rejected: 0, removed: 0 })
+    const written = JSON.parse(await readFile(documentPath(out, first), "utf8"))
+    expect(written.generator.attempt).toBe(2)
+  })
+
+  it("removes a document the current checks now reject", async () => {
+    // Written by an earlier run, before the operator's name was checked for.
+    const file = await onDisk(first, `${good} Approved by Quill.`)
+    await cache(first.id, 1, `${good} Approved by Quill.`)
+    const lines: string[] = []
+    const summary = await run([first], lines)
+    expect(summary).toMatchObject({ written: 0, rejected: 1, removed: 1 })
+    await expect(readFile(file)).rejects.toThrow()
+    expect(lines.join("\n")).toContain("operator's identity (qu***)  (removed)")
+  })
+
+  it("leaves a reviewed document alone, and names it if it fails", async () => {
+    const reviewed = await onDisk(first, good, true)
+    const failing = await onDisk(second, `${good} Approved by Quill.`, true)
+    const before = [await readFile(reviewed), await readFile(failing)]
+    await cache(first.id, 1, good)
+    await cache(second.id, 1, good)
+    const lines: string[] = []
+    const summary = await run([first, second], lines)
+    expect(summary).toMatchObject({ written: 0, reviewed: 2 })
+    expect(summary.failing).toEqual([second.id])
+    expect([await readFile(reviewed), await readFile(failing)]).toEqual(before)
+    expect(lines.join("\n")).toContain(
+      `! ${second.id}  reviewed by a person, so kept, but the current checks reject it: mentions the operator's identity (qu***)`
+    )
+  })
+
+  it("keeps a document it has no response for, and checks it", async () => {
+    await onDisk(first, `${good} Approved by Quill.`)
+    const summary = await run([first])
+    expect(summary).toMatchObject({ uncached: 1, removed: 0 })
+    expect(summary.failing).toEqual([first.id])
   })
 })
 

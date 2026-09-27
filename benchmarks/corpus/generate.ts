@@ -19,18 +19,12 @@
  * to the checks can be applied with --rebuild without paying for a token.
  */
 
-import {
-  appendFile,
-  mkdir,
-  readdir,
-  readFile,
-  writeFile,
-} from "node:fs/promises"
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { parseArgs } from "node:util"
 
 import { createBackend, DEFAULT_MODELS, type Backend } from "./lib/backends"
-import { buildDocument, type GeneratorInfo } from "./lib/build"
+import { buildDocument } from "./lib/build"
 import { buildManifest } from "./lib/manifest"
 import { denyTokens, operatorStrings } from "./lib/operator"
 import {
@@ -39,6 +33,15 @@ import {
   SYSTEM_PROMPT,
   userPrompt,
 } from "./lib/prompt"
+import {
+  documentPath,
+  generatorInfo,
+  isReviewed,
+  readJson,
+  rebuild,
+  writeDocument,
+  type CachedResponse,
+} from "./lib/rebuild"
 import { CORPUS_SIZE, sampleSpecs } from "./lib/spec"
 import type { DocumentSpec } from "./lib/types"
 
@@ -62,8 +65,10 @@ const USAGE = `Usage: pnpm corpus:generate [options]
   --attempts <n>        tries per document before giving up (default 3)
   --thinking <tokens>   Claude's extended-thinking budget (default 0: off)
   --timeout <seconds>   per request (default 900)
-  --force               regenerate documents that already exist
-  --rebuild             re-derive every document from cached responses; no model calls
+  --force               regenerate documents that already exist, except those
+                        reviewed by a person
+  --rebuild             re-derive every document from cached responses, and
+                        remove those no cached response passes; no model calls
   --dry-run             print the specs (and, with --ids, the prompts); no model calls
   --manifest            only rewrite manifest.json
 `
@@ -154,29 +159,12 @@ function parseOptions(argv: string[]): Options {
 
 // --- paths and cache --------------------------------------------------------
 
-type CachedResponse = {
-  id: string
-  attempt: number
-  backend: string
-  model: string
-  promptVersion: string
-  seed: number
-  text: string
-  costUsd?: number
-  usage?: Record<string, unknown>
-  createdAt: string
-}
-
 function cacheDir(out: string): string {
   return path.join(HERE, ".cache", path.basename(out))
 }
 
 function responsePath(out: string, id: string, attempt: number): string {
   return path.join(cacheDir(out), "responses", `${id}.${attempt}.json`)
-}
-
-function documentPath(out: string, spec: DocumentSpec): string {
-  return path.join(out, spec.split, `${spec.id}.json`)
 }
 
 async function exists(file: string): Promise<boolean> {
@@ -188,30 +176,12 @@ async function exists(file: string): Promise<boolean> {
   }
 }
 
-async function readCached(file: string): Promise<CachedResponse | null> {
-  try {
-    return JSON.parse(await readFile(file, "utf8")) as CachedResponse
-  } catch {
-    return null
-  }
-}
-
 async function logReject(out: string, entry: object) {
   await mkdir(cacheDir(out), { recursive: true })
   await appendFile(
     path.join(cacheDir(out), "rejects.jsonl"),
     `${JSON.stringify(entry)}\n`
   )
-}
-
-async function writeDocument(
-  out: string,
-  spec: DocumentSpec,
-  document: object
-) {
-  const file = documentPath(out, spec)
-  await mkdir(path.dirname(file), { recursive: true })
-  await writeFile(file, `${JSON.stringify(document, null, 2)}\n`)
 }
 
 // --- one document -----------------------------------------------------------
@@ -234,7 +204,7 @@ async function generateOne(
   for (let attempt = 1; attempt <= options.attempts; attempt++) {
     if (signal.aborted) break
     const cacheFile = responsePath(options.out, spec.id, attempt)
-    let cached = await readCached(cacheFile)
+    let cached = await readJson<CachedResponse>(cacheFile)
     if (
       cached &&
       (cached.promptVersion !== PROMPT_VERSION ||
@@ -305,64 +275,6 @@ async function generateOne(
     })
   }
   return { status: "rejected", costUsd, reasons: lastReasons }
-}
-
-function generatorInfo(cached: CachedResponse): GeneratorInfo {
-  return {
-    backend: cached.backend,
-    model: cached.model,
-    promptVersion: cached.promptVersion,
-    seed: cached.seed,
-    attempt: cached.attempt,
-    reviewedByHuman: false,
-  }
-}
-
-/** Re-derives every document that has an acceptable cached response. */
-async function rebuild(specs: DocumentSpec[], options: Options) {
-  const responses = path.join(cacheDir(options.out), "responses")
-  let names: string[] = []
-  try {
-    names = await readdir(responses)
-  } catch {
-    throw new Error(
-      `no cached responses in ${path.relative(process.cwd(), responses)}`
-    )
-  }
-  let written = 0
-  let rejected = 0
-  for (const spec of specs) {
-    const attempts = names
-      .filter((name) => name.startsWith(`${spec.id}.`))
-      .map((name) => Number(name.split(".")[1]))
-      .sort((a, b) => a - b)
-    if (attempts.length === 0) continue
-    let done = false
-    let reasons: string[] = []
-    for (const attempt of attempts) {
-      const cached = await readCached(
-        path.join(responses, `${spec.id}.${attempt}.json`)
-      )
-      if (!cached || cached.seed !== options.seed) continue
-      const result = buildDocument(spec, cached.text, generatorInfo(cached), {
-        deny: options.denyTokens,
-      })
-      if (result.ok) {
-        await writeDocument(options.out, spec, result.document)
-        done = true
-        break
-      }
-      reasons = result.reasons
-    }
-    if (done) written++
-    else {
-      rejected++
-      console.log(`✗ ${spec.id}  ${reasons.slice(0, 3).join("; ")}`)
-    }
-  }
-  console.log(
-    `\nRebuilt ${written} documents from cache; ${rejected} have no acceptable response.`
-  )
 }
 
 // --- reporting --------------------------------------------------------------
@@ -454,8 +366,23 @@ async function main() {
   }
 
   if (options.rebuild) {
-    await rebuild(specs, options)
-    return writeManifest(options.out)
+    const summary = await rebuild(specs, {
+      out: options.out,
+      responses: path.join(cacheDir(options.out), "responses"),
+      seed: options.seed,
+      deny: options.denyTokens,
+    })
+    console.log(
+      `\nRebuilt ${summary.written} from cache. No acceptable response for ${summary.rejected} (${summary.removed} removed from disk). Kept as they are: ${summary.reviewed} reviewed by a person, ${summary.uncached} with no cached response.`
+    )
+    await writeManifest(options.out)
+    if (summary.failing.length > 0) {
+      console.error(
+        `\n${summary.failing.length} kept document${summary.failing.length === 1 ? " fails" : "s fail"} the current checks and need${summary.failing.length === 1 ? "s" : ""} a person to fix or delete: ${summary.failing.join(", ")}`
+      )
+      process.exitCode = 1
+    }
+    return
   }
 
   const backend = createBackend({
@@ -469,8 +396,16 @@ async function main() {
 
   const pending: DocumentSpec[] = []
   for (const spec of specs) {
-    if (!options.force && (await exists(documentPath(options.out, spec))))
-      continue
+    const file = documentPath(options.out, spec)
+    if (await exists(file)) {
+      if (!options.force) continue
+      if (isReviewed(await readJson(file))) {
+        console.log(
+          `· ${spec.id}  reviewed by a person; --force leaves it (delete the file to regenerate it)`
+        )
+        continue
+      }
+    }
     pending.push(spec)
   }
   const queue = pending.slice(0, options.limit)

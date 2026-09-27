@@ -49,7 +49,12 @@ and every value the script fills in. A document already on disk is skipped.
 Every model response is cached under `corpus/.cache/` (ignored by git) before
 it is checked, so an interrupted run loses at most the calls in flight, and
 after a fix to the checks `pnpm corpus:generate --rebuild` re-derives the whole
-corpus from cached responses without calling a model.
+corpus from cached responses without calling a model. A document that no cached
+response passes any more is removed. A document a person has reviewed is kept
+as it is, and so is one with no cached response to rebuild it from; both are
+held to the current checks, and the rebuild names any that fail and exits
+non-zero. `--force` leaves reviewed documents alone too: delete the file to
+regenerate one.
 
 **Cost.** In trials with Claude Code and Haiku 4.5, a short or medium document
 cost $0.007–0.016 a call and a long one $0.03–0.05. Between a third and a half
