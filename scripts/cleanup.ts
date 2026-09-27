@@ -41,6 +41,7 @@ async function main(): Promise<void> {
       `    marked expired      ${marked}`,
       `    documents deleted   ${result.documentsDeleted}`,
       `    objects deleted     ${result.objectsDeleted}`,
+      `    global rules pruned ${result.ownerRulesPruned}`,
       `    rate limits pruned  ${result.rateLimitsPruned}`,
       result.failures > 0
         ? `    failures            ${result.failures}  (retried next run)`

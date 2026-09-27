@@ -2,10 +2,12 @@
 
 import { Check, Globe, Layers, Sparkles, User, X } from "lucide-react"
 
+import { RulesPanel } from "@/components/rules/rules-panel"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { filtersChanged, redactionSelected } from "@/store/redactionSlice"
+import { inspectorTabChanged } from "@/store/uiSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import {
   selectBulkTargets,
@@ -52,7 +54,7 @@ export type InspectorActions = {
   applyGlobalRule: (
     pattern: string,
     category: string,
-    scope?: "document" | "batch"
+    scope?: "document" | "batch" | "global"
   ) => void
 }
 
@@ -126,11 +128,86 @@ function MethodPicker({
 }
 
 /** Desktop rail. The same body is reused by the mobile sheet below. */
-export function RedactionInspector({ actions }: { actions?: InspectorActions }) {
+export function RedactionInspector({
+  actions,
+  documentId,
+}: {
+  actions?: InspectorActions
+  documentId: string
+}) {
   return (
     <aside className="hidden w-[320px] shrink-0 flex-col border-l border-border bg-surface-2 xl:flex">
-      <InspectorBody actions={actions} />
+      <InspectorTabs actions={actions} documentId={documentId} idPrefix="rail" />
     </aside>
+  )
+}
+
+/**
+ * Redactions and the rules that made some of them, side by side.
+ *
+ * Rules get a tab of their own rather than a dialog because they are part of
+ * the review, not a setting: "why is this redacted?" is answered by a rule as
+ * often as by a suggestion, and the answer should be one click away.
+ */
+export function InspectorTabs({
+  actions,
+  documentId,
+  idPrefix,
+}: {
+  actions?: InspectorActions
+  documentId: string
+  /** The rail and the mobile sheet are both mounted; ids must not collide. */
+  idPrefix: string
+}) {
+  const dispatch = useAppDispatch()
+  const tab = useAppSelector((state) => state.ui.inspectorTab)
+  const ruleCount = useAppSelector((state) => state.rules.items.length)
+
+  const tabs = [
+    { value: "redactions" as const, label: "Redactions" },
+    { value: "rules" as const, label: ruleCount > 0 ? `Rules ${ruleCount}` : "Rules" },
+  ]
+
+  return (
+    <>
+      <div
+        role="tablist"
+        aria-label="Inspector"
+        className="flex gap-1 border-b border-border px-3 pt-2"
+      >
+        {tabs.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            id={`${idPrefix}-tab-${value}`}
+            aria-selected={tab === value}
+            aria-controls={`${idPrefix}-panel`}
+            onClick={() => dispatch(inspectorTabChanged(value))}
+            className={cn(
+              "-mb-px border-b-2 px-2 pb-2 text-xs transition-colors",
+              tab === value
+                ? "border-primary text-white"
+                : "border-transparent text-text-muted hover:text-white"
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div
+        role="tabpanel"
+        id={`${idPrefix}-panel`}
+        aria-labelledby={`${idPrefix}-tab-${tab}`}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        {tab === "rules" ? (
+          <RulesPanel documentId={documentId} />
+        ) : (
+          <InspectorBody actions={actions} />
+        )}
+      </div>
+    </>
   )
 }
 

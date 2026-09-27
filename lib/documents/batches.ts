@@ -19,6 +19,12 @@ import type { BatchPlacement } from "@/types/document"
 export type BatchRuleSummary = {
   id: string
   pattern: string
+  /** `literal` or `regex`; see lib/redaction/patterns.ts. */
+  kind: string
+  matchCase: boolean
+  wholeWord: boolean
+  /** Switched off, it is listed but reaches nothing. */
+  enabled: boolean
   category: string
   createdAt: string
   /** Where the reviewer made the decision, when that document still exists. */
@@ -96,6 +102,10 @@ export async function batchOverview(batch: OwnedBatch): Promise<BatchOverview> {
       return {
         id: rule.id,
         pattern: rule.pattern,
+        kind: rule.kind,
+        matchCase: rule.matchCase,
+        wholeWord: rule.wholeWord,
+        enabled: rule.enabled,
         category: rule.category,
         createdAt: rule.createdAt.toISOString(),
         originDocumentId: rule.originDocumentId,

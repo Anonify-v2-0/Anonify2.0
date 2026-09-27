@@ -9,6 +9,7 @@ import { PdfViewer } from "@/components/document-viewer/pdf-viewer"
 import { TextViewer } from "@/components/document-viewer/text-viewer"
 import { ImageCanvas } from "@/components/image-editor/image-canvas"
 import { RedactionLayer } from "@/components/redaction/redaction-layer"
+import { SearchBoxes, useTextHighlights } from "@/components/search/search-highlights"
 import { SpreadsheetGrid } from "@/components/spreadsheet/spreadsheet-grid"
 import {
   useNormalizedDocument,
@@ -69,6 +70,13 @@ export function DocumentCanvas({
     pageNumber === undefined ? undefined : pageNumber - 1,
     pageNumber === undefined ? undefined : pageNumber + 1,
   ])
+
+  // Search hits over text drawn as text; PDF and image draw theirs as boxes.
+  useTextHighlights(
+    containerRef,
+    page,
+    summary.kind !== "pdf" && summary.kind !== "image"
+  )
 
   const pageRedactions = useMemo(
     () =>
@@ -153,6 +161,7 @@ export function DocumentCanvas({
         onSelect={(redactionId) => dispatch(redactionSelected(redactionId))}
         onCreateRegion={createRegion}
         onRedactWord={redactSpan}
+        overlay={page ? <SearchBoxes page={page} /> : null}
       />
     ) : (
       <section className="flex min-w-0 flex-1 items-center justify-center bg-surface-1">
@@ -230,16 +239,19 @@ export function DocumentCanvas({
   }
 
   const layer = page ? (
-    <RedactionLayer
-      page={page}
-      redactions={pageRedactions}
-      selectedId={selectedId}
-      zoom={zoom}
-      tool={tool}
-      onSelect={(id) => dispatch(redactionSelected(id))}
-      onCreateRegion={createRegion}
-      onRedactSpan={redactSpan}
-    />
+    <>
+      <RedactionLayer
+        page={page}
+        redactions={pageRedactions}
+        selectedId={selectedId}
+        zoom={zoom}
+        tool={tool}
+        onSelect={(id) => dispatch(redactionSelected(id))}
+        onCreateRegion={createRegion}
+        onRedactSpan={redactSpan}
+      />
+      <SearchBoxes page={page} />
+    </>
   ) : null
 
   return (

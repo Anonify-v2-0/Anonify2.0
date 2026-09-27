@@ -271,6 +271,11 @@ export type InlineRun = {
   text: string
   /** The span this run draws, or null for punctuation and decoration. */
   spanId: string | null
+  /**
+   * Where the run's text starts in the page's text, when it is a span's text
+   * drawn as itself — what lets search paint a hit over it.
+   */
+  start: number | null
   bold: boolean
   italic: boolean
   code: boolean
@@ -295,14 +300,20 @@ export function inlineRuns(pieces: MarkdownPiece[]): InlineRun[] {
   let code = false
   let role: InlineRole = "text"
 
-  const push = (key: string, text: string, spanId: string | null, at?: InlineRole) => {
+  const push = (
+    key: string,
+    text: string,
+    spanId: string | null,
+    at?: InlineRole,
+    start: number | null = null
+  ) => {
     if (text.length === 0) return
-    runs.push({ key, text, spanId, bold, italic, code, role: at ?? role })
+    runs.push({ key, text, spanId, start, bold, italic, code, role: at ?? role })
   }
 
   for (const piece of pieces) {
     if (piece.span) {
-      push(`s${piece.start}`, piece.text, piece.span.id)
+      push(`s${piece.start}`, piece.text, piece.span.id, undefined, piece.start)
       continue
     }
 

@@ -4,7 +4,7 @@ import { ChevronDown, ListFilter } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
-  InspectorBody,
+  InspectorTabs,
   type InspectorActions,
 } from "@/components/redaction/redaction-inspector"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
@@ -19,7 +19,13 @@ import { cn } from "@/lib/utils"
  * bottom sheet over the canvas: the document stays the largest thing on screen,
  * and the suggestions are a thumb-reach away.
  */
-export function MobileInspector({ actions }: { actions?: InspectorActions }) {
+export function MobileInspector({
+  actions,
+  documentId,
+}: {
+  actions?: InspectorActions
+  documentId: string
+}) {
   const dispatch = useAppDispatch()
   const open = useAppSelector((state) => state.ui.mobileSheetOpen)
   const counts = useAppSelector(selectCounts)
@@ -57,7 +63,7 @@ export function MobileInspector({ actions }: { actions?: InspectorActions }) {
         </button>
 
         <div className="flex min-h-0 flex-1 flex-col">
-          <InspectorBody actions={actions} />
+          <InspectorTabs actions={actions} documentId={documentId} idPrefix="sheet" />
         </div>
       </div>
     </>

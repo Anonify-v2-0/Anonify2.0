@@ -19,6 +19,8 @@ import {
   undone,
 } from "@/store/redactionSlice"
 import { selectRedactions } from "@/store/selectors"
+import type { AppDispatch } from "@/store/store"
+import type { RuleScope } from "@/types/rules"
 import type {
   Redaction,
   RedactionMethod,
@@ -27,9 +29,33 @@ import type {
 
 /**
  * How far a rule reaches. `batch` records the decision on the batch itself, so
- * it also applies to documents that finish processing after it was made.
+ * it also applies to documents that finish processing after it was made;
+ * `global` reaches every document this owner uploads from now on.
  */
-export type RuleScope = "document" | "batch"
+export type { RuleScope } from "@/types/rules"
+
+/**
+ * Replaces the store's redactions with the server's.
+ *
+ * What every change that reaches beyond one row ends with — a rule, a rule
+ * switched off, an edit — because the server is the copy the export reads, and
+ * a rule's effect on this document is only knowable by asking it.
+ */
+export async function reloadRedactions(
+  dispatch: AppDispatch,
+  documentId: string
+): Promise<void> {
+  try {
+    const response = await fetch(`/api/documents/${documentId}/redactions`, {
+      cache: "no-store",
+    })
+    if (!response.ok) return
+    const payload = (await response.json()) as { redactions: Redaction[] }
+    dispatch(redactionsReplaced(payload.redactions))
+  } catch {
+    // The inspector shows what it has; the next action retries.
+  }
+}
 
 /**
  * The editor's connection to the redaction record.
@@ -44,18 +70,10 @@ export function useRedactions(documentId: string, active: boolean) {
   const store = useAppStore()
   const redactions = useAppSelector(selectRedactions)
 
-  const reload = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/documents/${documentId}/redactions`, {
-        cache: "no-store",
-      })
-      if (!response.ok) return
-      const payload = (await response.json()) as { redactions: Redaction[] }
-      dispatch(redactionsReplaced(payload.redactions))
-    } catch {
-      // The inspector shows what it has; the next action retries.
-    }
-  }, [dispatch, documentId])
+  const reload = useCallback(
+    () => reloadRedactions(dispatch, documentId),
+    [dispatch, documentId]
+  )
 
   useEffect(() => {
     // Also true for a document whose analysis failed after extraction: a run

@@ -24,7 +24,7 @@ pulling the server in behind it.
 
 ---
 
-## The 14 codes
+## The 16 codes
 
 Every code carries a short message written for a person and a `retryable`
 flag. The message is fixed per code — it is never derived from the thrown
@@ -41,6 +41,7 @@ error's text.
 | `too-complex` | The file is more than this instance will read or expand: too many messages or parts, too deeply nested, or too much content behind them. Refused whole, because a partly processed file would look complete and would not be. An administrator can raise the limits; see `.env.example`. | No |
 | `empty-container` | A mailbox with no messages that could be read out of it. Distinct from `empty-file`, which has no bytes at all: this one has bytes and nothing in them, and telling somebody their 30 MiB archive is empty would send them looking for the wrong problem. | No |
 | `quota` | The document needs more of today's allowance than is left. The allowance resets at midnight UTC. Not retryable, even though the allowance does eventually reset: a retry pressed before it does spends a rate-limit token to fail in the same way, which is the whole complaint. | No |
+| `rule-too-broad` | A batch or global rule, carried into the document at the end of processing, matched too much of it (or too slowly) to apply within the pattern budget, so none of it was applied here. The document failed after extraction, so it still opens for review. Retryable, unlike most verdicts, because what decides it is a rule the reviewer can change: narrow it or switch it off in the rules panel, and the same pipeline produces a different result. | Yes |
 | `internal-state` | Processing stopped partway through and cannot resume from where it stopped. Also the fallback for an unrecognised `FatalError` the pipeline threw itself — the pipeline only throws one where it has decided retrying is pointless. | No |
 | `configuration` | The instance is not fully configured, so processing could not run. This needs an administrator rather than a retry — a retry loop against a missing environment variable is a shape of failure this codebase has already been bitten by once. | No |
 | `storage` | The file store could not be reached while processing this document. That is usually temporary. | Yes |

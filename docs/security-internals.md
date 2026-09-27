@@ -312,3 +312,40 @@ server-side and never sent to the browser, which is why clearing the cookie
 resets ownership and quota but does not reset the rate-limit bucket keyed by
 network (`deriveNetworkKey`, `fingerprint.ts:57`). See
 [architecture.md §3](./architecture.md#3-identity-without-accounts).
+
+---
+
+## 7. Reviewer patterns — `lib/redaction/patterns.ts`
+
+Search and rules run a pattern the reviewer typed against every page of every
+document in scope, on the server. A RegEx that backtracks catastrophically,
+such as `(a+)+$` against a long line of `a`s, would be a denial of service
+with a text box in front of it. The defences, in order:
+
+| Defence | Where | Why |
+| --- | --- | --- |
+| Linear-time engine | RE2JS (`compileRegex`) | Matching is linear in the text whatever the pattern. Backreferences and lookaround, which need backtracking, do not compile at all. This is the defence; the rest are belt and braces. |
+| Length limit | `PATTERN_MAX_LENGTH = 500` | Bounds compile cost and keeps a pattern something a person can review. |
+| No empty matches | `compileRegex` | A pattern that can match nothing matches between every pair of characters. |
+| Time budget | `RULE_BUDGET_MS = 5000` per document | Measured on the matching alone, so slow storage cannot trip it. |
+| Match cap | `RULE_MATCH_LIMIT = 10,000` per document | `\w+` is safe to run and would still redact every word. |
+
+A rule that goes over budget **fails whole**. Every document is planned
+before anything is written, and the rule is then written in one transaction.
+The same compiler runs in the browser to validate as the reviewer types, so
+the browser and the server cannot disagree about what is allowed.
+
+Patterns travel in **request bodies, never query strings**. A search term is
+usually the exact value being redacted, and URLs are what access logs, proxies
+and browser history keep.
+
+A **global rule** outlives every document, so its pattern is sealed with the
+master key (`sealWithMasterKey`) and expires 30 days after it was last used.
+See `OwnerRule` in [data-model.md](./data-model.md).
+
+**Hush** sends the AI provider only the request body, which the panel lists
+before sending: never the document. Document text in the prompt is wrapped in
+tags it cannot close (`tagged` in `lib/ai/prompts/hush.ts`), and anything the
+model returns is compiled and previewed like any other pattern and applied
+only when the reviewer accepts it. The worst a hostile paragraph can do is get
+a bad rule proposed, which the preview shows.

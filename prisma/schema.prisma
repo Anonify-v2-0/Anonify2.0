@@ -174,7 +174,14 @@ model BatchRule {
 
   pattern           String
   normalizedPattern String
+  /// `literal` or `regex`. Literal is what every rule before RegEx rules was.
+  kind              String   @default("literal")
+  matchCase         Boolean  @default(false)
+  wholeWord         Boolean  @default(false)
   category          String
+  /// Switched off, the decision stays listed but reaches no document: its
+  /// copies lose their redactions, and documents that finish later skip it.
+  enabled           Boolean  @default(true)
   /// Where the reviewer made the decision, so the interface can say so.
   originDocumentId  String?
 
@@ -224,14 +231,60 @@ model GlobalRule {
 
   pattern           String
   normalizedPattern String
+  /// `literal` or `regex`; see lib/redaction/patterns.ts.
+  kind              String   @default("literal")
+  matchCase         Boolean  @default(false)
+  wholeWord         Boolean  @default(false)
   category          String
   enabled           Boolean  @default(true)
   /// Set when this rule is one document's copy of a batch-wide decision.
   batchRuleId       String?
+  /// Set when this rule is one document's copy of an owner's global rule.
+  ownerRuleId       String?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@index([documentId])
+  @@index([batchRuleId])
+  @@index([ownerRuleId])
+}
+
+/// A decision that outlives the documents it was made in: "redact this in
+/// everything I upload". The interface calls these global rules.
+///
+/// It belongs to the anonymous owner — the session cookie — like a document
+/// does, and it is applied at the end of processing to every document that
+/// owner uploads afterwards, the way a batch rule is carried into a document
+/// that finished late.
+///
+/// Unlike every other rule it is not deleted with a document, so the pattern
+/// is document content kept for longer than any document is. It is therefore
+/// sealed under the master key rather than stored in the clear, and it expires
+/// once it has gone unused for as long as the session cookie lives: a rule
+/// nobody can reach any more is a secret kept for nobody. Export and import
+/// are how a team keeps a rule set beyond that.
+model OwnerRule {
+  id               String   @id
+  userFingerprint  String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  /// Moved forward whenever the rule is applied, edited or switched on.
+  lastUsedAt       DateTime @default(now())
+  expiresAt        DateTime
+
+  kind             String   @default("literal")
+  /// The pattern, sealed with the master key (base64). Never stored in the
+  /// clear: see lib/redaction/owner-rules.ts.
+  sealedPattern    String
+  matchCase        Boolean  @default(false)
+  wholeWord        Boolean  @default(false)
+  category         String
+  enabled          Boolean  @default(true)
+  /// Where the reviewer made the decision, while that document still exists.
+  originDocumentId String?
+
+  @@index([userFingerprint])
+  @@index([expiresAt])
 }
 
 model ProcessingEvent {

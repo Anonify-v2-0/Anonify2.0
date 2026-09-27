@@ -25,18 +25,24 @@ Workspace                         the orchestrator
  ├── PageNavigator                thumbnail rail (PDF pages)
  ├── DocumentCanvas               format-dispatching surface
  │    ├── PdfViewer               rendered PDF page
- │    │    └── RedactionLayer     boxes, spans, drag regions
+ │    │    ├── RedactionLayer     boxes, spans, drag regions
+ │    │    └── SearchBoxes        search hits, by geometry
  │    ├── DocxViewer              paginated runs  ── renderSpan
  │    ├── EmlViewer               foldable sections: headers, bodies,
  │    │                           attachments  ── renderSpan
  │    ├── TextViewer              txt / rtf / pptx  ── renderSpan
- │    ├── ImageCanvas             pixels + OCR words + regions
- │    └── SpreadsheetGrid         sheets, rows, columns, cells
- ├── RedactionInspector           grouped suggestions, accept/reject, rules
- ├── MobileInspector              same body, as a bottom sheet
- ├── EditorToolbar                tools, zoom, undo/redo
+ │    ├── ImageCanvas             pixels + OCR words + regions + SearchBoxes
+ │    └── SpreadsheetGrid         sheets, rows, columns, cells, search hits
+ ├── SearchBar                    find across the document (§14)
+ ├── RedactionInspector           tabs: Redactions | Rules (§15)
+ │    └── RulesPanel              every rule in scope; toggle, edit, remove
+ ├── MobileInspector              same tabs, as a bottom sheet
+ ├── EditorToolbar                tools, search, Hush, shortcuts, zoom, undo
  ├── ExportDialog                 style, metadata, report, download
- └── LiveAnnouncer                sr-only live region
+ ├── RuleDialog                   pattern, scope, live preview (§15)
+ ├── HushPanel                    the review assistant (§16)
+ ├── ShortcutSheet                every key binding, on `?` (§17)
+ └── LiveAnnouncer                sr-only live regions: review, search
 ```
 
 Everything below `Workspace` reads its state from the Redux store rather than
@@ -95,9 +101,14 @@ itself — it composes the components that do and wires them to the store.
   checksum, and whether a normalized model exists. When the stream reports
   `ready` or `failed`, `Workspace` calls `router.refresh()` — once per status,
   tracked by a ref, so a retry that fails a second time still refreshes.
-- **Keyboard shortcuts.** `useShortcuts` binds accept/reject/toggle, undo/redo,
-  tool switching, and page navigation. The bindings are only armed when the
-  document is reviewable.
+- **Keyboard shortcuts.** `useShortcuts` arms the bindings, only when the
+  document is reviewable. What they are is not written here: the shortcut sheet
+  (`?`, §17) is the one list, and this document points at it rather than
+  keeping a copy that would drift.
+- **Search, rules and Hush.** `useSearch` runs the search the bar describes
+  (§14); `useRules` loads every rule in scope once, for both the rail and the
+  mobile sheet (§15); `useLearnedShapeNudge` watches the reviewer's own
+  redactions for a shape worth a rule (§16).
 
 ### What it delegates
 
@@ -282,8 +293,10 @@ suggestion on the page.
 `components/redaction/redaction-inspector.tsx`
 
 The list of suggestions and decisions, on the right rail of the editor
-(`xl:flex`; hidden below). `MobileInspector` reuses `InspectorBody` as a bottom
-sheet for narrow screens.
+(`xl:flex`; hidden below). `MobileInspector` reuses the same `InspectorTabs` as
+a bottom sheet for narrow screens. The rail has two tabs: **Redactions**, which
+is `InspectorBody` and is what this section describes, and **Rules**, which is
+the rules panel (§15).
 
 ### Occurrence grouping
 
@@ -397,6 +410,11 @@ happened.
 The message covers four states: failed, analyzing (with or without suggestions
 so far), ready with no suggestions, and ready with suggestions in any review
 state.
+
+Search has a second region of its own, on the same principle: "7 of 132
+matches", or "No matches", whenever the position changes. It is separate so
+moving between hits does not replace the review's position and then put it
+back.
 
 ---
 
@@ -562,3 +580,183 @@ appears (download links, navigation), the pattern is an `<a>` styled with
 `buttonVariants()` rather than a `Button` — because Base UI's `Button` assumes
 it renders a real `<button>` and, told otherwise, swaps `type="button"` for
 `role="button"`, losing link semantics.
+
+---
+
+## 14. Search
+
+`components/search/search-bar.tsx`, `hooks/use-search.ts`,
+`store/searchSlice.ts`, `lib/redaction/search.ts`
+
+`Ctrl/⌘+F` or `/` opens a search box over the canvas. On this screen it
+replaces the browser's find, which cannot read a PDF page (text drawn on a
+canvas) and cannot see pages that are not loaded. On the one screen where
+"not found" matters most, the browser would say it with confidence and be
+wrong.
+
+**It runs on the server**, over the normalized document a page at a time, like
+the rules do. A 400-page PDF is searched without 400 pages reaching the
+browser. There are three requests, each only when needed:
+
+| Request | When | Answer |
+| --- | --- | --- |
+| Summary | once per question (debounced) | hits per page, matching cells, total |
+| Page hits | once per page shown, per question | `{ start, end }` offsets on that page |
+| Batch | when "this batch" is on | a count per document, with links |
+
+Every answer carries the key of the question it answers, so a slow answer to
+"Smi" cannot be drawn over the answer to "Smith".
+
+**Options:** match case, whole word (Unicode-aware, so `café` works), and
+RegEx. All three use the same compiler as rules (`lib/redaction/patterns.ts`),
+which is what lets "Redact all" promise the count on its button.
+
+**Moving.** The counter reads "N of M". `Enter` and `Shift+Enter` in the box
+step through hits in page order, then cells, wrapping at either end. A step
+moves the page, or the sheet, to where the hit is, and scrolls it into view.
+The first hit shown is the first one at or after the page the reviewer was on.
+
+**Highlighting.** Hits are amber (`--search-hit`), and the current one is a
+stronger amber with an edge (`--search-current`). Red means a suggestion and
+black a decision; a hit is neither. Both colors are chosen against the
+document surface, which is white in every theme. How a hit is painted depends
+on the viewer:
+
+- **Text flow** (DOCX, text, RTF, PPTX, EML): with the CSS Custom Highlight
+  API, over the text nodes the viewer already drew. Each viewer marks where
+  its text starts with `data-offset`. Splitting spans to wrap a hit would
+  change the elements a click redacts, and a search must not change what a
+  click does. `tests/search-offsets.test.tsx` holds the markers to the page
+  text.
+- **Geometry** (PDF, image and OCR): `SearchBoxes` resolves a hit to
+  rectangles with `boxesForRange`, the same resolution a redaction gets. A hit
+  and the redaction it would become cover the same place. The boxes never
+  take pointer events.
+- **Spreadsheets:** the matching cells, whole.
+
+**From a hit to a decision.** *Redact this* makes the current hit a manual
+redaction (a text range, or a cell) and moves to the next hit. *Redact all*
+opens the rule dialog (§15) with the search already filled in.
+
+`Esc` closes the box and clears the highlights. The query is kept for the next
+time it opens. Closing is also what `Esc` does outside the box while search is
+open. Otherwise `Esc` switches to the select tool, as it always did.
+
+---
+
+## 15. Rules
+
+`components/rules/rule-dialog.tsx`, `components/rules/rules-panel.tsx`,
+`hooks/use-rules.ts`, `lib/redaction/rules.ts`, `lib/redaction/owner-rules.ts`
+
+A rule is **a pattern, a category, a scope and a kind**.
+
+| Kind | Matches |
+| --- | --- |
+| `literal` | the text, case-insensitively unless asked otherwise, as rules always have |
+| `regex` | an RE2 pattern: linear-time, with no lookaround and no backreferences |
+
+| Scope | Reaches |
+| --- | --- |
+| Document | every match in this document |
+| Batch | every document in the batch, including ones still processing |
+| Global | this document, and every document the owner uploads from now on |
+
+**The rule dialog** is the one way a rule is made or changed. It opens from
+the search bar's *Redact all*, the rules panel, a Hush proposal, or a learned
+offer. As the reviewer types, the pattern is checked in the browser by the
+same compiler the server runs, then previewed: the count and the first matches
+in context. For a batch rule it also shows the count in every other document.
+The confirm button names the number of redactions it will write. Nothing is
+written until it is pressed.
+
+**The rules panel** is the Rules tab of the inspector. It lists every rule in
+scope for the open document, grouped by scope, each with its kind, category
+and reach ("12 here · 40 in 4 documents"). Each can be:
+
+- **Switched off**: its redactions go and it stays listed, so switching it
+  back on is one click. A batch or global rule that is off is not carried into
+  documents that finish later.
+- **Edited**: through the dialog, with a fresh preview. The edit replaces what
+  the rule redacted everywhere it reached, in one transaction. A match the
+  reviewer had rejected comes back accepted, because the edit is a new
+  decision and its preview showed every match.
+- **Removed**: after a confirmation that says how many redactions go with it,
+  in how many documents.
+- **Improved with Hush**: RegEx rules only (§16).
+
+The global section also has **Export** and **Import**. They use a JSON rule
+file, which is how a team shares one rule set across instances, and how
+anybody keeps rules longer than the 30 days an unused global rule lives.
+
+The existing per-suggestion **Everywhere** and **Whole batch** buttons are
+unchanged. They make literal rules at those scopes without the dialog, as
+before.
+
+---
+
+## 16. Hush, the review assistant
+
+`components/assistant/hush-panel.tsx`, `lib/assistant/hush.ts`,
+`lib/assistant/learn.ts`, `lib/ai/prompts/hush.ts`
+
+`Ctrl/⌘+K` opens Hush, a side panel that helps a reviewer mark what the
+pipeline missed and turns those decisions into rules. **Hush only proposes.**
+Every proposal is previewed on the server against the document, by the
+compiler and budget the rule would run under, and becomes a rule only when the
+reviewer applies it. Proposals that reach beyond this document go through the
+rule dialog, which previews the batch and says what a global rule keeps.
+
+It does three things, in order of how much they need:
+
+1. **Noticed in your redactions.** After three hand-made redactions of the
+   same shape, Hush offers a rule for it: "You've redacted 4 values like
+   `EMP-00xxx`. Create a batch rule for `EMP-00\d{3}`?" The shape is learned in
+   the browser, with no model and nothing sent, so this works on an instance
+   with no provider. It is only offered when the shape is anchored, meaning it
+   contains digits or a literal every example shares. Two capitalised words is
+   a shape too, and a rule for it would redact prose. A toast announces a new
+   offer once, and the toolbar's Hush button carries a dot while there is one.
+2. **Ask.** A plain-language request ("Find anything that looks like a patient
+   number", "Why was this flagged?") answered with proposals. Each proposal
+   has its matches, a suggested scope with a one-sentence reason (which the
+   reviewer can change), and *Apply*, *Show in document* (which runs it as a
+   search) and *Dismiss*.
+3. **Improve with Hush**, on any RegEx rule. It sends the pattern, the values
+   the reviewer accepted under it and the ones they rejected, and returns a
+   tightened pattern, an explanation, and a diff: the matches it would gain and
+   the ones it would lose in this document. *Use this pattern* is an ordinary
+   rule edit. Hush never replaces a pattern by itself.
+
+**What leaves.** Before anything is sent, the panel lists what will be: the
+question, and whichever of the selected redaction (with 40 characters either
+side) and the loaded search matches (up to 20, each with context) the reviewer
+left ticked. For *Improve*, the values only. The list is rendered from the
+request body itself, so it cannot say one thing while the request carries
+another. The document itself is never sent. Text from the document is wrapped
+in tags that the document cannot close, and the model is told to treat it as
+data.
+
+**Cost and limits.** Hush uses the configured analysis provider
+(`lib/ai/providers`) through `runStructured`. It is paced by the same gate,
+stopped by the same daily spend cap, and every call is an `AiUsage` row
+against the document (`assistant`, `assistant-improve`). With no provider, or
+at the cap, the panel says so. Learned offers, search, shortcuts and
+hand-written rules keep working, because none of them needs a model.
+
+---
+
+## 17. Keyboard shortcuts
+
+`lib/editor/shortcuts.ts`, `hooks/use-shortcuts.ts`,
+`components/editor/shortcut-sheet.tsx`
+
+Press `?` for the shortcut sheet. It is rendered from `SHORTCUTS`, the only
+list of bindings there is, and the toolbar tooltips read their hints from the
+same list. So this section deliberately does not repeat them.
+
+Two rules hold for every binding, and `tests/shortcuts.test.ts` holds them:
+
+- nothing fires while the reviewer is typing in a field, and
+- nothing destructive is bound to a bare key. Accept and reject act on the
+  current selection only, and undo is one keystroke away.
