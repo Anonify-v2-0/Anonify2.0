@@ -47,6 +47,10 @@ Each call runs in an empty temporary directory, so the CLI picks up no project
 instructions and has nothing to read. `--model` picks the model, and
 `--backend-arg` passes anything else through to the CLI.
 
+On Windows the CLI is looked up along `PATH` the way Windows does it. A CLI
+installed with npm, pnpm or yarn is a `.cmd` wrapper there, so the Node script
+it names is run directly, with every argument intact; an `.exe` is run as it is.
+
 **Seeded and resumable.** `--seed` (default 57) decides every document's spec
 and every value the script fills in. A document already on disk is skipped.
 Every model response is cached under `corpus/.cache/` (ignored by git) before

@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
+import { resolveLaunch, type Launch } from "./launch"
+
 /**
  * The model, reached through a command-line agent the operator is already
  * signed in to. No API key is read here: Claude Code and Codex bring their
@@ -55,7 +57,7 @@ export const DEFAULT_MODELS: Record<string, string> = {
 
 type RunResult = { stdout: string; stderr: string; code: number | null }
 
-function run(
+async function run(
   command: string,
   args: string[],
   options: {
@@ -67,13 +69,19 @@ function run(
     signal?: AbortSignal
   }
 ): Promise<RunResult> {
+  // A shell finds the command itself. Without one, Windows needs the lookup
+  // done here, or a CLI installed by npm or pnpm (a .cmd wrapper) is missed.
+  const launch: Launch = options.shell
+    ? { file: command, args }
+    : await resolveLaunch(command, args)
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(launch.file, launch.args, {
       cwd: options.cwd,
-      env: { ...process.env, ...options.env },
+      env: { ...process.env, ...options.env, ...launch.env },
       shell: options.shell ?? false,
       stdio: ["pipe", "pipe", "pipe"],
       signal: options.signal,
+      windowsVerbatimArguments: launch.verbatim,
     })
     let stdout = ""
     let stderr = ""

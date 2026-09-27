@@ -8,6 +8,12 @@ import { int } from "@/benchmarks/corpus/lib/args"
 import { createBackend } from "@/benchmarks/corpus/lib/backends"
 import { buildDocument, countWords } from "@/benchmarks/corpus/lib/build"
 import {
+  readNodeWrapper,
+  resolveLaunch,
+  type Environment,
+  type Host,
+} from "@/benchmarks/corpus/lib/launch"
+import {
   fillPlaceholder,
   isValidIban,
   isValidVerhoeff,
@@ -1214,5 +1220,156 @@ describe("corpus spot-check", () => {
     expect(spotCheck.ids).toHaveLength(45)
     expect(spotCheck.ids).toEqual(expect.arrayContaining(old.ids))
     expect(spotCheck.drawnFrom).toBe(450)
+  })
+})
+
+describe("corpus command lookup on Windows", () => {
+  let dir: string
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "corpus-launch-"))
+  })
+  afterEach(() => rm(dir, { recursive: true, force: true }))
+
+  const windows = (env: Environment): Host => ({
+    platform: "win32",
+    env,
+    execPath: "/opt/node/node.exe",
+    isFile: (file) =>
+      readFile(file).then(
+        () => true,
+        () => false
+      ),
+    readText: (file) => readFile(file, "utf8"),
+  })
+
+  async function put(relative: string, text = "") {
+    const file = path.join(dir, ...relative.split("/"))
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, text)
+    return file
+  }
+
+  // What `pnpm add -g @openai/codex` writes into PNPM_HOME.
+  const PNPM_WRAPPER = [
+    "@SETLOCAL",
+    "@IF NOT DEFINED NODE_PATH (",
+    '  @SET "NODE_PATH=C:\\pnpm\\global\\5\\node_modules\\.pnpm\\node_modules"',
+    ") ELSE (",
+    '  @SET "NODE_PATH=%NODE_PATH%;C:\\pnpm\\global\\5\\node_modules\\.pnpm\\node_modules"',
+    ")",
+    '@IF EXIST "%~dp0\\node.exe" (',
+    '  "%~dp0\\node.exe"  "%~dp0\\global\\5\\node_modules\\@openai\\codex\\bin\\codex.js" %*',
+    ") ELSE (",
+    "  @SET PATHEXT=%PATHEXT:;.JS;=;%",
+    '  node  "%~dp0\\global\\5\\node_modules\\@openai\\codex\\bin\\codex.js" %*',
+    ")",
+  ].join("\r\n")
+
+  // What `npm install -g` writes (cmd-shim).
+  const NPM_WRAPPER = [
+    "@ECHO off",
+    "SETLOCAL",
+    "CALL :find_dp0",
+    'IF EXIST "%dp0%\\node.exe" (SET "_prog=%dp0%\\node.exe") ELSE (SET "_prog=node")',
+    'endLocal & "%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*',
+  ].join("\r\n")
+
+  it("leaves the command alone off Windows", async () => {
+    expect(
+      await resolveLaunch("codex", ["exec"], {
+        ...windows({}),
+        platform: "linux",
+      })
+    ).toEqual({ file: "codex", args: ["exec"] })
+  })
+
+  it("runs the Node script behind a pnpm wrapper, with its NODE_PATH", async () => {
+    const bin = path.join(dir, "pnpm")
+    await put("pnpm/codex.cmd", PNPM_WRAPPER)
+    const script = await put(
+      "pnpm/global/5/node_modules/@openai/codex/bin/codex.js"
+    )
+    const launch = await resolveLaunch(
+      "codex",
+      ["exec", "--model", "gpt-6-luna", "-"],
+      windows({ Path: bin, PATHEXT: ".COM;.EXE;.BAT;.CMD" })
+    )
+    expect(launch).toEqual({
+      file: "/opt/node/node.exe",
+      args: [script, "exec", "--model", "gpt-6-luna", "-"],
+      env: {
+        NODE_PATH: "C:\\pnpm\\global\\5\\node_modules\\.pnpm\\node_modules",
+      },
+    })
+  })
+
+  it("passes a multi-line argument to an npm wrapper's script untouched", async () => {
+    await put("npm/claude.cmd", NPM_WRAPPER)
+    const script = await put(
+      "npm/node_modules/@anthropic-ai/claude-code/cli.js"
+    )
+    const system = 'Line one.\nSay "hi" & 100% | done.'
+    const launch = await resolveLaunch(
+      "claude",
+      ["-p", "--system-prompt", system],
+      windows({ PATH: path.join(dir, "npm") })
+    )
+    expect(launch.file).toBe("/opt/node/node.exe")
+    expect(launch.args).toEqual([script, "-p", "--system-prompt", system])
+    expect(launch.verbatim).toBeUndefined()
+  })
+
+  it("prefers an executable, and follows PATH order", async () => {
+    await put("first/codex.cmd", PNPM_WRAPPER)
+    await put("first/global/5/node_modules/@openai/codex/bin/codex.js")
+    const exe = await put("second/codex.exe")
+    const env = {
+      PATH: [path.join(dir, "second"), path.join(dir, "first")].join(";"),
+    }
+    expect(await resolveLaunch("codex", ["exec"], windows(env))).toEqual({
+      file: exe,
+      args: ["exec"],
+    })
+  })
+
+  it("runs any other batch file through cmd.exe, when the arguments survive it", async () => {
+    const batch = await put("bin/codex.bat", "@echo off\r\ncodex-real.exe %*")
+    const launch = await resolveLaunch(
+      "codex",
+      ["exec", "--cd", "C:\\Temp\\a b", "-"],
+      windows({ PATH: path.join(dir, "bin"), ComSpec: "C:\\Windows\\cmd.exe" })
+    )
+    expect(launch).toEqual({
+      file: "C:\\Windows\\cmd.exe",
+      args: [
+        "/d",
+        "/s",
+        "/c",
+        `""${batch}" "exec" "--cd" "C:\\Temp\\a b" "-""`,
+      ],
+      verbatim: true,
+    })
+    await expect(
+      resolveLaunch(
+        "codex",
+        ["-p", "two\nlines"],
+        windows({ PATH: path.join(dir, "bin") })
+      )
+    ).rejects.toThrow(/cannot pass through cmd.exe intact/)
+  })
+
+  it("says a command is not on PATH, which stops the run", async () => {
+    await expect(
+      resolveLaunch("codex", [], windows({ PATH: path.join(dir, "empty") }))
+    ).rejects.toThrow("`codex` was not found on PATH")
+  })
+
+  it("reads only the script a wrapper names relative to itself", () => {
+    expect(
+      readNodeWrapper("C:/bin/tool.cmd", '@"C:\\other\\tool.exe" %*')
+    ).toBeNull()
+    expect(
+      readNodeWrapper("/bin/tool.cmd", '"%~dp0\\..\\lib\\tool.mjs" %*')?.script
+    ).toBe(path.join("/bin", "..", "lib", "tool.mjs"))
   })
 })
