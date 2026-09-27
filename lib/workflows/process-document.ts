@@ -551,10 +551,11 @@ function isStreamedKind(kind: DocumentKind): kind is StreamedKind {
 
 /**
  * The kinds whose extraction reads the source by ranges: formats whose index
- * is at the end — a zip's central directory — so they cannot be read front to
- * back, but whose parts can be read one at a time once the index is known.
+ * is at the end — a zip's central directory, a PDF's cross-reference table —
+ * so they cannot be read front to back, but whose parts can be read one at a
+ * time once the index is known.
  */
-const RANGED_KINDS = ["xlsx", "docx", "pptx"] as const
+const RANGED_KINDS = ["xlsx", "docx", "pptx", "pdf"] as const
 
 type RangedKind = (typeof RANGED_KINDS)[number]
 
@@ -607,6 +608,21 @@ async function extractRanged(
     input.seal
   )
   const source = cachedRangeSource(object, streamingLimits().chunkBytes)
+
+  if (input.kind === "pdf") {
+    // pdf.js asks for the ranges it parses; scanned pages are read here too,
+    // while the document is open. See lib/documents/pdf/render.ts.
+    const { document: model } = await extractPdf(input.documentId, source, {
+      ocr: true,
+    })
+    const saved = await saveNormalized(input.documentId, input.seal, model)
+    return {
+      normalizedBlobKey: saved.key,
+      normalizedIndex: saved.index,
+      pageCount: model.pages.length,
+      usage: { model },
+    }
+  }
 
   try {
     const archive = await openZip(source)
@@ -942,12 +958,16 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
       .slice(0, MAX_VISION_PAGES)
 
     if (imagePages.length > 0) {
-      const bytes = await getSealed(
-        document.sourceBlobKey,
-        sourceKey(document.id),
-        seal
+      // By ranges: the index and the pages being rendered, not the file.
+      const source = cachedRangeSource(
+        await openSealedObject(
+          document.sourceBlobKey,
+          sourceKey(document.id),
+          seal
+        ),
+        streamingLimits().chunkBytes
       )
-      const rendered = await renderPagesForVision(bytes, imagePages)
+      const rendered = await renderPagesForVision(source, imagePages)
 
       for (const [index, { page, png }] of rendered.entries()) {
         const analysis = await analyzeImageRegions(

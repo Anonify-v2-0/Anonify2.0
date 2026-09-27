@@ -1,7 +1,8 @@
 import {
-  copyBytes,
   loadPdfjsForRender,
+  openPdfDocument,
   renderPage,
+  type PdfSource,
 } from "@/lib/documents/pdf/render"
 
 /**
@@ -40,26 +41,22 @@ export type RenderedPageImage = {
 }
 
 export async function renderPagesForVision(
-  bytes: Uint8Array,
+  /**
+   * The file's bytes, or ranged reads of it. By ranges, rendering the image
+   * pages of a long document reads its index and those pages, not the file.
+   */
+  source: PdfSource,
   pageNumbers: number[],
   scale = VISION_SCALE
 ): Promise<RenderedPageImage[]> {
   if (pageNumbers.length === 0) return []
 
   const pdfjs = await loadPdfjsForRender()
-  const task = pdfjs.getDocument({
-    data: copyBytes(bytes),
-    disableFontFace: true,
-    useSystemFonts: false,
-    standardFontDataUrl: pdfjs.standardFontDataUrl,
-    cMapUrl: pdfjs.cMapUrl,
-    cMapPacked: true,
-  })
-
-  const pdf = await task.promise
+  const { task, guard } = await openPdfDocument(pdfjs, source)
   const rendered: RenderedPageImage[] = []
 
-  try {
+  const render = async () => {
+    const pdf = await task.promise
     for (const pageNumber of pageNumbers) {
       if (pageNumber < 1 || pageNumber > pdf.numPages) continue
 
@@ -71,6 +68,10 @@ export async function renderPagesForVision(
         page.cleanup()
       }
     }
+  }
+
+  try {
+    await guard(render())
   } finally {
     // The loading task owns the worker; destroying it is what releases both.
     await task.destroy()
