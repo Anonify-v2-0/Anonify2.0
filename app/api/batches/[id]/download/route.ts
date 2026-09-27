@@ -1,31 +1,41 @@
-import { errorResponse, fileResponse, handleRouteError } from "@/lib/api/http"
+import { Readable } from "node:stream"
+
+import { errorResponse, handleRouteError, streamResponse } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import { requireBatch } from "@/lib/documents/batches"
 import { listBatchDocuments } from "@/lib/documents/listing"
 import {
   artifactName,
-  buildArchive,
   buildBatchReport,
   reportName,
   vaultName,
   serializeBatchReport,
-  type ArchiveFile,
+  streamArchive,
   type SkipReason,
+  type StreamedArchiveFile,
 } from "@/lib/redaction/archive"
 import type { ExportReport } from "@/lib/redaction/report"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { verifyBatchToken } from "@/lib/security/signed-url"
 import { artifactKey, reportKey, vaultKey } from "@/lib/storage/blob"
-import { documentSeal, getSealed } from "@/lib/storage/sealed"
-import { checksumMatches, sha256 } from "@/lib/storage/integrity"
+import { documentSeal, getSealed, getSealedStream } from "@/lib/storage/sealed"
+import {
+  checksumMatches,
+  ChecksumVerifier,
+  digestOf,
+  sha256,
+} from "@/lib/storage/integrity"
+import { chain } from "@/lib/storage/streams"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 
 /**
- * The archive is assembled in memory, so it needs a ceiling. A batch that
- * exceeds it delivers what fits and names the rest as skipped, rather than
- * taking the process down and delivering nothing.
+ * A ceiling on what one archive carries. It was a memory limit when the
+ * archive was assembled in memory; streamed, it is the bound on how much one
+ * request is asked to read, decrypt and compress inside `maxDuration`. A batch
+ * that exceeds it delivers what fits and names the rest as skipped, rather
+ * than timing out halfway through a zip and delivering nothing usable.
  */
 const MAX_ARCHIVE_BYTES = 150 * 1024 * 1024
 
@@ -40,6 +50,14 @@ const MAX_ARCHIVE_BYTES = 150 * 1024 * 1024
  *
  * An artifact that fails that check is left out and named in the batch report,
  * rather than quietly included or allowed to fail the whole archive.
+ *
+ * Streamed, in two passes. The first reads each artifact through a hash and
+ * keeps nothing, which is what decides — before a byte of the archive is sent
+ * — what goes in and what is named as skipped. The second streams the ones
+ * that passed into the zip, checked again on the way through; a file that no
+ * longer matches then fails the download rather than completing it. Nothing
+ * here holds more than a piece of one file at a time, where it used to hold
+ * every artifact and then the zip of them.
  */
 export async function GET(
   request: Request,
@@ -63,7 +81,7 @@ export async function GET(
     }
 
     const documents = await listBatchDocuments(batch.id)
-    const files: ArchiveFile[] = []
+    const files: StreamedArchiveFile[] = []
     const reports: ExportReport[] = []
     const skipped: { documentId: string; reason: SkipReason }[] = []
     /** Documents whose vault made it into the archive, for the batch report. */
@@ -90,17 +108,20 @@ export async function GET(
       }
 
       const seal = documentSeal(record)
-      const [bytes, reportBytes] = await Promise.all([
-        getSealed(
-          artifact.blobKey,
-          artifactKey(document.id, artifact.id, artifact.extension),
-          seal
-        ),
+      const artifactLogicalKey = artifactKey(
+        document.id,
+        artifact.id,
+        artifact.extension
+      )
+      const openArtifact = () =>
+        getSealedStream(artifact.blobKey, artifactLogicalKey, seal)
+      const [digest, reportBytes] = await Promise.all([
+        openArtifact().then((stream) => digestOf(stream)),
         getSealed(artifact.reportBlobKey, reportKey(document.id, artifact.id), seal),
       ])
 
       if (
-        !checksumMatches(artifact.checksum, sha256(bytes)) ||
+        !checksumMatches(artifact.checksum, digest.checksum) ||
         !checksumMatches(artifact.reportChecksum ?? "", sha256(reportBytes))
       ) {
         console.error(
@@ -116,15 +137,33 @@ export async function GET(
         continue
       }
 
-      if (archiveBytes + bytes.byteLength > MAX_ARCHIVE_BYTES) {
+      if (archiveBytes + digest.size > MAX_ARCHIVE_BYTES) {
         skipped.push({ documentId: document.id, reason: "archive-full" })
         continue
       }
-      archiveBytes += bytes.byteLength
+      archiveBytes += digest.size
 
+      const expected = artifact.checksum
+      const documentId = document.id
       files.push({
         name: artifactName(document.originalName, artifact.extension),
-        bytes,
+        // Checked again as it streams: what passed a moment ago is what goes
+        // out, or the download breaks off.
+        open: async () =>
+          chain(
+            await openArtifact(),
+            new ChecksumVerifier(expected, () =>
+              console.error(
+                JSON.stringify({
+                  level: "error",
+                  context: "batches.download",
+                  batchId: batch.id,
+                  documentId,
+                  errorCategory: "checksum-mismatch",
+                })
+              )
+            )
+          ),
       })
       files.push({ name: reportName(document.originalName), bytes: reportBytes })
       reports.push(JSON.parse(Buffer.from(reportBytes).toString("utf8")))
@@ -175,9 +214,9 @@ export async function GET(
       ),
     })
 
-    const archive = buildArchive(files)
+    const archive = Readable.from(streamArchive(files), { objectMode: false })
 
-    return fileResponse(new Uint8Array(archive), {
+    return streamResponse(archive, {
       "content-type": "application/zip",
       "content-disposition": `attachment; filename="anonify-batch-redacted.zip"`,
       "cache-control": "no-store, private",

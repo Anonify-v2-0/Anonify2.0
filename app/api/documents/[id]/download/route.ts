@@ -1,11 +1,12 @@
-import { errorResponse, fileResponse, handleRouteError } from "@/lib/api/http"
+import { errorResponse, handleRouteError, streamResponse } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { verifyDownloadToken } from "@/lib/security/signed-url"
 import { artifactKey, reportKey } from "@/lib/storage/blob"
-import { documentSeal, getSealed } from "@/lib/storage/sealed"
-import { checksumMatches, sha256 } from "@/lib/storage/integrity"
+import { documentSeal, getSealedStream } from "@/lib/storage/sealed"
+import { ChecksumVerifier } from "@/lib/storage/integrity"
+import { chain } from "@/lib/storage/streams"
 
 export const runtime = "nodejs"
 
@@ -16,6 +17,12 @@ export const runtime = "nodejs"
  * re-checked on every request, and the bytes are re-hashed and compared against
  * the checksum recorded at export time, so what the user downloads is provably
  * the artifact that was verified.
+ *
+ * Streamed: the artifact is decrypted a chunk at a time and hashed as it
+ * passes, and its last piece is held until the hash matches. A mismatch breaks
+ * the download off short rather than completing it — see `ChecksumVerifier` —
+ * so a file that failed the check is never delivered whole, and a large one is
+ * never whole in this process.
  *
  * `?part=report` serves the export report for the same artifact, through the
  * same token and the same integrity check — it is a second file, not a second
@@ -67,26 +74,31 @@ export async function GET(
       ? (artifact.reportChecksum ?? "")
       : artifact.checksum
 
-    const bytes = await getSealed(blobKey, logicalKey, documentSeal(document))
-
-    if (!checksumMatches(expectedChecksum, sha256(bytes))) {
-      console.error(
-        JSON.stringify({
-          level: "error",
-          context: "documents.download",
-          documentId: document.id,
-          errorCategory: "checksum-mismatch",
-        })
+    const source = await getSealedStream(
+      blobKey,
+      logicalKey,
+      documentSeal(document)
+    )
+    const body = chain(
+      source,
+      new ChecksumVerifier(expectedChecksum, () =>
+        console.error(
+          JSON.stringify({
+            level: "error",
+            context: "documents.download",
+            documentId: document.id,
+            errorCategory: "checksum-mismatch",
+          })
+        )
       )
-      return errorResponse("The stored export failed its integrity check", 500)
-    }
+    )
 
     const base = document.originalName.replace(/\.[^.]+$/, "") || "document"
     const filename = wantsReport
       ? `${base}-redaction-report.json`
       : `${base}-redacted.${artifact.extension}`
 
-    return fileResponse(new Uint8Array(bytes), {
+    return streamResponse(body, {
       "content-type": wantsReport ? "application/json" : artifact.mimeType,
       "content-disposition": `attachment; filename="${filename.replace(/"/g, "")}"`,
       "cache-control": "no-store, private",

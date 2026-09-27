@@ -32,11 +32,11 @@ export async function readFormData(
 /**
  * A file response, streamed rather than buffered.
  *
- * The bytes are already in memory by the time this is called — everything here
- * decrypts a whole object and verifies its checksum before serving it, and
- * cannot honestly stream something it has to hash in full first. What this
- * changes is the *response*, and on Vercel that is the difference between a
- * download working and not: a buffered response body is capped at 4.5 MB and
+ * For bytes already in memory. Downloads no longer are — they stream through
+ * `streamResponse`, hashed as they pass (see `ChecksumVerifier`) — but the
+ * reasoning below is why both helpers stream rather than buffer. On Vercel it
+ * is the difference between a download working and not: a buffered response
+ * body is capped at 4.5 MB and
  * anything larger is refused by the platform with FUNCTION_PAYLOAD_TOO_LARGE
  * before a byte reaches the browser. A streamed body has no such cap. Since
  * this app's ceiling is MAX_UPLOAD_BYTES — 50 MiB — the buffered form was wrong
