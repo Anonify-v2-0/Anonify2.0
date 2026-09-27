@@ -233,6 +233,50 @@ describe("corpus identifier scanner", () => {
     ])
   })
 
+  it("reads IPv6 addresses whole, compressed or not", () => {
+    for (const value of [
+      "2001:4860:4860::8888",
+      "2607:5300:0060:1234::1",
+      "2001:4860:4860:0:0:0:0:8888",
+      "2a03:2880:f10c:83::25de",
+    ]) {
+      expect(
+        scanForIdentifiers(`Origin ${value} blocked.`).map((f) => [
+          f.kind,
+          f.value,
+          f.reserved,
+        ]),
+        value
+      ).toEqual([["ip", value, false]])
+    }
+    for (const value of ["2001:db8:1f::2a", "::1"]) {
+      expect(
+        scanForIdentifiers(`Origin ${value}.`).map((f) => [
+          f.kind,
+          f.value,
+          f.reserved,
+        ]),
+        value
+      ).toEqual([["ip", value, true]])
+    }
+  })
+
+  it("does not take times, MAC addresses or scopes for IPv6", () => {
+    const text =
+      "At 10:30, 12:00:00 and 10:30:00; MAC 00:1a:2b:3c:4d:5e; std::vector, a :: b, Foo::Bar"
+    expect(scanForIdentifiers(text)).toEqual([])
+  })
+
+  it("still judges the IPv4 part of a mapped address", () => {
+    expect(
+      scanForIdentifiers("From ::ffff:8.8.8.8 today").map((f) => [
+        f.kind,
+        f.value,
+        f.reserved,
+      ])
+    ).toEqual([["ip", "8.8.8.8", false]])
+  })
+
   it("does not take references, dates or amounts for phone numbers", () => {
     const text =
       "INV-2026-08543, TXN-938472847, ref 2026 08543, 2026-09-22, 12/03/1984, $1,250.00, SKU 4411-2290-118"

@@ -273,7 +273,13 @@ export function looksLikePhone(value: string): boolean {
 }
 
 const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g
-const IPV6 = /\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{0,4}\b/gi
+/**
+ * An IPv6 address in full (eight groups) or compressed with "::", standing on
+ * its own: not part of a longer run of groups, so a time such as 10:30:00 or a
+ * six-group MAC address is not one, and neither is `std::vector`.
+ */
+const IPV6 =
+  /(?<![\p{L}\p{N}_:])(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){7}|(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?)(?![\p{L}\p{N}_:])/giu
 
 function trimTrailingPunctuation(value: string): string {
   return value.replace(/[.,;:!?]+$/, "")
@@ -342,9 +348,8 @@ export function scanForIdentifiers(text: string): Finding[] {
         value.split(".").some((part) => Number(part) > 255 || /^0\d/.test(part))
       )
         continue
-      // Times like 10:30:00 are not IPv6.
-      if (pattern === IPV6 && !/[a-f]/i.test(value) && !value.includes("::"))
-        continue
+      // A bare "::" (a C++ or Ruby scope, "a :: b") is not an address.
+      if (pattern === IPV6 && value === "::") continue
       add({
         kind: "ip",
         start: match.index,
