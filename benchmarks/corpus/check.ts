@@ -18,7 +18,7 @@ import path from "node:path"
 
 import { scanForIdentifiers } from "./lib/reserved"
 import { checkDocument } from "./lib/verify"
-import type { LabelledDocument } from "./lib/types"
+import type { LabelledDocument, Locale } from "./lib/types"
 
 const HERE = import.meta.dirname
 
@@ -34,7 +34,7 @@ async function corpusRoots(args: string[]): Promise<string[]> {
 
 /**
  * Every string in a review file, except `value` fields: those quote the
- * document's own text, which is checked with its labels above. The rest —
+ * document's own text, which is checked with its labels below. The rest —
  * a validator's reasons, a reviewer's notes — is free text written into the
  * repository and is held to the same ranges.
  */
@@ -48,7 +48,16 @@ function* freeText(node: unknown, key = ""): Generator<string> {
   }
 }
 
-async function checkReviews(root: string, problems: string[]): Promise<number> {
+/**
+ * A review of one document is read in that document's locale, so a phone
+ * number quoted from it is judged as it is there. A file about no single
+ * document has none: a number written nationally in it is reserved nowhere.
+ */
+async function checkReviews(
+  root: string,
+  locales: Map<string, Locale>,
+  problems: string[]
+): Promise<number> {
   let names: string[] = []
   try {
     names = (await readdir(path.join(root, "review"))).filter((name) =>
@@ -67,8 +76,9 @@ async function checkReviews(root: string, problems: string[]): Promise<number> {
       problems.push(`${where}: not valid JSON`)
       continue
     }
+    const locale = locales.get(name.replace(/\.json$/, "")) ?? null
     for (const text of freeText(review)) {
-      for (const finding of scanForIdentifiers(text)) {
+      for (const finding of scanForIdentifiers(text, locale)) {
         if (!finding.reserved) {
           problems.push(
             `${where}: ${finding.kind} outside the reserved ranges: ${JSON.stringify(finding.value)}`
@@ -86,7 +96,7 @@ async function main() {
   const problems: string[] = []
 
   for (const root of roots) {
-    files += await checkReviews(root, problems)
+    const locales = new Map<string, Locale>()
     let manifest: { files?: Record<string, string> } | null = null
     try {
       manifest = JSON.parse(
@@ -117,6 +127,7 @@ async function main() {
           problems.push(`${where}: not valid JSON`)
           continue
         }
+        locales.set(document.id, document.locale)
         for (const problem of checkDocument(document))
           problems.push(`${where}: ${problem}`)
         if (document.split !== split)
@@ -133,6 +144,7 @@ async function main() {
         }
       }
     }
+    files += await checkReviews(root, locales, problems)
   }
 
   if (problems.length > 0) {

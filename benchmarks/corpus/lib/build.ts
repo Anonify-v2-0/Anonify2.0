@@ -3,7 +3,7 @@ import { z } from "zod"
 import { inferEntity, repairMarkup, stripMarkup } from "./markup"
 import { findDenied, mask } from "./operator"
 import { createRng } from "./random"
-import { scanForIdentifiers, UNRESERVED_PHONE_LOCALES } from "./reserved"
+import { scanForIdentifiers } from "./reserved"
 import type {
   Category,
   DocumentSpec,
@@ -157,7 +157,7 @@ export function buildDocument(
   // number is one, and is labelled, whatever the model called it.
   let negatives = locateNegatives(text, model.negatives, spans, warnings)
   let autoLabelled = 0
-  for (const finding of scanForIdentifiers(text)) {
+  for (const finding of scanForIdentifiers(text, spec.locale)) {
     // Only a fill that holds the whole finding excuses it: one that merely
     // touches it ("[[api-key|{{SECRET}}]]@gmail.com") leaves the rest the
     // model's own writing.
@@ -195,16 +195,6 @@ export function buildDocument(
     negatives = negatives.filter(
       (negative) => !spans.some((span) => overlaps(span, negative))
     )
-  }
-  // Numbers from a locale with no reserved range are safe only as fills.
-  if (UNRESERVED_PHONE_LOCALES.includes(spec.locale)) {
-    for (const span of spans) {
-      if (span.category === "phone" && !span.placeholder) {
-        reasons.push(
-          `phone written by the model in ${spec.locale}, which has no reserved range: ${JSON.stringify(span.value)}`
-        )
-      }
-    }
   }
 
   // 3. Labelled once, unlabelled elsewhere. "Mark EVERY occurrence".
@@ -265,7 +255,7 @@ export function buildDocument(
     )
   }
 
-  for (const finding of scanForIdentifiers(model.title)) {
+  for (const finding of scanForIdentifiers(model.title, spec.locale)) {
     if (!finding.reserved)
       reasons.push(
         `title contains a ${finding.kind} outside the reserved ranges`

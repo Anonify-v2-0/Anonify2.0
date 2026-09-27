@@ -3,7 +3,6 @@ import {
   isReservedPhone,
   isReservedUrl,
   scanForIdentifiers,
-  UNRESERVED_PHONE_LOCALES,
 } from "./reserved"
 import { isCategory, type LabelledDocument } from "./types"
 
@@ -66,8 +65,7 @@ export function checkDocument(document: LabelledDocument): string[] {
       problems.push(`negative at ${negative.start} overlaps a labelled span`)
   }
 
-  // Labelled values of a checkable kind are reserved, or were filled by the
-  // generator in a locale that has no reserved range.
+  // Labelled values of a checkable kind are reserved.
   for (const span of spans) {
     if (
       span.category === "email" &&
@@ -78,14 +76,13 @@ export function checkDocument(document: LabelledDocument): string[] {
         `labelled email ${JSON.stringify(span.value)} is not at a reserved domain`
       )
     }
-    if (span.category === "phone" && !isReservedPhone(span.value)) {
-      const filledWhereNoneReserved =
-        span.placeholder === "PHONE" &&
-        UNRESERVED_PHONE_LOCALES.includes(document.locale)
-      if (!filledWhereNoneReserved)
-        problems.push(
-          `labelled phone ${JSON.stringify(span.value)} is not in a reserved range`
-        )
+    if (
+      span.category === "phone" &&
+      !isReservedPhone(span.value, document.locale)
+    ) {
+      problems.push(
+        `labelled phone ${JSON.stringify(span.value)} is not in a reserved range`
+      )
     }
     if (
       span.category === "url" &&
@@ -99,7 +96,7 @@ export function checkDocument(document: LabelledDocument): string[] {
   }
 
   // And nothing unreserved anywhere else in the text.
-  for (const finding of scanForIdentifiers(text)) {
+  for (const finding of scanForIdentifiers(text, document.locale)) {
     if (finding.reserved) continue
     // Only a label that covers the whole finding can speak for it; one that
     // merely overlaps ("[[email|john]]@gmail.com") leaves the rest unjudged.
@@ -134,7 +131,10 @@ export function checkDocument(document: LabelledDocument): string[] {
       (entity) => ["entity name", entity.name] as const
     ),
   ] as const) {
-    for (const finding of scanForIdentifiers(String(value ?? ""))) {
+    for (const finding of scanForIdentifiers(
+      String(value ?? ""),
+      document.locale
+    )) {
       if (!finding.reserved)
         problems.push(
           `${field} contains a ${finding.kind} outside the reserved ranges`

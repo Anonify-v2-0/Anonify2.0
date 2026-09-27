@@ -283,6 +283,16 @@ const US_AREA_CODES = [
   "713",
 ]
 
+/** An Ofcom drama number as it is written in the UK: "07700 900123". */
+function ukNational(rng: Rng): string {
+  const digits = reservedBlockDigits(rng, "en-GB")
+  return digits.startsWith("07") || digits.startsWith("01632")
+    ? `${digits.slice(0, 5)} ${digits.slice(5)}`
+    : digits.startsWith("020")
+      ? `${digits.slice(0, 3)} ${digits.slice(3, 7)} ${digits.slice(7)}`
+      : `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`
+}
+
 function phone({ rng, locale }: FillContext): string {
   switch (locale) {
     case "en-US": {
@@ -297,13 +307,7 @@ function phone({ rng, locale }: FillContext): string {
       ])
     }
     case "en-GB": {
-      const digits = reservedBlockDigits(rng, locale)
-      const national =
-        digits.startsWith("07") || digits.startsWith("01632")
-          ? `${digits.slice(0, 5)} ${digits.slice(5)}`
-          : digits.startsWith("020")
-            ? `${digits.slice(0, 3)} ${digits.slice(3, 7)} ${digits.slice(7)}`
-            : `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`
+      const national = ukNational(rng)
       return rng.chance(0.3) ? `+44 ${national.slice(1)}` : national
     }
     case "de-DE": {
@@ -328,25 +332,14 @@ function phone({ rng, locale }: FillContext): string {
         pairs.replace(/ /g, "."),
       ])
     }
-    case "es-ES": {
-      // No range is reserved for fiction in Spain; see UNRESERVED_PHONE_LOCALES.
-      const mobile = `${rng.pick(["6", "7"])}${rng.digits(8)}`
-      const landline = `9${rng.pick(["1", "3", "5", "6"])}${rng.digits(7)}`
-      return rng.pick([
-        group(mobile, [3, 3, 3], " "),
-        `+34 ${group(mobile, [3, 3, 3], " ")}`,
-        group(landline, [2, 3, 2, 2], " "),
-      ])
-    }
+    case "es-ES":
     case "en-IN": {
-      // No range is reserved for fiction in India; see UNRESERVED_PHONE_LOCALES.
-      const mobile = `${rng.pick(["7", "8", "9"])}${rng.digits(9)}`
-      return rng.pick([
-        `+91 ${mobile.slice(0, 5)} ${mobile.slice(5)}`,
-        `+91-${mobile}`,
-        `0${mobile.slice(0, 5)} ${mobile.slice(5)}`,
-        `+91 22 ${rng.digits(4)} ${rng.digits(4)}`,
-      ])
+      // Neither Spain nor India reserves numbers for fiction, and both
+      // allocate mobile numbers so densely that a random one is often
+      // somebody's. So the contact is in the UK, on an Ofcom drama number
+      // written as it is dialled from abroad.
+      const national = ukNational(rng).slice(1)
+      return rng.pick([`+44 ${national}`, `0044 ${national}`])
     }
   }
 }

@@ -37,7 +37,6 @@ import {
   isTestCard,
   scanForIdentifiers,
   TEST_CARD_NUMBERS,
-  UNRESERVED_PHONE_LOCALES,
 } from "@/benchmarks/corpus/lib/reserved"
 import { CORPUS_SIZE, sampleSpecs } from "@/benchmarks/corpus/lib/spec"
 import {
@@ -135,19 +134,29 @@ describe("corpus spec sampler", () => {
 })
 
 describe("corpus placeholder filler", () => {
-  it("draws phone numbers from reserved ranges wherever one exists", () => {
+  it("draws phone numbers from reserved ranges in every locale", () => {
     for (const locale of LOCALES) {
       const ctx = context(locale)
       for (let i = 0; i < 200; i++) {
         const value = fillPlaceholder("PHONE", undefined, ctx)
-        const findings = scanForIdentifiers(`Tel: ${value}\n`)
+        const findings = scanForIdentifiers(`Tel: ${value}\n`, locale)
         expect(
           findings.map((f) => f.kind),
           value
         ).toEqual(["phone"])
         expect(findings[0].value).toBe(value)
-        if (!UNRESERVED_PHONE_LOCALES.includes(locale))
-          expect(isReservedPhone(value), value).toBe(true)
+        expect(isReservedPhone(value, locale), value).toBe(true)
+      }
+    }
+  })
+
+  it("gives Spanish and Indian documents a UK drama number, dialled from abroad", () => {
+    for (const locale of ["es-ES", "en-IN"] as const) {
+      const ctx = context(locale)
+      for (let i = 0; i < 50; i++) {
+        expect(fillPlaceholder("PHONE", undefined, ctx)).toMatch(
+          /^(\+|00)44 [1-9]/
+        )
       }
     }
   })
@@ -225,9 +234,9 @@ describe("corpus identifier scanner", () => {
       "Mail priya@example.org, not priya@gmail.com.",
       "See https://www.example.com/profile and acme.com.",
       "From 203.0.113.9 and 8.8.8.8.",
-      "US: (212) 555-0142 and (212) 867-5309.",
+      "US: +1 (212) 555-0142 and +1 (212) 867-5309.",
     ].join("\n")
-    const found = scanForIdentifiers(text).map((f) => [
+    const found = scanForIdentifiers(text, "en-GB").map((f) => [
       f.kind,
       f.value,
       f.reserved,
@@ -242,8 +251,8 @@ describe("corpus identifier scanner", () => {
       ["url", "acme.com", false],
       ["ip", "203.0.113.9", true],
       ["ip", "8.8.8.8", false],
-      ["phone", "(212) 555-0142", true],
-      ["phone", "(212) 867-5309", false],
+      ["phone", "+1 (212) 555-0142", true],
+      ["phone", "+1 (212) 867-5309", false],
     ])
   })
 
@@ -294,7 +303,7 @@ describe("corpus identifier scanner", () => {
   it("does not take references, dates or amounts for phone numbers", () => {
     const text =
       "INV-2026-08543, TXN-938472847, ref 2026 08543, 2026-09-22, 12/03/1984, $1,250.00, SKU 4411-2290-118"
-    expect(scanForIdentifiers(text)).toEqual([])
+    expect(scanForIdentifiers(text, "en-US")).toEqual([])
   })
 
   it("reads international forms of reserved numbers", () => {
@@ -305,9 +314,46 @@ describe("corpus identifier scanner", () => {
       "+33 6 39 98 12 34",
       "+1 415 555 0100",
     ]) {
-      expect(isReservedPhone(value), value).toBe(true)
+      expect(isReservedPhone(value, "en-US"), value).toBe(true)
     }
-    expect(isReservedPhone("+44 20 8123 4567")).toBe(false)
+    expect(isReservedPhone("+44 20 8123 4567", "en-GB")).toBe(false)
+  })
+
+  it("judges a number by its own country's ranges", () => {
+    // A de-DE drama number, national and international, in a German document.
+    expect(isReservedPhone("030 23125123", "de-DE")).toBe(true)
+    expect(isReservedPhone("+49 30 23125123", "de-DE")).toBe(true)
+    expect(isReservedPhone("0049 (0)30 23125 123", "en-US")).toBe(true)
+    // Its digits dialled in the UK are an ordinary London number.
+    expect(isReservedPhone("+44 302 312 5123", "en-GB")).toBe(false)
+    expect(isReservedPhone("0302 312 5123", "en-GB")).toBe(false)
+    expect(isReservedPhone("+44 302 312 5123", "de-DE")).toBe(false)
+    // A national number is read in the document's locale.
+    expect(isReservedPhone("020 7946 0123", "en-GB")).toBe(true)
+    expect(isReservedPhone("020 7946 0123", "en-US")).toBe(false)
+    expect(isReservedPhone("(212) 555-0142", "en-US")).toBe(true)
+    expect(isReservedPhone("1 212 555 0142", "en-US")).toBe(true)
+    expect(isReservedPhone("(212) 555-0142", "en-GB")).toBe(false)
+    expect(isReservedPhone("020 7946 0123", null)).toBe(false)
+    // +1 is NANP wherever it is written; +34 and +91 reserve nothing.
+    expect(isReservedPhone("+1 212 555 0199", "fr-FR")).toBe(true)
+    expect(isReservedPhone("+1 212 555 0200", "en-US")).toBe(false)
+    expect(isReservedPhone("+34 612 345 678", "es-ES")).toBe(false)
+    expect(isReservedPhone("+34 912 345 678", "en-US")).toBe(false)
+    expect(isReservedPhone("+91 98765 43210", "en-IN")).toBe(false)
+    expect(isReservedPhone("612 345 678", "es-ES")).toBe(false)
+    // A country the corpus has no locale for reserves nothing either.
+    expect(isReservedPhone("+45 20 79 46 01", "en-GB")).toBe(false)
+  })
+
+  it("scans the 00 form of an international number", () => {
+    const text = "Call 0044 20 7946 0123 or 0044 (0)20 8123 4567."
+    expect(
+      scanForIdentifiers(text, "es-ES").map((f) => [f.value, f.reserved])
+    ).toEqual([
+      ["0044 20 7946 0123", true],
+      ["0044 (0)20 8123 4567", false],
+    ])
   })
 })
 
@@ -518,21 +564,35 @@ describe("corpus check", () => {
     )
   })
 
-  it("allows a filled number in a locale with no reserved range, and nothing else", () => {
+  it("reads a phone number in the document's locale", () => {
     const document = accepted()
     document.locale = "es-ES"
     const at = document.text.length + 1
-    document.text += " 612 345 678"
+    document.text += " +44 7700 900123"
     document.spans.push({
       start: at,
-      end: at + 11,
+      end: at + 15,
       category: "phone",
-      value: "612 345 678",
+      value: "+44 7700 900123",
       placeholder: "PHONE",
     })
     expect(checkDocument(document)).toEqual([])
-    delete document.spans[document.spans.length - 1].placeholder
+    // A number with no reserved range is refused even as a fill.
+    document.text = document.text.slice(0, at) + "612 345 678"
+    Object.assign(document.spans[document.spans.length - 1], {
+      end: at + 11,
+      value: "612 345 678",
+    })
     expect(checkDocument(document).join("\n")).toContain("labelled phone")
+    // And a British drama number written nationally is not one in Spain.
+    document.text = document.text.slice(0, at) + "07700 900123"
+    Object.assign(document.spans[document.spans.length - 1], {
+      end: at + 12,
+      value: "07700 900123",
+    })
+    expect(checkDocument(document).join("\n")).toContain("labelled phone")
+    document.locale = "en-GB"
+    expect(checkDocument(document)).toEqual([])
   })
 
   it("judges a value that a label only partly covers", () => {

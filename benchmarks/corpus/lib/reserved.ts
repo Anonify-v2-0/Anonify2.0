@@ -134,38 +134,45 @@ export const RESERVED_PHONE_BLOCKS: Record<
 }
 
 /**
- * Locales with no range reserved for fiction. Their numbers are generated in
- * the local format and are acceptable only as values the script itself filled
- * in, never as something a model wrote. See benchmarks/README.md.
+ * Country codes the corpus's locales dial, the trunk prefix a national number
+ * is written with there, and the locale whose ranges apply. Spain and India
+ * reserve no numbers for fiction; they are here so that a +34 or +91 number is
+ * read as Spanish or Indian, and so not reserved.
  */
-export const UNRESERVED_PHONE_LOCALES: Locale[] = ["es-ES", "en-IN"]
-
-const COUNTRY_CODES: [string, string][] = [
-  ["1", ""],
-  ["44", "0"],
-  ["49", "0"],
-  ["33", "0"],
-  ["34", ""],
-  ["91", "0"],
+const COUNTRY_CODES: { code: string; trunk: string; locale: Locale }[] = [
+  { code: "1", trunk: "", locale: "en-US" },
+  { code: "44", trunk: "0", locale: "en-GB" },
+  { code: "49", trunk: "0", locale: "de-DE" },
+  { code: "33", trunk: "0", locale: "fr-FR" },
+  { code: "34", trunk: "", locale: "es-ES" },
+  { code: "91", trunk: "0", locale: "en-IN" },
 ]
 
 /**
- * The national number with its trunk prefix, from any common way of writing
- * it: "+44 (0)20 7946 0123", "0044 20 7946 0123", "(212) 555-0142".
+ * Whose number this is, and its national number with the trunk prefix, from
+ * any common way of writing it: "+44 (0)20 7946 0123", "0044 20 7946 0123",
+ * "(212) 555-0142". An international number belongs to the country its code
+ * names, or to none the corpus knows; a national one to the document's
+ * locale, since that is where a reader would dial it.
  */
-export function nationalDigits(value: string): string {
+function dialledNumber(
+  value: string,
+  locale: Locale | null
+): { locale: Locale | null; digits: string } {
   let digits = value.replace(/\(0\)/g, "").replace(/\D/g, "")
-  const international = /^\s*(\+|00)/.test(value)
-  if (international) {
+  if (/^\s*(\+|00)/.test(value)) {
     if (digits.startsWith("00")) digits = digits.slice(2)
-    for (const [code, trunk] of COUNTRY_CODES) {
-      if (digits.startsWith(code)) return trunk + digits.slice(code.length)
+    const country = COUNTRY_CODES.find(({ code }) => digits.startsWith(code))
+    if (!country) return { locale: null, digits }
+    return {
+      locale: country.locale,
+      digits: country.trunk + digits.slice(country.code.length),
     }
-    return digits
   }
-  // A bare 11-digit NANP number: 1 212 555 0142.
-  if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1)
-  return digits
+  // A NANP number with its long-distance 1: 1 212 555 0142.
+  if (locale === "en-US" && digits.length === 11 && digits.startsWith("1"))
+    digits = digits.slice(1)
+  return { locale, digits }
 }
 
 function matchesBlock(digits: string, prefix: string, free: number): boolean {
@@ -186,11 +193,20 @@ function matchesBlock(digits: string, prefix: string, free: number): boolean {
   return /^\d+$/.test(digits.slice(prefix.length))
 }
 
-/** True when the number is in a range reserved for fiction, in any locale. */
-export function isReservedPhone(value: string): boolean {
-  const digits = nationalDigits(value)
-  return Object.values(RESERVED_PHONE_BLOCKS).some(({ blocks }) =>
-    blocks.some(({ prefix, free }) => matchesBlock(digits, prefix, free))
+/**
+ * True when the number is in a range reserved for fiction in its own country:
+ * the one its country code names, or `locale`, the document's, when it is
+ * written nationally. In a British document 020 7946 0123 is an Ofcom drama
+ * number; in an American one it is no British number at all, and the drama
+ * number is written +44 20 7946 0123. With no locale, a national number is
+ * reserved nowhere.
+ */
+export function isReservedPhone(value: string, locale: Locale | null): boolean {
+  const number = dialledNumber(value, locale)
+  if (!number.locale) return false
+  const blocks = RESERVED_PHONE_BLOCKS[number.locale]?.blocks ?? []
+  return blocks.some(({ prefix, free }) =>
+    matchesBlock(number.digits, prefix, free)
   )
 }
 
@@ -289,8 +305,13 @@ function trimTrailingPunctuation(value: string): string {
  * Every email, URL, phone number and IP address in `text`, each marked with
  * whether it is in a reserved range. Findings do not overlap: an email is not
  * also reported as a domain, and a URL's host is not reported separately.
+ * `locale` is the document's, which a nationally written phone number is
+ * judged by; see `isReservedPhone`.
  */
-export function scanForIdentifiers(text: string): Finding[] {
+export function scanForIdentifiers(
+  text: string,
+  locale: Locale | null
+): Finding[] {
   const findings: Finding[] = []
   const taken: [number, number][] = []
   const free = (start: number, end: number) =>
@@ -327,7 +348,12 @@ export function scanForIdentifiers(text: string): Finding[] {
     const raw = match[0]
     const leading = raw.length - raw.trimStart().length
     const value = raw.trim()
-    const digits = value.replace(/\D/g, "")
+    // Counted without the 00 of an international prefix or a bracketed trunk
+    // 0, so "0044 (0)20 7946 0123" is as much a candidate as "020 7946 0123".
+    const digits = value
+      .replace(/\(0\)/g, "")
+      .replace(/\D/g, "")
+      .replace(/^00/, "")
     if (digits.length < 9 || digits.length > 13 || !looksLikePhone(value))
       continue
     const start = match.index + leading
@@ -336,7 +362,7 @@ export function scanForIdentifiers(text: string): Finding[] {
       start,
       end: start + value.length,
       value,
-      reserved: isReservedPhone(value),
+      reserved: isReservedPhone(value, locale),
     })
   }
 
