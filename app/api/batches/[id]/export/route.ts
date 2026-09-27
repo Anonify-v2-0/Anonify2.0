@@ -10,12 +10,17 @@ import {
 import { prisma } from "@/lib/database/prisma"
 import {
   activeBatchExport,
+  batchOutputOf,
   latestBatchExport,
   settlePending,
   toView,
   type BatchExportRecord,
 } from "@/lib/documents/batch-exports"
 import { requireBatch, type OwnedBatch } from "@/lib/documents/batches"
+import {
+  BATCH_OUTPUTS,
+  DEFAULT_BATCH_OUTPUT,
+} from "@/lib/redaction/batch-layout"
 import { newBatchExportId } from "@/lib/documents/ids"
 import { listBatchDocuments } from "@/lib/documents/listing"
 import { peekIdentity } from "@/lib/security/fingerprint"
@@ -39,6 +44,11 @@ const optionsSchema = z.object({
    * the dialog and pressing the button decides nothing.
    */
   methodByDocument: z.record(z.string(), z.enum(REDACTION_METHODS)).optional(),
+  /**
+   * The shape of the download: the uploads in their own formats, the
+   * processed files in folders, or both. See lib/redaction/batch-layout.ts.
+   */
+  output: z.enum(BATCH_OUTPUTS).default(DEFAULT_BATCH_OUTPUT),
 })
 
 /**
@@ -73,7 +83,7 @@ function withDownloadUrl(record: BatchExportRecord, batch: OwnedBatch) {
     ? `/api/batches/${batch.id}/download?token=${createBatchToken({
         batchId: batch.id,
         ownerKey: batch.userFingerprint,
-      })}`
+      })}&output=${batchOutputOf(record.options)}`
     : null
 
   return toView(record, url)

@@ -1,5 +1,6 @@
 import { Zip, ZipDeflate, zipSync } from "fflate"
 
+import type { BatchOutput } from "@/lib/redaction/batch-layout"
 import {
   REPORT_VERSION,
   type ExportReport,
@@ -131,15 +132,70 @@ export type SkipReason =
    * know the mailbox was never going to be there.
    */
   | "container"
+  /**
+   * Processing failed, or the document was refused when its container
+   * expanded — over the allowance, too large, not a format this reads. The
+   * batch view carries the sentence; the report carries only that it is not
+   * here.
+   */
+  | "failed"
+  /**
+   * A mailbox none of whose messages could be included, so there was nothing
+   * to rebuild. Its messages are each named with their own reason.
+   */
+  | "empty-container"
+
+/**
+ * Which top-level upload a file went back into, and where in it.
+ *
+ * Ids and part paths only — `["msg-3", "0.2"]` is the second part of the
+ * fourth message — because this report names nothing a document chose. In the
+ * original format the file is inside that upload; in the processed layout it
+ * is in that upload's folder, at the place the path describes.
+ */
+export type ContainerPlacement = {
+  documentId: string
+  path: string[]
+}
+
+/**
+ * A mailbox, rebuilt: how many of its messages went back in and which did not.
+ *
+ * "897 of 900" is the sentence the reviewer needs, and the three are named by
+ * message number and document id with the reason each was left out — never
+ * silently dropped, because nobody counts nine hundred messages by hand.
+ */
+export type ContainerSummary = {
+  documentId: string
+  kind: "mbox"
+  /**
+   * SHA-256 of the rebuilt mailbox as it was verified and delivered. Null when
+   * it was not delivered: nothing to include, or it failed verification.
+   */
+  checksum: string | null
+  verified: boolean
+  messages: {
+    total: number
+    included: number
+    leftOut: { message: number; documentId: string; reason: SkipReason }[]
+  }
+}
 
 export type BatchReport = {
   version: number
   generatedAt: string
   batchId: string
+  /** What was downloaded: see lib/redaction/batch-layout.ts. */
+  output: BatchOutput
   documents: {
     documentId: string
     sourceChecksum: string
     artifactChecksum: string
+    /**
+     * The upload this file went back into, or null for a file that was an
+     * upload of its own.
+     */
+    container: ContainerPlacement | null
     removed: number
     /**
      * How the values in this file were treated, and whether the archive
@@ -159,6 +215,8 @@ export type BatchReport = {
    * failure mode a bundle of redacted files must not have.
    */
   skipped: { documentId: string; reason: SkipReason }[]
+  /** Every mailbox that was rebuilt, or would have been. */
+  containers: ContainerSummary[]
   totals: {
     documentsIncluded: number
     removed: number
@@ -178,6 +236,41 @@ const SKIP_SENTENCES: Record<SkipReason, string> = {
   "export-failed": "could not be exported",
   container:
     "is a mailbox, so its messages were exported in its place rather than the mailbox itself",
+  failed: "could not be processed",
+  "empty-container":
+    "is a mailbox none of whose messages could be included, so it was not rebuilt",
+}
+
+/** The same sentences, for the report's own list of left-out messages. */
+export function skipSentence(reason: SkipReason): string {
+  return SKIP_SENTENCES[reason]
+}
+
+/**
+ * `897 of 900 messages; 3 left out: message 4 (had not finished processing), …`
+ *
+ * By number, because the number is the message's name here — its folder in
+ * the processed layout, its row in the batch — and its subject is document
+ * content.
+ */
+function containerNote(summary: ContainerSummary): string {
+  const { total, included, leftOut } = summary.messages
+  const count = `${included} of ${total} ${total === 1 ? "message" : "messages"}`
+
+  const head = !summary.verified
+    ? `A mailbox was rebuilt from ${count} and failed its verification, so it was withheld.`
+    : summary.checksum === null
+      ? `A mailbox had none of its ${total} ${total === 1 ? "message" : "messages"} to include, so it was not rebuilt.`
+      : `A mailbox was rebuilt with ${count}.`
+
+  if (leftOut.length === 0 || summary.checksum === null) return head
+
+  const named = leftOut
+    .map(
+      (entry) => `message ${entry.message} (${SKIP_SENTENCES[entry.reason]})`
+    )
+    .join(", ")
+  return `${head} ${leftOut.length} left out: ${named}.`
 }
 
 export function buildBatchReport(input: {
@@ -186,8 +279,13 @@ export function buildBatchReport(input: {
   skipped: { documentId: string; reason: SkipReason }[]
   /** Document ids whose vault is in the archive. */
   vaulted?: Set<string>
+  output?: BatchOutput
+  /** Where each included document went, keyed by document id. */
+  placements?: Map<string, ContainerPlacement>
+  containers?: ContainerSummary[]
   generatedAt?: Date
 }): BatchReport {
+  const containers = input.containers ?? []
   const byCategory = new Map<string, number>()
   const byStyle: StyleCounts = {}
   let removed = 0
@@ -237,10 +335,19 @@ export function buildBatchReport(input: {
     notes.push(`One document ${SKIP_SENTENCES[skip.reason]}.`)
   }
 
+  for (const summary of containers) notes.push(containerNote(summary))
+
+  if (containers.some((summary) => summary.checksum !== null)) {
+    notes.push(
+      "A rebuilt mailbox is its messages' verified exports in their original order. Its separator lines were written by Anonify from each redacted message and name no sender; none of them was copied from the uploaded mailbox."
+    )
+  }
+
   return {
     version: REPORT_VERSION,
     generatedAt: (input.generatedAt ?? new Date()).toISOString(),
     batchId: input.batchId,
+    output: input.output ?? "processed",
     // Named by id and checksum rather than by filename, for the reason given in
     // lib/redaction/report.ts: a file is regularly named after the person it is
     // about. The per-document report inside the archive carries the same id.
@@ -248,11 +355,13 @@ export function buildBatchReport(input: {
       documentId: report.document.id,
       sourceChecksum: report.document.sourceChecksum,
       artifactChecksum: report.artifact.checksum,
+      container: input.placements?.get(report.document.id) ?? null,
       removed: report.removed.total,
       methods: report.removed.byMethod,
       vault: input.vaulted?.has(report.document.id) ?? false,
     })),
     skipped: input.skipped,
+    containers,
     totals: {
       documentsIncluded: input.reports.length,
       removed,
@@ -272,18 +381,26 @@ export function serializeBatchReport(report: BatchReport): Uint8Array {
   )
 }
 
+/**
+ * `contract.pdf` → `contract`, safe to use as a path segment.
+ *
+ * Everything in a download that is named after an upload is named from this,
+ * so a file, its folder, its report and its vault agree.
+ */
+export function baseName(originalName: string): string {
+  return safeName(originalName.replace(/\.[^.]+$/, "") || "document")
+}
+
 /** `contract.pdf` → `contract-redacted.pdf`, keeping the name recognisable. */
 export function artifactName(
   originalName: string,
   extension: string
 ): string {
-  const base = originalName.replace(/\.[^.]+$/, "") || "document"
-  return `${safeName(base)}-redacted.${extension}`
+  return `${baseName(originalName)}-redacted.${extension}`
 }
 
 export function reportName(originalName: string): string {
-  const base = originalName.replace(/\.[^.]+$/, "") || "document"
-  return `${safeName(base)}-redaction-report.json`
+  return `${baseName(originalName)}-redaction-report.json`
 }
 
 /**
@@ -295,8 +412,7 @@ export function reportName(originalName: string): string {
  * `batch-vault.json` would suggest one key for the lot.
  */
 export function vaultName(originalName: string): string {
-  const base = originalName.replace(/\.[^.]+$/, "") || "document"
-  return `${safeName(base)}-vault.json`
+  return `${baseName(originalName)}-vault.json`
 }
 
 /**

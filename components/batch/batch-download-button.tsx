@@ -6,6 +6,7 @@ import { Archive, Check, Loader2 } from "lucide-react"
 import { BatchDownloadDialog } from "@/components/batch/batch-download-dialog"
 import { Button } from "@/components/ui/button"
 import { isActiveExport, useBatchExport } from "@/hooks/use-batch-export"
+import type { BatchOutput } from "@/lib/redaction/batch-layout"
 import { cn } from "@/lib/utils"
 
 /**
@@ -31,6 +32,8 @@ export function BatchDownloadButton({
   variant = "default",
   size = "sm",
   className,
+  scope,
+  readyLabel = "Archive ready",
 }: {
   batchId: string
   documentCount?: number
@@ -42,6 +45,10 @@ export function BatchDownloadButton({
   variant?: "default" | "outline"
   size?: "sm" | "default"
   className?: string
+  /** One upload in one shape, rather than the batch as last chosen. */
+  scope?: { documentId: string; output: BatchOutput }
+  /** What the control says once there is something to take. */
+  readyLabel?: string
 }) {
   const controls = useBatchExport(batchId)
   const [open, setOpen] = useState(false)
@@ -102,7 +109,7 @@ export function BatchDownloadButton({
                   ? `Exporting ${state.completed} of ${state.total}`
                   : "Preparing"
               : ready
-                ? "Archive ready"
+                ? readyLabel
                 : label}
           </span>
         </span>
@@ -114,6 +121,7 @@ export function BatchDownloadButton({
         batchId={batchId}
         controls={controls}
         documentCount={documentCount}
+        scope={scope}
       />
     </>
   )

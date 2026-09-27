@@ -304,7 +304,14 @@ Only after the invariants hold for it, including an adversarial test suite.
       are not distinguishable from the bytes, so `>From ` is undone as mboxrd;
       `Content-Length` framing is not trusted; and a whole message quoted into
       a body after a blank line will split. `tests/mbox.test.ts` and
-      `tests/integration/mailbox.integration.test.ts`.
+      `tests/integration/mailbox.integration.test.ts`. It comes back out as a
+      mailbox: rebuilt from its messages' verified exports in mailbox order,
+      its `From ` lines written fresh because the source's carry the envelope
+      sender, and verified by splitting it again with the same scanner — the
+      same count, each message byte for byte its export, no accepted value on
+      any separator. A message that cannot go in is named, never dropped.
+      `lib/documents/mbox/rebuild.ts`, `tests/mbox-rebuild.test.ts` and
+      `tests/integration/batch-download.integration.test.ts` (#143).
 - [x] ~~**An export report** — what was removed, by category and count, with the
       checksum — as a separate artifact.~~ `lib/redaction/report.ts`, served by
       the download route as `?part=report`. Counts by category, the style each

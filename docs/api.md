@@ -559,31 +559,65 @@ batch view polls this while anything is still processing.
 
 ### `GET /api/batches/:id/download`
 
-The batch archive: one export per document, plus its report, plus a roll-up
-`batch-report.json`. Nothing is generated here — the archive is assembled from
-artifacts the export already produced and verified, and each is re-hashed
-against its recorded checksum. An artifact that fails is left out and named
-in the batch report rather than failing the whole archive. Streamed in two
-passes: every artifact is first read through a hash and kept nowhere, which
-decides what goes in and what is named as skipped before a byte is sent; the
-archive is then compressed and sent as it is read, each file checked again on
-the way through. A 150 MiB ceiling bounds one request's work; what does not
-fit is named as skipped.
+The batch, downloaded in the shape the reviewer asked for. Nothing is
+redacted here — every file is an artifact the export already produced and
+verified, re-hashed against its recorded checksum; one that fails is left out
+and named in the batch report rather than failing the whole download.
 
-A document the reviewer had tokenized or encrypted also gets its vault, as
-`<name>-vault.json`. **That means the archive holds both the reversible file
-and the thing that reverses it**, which the batch report says in as many words:
-separate them before sharing either. A vault whose checksum does not match is
-left out rather than shipped — half a mapping restores half a document — while
-the file itself still goes in, having been verified on its own.
+- `output=original` (the default) — one file per top-level upload, in its own
+  format. A mailbox is **rebuilt**: its messages' verified exports in mailbox
+  order, `From ` separators written fresh (`MAILER-DAEMON` and the redacted
+  message's own date, never copied from the source), `>From ` quoting
+  reapplied as mboxrd — and then verified as its own export by splitting it
+  with the upload's scanner: the same message count, each message equal byte
+  for byte to its export, no accepted value on any separator line. A message
+  with no verified export is left out and named in the report; a mailbox that
+  fails verification is withheld whole. A message carrying attachments is its
+  own export, which already carries its redacted enclosures. One upload is
+  served as that file, bare (`inbox-redacted.mbox`, `application/mbox`);
+  several are zipped.
+- `output=processed` — every document's own output in folders that mirror
+  where it came from, named by message number and MIME part path, never by
+  subject or filename: `inbox-redacted/0001/message-redacted.eml`,
+  `inbox-redacted/0001/attachments/0.2-redacted.pdf`, with each report under
+  `reports/` at the same path.
+- `output=both` — both, under `original/` and `processed/`, in one zip.
+
+Every zip carries `batch-report.json`, which says which upload each file went
+into (`documents[].container`: the upload's id and the part-path chain, never a
+name), and for each rebuilt mailbox how many messages went in and which were
+left out and why (`containers[]`). Streamed in two passes: every artifact is
+first read through a hash and kept nowhere, and a mailbox is built once through
+its verifier, which decides what goes in before a byte is sent; then the files
+are sent as they are read, each checked again on the way through, a rebuilt
+mailbox against the checksum its verification computed. A 150 MiB ceiling
+bounds one request's work; what does not fit is named as skipped.
+
+A document the reviewer had tokenized or encrypted also gets its vault,
+**beside the file and never inside it** — `<name>-vault.json`, or
+`inbox-vaults/0001-vault.json` for a message of a rebuilt mailbox. So a
+download carrying a vault is always a zip, even for one upload, and it holds
+both the reversible file and the thing that reverses it, which the batch report
+says in as many words: separate them before sharing either. A vault whose
+checksum does not match is left out rather than shipped — half a mapping
+restores half a document — while the file itself still goes in, having been
+verified on its own.
 
 - **Auth:** signed batch token (`?token=`) **plus** session ownership
 - **Path params:** `id`
-- **Query params:** `token` — signed batch token (required)
-- **Response `200`:** `application/zip`, `content-disposition: attachment;
-  filename="anonify-batch-redacted.zip"`, `maxDuration` 300s.
-- **Errors:** `401` missing / invalid / expired token; `403` token is not
-  yours; `404` batch not found / foreign; `409` nothing exported yet.
+- **Query params:** `token` — signed batch token (required); `output` —
+  `original` | `processed` | `both` (default `original`); `document` — one
+  top-level upload's id, to download only that upload (the workspace uses this
+  to offer a mailbox as a mailbox); `part=report` — the batch report for the
+  same download as JSON, for a download that is a single file with nowhere to
+  put one.
+- **Response `200`:** the upload's own type and name for a single original
+  file (e.g. `application/mbox`, `filename="inbox-redacted.mbox"`); otherwise
+  `application/zip`, `filename="anonify-batch-redacted.zip"` (or
+  `<name>-redacted.zip` when `document` names one upload). `maxDuration` 300s.
+- **Errors:** `400` unknown `output`; `401` missing / invalid / expired token;
+  `403` token is not yours; `404` batch not found / foreign, or `document` is
+  not a top-level upload in this batch; `409` nothing exported yet.
 
 ### `DELETE /api/batches/:id/rules`
 
@@ -609,7 +643,8 @@ are `ready`, or `cancelled` with `exported > 0`.
 - **Auth:** session
 - **Path params:** `id`
 - **Response `200`:** `{ "export": BatchExportView | null }` — includes
-  `status`, totals, and `downloadUrl` when deliverable.
+  `status`, totals, the chosen `output`, and `downloadUrl` (carrying that
+  `output`) when deliverable.
 - **Errors:** `404` batch not found / foreign.
 
 ### `POST /api/batches/:id/export`
@@ -629,9 +664,15 @@ single export would be.
     "sanitizeMetadata": true,
     "imageStyle": "solid",
     "method": "mask",
-    "methodByDocument": { "doc_...": "tokenize" }
+    "methodByDocument": { "doc_...": "tokenize" },
+    "output": "original"
   }
   ```
+  `output` is the shape of the download — `original`, `processed` or `both`,
+  as described under `GET /api/batches/:id/download`. It is not a property of
+  the run: every shape is assembled from the same verified artifacts. It is
+  recorded so the `downloadUrl` handed back asks for the shape the reviewer
+  chose.
   A batch produces **one artifact per document**, so it takes one method per
   file rather than the `variants` a single export accepts — see
   [the pipelines doc](./pipelines.md#a-batch-gets-a-method-per-file-not-variants-per-file)

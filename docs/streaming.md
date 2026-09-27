@@ -589,7 +589,11 @@ a complete file that failed its check.
 
 The batch archive keeps its old promise — an artifact that fails its check is
 left out and *named*, not allowed to break the archive — which needs the
-verdict before the first byte is sent. So it reads twice, holding nothing:
+verdict before the first byte is sent. So it reads twice, holding nothing. A
+mailbox rebuilt for the original-format download is one more file built the
+same way: written once through the scanner that verifies it, keeping one
+message at a time, then written again for delivery against the checksum that
+pass computed (`lib/documents/mbox/rebuild.ts`):
 
 ```mermaid
 flowchart LR

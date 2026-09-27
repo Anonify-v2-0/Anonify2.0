@@ -41,7 +41,7 @@ pipeline is argued through in [docs/pipelines.md](docs/pipelines.md).
 | **TSV** | Cells | Same grid model as CSV. |
 | **Plain text (.txt)** | Offsets | Addressed by offset into the source. |
 | **Rich text (.rtf)** | Parsed text | RTF is parsed rather than searched, because a word processor splits a value across formatting groups and the string is often not in the file at all. |
-| **Mailbox (.mbox)** | *Nothing — it is a container* | Split into one document per message, each reviewed and exported on its own. A decision taken on the first message is carried to the nine hundredth. The mailbox is never redacted as a file; the batch archive is the output. |
+| **Mailbox (.mbox)** | *Nothing — it is a container* | Split into one document per message, each reviewed and exported on its own. A decision taken on the first message is carried to the nine hundredth. The mailbox is never redacted as a file: it comes back as a mailbox, rebuilt from its messages' verified exports and verified again as a whole — or as the processed files, in folders that mirror where each came from. |
 | **Images (PNG, JPEG, WebP)** | Pixels | Pixels replaced and the file re-encoded. EXIF and GPS go too. |
 
 Every export is then re-opened and read the way an adversary would. A surviving
