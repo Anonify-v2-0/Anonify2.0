@@ -253,12 +253,26 @@ A model from a different family reads each document with its labels inline
 and names anything it thinks is personal data but unlabelled, or labelled but
 wrong. It changes nothing. Each document it disagrees with gets
 `review/<id>.json`, with every claim tied to offsets, for a person to settle by
-editing the labels, setting `generator.reviewedByHuman`, and recording what was
-changed under `resolution`. `review/validated.json` records which file hash was
-validated by which model, so an edited document is validated again.
+editing the labels, setting `generator.reviewedByHuman`, recording what was
+changed and which claims were wrong under `resolution`, and setting `status`
+from `"open"` to `"resolved"`. `review/validated.json` records which file hash
+was validated by which model, so an edited document is validated again.
+
+A later pass never overwrites a person's work. It appends to the review's
+`revalidations`, listing under `disagreements` only claims the file does not
+already hold. A claim the person has already rejected is recorded under
+`repeated` and leaves a resolved review resolved; a new claim reopens it, with
+its `resolution` kept. When a document with an open review has changed and the
+next pass flags nothing, the review is marked `"superseded"` rather than
+deleted. Only a review nobody has touched, of a version of the document that
+is gone, is replaced outright. A second validator run over the same corpus
+therefore adds its claims to the first one's.
+
 `review/spot-check.json` names the 10% of the test split a person checks
 whether or not anything was flagged, and logs who checked each, when, and what
-changed.
+changed. `drawnFrom` is the size of the split it is a tenth of. When the split
+grows, as it does after a trial run, the sample is topped up from documents not
+yet in it, and those already chosen stay.
 
 In trials this pass caught exactly what the generator's checks cannot: names
 of people outside the cast left unlabelled.

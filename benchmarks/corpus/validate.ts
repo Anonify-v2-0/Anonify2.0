@@ -8,11 +8,12 @@
  * A model from a different family than the generator reads each document with
  * its labels inline and flags anything it thinks is personal data but
  * unlabelled, or labelled but not personal data. It changes nothing. Each
- * document with a disagreement gets `review/<id>.json` for a person to settle;
- * `review/validated.json` records what was validated against which file hash,
- * so the pass is resumable and a document edited afterwards is validated
- * again. `review/spot-check.json` names the 10% of the test split a person
- * checks whether or not anything was flagged.
+ * document with a disagreement gets `review/<id>.json` for a person to settle,
+ * which a later pass adds to rather than replaces (see nextReview in
+ * lib/review.ts). `review/validated.json` records what was validated against
+ * which file hash, so the pass is resumable and a document edited afterwards
+ * is validated again. `review/spot-check.json` names the 10% of the test split
+ * a person checks whether or not anything was flagged, and grows with it.
  */
 
 import { createHash } from "node:crypto"
@@ -23,13 +24,16 @@ import { parseArgs } from "node:util"
 import { int } from "./lib/args"
 import { createBackend, DEFAULT_MODELS } from "./lib/backends"
 import { listDocumentFiles } from "./lib/manifest"
-import { createRng } from "./lib/random"
 import {
+  drawSpotCheck,
+  nextReview,
   readReview,
   REVIEW_PROMPT_VERSION,
   REVIEW_SCHEMA,
   REVIEW_SYSTEM_PROMPT,
   reviewUserPrompt,
+  type ReviewFile,
+  type SpotCheck,
 } from "./lib/review"
 import type { LabelledDocument } from "./lib/types"
 
@@ -137,31 +141,27 @@ async function main() {
   const validatedFile = path.join(reviewDir, "validated.json")
   const validated = await readJson<Validated>(validatedFile, {})
 
-  // The 10% human spot-check of the test split, chosen once and kept.
+  // The 10% human spot-check of the test split: chosen once, topped up as the
+  // split grows.
   const spotCheckFile = path.join(reviewDir, "spot-check.json")
-  const spotCheck = await readJson<{ ids: string[] } | null>(
+  const previousSpotCheck = await readJson<SpotCheck | null>(
     spotCheckFile,
     null
   )
-  if (!spotCheck) {
-    const allTest = (await listDocumentFiles(root))
-      .filter((file) => file.startsWith("test/"))
-      .map((file) => path.basename(file, ".json"))
-    const ids = createRng(0, "spot-check", path.basename(root))
-      .sample(allTest, Math.ceil(allTest.length / 10))
-      .sort()
-    await writeJson(spotCheckFile, {
-      note: "Checked by a person whether or not the validator flagged anything. Log each one below.",
-      ids,
-      log: [] as {
-        id: string
-        reviewer: string
-        date: string
-        changed: string
-      }[],
-    })
+  const testIds = (await listDocumentFiles(root))
+    .filter((file) => file.startsWith("test/"))
+    .map((file) => path.basename(file, ".json"))
+  const { spotCheck, added } = drawSpotCheck(
+    path.basename(root),
+    testIds,
+    previousSpotCheck
+  )
+  if (spotCheck !== previousSpotCheck) {
+    await writeJson(spotCheckFile, spotCheck)
     console.log(
-      `Chose ${ids.length} test documents for the human spot-check: review/spot-check.json`
+      previousSpotCheck
+        ? `The test split has grown to ${testIds.length}: added ${added.length} to the human spot-check, now ${spotCheck.ids.length}: review/spot-check.json`
+        : `Chose ${spotCheck.ids.length} of ${testIds.length} test documents for the human spot-check: review/spot-check.json`
     )
   }
 
@@ -254,9 +254,10 @@ async function main() {
         unlocated: result.unlocated,
         validatedAt: new Date().toISOString(),
       }
-      if (result.disagreements.length > 0) {
-        flagged++
-        await writeJson(path.join(reviewDir, `${document.id}.json`), {
+      const reviewFile = path.join(reviewDir, `${document.id}.json`)
+      const outcome = nextReview(
+        await readJson<ReviewFile | null>(reviewFile, null),
+        {
           id: document.id,
           documentSha256: sha256,
           validator: {
@@ -264,16 +265,33 @@ async function main() {
             model: backend.model,
             promptVersion: REVIEW_PROMPT_VERSION,
           },
-          status: "open",
-          resolution: null,
+          validatedAt: validated[document.id].validatedAt,
           disagreements: result.disagreements,
-        })
+        }
+      )
+      if (outcome.write) await writeJson(reviewFile, outcome.review)
+      const claims = outcome.added
+        .map((d) => `${d.kind} ${JSON.stringify(d.value)}`)
+        .join(", ")
+      const repeated =
+        outcome.repeated > 0
+          ? `${outcome.repeated} claim(s) already in review/${document.id}.json`
+          : ""
+      if (outcome.review?.status === "open") {
+        flagged++
+        const detail = [
+          outcome.reopened ? `reopened: ${claims}` : claims,
+          repeated,
+        ].filter(Boolean)
         console.log(
-          `! ${document.id}  ${result.disagreements.map((d) => `${d.kind} ${JSON.stringify(d.value)}`).join(", ")}`
+          `! ${document.id}  ${detail.join("; ") || `review/${document.id}.json is still open`}`
         )
       } else {
         agreed++
-        console.log(`✓ ${document.id}`)
+        const detail = outcome.superseded
+          ? `review/${document.id}.json superseded: the document changed and nothing is flagged now`
+          : repeated && `${repeated}, settled`
+        console.log(`✓ ${document.id}${detail ? `  ${detail}` : ""}`)
       }
       await writeJson(
         validatedFile,

@@ -22,7 +22,14 @@ import {
 import { denyTokens, findDenied } from "@/benchmarks/corpus/lib/operator"
 import { createRng } from "@/benchmarks/corpus/lib/random"
 import { documentPath, rebuild } from "@/benchmarks/corpus/lib/rebuild"
-import { readReview, withMarkup } from "@/benchmarks/corpus/lib/review"
+import {
+  drawSpotCheck,
+  nextReview,
+  readReview,
+  withMarkup,
+  type Disagreement,
+  type ReviewPass,
+} from "@/benchmarks/corpus/lib/review"
 import {
   isReservedEmail,
   isReservedPhone,
@@ -864,5 +871,249 @@ describe("corpus command-line numbers", () => {
     expect(() => int(name, value, min)).toThrow(
       `--${name} must be a whole number`
     )
+  })
+})
+
+describe("corpus review files", () => {
+  const CODEX = { backend: "codex", model: "gpt-5-mini", promptVersion: "1" }
+  const CLAUDE = {
+    backend: "claude",
+    model: "claude-haiku-4-5",
+    promptVersion: "1",
+  }
+
+  function missed(value: string): Disagreement {
+    return {
+      kind: "missed",
+      value,
+      category: "person",
+      reason: "a name",
+      at: [{ start: 0, end: value.length }],
+    }
+  }
+
+  function wrong(value: string): Disagreement {
+    return {
+      kind: "wrong",
+      value,
+      labelled: "person",
+      correct: "not-pii",
+      reason: "a company",
+      at: [{ start: 10, end: 10 + value.length }],
+    }
+  }
+
+  function pass(
+    documentSha256: string,
+    disagreements: Disagreement[],
+    validator = CODEX
+  ): ReviewPass {
+    return {
+      id: "syn-v1-0042",
+      documentSha256,
+      validator,
+      validatedAt: "2026-09-27T00:00:00.000Z",
+      disagreements,
+    }
+  }
+
+  it("opens a review for a first disagreement, and writes nothing for none", () => {
+    expect(nextReview(null, pass("a", []))).toMatchObject({
+      review: null,
+      write: false,
+    })
+    const outcome = nextReview(null, pass("a", [missed("Javier")]))
+    expect(outcome.write).toBe(true)
+    expect(outcome.review).toEqual({
+      id: "syn-v1-0042",
+      documentSha256: "a",
+      validator: CODEX,
+      status: "open",
+      resolution: null,
+      disagreements: [missed("Javier")],
+    })
+  })
+
+  it("keeps a person's resolution when the validator repeats the claims they rejected", () => {
+    const opened = nextReview(
+      null,
+      pass("a", [missed("Javier"), wrong("Acme Ltd")])
+    ).review!
+    // The person labels Javier, rejects the Acme claim, and settles it.
+    const resolved = {
+      ...opened,
+      status: "resolved",
+      resolution: "Labelled Javier. Acme Ltd is a company acting as one.",
+    }
+    // Their edit changed the file, so the next run validates it again.
+    const outcome = nextReview(resolved, pass("b", [wrong("Acme Ltd")]))
+    expect(outcome).toMatchObject({
+      write: true,
+      added: [],
+      repeated: 1,
+      reopened: false,
+    })
+    expect(outcome.review).toEqual({
+      ...resolved,
+      revalidations: [
+        {
+          documentSha256: "b",
+          validator: CODEX,
+          validatedAt: "2026-09-27T00:00:00.000Z",
+          disagreements: [],
+          repeated: [{ kind: "wrong", value: "Acme Ltd" }],
+        },
+      ],
+    })
+    // The same validator again on the same text adds nothing more.
+    expect(
+      nextReview(outcome.review, pass("b", [wrong("Acme Ltd")])).write
+    ).toBe(false)
+  })
+
+  it("reopens a settled review for a claim nobody has seen, keeping its resolution", () => {
+    const resolved = {
+      ...nextReview(null, pass("a", [wrong("Acme Ltd")])).review!,
+      status: "resolved",
+      resolution: "Acme Ltd is a company.",
+    }
+    const outcome = nextReview(
+      resolved,
+      pass("a", [wrong("Acme Ltd"), missed("Rosa")], CLAUDE)
+    )
+    expect(outcome).toMatchObject({
+      write: true,
+      added: [missed("Rosa")],
+      repeated: 1,
+      reopened: true,
+    })
+    expect(outcome.review).toMatchObject({
+      status: "open",
+      resolution: "Acme Ltd is a company.",
+      disagreements: [wrong("Acme Ltd")],
+      revalidations: [
+        {
+          validator: CLAUDE,
+          disagreements: [missed("Rosa")],
+          repeated: [{ kind: "wrong", value: "Acme Ltd" }],
+        },
+      ],
+    })
+    // Rosa is now in the file: settling it again settles her too.
+    const settled = { ...outcome.review!, status: "resolved" }
+    expect(nextReview(settled, pass("c", [missed("Rosa")]))).toMatchObject({
+      added: [],
+      reopened: false,
+      review: { status: "resolved" },
+    })
+  })
+
+  it("adds a second validator's claims to an open review instead of replacing the first's", () => {
+    const opened = nextReview(null, pass("a", [missed("Javier")])).review!
+    const outcome = nextReview(
+      opened,
+      pass("a", [missed("Javier"), missed("Rosa")], CLAUDE)
+    )
+    expect(outcome.review).toMatchObject({
+      status: "open",
+      disagreements: [missed("Javier")],
+      revalidations: [{ disagreements: [missed("Rosa")] }],
+    })
+  })
+
+  it("starts again when nobody has touched a review of an older version", () => {
+    const opened = nextReview(null, pass("a", [missed("Javier")])).review!
+    expect(nextReview(opened, pass("b", [missed("Rosa")])).review).toEqual({
+      ...opened,
+      documentSha256: "b",
+      disagreements: [missed("Rosa")],
+    })
+  })
+
+  it("supersedes an open review of an older version once nothing is flagged", () => {
+    const opened = nextReview(null, pass("a", [missed("Javier")])).review!
+    const outcome = nextReview(opened, pass("b", []))
+    expect(outcome).toMatchObject({ write: true, superseded: true })
+    expect(outcome.review).toMatchObject({
+      status: "superseded",
+      disagreements: [missed("Javier")],
+      revalidations: [
+        {
+          documentSha256: "b",
+          disagreements: [],
+          note: expect.stringContaining("changed"),
+        },
+      ],
+    })
+    // Not for the same text: a clean pass does not answer another's claims.
+    expect(nextReview(opened, pass("a", [])).write).toBe(false)
+    // And a settled review stays as the person left it.
+    const resolved = { ...opened, status: "resolved" }
+    expect(nextReview(resolved, pass("b", [])).write).toBe(false)
+  })
+})
+
+describe("corpus spot-check", () => {
+  const testIds = (count: number) =>
+    Array.from(
+      { length: count },
+      (_, i) => `syn-v1-${String(i + 1).padStart(4, "0")}`
+    )
+
+  it("draws a tenth of the test split", () => {
+    const { spotCheck, added } = drawSpotCheck(
+      "synthetic-v1",
+      testIds(30),
+      null
+    )
+    expect(spotCheck.ids).toHaveLength(3)
+    expect(spotCheck.drawnFrom).toBe(30)
+    expect(added).toEqual(spotCheck.ids)
+  })
+
+  it("tops the sample up as the split grows, keeping what was chosen and logged", () => {
+    const first = drawSpotCheck("synthetic-v1", testIds(30), null).spotCheck
+    const logged = {
+      ...first,
+      log: [
+        {
+          id: first.ids[0],
+          reviewer: "a person",
+          date: "2026-09-27",
+          changed: "nothing",
+        },
+      ],
+    }
+    const { spotCheck, added } = drawSpotCheck(
+      "synthetic-v1",
+      testIds(450),
+      logged
+    )
+    expect(spotCheck.ids).toHaveLength(45)
+    expect(spotCheck.ids).toEqual(expect.arrayContaining(first.ids))
+    expect(added).toHaveLength(42)
+    expect(added.some((id) => first.ids.includes(id))).toBe(false)
+    expect(new Set(spotCheck.ids).size).toBe(45)
+    expect(spotCheck.drawnFrom).toBe(450)
+    expect(spotCheck.log).toEqual(logged.log)
+    // Deterministic, and settled once it covers the split.
+    expect(
+      drawSpotCheck("synthetic-v1", testIds(450), logged).spotCheck
+    ).toEqual(spotCheck)
+    expect(
+      drawSpotCheck("synthetic-v1", testIds(450), spotCheck).spotCheck
+    ).toBe(spotCheck)
+  })
+
+  it("tops up a file written before the split size was recorded", () => {
+    const old = {
+      note: "Checked by a person.",
+      ids: ["syn-v1-0003", "syn-v1-0017", "syn-v1-0025"],
+      log: [],
+    }
+    const { spotCheck } = drawSpotCheck("synthetic-v1", testIds(450), old)
+    expect(spotCheck.ids).toHaveLength(45)
+    expect(spotCheck.ids).toEqual(expect.arrayContaining(old.ids))
+    expect(spotCheck.drawnFrom).toBe(450)
   })
 })

@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { createRng } from "./random"
 import {
   CATEGORIES,
   isCategory,
@@ -223,4 +224,248 @@ export function readReview(
   }
 
   return { disagreements, unlocated }
+}
+
+// --- review files -----------------------------------------------------------
+
+export type Validator = {
+  backend: string
+  model: string
+  promptVersion: string
+}
+
+/** A later pass over a document that already has a review file. */
+export type Revalidation = {
+  documentSha256: string
+  validator: Validator
+  validatedAt: string
+  /** Claims nothing earlier in the file made. These are what a person reads. */
+  disagreements: Disagreement[]
+  /** Claims earlier in the file that this pass made again. */
+  repeated: { kind: Disagreement["kind"]; value: string }[]
+  note?: string
+}
+
+/** `review/<id>.json`. */
+export type ReviewFile = {
+  id: string
+  documentSha256: string
+  validator: Validator
+  /**
+   * "open" until a person settles it, by setting anything else ("resolved").
+   * "superseded" when the document changed and a later pass flagged nothing.
+   */
+  status: string
+  /** A person's account of what they changed and which claims they rejected. */
+  resolution: unknown
+  disagreements: Disagreement[]
+  revalidations?: Revalidation[]
+}
+
+export type ReviewPass = {
+  id: string
+  documentSha256: string
+  validator: Validator
+  validatedAt: string
+  disagreements: Disagreement[]
+}
+
+export type ReviewOutcome = {
+  /** The review file after this pass, or null if there is none. */
+  review: ReviewFile | null
+  /** Whether `review` differs from what is on disk. */
+  write: boolean
+  /** Claims this pass made that are not already in the review file. */
+  added: Disagreement[]
+  /** Claims this pass repeated from the review file. */
+  repeated: number
+  /** The document changed since an open review and nothing is flagged now. */
+  superseded: boolean
+  /** A settled review that this pass opened again. */
+  reopened: boolean
+}
+
+/** Whether a person has settled the review. */
+export function isSettled(review: ReviewFile): boolean {
+  return review.status !== "open" && review.status !== "superseded"
+}
+
+function claimKey(claim: { kind: string; value: string }): string {
+  return `${claim.kind}\u0000${claim.value}`
+}
+
+function sameValidator(a: Validator, b: Validator): boolean {
+  return (
+    a.backend === b.backend &&
+    a.model === b.model &&
+    a.promptVersion === b.promptVersion
+  )
+}
+
+/**
+ * What a validator pass does to a document's review file.
+ *
+ * A person's work in the file is never overwritten. A pass over a document
+ * that already has a review appends to `revalidations`, listing only the
+ * claims the file does not already hold, so a claim a person has rejected is
+ * not raised again; a new claim reopens a settled review, with its resolution
+ * kept. The file is replaced only while nobody has touched it and it describes
+ * a version of the document that is gone. An open review whose document has
+ * since changed, and now draws no claims, is marked superseded rather than
+ * deleted.
+ */
+export function nextReview(
+  existing: ReviewFile | null,
+  pass: ReviewPass
+): ReviewOutcome {
+  const fresh = (): ReviewOutcome => ({
+    review: {
+      id: pass.id,
+      documentSha256: pass.documentSha256,
+      validator: pass.validator,
+      status: "open",
+      resolution: null,
+      disagreements: pass.disagreements,
+    },
+    write: true,
+    added: pass.disagreements,
+    repeated: 0,
+    superseded: false,
+    reopened: false,
+  })
+  const unchanged: ReviewOutcome = {
+    review: existing,
+    write: false,
+    added: [],
+    repeated: 0,
+    superseded: false,
+    reopened: false,
+  }
+  const record = {
+    documentSha256: pass.documentSha256,
+    validator: pass.validator,
+    validatedAt: pass.validatedAt,
+  }
+
+  if (!existing) return pass.disagreements.length > 0 ? fresh() : unchanged
+
+  const history = existing.revalidations ?? []
+  const last = history.at(-1) ?? existing
+  const documentChanged = last.documentSha256 !== pass.documentSha256
+
+  if (pass.disagreements.length === 0) {
+    if (existing.status !== "open" || !documentChanged) return unchanged
+    return {
+      ...unchanged,
+      review: {
+        ...existing,
+        status: "superseded",
+        revalidations: [
+          ...history,
+          {
+            ...record,
+            disagreements: [],
+            repeated: [],
+            note: "The document changed and this pass flagged nothing.",
+          },
+        ],
+      },
+      write: true,
+      superseded: true,
+    }
+  }
+
+  if (documentChanged && !isSettled(existing) && existing.resolution == null)
+    return fresh()
+
+  const known = new Set(
+    [existing, ...history].flatMap((entry) => entry.disagreements.map(claimKey))
+  )
+  const added = pass.disagreements.filter((d) => !known.has(claimKey(d)))
+  const repeated = pass.disagreements
+    .filter((d) => known.has(claimKey(d)))
+    .map(({ kind, value }) => ({ kind, value }))
+  const reopened = isSettled(existing) && added.length > 0
+  const status = isSettled(existing) && !reopened ? existing.status : "open"
+
+  // The same validator saying the same things about the same text again.
+  if (
+    added.length === 0 &&
+    status === existing.status &&
+    !documentChanged &&
+    sameValidator(last.validator, pass.validator)
+  ) {
+    return { ...unchanged, repeated: repeated.length }
+  }
+
+  return {
+    review: {
+      ...existing,
+      status,
+      revalidations: [
+        ...history,
+        { ...record, disagreements: added, repeated },
+      ],
+    },
+    write: true,
+    added,
+    repeated: repeated.length,
+    superseded: false,
+    reopened,
+  }
+}
+
+// --- the human spot-check ---------------------------------------------------
+
+/** `review/spot-check.json`. */
+export type SpotCheck = {
+  note: string
+  /** The test-split size the sample is a tenth of. Absent in older files. */
+  drawnFrom?: number
+  ids: string[]
+  log: { id: string; reviewer: string; date: string; changed: string }[]
+}
+
+/**
+ * The tenth of the test split a person checks whether or not the validator
+ * flagged anything. Documents once chosen stay chosen, with their log entries;
+ * when the split has grown since the draw, as it does after a trial run, the
+ * sample is topped up to a tenth of it from the documents not yet in it. The
+ * top-up is seeded by the corpus name and the ids already chosen, so the same
+ * starting point always adds the same documents.
+ */
+export function drawSpotCheck(
+  corpus: string,
+  testIds: readonly string[],
+  existing: SpotCheck | null
+): { spotCheck: SpotCheck; added: string[] } {
+  const target = Math.ceil(testIds.length / 10)
+  const all = [...testIds].sort()
+  if (!existing) {
+    const ids = createRng(0, "spot-check", corpus).sample(all, target).sort()
+    return {
+      spotCheck: {
+        note: "Checked by a person whether or not the validator flagged anything. Log each one below.",
+        drawnFrom: testIds.length,
+        ids,
+        log: [],
+      },
+      added: ids,
+    }
+  }
+  const chosen = [...existing.ids].sort()
+  const candidates = all.filter((id) => !chosen.includes(id))
+  const added = createRng(0, "spot-check", corpus, ...chosen)
+    .sample(candidates, Math.max(0, target - chosen.length))
+    .sort()
+  if (added.length === 0 && (existing.drawnFrom ?? 0) >= testIds.length)
+    return { spotCheck: existing, added }
+  return {
+    spotCheck: {
+      ...existing,
+      drawnFrom: Math.max(existing.drawnFrom ?? 0, testIds.length),
+      ids: [...chosen, ...added].sort(),
+    },
+    added,
+  }
 }
