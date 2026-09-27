@@ -10,7 +10,11 @@ import { TextViewer } from "@/components/document-viewer/text-viewer"
 import { ImageCanvas } from "@/components/image-editor/image-canvas"
 import { RedactionLayer } from "@/components/redaction/redaction-layer"
 import { SpreadsheetGrid } from "@/components/spreadsheet/spreadsheet-grid"
-import { useNormalizedDocument } from "@/hooks/use-normalized-document"
+import {
+  useNormalizedDocument,
+  useNormalizedPage,
+  usePrefetchPages,
+} from "@/hooks/use-normalized-document"
 import { fitModeChanged, zoomChanged } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { redactionSelected } from "@/store/redactionSlice"
@@ -54,9 +58,17 @@ export function DocumentCanvas({
   const redactions = useAppSelector(selectRedactions)
   const selectedId = useAppSelector((state) => state.redactions.selectedId)
 
-  const page =
-    normalized?.pages.find((candidate) => candidate.number === currentPage) ??
-    normalized?.pages[0]
+  // The page on the canvas, fetched on its own; the rest of the document is
+  // not held. Its neighbours are asked for early so paging does not wait.
+  const pageNumbers = normalized?.pageNumbers
+  const pageNumber = pageNumbers?.includes(currentPage)
+    ? currentPage
+    : pageNumbers?.[0]
+  const page = useNormalizedPage(summary.id, pageNumber) ?? undefined
+  usePrefetchPages(summary.id, [
+    pageNumber === undefined ? undefined : pageNumber - 1,
+    pageNumber === undefined ? undefined : pageNumber + 1,
+  ])
 
   const pageRedactions = useMemo(
     () =>
@@ -133,7 +145,7 @@ export function DocumentCanvas({
     return normalized ? (
       <ImageCanvas
         documentId={summary.id}
-        normalized={normalized}
+        page={page}
         zoom={zoom}
         redactions={pageRedactions}
         regions={normalized.regions ?? []}

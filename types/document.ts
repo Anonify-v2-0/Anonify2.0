@@ -240,6 +240,21 @@ export type NormalizedDocument = {
 }
 
 /**
+ * A model with its pages left out: everything else it carries — the kind, the
+ * metadata, a workbook's sheets, an image's regions — and which pages exist.
+ *
+ * What the editor opens first. Pages arrive one at a time after it, so a
+ * three-thousand-page file costs the browser the pages being looked at rather
+ * than all of them.
+ */
+export type NormalizedOutline = Omit<NormalizedDocument, "pages"> & {
+  pages: []
+  pageCount: number
+  /** The page numbers that exist, in order. */
+  pageNumbers: number[]
+}
+
+/**
  * Where a document sits in the batch it was uploaded with.
  *
  * The workspace needs this to move between the documents of one review pass,

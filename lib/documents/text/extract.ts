@@ -1,4 +1,8 @@
 import { decodeText, TextDecodingStream } from "@/lib/documents/delimited/parse"
+import {
+  NormalizedJsonWriter,
+  type NormalizedIndex,
+} from "@/lib/documents/normalized-json"
 import { TextStreamBuilder } from "@/lib/documents/shared/text"
 import type { NormalizedDocument, NormalizedPage } from "@/types/document"
 
@@ -226,33 +230,33 @@ export class TextExtractionStream {
   private readonly decoder = new TextDecodingStream()
   private readonly paginator: TextPaginator
   private readonly lines: LineSplitter
-  private out: string[] = []
+  private readonly out = new NormalizedJsonWriter()
   private characters = 0
   private lineCount = 0
-  private written = 0
 
   constructor(documentId: string) {
-    this.paginator = new TextPaginator((page) => {
-      this.out.push(this.written === 0 ? "" : ",", JSON.stringify(page))
-      this.written += 1
-    })
+    this.paginator = new TextPaginator((page) => this.out.page(page))
     this.lines = new LineSplitter((line) => {
       this.lineCount += 1
       this.paginator.line(line)
     })
-    this.out.push(
-      `{"documentId":${JSON.stringify(documentId)},"kind":"txt","pages":[`
-    )
+    this.out.push(`{"documentId":${JSON.stringify(documentId)},"kind":"txt",`)
+    this.out.beginPages()
   }
 
   get pageCount(): number {
     return this.paginator.pageCount
   }
 
+  /** Where each page landed in the JSON; complete once `end` has returned. */
+  get index(): NormalizedIndex {
+    return this.out.index
+  }
+
   /** Takes the next piece of the file; returns the JSON it completed. */
   write(bytes: Uint8Array): string {
     this.accept(this.decoder.write(bytes))
-    return this.take()
+    return this.out.take()
   }
 
   /** Finishes the file; returns the rest of the JSON, or throws its refusal. */
@@ -262,15 +266,16 @@ export class TextExtractionStream {
 
     this.lines.end()
     this.paginator.end()
+    this.out.endPages()
     this.out.push(
-      `],"metadata":${JSON.stringify({
+      `,"metadata":${JSON.stringify({
         characters: this.characters,
         lines: this.lineCount,
         byteOrderMark: this.decoder.bom,
         pageCount: this.paginator.pageCount,
       })}}`
     )
-    return this.take()
+    return this.out.take()
   }
 
   private accept(text: string): void {
@@ -280,11 +285,5 @@ export class TextExtractionStream {
     // the one already known.
     if (this.decoder.refused || this.characters > MAX_TEXT_CHARS) return
     this.lines.write(text)
-  }
-
-  private take(): string {
-    const json = this.out.join("")
-    this.out = []
-    return json
   }
 }

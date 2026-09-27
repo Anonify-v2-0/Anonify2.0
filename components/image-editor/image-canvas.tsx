@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 import type {
   BoundingBox,
   ImageRegion,
-  NormalizedDocument,
+  NormalizedPage,
 } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
 
@@ -70,7 +70,8 @@ function describe(redaction: Redaction): string {
 
 export type ImageCanvasProps = {
   documentId: string
-  normalized: NormalizedDocument
+  /** The image's one page of OCR text, once it has arrived. */
+  page: NormalizedPage | undefined
   zoom: number
   /** Every redaction on the image, accepted or still proposed. */
   redactions: Redaction[]
@@ -85,7 +86,7 @@ export type ImageCanvasProps = {
 
 export function ImageCanvas({
   documentId,
-  normalized,
+  page,
   zoom,
   redactions,
   regions,
@@ -96,7 +97,6 @@ export function ImageCanvas({
 }: ImageCanvasProps) {
   const surfaceRef = useRef<HTMLDivElement>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
-  const page = normalized.pages[0]
 
   // A text redaction carries offsets, not a rectangle. Resolving it through the
   // OCR span geometry is what makes a detection over scanned text visible on

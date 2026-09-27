@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/database/prisma"
 import { randomId } from "@/lib/documents/ids"
-import { loadNormalized } from "@/lib/documents/normalized-store"
-import type { ExportOptions } from "@/lib/redaction/apply"
+import {
+  readNormalized,
+  withPages,
+} from "@/lib/documents/normalized-store"
+import { pagesReadByExport, type ExportOptions } from "@/lib/redaction/apply"
 import {
   resolveAttachments,
   type AttachmentOutcome,
@@ -31,7 +34,7 @@ import {
 } from "@/lib/storage/blob"
 import { documentSeal, getSealed, putSealed } from "@/lib/storage/sealed"
 import { sha256 } from "@/lib/storage/integrity"
-import type { DocumentKind } from "@/types/document"
+import type { DocumentKind, NormalizedPage } from "@/types/document"
 
 /**
  * Generating an export and storing it.
@@ -139,6 +142,7 @@ export async function exportAndStore(
       encryptionFormat: true,
       sourceBlobKey: true,
       normalizedBlobKey: true,
+      normalizedIndex: true,
     },
   })
 
@@ -151,14 +155,25 @@ export async function exportAndStore(
   }
 
   const seal = documentSeal(document)
-  const [model, rows] = await Promise.all([
-    loadNormalized(document.id, document.normalizedBlobKey, seal),
+  const reader = readNormalized(document)
+  const [outline, rows] = await Promise.all([
+    reader.outline(),
     // Every redaction, not only the accepted ones: the exporter filters for
     // itself, and the report has to be able to say what was turned down.
     prisma.redaction.findMany({ where: { documentId: document.id } }),
   ])
 
   const redactions = rows.map(fromDatabaseRow)
+
+  // Only the pages something is removed from. A three-thousand-page file with
+  // one redaction on page twelve reads page twelve, not the model.
+  const pages: NormalizedPage[] = []
+  for await (const page of reader.pages(
+    pagesReadByExport(redactions, outline.pageNumbers[0])
+  )) {
+    pages.push(page)
+  }
+  const model = withPages(outline, pages)
   const source = await getSealed(
     document.sourceBlobKey,
     sourceKey(document.id),

@@ -62,7 +62,7 @@ export async function POST(
 
     const record = await prisma.document.findUnique({
       where: { id: document.id },
-      select: { normalizedBlobKey: true, batchId: true },
+      select: { normalizedBlobKey: true, normalizedIndex: true, batchId: true },
     })
 
     if (!record?.normalizedBlobKey || !document.encryptionKey) {
@@ -109,6 +109,7 @@ export async function POST(
         encryptionKey: document.encryptionKey,
         encryptionFormat: document.encryptionFormat,
         normalizedBlobKey: record.normalizedBlobKey,
+        normalizedIndex: record.normalizedIndex,
       },
       pattern,
       category,

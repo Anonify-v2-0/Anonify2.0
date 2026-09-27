@@ -41,8 +41,10 @@ import { MboxLimitError } from "@/lib/documents/mbox/limits"
 import { MboxParseError } from "@/lib/documents/mbox/parse"
 import { expandContainer } from "@/lib/documents/expand"
 import { newEventId } from "@/lib/documents/ids"
+import type { NormalizedIndex } from "@/lib/documents/normalized-json"
 import {
-  loadNormalized,
+  loadTextModel,
+  readNormalized,
   saveNormalized,
   saveNormalizedStream,
 } from "@/lib/documents/normalized-store"
@@ -481,6 +483,9 @@ async function runExtractAndNormalize(
     where: { id: documentId },
     data: {
       normalizedBlobKey: extracted.normalizedBlobKey,
+      // Written with the key it describes, so a retried extraction can never
+      // leave one model's key beside another model's offsets.
+      normalizedIndex: extracted.normalizedIndex,
       pageCount: extracted.pageCount,
     },
   })
@@ -512,6 +517,7 @@ type ExtractionInput = {
 
 type Extracted = {
   normalizedBlobKey: string
+  normalizedIndex: NormalizedIndex
   pageCount: number
   usage:
     | { model: NormalizedDocument }
@@ -548,13 +554,14 @@ async function extractWhole(input: ExtractionInput): Promise<Extracted> {
   }
 
   const model = await extractByKind(input.documentId, input.kind, bytes)
-  const normalizedBlobKey = await saveNormalized(
-    input.documentId,
-    input.seal,
-    model
-  )
+  const saved = await saveNormalized(input.documentId, input.seal, model)
 
-  return { normalizedBlobKey, pageCount: model.pages.length, usage: { model } }
+  return {
+    normalizedBlobKey: saved.key,
+    normalizedIndex: saved.index,
+    pageCount: model.pages.length,
+    usage: { model },
+  }
 }
 
 /**
@@ -631,7 +638,12 @@ async function extractStreamed(
   const cells =
     extractor instanceof DelimitedExtractionStream ? extractor.cells : 0
 
-  return { normalizedBlobKey, pageCount, usage: { counts: { pages: pageCount, cells } } }
+  return {
+    normalizedBlobKey,
+    normalizedIndex: extractor.index,
+    pageCount,
+    usage: { counts: { pages: pageCount, cells } },
+  }
 }
 
 async function extractByKind(
@@ -717,6 +729,7 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
       encryptionKey: true,
       encryptionFormat: true,
       normalizedBlobKey: true,
+      normalizedIndex: true,
       sourceBlobKey: true,
       preset: true,
     },
@@ -727,11 +740,9 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
   }
 
   const seal = documentSeal(document)
-  const model = await loadNormalized(
-    document.id,
-    document.normalizedBlobKey,
-    seal
-  )
+  // The text of every page and none of its geometry: analysis reads nothing
+  // else, and the geometry is most of what a model weighs.
+  const model = await loadTextModel(readNormalized(document))
 
   // Null when no preset was chosen, which means everything is looked for.
   const preset = presetById(document.preset)
