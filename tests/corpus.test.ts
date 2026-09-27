@@ -695,16 +695,55 @@ describe("corpus operator identity", () => {
 
   it("takes whole emails and name-like parts, not generic ones", () => {
     expect(tokens).toEqual([
+      "ada quill",
+      "ada quill byron",
       "ada.quill@corp.test",
       "byron",
+      "byron quill ada",
       "noreply@anthropic.com",
       "quill",
+      "quill ada",
     ])
   })
 
   it("finds them as whole words in any case", () => {
     expect(findDenied("Signed, A. QUILL", tokens)).toEqual(["quill"])
     expect(findDenied("Quillon Ltd and Byronic verse", tokens)).toEqual([])
+  })
+
+  it("finds a whole name of short parts, in either order and however it is separated", () => {
+    const short = denyTokens(["tom.lee@corp.test", "Li Wei"])
+    expect(short).toEqual([
+      "lee tom",
+      "li wei",
+      "tom lee",
+      "tom.lee@corp.test",
+      "wei li",
+    ])
+    expect(findDenied("Approved by Tom Lee.", short)).toEqual(["tom lee"])
+    expect(findDenied("Approved by TOM  LEE", short)).toEqual(["tom lee"])
+    expect(findDenied("Lee, Tom (approver)", short)).toEqual(["lee tom"])
+    expect(findDenied("Assigned to Wei\nLi", short)).toEqual(["wei li"])
+    expect(findDenied("Tom Leeds and Lee Tomlinson; Li Weiss", short)).toEqual(
+      []
+    )
+    expect(findDenied("Tom, Ana and Lee", short)).toEqual([])
+  })
+
+  it("rejects a document that names an operator whose name parts are short", () => {
+    const result = buildDocument(
+      spec(),
+      response(
+        `Dear [[person|Priya Raman]], ${FILLER} [[email|{{EMAIL:p1}}]] [[person|Priya]]. Approved by Tom Lee.`
+      ),
+      GENERATOR,
+      { deny: denyTokens(["tom.lee@corp.test"]) }
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok)
+      expect(result.reasons).toContain(
+        "mentions the operator's identity (to*****)"
+      )
   })
 
   it("rejects a document that names the operator", () => {

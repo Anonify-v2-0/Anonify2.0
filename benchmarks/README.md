@@ -70,8 +70,9 @@ address to the model as context, even with `--system-prompt`. In a trial, the
 model used it as a character's address. The script collects what identifies
 you: the Claude Code and Codex account files, `git config user.name` and
 `user.email`, your OS username, anything in `CORPUS_DENY`, and each `--deny
-<text>`. It then rejects any document that mentions an email or a name part of
-four letters or more from that list. The email alone would be caught by the
+<text>`. It then rejects any document that mentions an email from that list, a
+name part of four letters or more, or a whole name in either order however
+short its parts ("Tom Lee", "Lee, Tom"). The email alone would be caught by the
 reserved-range check, but a name derived from it would not be. If your name
 could reach the model some other way, pass it with `--deny`.
 

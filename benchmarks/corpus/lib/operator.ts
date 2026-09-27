@@ -115,8 +115,10 @@ export async function operatorStrings(extra: string[] = []): Promise<string[]> {
 }
 
 /**
- * The strings to look for: each email whole, and every name-like part of
- * four letters or more, from names, usernames and email local parts.
+ * The strings to look for: each email whole, every name-like part of four
+ * letters or more, and each whole name in either order, from names, usernames
+ * and email local parts. A part as short as "Lee" is too common to reject a
+ * document for, but "Tom Lee" and "Lee Tom" are specific at any length.
  */
 export function denyTokens(strings: string[]): string[] {
   const tokens = new Set<string>()
@@ -125,23 +127,35 @@ export function denyTokens(strings: string[]): string[] {
     const at = lower.indexOf("@")
     if (at > 0) tokens.add(lower)
     const source = at > 0 ? lower.slice(0, at) : lower
-    for (const part of source.split(/[^\p{L}]+/u)) {
+    const parts = source.split(/[^\p{L}]+/u).filter(Boolean)
+    for (const part of parts) {
       if (part.length >= 4 && !GENERIC.has(part)) tokens.add(part)
+    }
+    // The whole name however short its parts: "tom.lee" → "tom lee".
+    if (parts.length > 1 && parts.some((part) => !GENERIC.has(part))) {
+      tokens.add(parts.join(" "))
+      tokens.add([...parts].reverse().join(" "))
     }
   }
   return [...tokens].sort()
 }
 
-/** The deny tokens that occur in `text` as whole words, ignoring case. */
+/**
+ * The deny tokens that occur in `text` as whole words, ignoring case. A
+ * whole-name token matches whatever separates the names, so "tom lee" finds
+ * "Tom  Lee", "Lee, Tom" (as "lee tom") and "tom.lee".
+ */
 export function findDenied(text: string, tokens: string[]): string[] {
   const lower = text.toLowerCase()
+  const words = lower.replace(/[^\p{L}\p{N}]+/gu, " ")
   return tokens.filter((token) => {
+    const haystack = /^\p{L}+( \p{L}+)+$/u.test(token) ? words : lower
     let from = 0
     for (;;) {
-      const at = lower.indexOf(token, from)
+      const at = haystack.indexOf(token, from)
       if (at === -1) return false
-      const before = lower[at - 1]
-      const after = lower[at + token.length]
+      const before = haystack[at - 1]
+      const after = haystack[at + token.length]
       const boundary = (ch: string | undefined) =>
         ch === undefined || !/[\p{L}\p{N}]/u.test(ch)
       if (boundary(before) && boundary(after)) return true
