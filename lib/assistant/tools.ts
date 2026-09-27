@@ -760,7 +760,7 @@ export function hushTools(context: HushContext) {
 
     set_suggestion_status: tool({
       description:
-        "Accepts or rejects whole suggestion groups, by the keys list_suggestions returned. Accepting redacts every occurrence in the group; rejecting keeps them in the export. The reviewer approves it first.",
+        "Accepts or rejects the pending suggestions in whole groups, by the keys list_suggestions returned. Accepting redacts every suggested occurrence in the group; rejecting keeps them in the export. Only suggestions change: what the reviewer already accepted or rejected, redacted by hand or a rule redacted stays as it is (counted in alreadyDecided). The reviewer approves it first.",
       inputSchema: z.object({
         keys: z.array(z.string()).min(1).max(100),
         status: z.enum(["accepted", "rejected"]),
@@ -768,16 +768,33 @@ export function hushTools(context: HushContext) {
       }),
       execute: async ({ keys, status }) => {
         const wanted = new Set(keys)
-        const ids = (await redactionsOf(context.documentId))
-          .filter((redaction) => wanted.has(suggestionKeyOf(redaction)))
-          .map((redaction) => redaction.id)
-        if (ids.length === 0)
+        const grouped = (await redactionsOf(context.documentId)).filter(
+          (redaction) => wanted.has(suggestionKeyOf(redaction))
+        )
+        if (grouped.length === 0)
           return { error: "None of those groups exist in this document." }
+        // Only what is still a suggestion. A group can also hold a value the
+        // reviewer redacted by hand, a rule's redaction or one they already
+        // rejected; each is a decision already taken, and a bulk decision
+        // must not overturn it. The approval card counts the same set.
+        const ids = grouped
+          .filter((redaction) => redaction.status === "suggested")
+          .map((redaction) => redaction.id)
+        // `status` again in the where: anything decided between the approval
+        // and now stays decided.
         const result = await prisma.redaction.updateMany({
-          where: { documentId: context.documentId, id: { in: ids } },
+          where: {
+            documentId: context.documentId,
+            id: { in: ids },
+            status: "suggested",
+          },
           data: { status },
         })
-        return { updated: result.count, status }
+        return {
+          updated: result.count,
+          status,
+          alreadyDecided: grouped.length - result.count,
+        }
       },
     }),
   }

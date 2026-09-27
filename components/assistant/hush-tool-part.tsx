@@ -745,9 +745,14 @@ function ChangeBody({ part }: { part: Part }) {
         reason: string
       }
       const wanted = new Set(input.keys)
-      const affected = redactions.filter((redaction) =>
+      // What the tool will change: only what is still a suggestion.
+      const grouped = redactions.filter((redaction) =>
         wanted.has(suggestionKeyOf(redaction))
       )
+      const affected = grouped.filter(
+        (redaction) => redaction.status === "suggested"
+      )
+      const decided = grouped.length - affected.length
       const groups = [
         ...new Map(
           affected.map((redaction) => [suggestionKeyOf(redaction), redaction])
@@ -773,6 +778,12 @@ function ChangeBody({ part }: { part: Part }) {
               </li>
             ))}
           </ul>
+          {decided > 0 ? (
+            <Meta>
+              Leaves {plural(decided, "redaction")} already decided in these
+              groups as they are.
+            </Meta>
+          ) : null}
           {input.status === "rejected" ? (
             <Meta>Rejected values stay in the exported file.</Meta>
           ) : null}

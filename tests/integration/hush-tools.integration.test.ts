@@ -8,7 +8,8 @@ import { hasDatabase, testFingerprint, testId } from "./support"
  * What is held down: occurrences say truthfully whether they are covered,
  * the missed-value scan leaves out what is already redacted, a redaction is
  * written only where the text at a reference is the text that was approved,
- * and a bulk decision touches exactly the groups it names.
+ * and a bulk decision touches exactly the groups it names, and in them only
+ * what is still a suggestion.
  */
 
 const { prisma } = await import("@/lib/database/prisma")
@@ -294,5 +295,44 @@ describe.skipIf(!hasDatabase)("Hush's tools against Postgres", () => {
       ["jane@example.com", "rejected"],
       ["bob@example.com", "suggested"],
     ])
+  })
+
+  it("decides only what is still a suggestion in a group", async () => {
+    const value = "jane@example.com"
+    const text = Array.from({ length: 4 }, () => value).join(", ")
+    const at = (index: number) => index * (value.length + 2)
+
+    for (const status of ["accepted", "rejected"] as const) {
+      const { id, tools } = await seed(text)
+      await suggest(id, value, at(0))
+      // Redacted by hand, redacted by a rule, and kept by the reviewer:
+      // decisions a bulk accept or reject must not overturn.
+      await suggest(id, value, at(1), "email", {
+        status: "accepted",
+        source: "user",
+      })
+      await suggest(id, value, at(2), "email", {
+        status: "accepted",
+        source: "rule",
+      })
+      await suggest(id, value, at(3), "email", { status: "rejected" })
+
+      const result = await call<{ updated: number; alreadyDecided: number }>(
+        tools.set_suggestion_status,
+        { keys: [`email|${value}`], status, reason: "Bulk decision" }
+      )
+
+      expect(result).toMatchObject({ updated: 1, alreadyDecided: 3 })
+      const rows = await prisma.redaction.findMany({
+        where: { documentId: id },
+        orderBy: { startOffset: "asc" },
+      })
+      expect(rows.map((row) => [row.source, row.status])).toEqual([
+        ["ai", status],
+        ["user", "accepted"],
+        ["rule", "accepted"],
+        ["ai", "rejected"],
+      ])
+    }
   })
 })
