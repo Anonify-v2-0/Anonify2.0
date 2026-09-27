@@ -379,7 +379,21 @@ export function extractEml(
 ): EmlExtraction {
   const source = decodeEml(bytes)
   const parsed = parseEml(source, limits)
+  return { source, parsed, document: emlDocument(documentId, parsed) }
+}
 
+/**
+ * The reviewed model of a parsed message.
+ *
+ * Built from the tree alone — headers, decoded text, filenames and paths — so
+ * a message scanned as it streamed (lib/documents/eml/scan.ts), whose
+ * attachment bodies were never held, makes the same model as one parsed
+ * whole.
+ */
+export function emlDocument(
+  documentId: string,
+  parsed: ParsedMessage
+): NormalizedDocument {
   const pieces: Piece[] = []
   collect(parsed.root, pieces, "0", 0)
 
@@ -389,27 +403,23 @@ export function extractEml(
   const nested = parsed.nodes.filter((node) => node.contentType === "message/rfc822")
 
   return {
-    source,
-    parsed,
-    document: {
-      documentId,
-      kind: "eml",
-      pages,
-      metadata: {
-        pageCount: pages.length,
-        parts: parsed.nodes.length,
-        attachments: attachments.length,
-        nestedMessages: nested.length,
-        // What the quota is charged on, so the number the user is billed for
-        // is the number this pipeline actually read.
-        textBytes: pages.reduce(
-          (total, page) => total + Buffer.byteLength(page.text, "utf8"),
-          0
-        ),
-        contentTypes: [
-          ...new Set(parsed.nodes.map((node) => node.contentType)),
-        ].sort(),
-      },
+    documentId,
+    kind: "eml",
+    pages,
+    metadata: {
+      pageCount: pages.length,
+      parts: parsed.nodes.length,
+      attachments: attachments.length,
+      nestedMessages: nested.length,
+      // What the quota is charged on, so the number the user is billed for
+      // is the number this pipeline actually read.
+      textBytes: pages.reduce(
+        (total, page) => total + Buffer.byteLength(page.text, "utf8"),
+        0
+      ),
+      contentTypes: [
+        ...new Set(parsed.nodes.map((node) => node.contentType)),
+      ].sort(),
     },
   }
 }

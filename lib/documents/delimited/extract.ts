@@ -7,6 +7,10 @@ import {
   type DelimitedField,
   type Delimiter,
 } from "@/lib/documents/delimited/parse"
+import {
+  NormalizedJsonWriter,
+  type NormalizedIndex,
+} from "@/lib/documents/normalized-json"
 import type {
   DocumentKind,
   NormalizedDocument,
@@ -166,7 +170,7 @@ export function extractDelimited(
 export class DelimitedExtractionStream {
   private readonly decoder = new TextDecodingStream()
   private readonly parser: DelimitedParser
-  private out: string[] = []
+  private readonly out = new NormalizedJsonWriter()
   private rows = 0
   private widest = 0
   private cellCount = 0
@@ -180,9 +184,20 @@ export class DelimitedExtractionStream {
       this.row(fields)
     )
     this.out.push(
-      `{"documentId":${JSON.stringify(documentId)},"kind":${JSON.stringify(kind)},` +
-        `"pages":[],"sheets":[{"name":${JSON.stringify(DELIMITED_SHEET_NAME)},"cells":[`
+      `{"documentId":${JSON.stringify(documentId)},"kind":${JSON.stringify(kind)},`
     )
+    // Grids have no pages; the empty array is still indexed, so a reader can
+    // cut the sheets out as the outline the same way it would for a document.
+    this.out.beginPages()
+    this.out.endPages()
+    this.out.push(
+      `,"sheets":[{"name":${JSON.stringify(DELIMITED_SHEET_NAME)},"cells":[`
+    )
+  }
+
+  /** Where the (empty) pages array landed; complete once `end` has returned. */
+  get index(): NormalizedIndex {
+    return this.out.index
   }
 
   /** Cells written so far — the quantity a delimited file is charged by. */
@@ -193,7 +208,7 @@ export class DelimitedExtractionStream {
   /** Takes the next piece of the file; returns the JSON it completed. */
   write(bytes: Uint8Array): string {
     this.accept(this.decoder.write(bytes))
-    return this.take()
+    return this.out.take()
   }
 
   /** Finishes the file; returns the rest of the JSON, or throws its refusal. */
@@ -209,7 +224,7 @@ export class DelimitedExtractionStream {
         `"headers":${JSON.stringify(headersOf(this.header, columnCount))}}],` +
         `"metadata":${JSON.stringify(metadataOf(this.kind, rowCount, columnCount, eol))}}`
     )
-    return this.take()
+    return this.out.take()
   }
 
   private accept(text: string): void {
@@ -227,14 +242,8 @@ export class DelimitedExtractionStream {
     if (index >= MAX_ROWS) return
 
     for (const cell of cellsOf(fields, index)) {
-      this.out.push(this.cellCount === 0 ? "" : ",", JSON.stringify(cell))
+      this.out.push(`${this.cellCount === 0 ? "" : ","}${JSON.stringify(cell)}`)
       this.cellCount += 1
     }
-  }
-
-  private take(): string {
-    const json = this.out.join("")
-    this.out = []
-    return json
   }
 }

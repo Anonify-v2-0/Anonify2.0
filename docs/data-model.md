@@ -119,6 +119,7 @@ An uploaded source document. The stored source bytes are AES-256-GCM encrypted;
 | `userFingerprint` | `String` | Hashed owner identity. A document belongs to this and nothing else. |
 | `quotaKey` | `String?` | Hashed quota bucket (session + coarse network); charged after extraction when the real count is known. |
 | `normalizedBlobKey` | `String?` | Encrypted normalized-model artifact. Text never sits in the DB in the clear. |
+| `normalizedIndex` | `Json?` | Where each page sits in the normalized model's JSON: `{ version, size, open, close, pages: [number, start, end][] }`, byte offsets only and never content. Written with `normalizedBlobKey` in the same update. Null for a model written before it existed, which is read whole. See [streaming.md](./streaming.md) §3. |
 | `metadata` | `Json?` | Free-form per-document metadata. See §10 for the known keys. |
 | `redactions` | `Redaction[]` | Relation. |
 | `rules` | `GlobalRule[]` | Relation. |

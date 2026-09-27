@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import { Readable } from "node:stream"
+import { PassThrough, Readable } from "node:stream"
 
 import { describe, expect, it } from "vitest"
 
@@ -19,7 +19,7 @@ import {
   sealedSizeOf,
   TAG_BYTES,
 } from "@/lib/storage/chunked"
-import { collect } from "@/lib/storage/streams"
+import { chain, collect } from "@/lib/storage/streams"
 
 /**
  * The chunked envelope, tested against the attacks it exists to close.
@@ -315,5 +315,31 @@ describe("the chunked envelope", () => {
         Buffer.concat(received).equals(plaintext.subarray(0, CHUNK * 2))
       ).toBe(true)
     })
+  })
+})
+
+describe("chaining a source into a transform", () => {
+  it("releases the source when the reader stops early", async () => {
+    // A file handle or a socket, in production; left open, it is a leak per
+    // abandoned read and, for a file, an error when the collector finds it.
+    const source = new Readable({ read() {} })
+    source.push(Buffer.alloc(16))
+    const transform = chain(source, new PassThrough())
+
+    for await (const piece of transform) {
+      expect(piece.byteLength).toBe(16)
+      break
+    }
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(source.destroyed).toBe(true)
+  })
+
+  it("carries a source's failure into the transform", async () => {
+    const source = new Readable({ read() {} })
+    const transform = chain(source, new PassThrough())
+    source.destroy(new Error("storage went away"))
+
+    await expect(collect(transform)).rejects.toThrow(/storage went away/)
   })
 })

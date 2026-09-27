@@ -165,13 +165,25 @@ deleted last and only if storage cleared.
 
 ### `GET /api/documents/:id/content`
 
-The normalized model the canvas and inspector render from.
+The normalized model the canvas and inspector render from, whole or a page at
+a time. For a model written with a page index (`Document.normalizedIndex`), a
+page is one ranged read of the storage chunks that cover it; a model written
+before the index existed is read whole and the page cut from it. See
+[streaming.md](./streaming.md) §3.
 
 - **Auth:** session
 - **Rate limit:** `read`
 - **Path params:** `id`
+- **Query params:**
+  - `view=outline` — everything but the pages (kind, metadata, a workbook's
+    sheets, an image's regions) plus `pageCount` and `pageNumbers`. What the
+    editor opens first.
+  - `page=N` — one page (1-based). `400` if `N` is not a positive integer,
+    `404` if the document has no such page.
+  - neither — the whole model, as before.
 - **Response `200`:** the normalized document model (pages, spans, runs, sheets,
-  regions — see [architecture.md](./architecture.md) §1 layer B).
+  regions — see [architecture.md](./architecture.md) §1 layer B), its outline,
+  or one `NormalizedPage`.
 - **Errors:** `404`/`410` access; `409` not normalized yet (no
   `normalizedBlobKey` or no encryption key).
 
@@ -197,6 +209,12 @@ ownership; the bytes are re-hashed and compared against the checksum recorded
 at export time, so what is downloaded is provably the artifact that was
 verified.
 
+Streamed: the artifact is decrypted a chunk at a time and hashed as it passes,
+and its last piece is held back until the hash matches. A mismatch is logged
+and breaks the download off short — never a complete file that failed its
+check — rather than answering `500` before the first byte, which needed the
+whole artifact in memory first.
+
 - **Auth:** signed download token (`?token=`) **plus** session ownership
 - **Path params:** `id`
 - **Query params:**
@@ -211,7 +229,8 @@ verified.
   `<base>-redaction-report.json`).
 - **Errors:** `401` missing / invalid / expired token; `403` token is not
   yours; `404` artifact not found, **or** `part=report` requested but the
-  artifact has no report; `500` the stored export failed its integrity check.
+  artifact has no report. A stored export that fails its integrity check
+  ends the stream early instead of completing it.
 
 ### `POST /api/documents/:id/retry`
 
@@ -544,8 +563,12 @@ The batch archive: one export per document, plus its report, plus a roll-up
 `batch-report.json`. Nothing is generated here — the archive is assembled from
 artifacts the export already produced and verified, and each is re-hashed
 against its recorded checksum. An artifact that fails is left out and named
-in the batch report rather than failing the whole archive. Assembled in
-memory with a 150 MiB ceiling; what does not fit is named as skipped.
+in the batch report rather than failing the whole archive. Streamed in two
+passes: every artifact is first read through a hash and kept nowhere, which
+decides what goes in and what is named as skipped before a byte is sent; the
+archive is then compressed and sent as it is read, each file checked again on
+the way through. A 150 MiB ceiling bounds one request's work; what does not
+fit is named as skipped.
 
 A document the reviewer had tokenized or encrypted also gets its vault, as
 `<name>-vault.json`. **That means the archive holds both the reversible file

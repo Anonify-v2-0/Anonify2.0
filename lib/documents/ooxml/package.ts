@@ -1,6 +1,8 @@
 import { unzipSync, zipSync } from "fflate"
 import { XMLParser } from "fast-xml-parser"
 
+import type { ZipArchive } from "@/lib/documents/ooxml/zip"
+
 /**
  * Minimal OOXML container access.
  *
@@ -16,6 +18,46 @@ export type OoxmlPackage = {
 
 export function openPackage(bytes: Uint8Array): OoxmlPackage {
   return { files: unzipSync(bytes) }
+}
+
+/**
+ * The parts extraction reads: XML and its relationships. Everything else in a
+ * package — pictures, fonts, embedded workbooks, thumbnails — carries no text
+ * the extractors look at, and is usually most of the file.
+ */
+const EXTRACTED_PART = /\.(xml|rels)$/
+
+/**
+ * A package opened from ranged reads, holding only the parts extraction reads.
+ *
+ * The same parts under the same names in the same order as `openPackage`,
+ * byte for byte, because the zip reader refuses any archive it could read
+ * differently from `unzipSync`. The rest are inflated and let go — a part
+ * that does not inflate fails here as it would have there — and are left as
+ * names that throw when read, so an extractor that starts reading one fails
+ * loudly instead of finding it empty.
+ */
+export async function openPackageFromArchive(
+  archive: ZipArchive
+): Promise<OoxmlPackage> {
+  const files: Record<string, Uint8Array> = {}
+  for (const entry of archive.entries) {
+    if (EXTRACTED_PART.test(entry.name)) {
+      files[entry.name] = new Uint8Array(await archive.readAll(entry))
+      continue
+    }
+    for await (const piece of archive.read(entry)) void piece
+    Object.defineProperty(files, entry.name, {
+      enumerable: true,
+      configurable: true,
+      get() {
+        throw new Error(
+          `${entry.name} was not read from the archive; extraction reads XML parts only`
+        )
+      },
+    })
+  }
+  return { files }
 }
 
 export function packPackage(pkg: OoxmlPackage): Uint8Array {

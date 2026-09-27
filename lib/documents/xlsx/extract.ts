@@ -45,7 +45,12 @@ export function cellText(value: ExcelJS.CellValue): string | null {
   return null
 }
 
-function readSheet(worksheet: ExcelJS.Worksheet): SpreadsheetSheet {
+/**
+ * One worksheet, in the model's shape. Shared with the streamed extractor
+ * (lib/documents/xlsx/stream.ts), which hands it the same exceljs `Worksheet`
+ * one sheet at a time instead of all of them at once.
+ */
+export function readSheet(worksheet: ExcelJS.Worksheet): SpreadsheetSheet {
   const rowCount = Math.min(worksheet.rowCount, MAX_ROWS)
   const columnCount = Math.min(worksheet.columnCount, MAX_COLUMNS)
 
@@ -116,6 +121,8 @@ function sheetVisibility(
     : undefined
 }
 
+export const NO_READABLE_SHEETS = "Workbook has no readable worksheets"
+
 export async function loadWorkbook(
   bytes: Uint8Array
 ): Promise<ExcelJS.Workbook> {
@@ -147,7 +154,7 @@ export async function extractXlsx(
   })
 
   if (sheets.length === 0) {
-    throw new Error("Workbook has no readable worksheets")
+    throw new Error(NO_READABLE_SHEETS)
   }
 
   return {

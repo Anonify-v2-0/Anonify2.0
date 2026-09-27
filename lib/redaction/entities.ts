@@ -1,6 +1,10 @@
 import { normalizeValue } from "@/lib/documents/shared/text"
 import { findOccurrences } from "@/lib/documents/ooxml/xml-text"
-import type { NormalizedDocument } from "@/types/document"
+import type {
+  NormalizedDocument,
+  NormalizedPage,
+  SpreadsheetSheet,
+} from "@/types/document"
 import type { Detection } from "@/types/redaction"
 
 /**
@@ -65,27 +69,53 @@ export function buildEntities(detections: Detection[]): Entity[] {
 export function findAllOccurrences(
   model: NormalizedDocument,
   value: string,
-  options: { category: string; confidence?: number; reason?: string }
+  options: OccurrenceOptions
+): Detection[] {
+  if (!value.trim()) return []
+  return [
+    ...model.pages.flatMap((page) => occurrencesInPage(page, value, options)),
+    ...occurrencesInSheets(model.sheets ?? [], value, options),
+  ]
+}
+
+export type OccurrenceOptions = {
+  category: string
+  confidence?: number
+  reason?: string
+}
+
+/**
+ * The occurrences on one page. `findAllOccurrences` is this over every page
+ * and then the sheets, which is what lets a caller holding one page at a time
+ * reach exactly the same answer.
+ */
+export function occurrencesInPage(
+  page: NormalizedPage,
+  value: string,
+  options: OccurrenceOptions
+): Detection[] {
+  if (!value.trim()) return []
+  return findOccurrences(page.text, value).map((range) => ({
+    text: page.text.slice(range.start, range.end),
+    category: options.category,
+    confidence: options.confidence ?? 0.9,
+    reason: options.reason,
+    page: page.number,
+    start: range.start,
+    end: range.end,
+    global: true,
+  }))
+}
+
+export function occurrencesInSheets(
+  sheets: SpreadsheetSheet[],
+  value: string,
+  options: OccurrenceOptions
 ): Detection[] {
   const found: Detection[] = []
   if (!value.trim()) return found
 
-  for (const page of model.pages) {
-    for (const range of findOccurrences(page.text, value)) {
-      found.push({
-        text: page.text.slice(range.start, range.end),
-        category: options.category,
-        confidence: options.confidence ?? 0.9,
-        reason: options.reason,
-        page: page.number,
-        start: range.start,
-        end: range.end,
-        global: true,
-      })
-    }
-  }
-
-  for (const sheet of model.sheets ?? []) {
+  for (const sheet of sheets) {
     for (const cell of sheet.cells) {
       if (!cell.value) continue
       if (!cell.value.toLowerCase().includes(value.toLowerCase())) continue

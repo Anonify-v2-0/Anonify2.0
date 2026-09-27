@@ -135,7 +135,7 @@ async function normalize(documentId: string, text: string): Promise<void> {
     select: { encryptionKey: true, encryptionFormat: true },
   })
 
-  const key = await saveNormalized(documentId, documentSeal(document), {
+  const saved = await saveNormalized(documentId, documentSeal(document), {
     documentId,
     kind: "eml",
     pages: [
@@ -151,7 +151,11 @@ async function normalize(documentId: string, text: string): Promise<void> {
 
   await prisma.document.update({
     where: { id: documentId },
-    data: { normalizedBlobKey: key, status: "ready" },
+    data: {
+      normalizedBlobKey: saved.key,
+      normalizedIndex: saved.index,
+      status: "ready",
+    },
   })
 }
 

@@ -14,6 +14,7 @@ import {
   readPart,
   WORD_TEXT_PARTS,
   xmlParser,
+  type OoxmlPackage,
   type XmlNode,
 } from "@/lib/documents/ooxml/package"
 import type {
@@ -512,7 +513,14 @@ export function extractDocx(
   documentId: string,
   bytes: Uint8Array
 ): DocxExtraction {
-  const pkg = openPackage(bytes)
+  return extractDocxPackage(documentId, openPackage(bytes))
+}
+
+/** DOCX extraction over a package already opened, however it was opened. */
+export function extractDocxPackage(
+  documentId: string,
+  pkg: OoxmlPackage
+): DocxExtraction {
   const bodyXml = readPart(pkg, "word/document.xml")
   if (!bodyXml) {
     throw new Error("word/document.xml is missing; the file is not a DOCX")

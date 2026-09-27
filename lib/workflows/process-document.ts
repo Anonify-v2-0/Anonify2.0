@@ -19,21 +19,26 @@ import {
   DelimitedExtractionStream,
   extractDelimited,
 } from "@/lib/documents/delimited/extract"
-import { extractDocx } from "@/lib/documents/docx/extract"
+import { extractDocx, extractDocxPackage } from "@/lib/documents/docx/extract"
 import { extractPdf } from "@/lib/documents/pdf/extract"
-import { extractPptx } from "@/lib/documents/pptx/extract"
+import { extractPptx, extractPptxPackage } from "@/lib/documents/pptx/extract"
 import { extractImage } from "@/lib/documents/image/extract"
 import {
   MAX_VISION_PAGES,
   renderPagesForVision,
 } from "@/lib/documents/pdf/page-images"
-import { extractEml } from "@/lib/documents/eml/extract"
+import { emlDocument, extractEml } from "@/lib/documents/eml/extract"
+import type { ParsedMessage } from "@/lib/documents/eml/parse"
+import { scanEml } from "@/lib/documents/eml/scan"
 import { extractRtf } from "@/lib/documents/rtf/extract"
 import {
   extractText,
   TextExtractionStream,
 } from "@/lib/documents/text/extract"
 import { extractXlsx } from "@/lib/documents/xlsx/extract"
+import { XlsxExtractionStream } from "@/lib/documents/xlsx/stream"
+import { openPackageFromArchive } from "@/lib/documents/ooxml/package"
+import { openZip, ZipFallback } from "@/lib/documents/ooxml/zip"
 import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { ExpansionLimitError } from "@/lib/documents/eml/attachments"
 import { EmlLimitError } from "@/lib/documents/eml/limits"
@@ -41,8 +46,10 @@ import { MboxLimitError } from "@/lib/documents/mbox/limits"
 import { MboxParseError } from "@/lib/documents/mbox/parse"
 import { expandContainer } from "@/lib/documents/expand"
 import { newEventId } from "@/lib/documents/ids"
+import type { NormalizedIndex } from "@/lib/documents/normalized-json"
 import {
-  loadNormalized,
+  loadTextModel,
+  readNormalized,
   saveNormalized,
   saveNormalizedStream,
 } from "@/lib/documents/normalized-store"
@@ -64,10 +71,13 @@ import {
   getSealed,
   getSealedStream,
   newDocumentSeal,
+  openSealedObject,
   putSealedStream,
   type DocumentSeal,
 } from "@/lib/storage/sealed"
+import { cachedRangeSource } from "@/lib/storage/range-source"
 import { readHead } from "@/lib/storage/streams"
+import { streamingLimits } from "@/lib/storage/streaming"
 import {
   encodeStreamEvent,
   type ProcessingStreamEvent,
@@ -466,7 +476,11 @@ async function runExtractAndNormalize(
   try {
     extracted = isStreamedKind(kind)
       ? await extractStreamed({ ...input, kind })
-      : await extractWhole(input)
+      : kind === "eml"
+        ? await extractMessage(input)
+        : isRangedKind(kind)
+        ? await extractRanged({ ...input, kind })
+        : await extractWhole(input)
   } catch (error) {
     // An OCR provider this instance cannot run is a verdict about the
     // environment, not weather: every retry re-reads the source and reaches
@@ -481,6 +495,9 @@ async function runExtractAndNormalize(
     where: { id: documentId },
     data: {
       normalizedBlobKey: extracted.normalizedBlobKey,
+      // Written with the key it describes, so a retried extraction can never
+      // leave one model's key beside another model's offsets.
+      normalizedIndex: extracted.normalizedIndex,
       pageCount: extracted.pageCount,
     },
   })
@@ -512,6 +529,7 @@ type ExtractionInput = {
 
 type Extracted = {
   normalizedBlobKey: string
+  normalizedIndex: NormalizedIndex
   pageCount: number
   usage:
     | { model: NormalizedDocument }
@@ -535,6 +553,206 @@ function isStreamedKind(kind: DocumentKind): kind is StreamedKind {
   return (STREAMED_KINDS as readonly string[]).includes(kind)
 }
 
+/**
+ * The kinds whose extraction reads the source by ranges: formats whose index
+ * is at the end — a zip's central directory, a PDF's cross-reference table —
+ * so they cannot be read front to back, but whose parts can be read one at a
+ * time once the index is known.
+ */
+const RANGED_KINDS = ["xlsx", "docx", "pptx", "pdf"] as const
+
+type RangedKind = (typeof RANGED_KINDS)[number]
+
+function isRangedKind(kind: DocumentKind): kind is RangedKind {
+  return (RANGED_KINDS as readonly string[]).includes(kind)
+}
+
+/**
+ * Verifies the source against the checksum ingest recorded, reading it once
+ * as a stream and holding none of it.
+ *
+ * The ranged readers never read the source front to back, so this is the one
+ * pass that does. It comes first: a source that fails it is refused as
+ * corrupt before anything is made of it, as the whole-file path refuses it.
+ */
+async function verifySourceChecksum(input: ExtractionInput): Promise<void> {
+  const source: Readable = await getSealedStream(
+    input.sourceBlobKey,
+    sourceKey(input.documentId),
+    input.seal
+  )
+  const hash = createHash("sha256")
+  try {
+    for await (const piece of source as AsyncIterable<Buffer>) hash.update(piece)
+  } finally {
+    source.destroy()
+  }
+  if (!checksumMatches(input.checksum, hash.digest("hex"))) {
+    throw new FatalError("Source checksum mismatch")
+  }
+}
+
+/**
+ * Extracts a document by ranged reads of its source, writing the model as it
+ * goes.
+ *
+ * An archive the ranged reader cannot be sure of reading exactly as the
+ * whole-file parser would (lib/documents/ooxml/zip.ts) is handed to the
+ * whole-file path instead, which is what it always was: slower to hold,
+ * never a different answer.
+ */
+async function extractRanged(
+  input: ExtractionInput & { kind: RangedKind }
+): Promise<Extracted> {
+  await verifySourceChecksum(input)
+
+  const object = await openSealedObject(
+    input.sourceBlobKey,
+    sourceKey(input.documentId),
+    input.seal
+  )
+  const source = cachedRangeSource(object, streamingLimits().chunkBytes)
+
+  if (input.kind === "pdf") {
+    // pdf.js asks for the ranges it parses; scanned pages are read here too,
+    // while the document is open. See lib/documents/pdf/render.ts.
+    const { document: model } = await extractPdf(input.documentId, source, {
+      ocr: true,
+    })
+    const saved = await saveNormalized(input.documentId, input.seal, model)
+    return {
+      normalizedBlobKey: saved.key,
+      normalizedIndex: saved.index,
+      pageCount: model.pages.length,
+      usage: { model },
+    }
+  }
+
+  try {
+    const archive = await openZip(source)
+
+    if (input.kind === "xlsx") {
+      // Written a worksheet at a time, so only the counts are left to charge.
+      const extractor = new XlsxExtractionStream(input.documentId, archive)
+      const normalizedBlobKey = await storeModel(input, extractor.json())
+      return {
+        normalizedBlobKey,
+        normalizedIndex: extractor.index,
+        pageCount: 0,
+        usage: { counts: { pages: 0, cells: extractor.cellCount } },
+      }
+    }
+
+    // A Word document or a deck: only its XML parts are inflated and held.
+    // The model is built whole — it is the text, which is what is being
+    // reviewed — and never the pictures, fonts and embeddings around it.
+    const pkg = await openPackageFromArchive(archive)
+    const { document: model } =
+      input.kind === "docx"
+        ? extractDocxPackage(input.documentId, pkg)
+        : extractPptxPackage(input.documentId, pkg)
+    const saved = await saveNormalized(input.documentId, input.seal, model)
+    return {
+      normalizedBlobKey: saved.key,
+      normalizedIndex: saved.index,
+      pageCount: model.pages.length,
+      usage: { model },
+    }
+  } catch (error) {
+    if (!(error instanceof ZipFallback)) throw error
+    console.info(
+      JSON.stringify({
+        level: "info",
+        context: "workflow.extract",
+        documentId: input.documentId,
+        kind: input.kind,
+        // A fixed phrase naming what the archive did, never its contents.
+        fallback: error.message,
+      })
+    )
+    return extractWhole(input)
+  }
+}
+
+/**
+ * Stores a model written as JSON pieces, reporting what the writer threw
+ * rather than whatever the storage layer wrapped it in.
+ */
+async function storeModel(
+  input: ExtractionInput,
+  pieces: AsyncIterable<string>
+): Promise<string> {
+  let failure: unknown = null
+  async function* json(): AsyncGenerator<Buffer> {
+    try {
+      for await (const piece of pieces) {
+        if (piece) yield Buffer.from(piece, "utf8")
+      }
+    } catch (error) {
+      failure = error
+      throw error
+    }
+  }
+  try {
+    return await saveNormalizedStream(input.documentId, input.seal, json())
+  } catch (error) {
+    throw failure ?? error
+  }
+}
+
+/**
+ * A message, scanned as it streams: its headers and text parts are held, and
+ * its attachments go past without being kept (lib/documents/eml/scan.ts).
+ *
+ * The source is hashed in the same read. A message the scanner refuses is
+ * read to the end anyway, so a corrupt source is reported as corrupt rather
+ * than as whatever the corruption happened to look like to the parser — the
+ * order the whole-file path reports them in.
+ */
+async function extractMessage(input: ExtractionInput): Promise<Extracted> {
+  const stream: Readable = await getSealedStream(
+    input.sourceBlobKey,
+    sourceKey(input.documentId),
+    input.seal
+  )
+  const hash = createHash("sha256")
+  let read = false
+
+  async function* pieces(): AsyncGenerator<Buffer> {
+    for await (const piece of stream as AsyncIterable<Buffer>) {
+      hash.update(piece)
+      yield piece
+    }
+    read = true
+  }
+
+  let parsed: ParsedMessage | null = null
+  let refusal: unknown = null
+  try {
+    parsed = await scanEml(pieces())
+  } catch (error) {
+    refusal = error
+  } finally {
+    stream.destroy()
+  }
+
+  // A read that failed partway is storage weather, and is retried as such.
+  if (!read) throw refusal
+  if (!checksumMatches(input.checksum, hash.digest("hex"))) {
+    throw new FatalError("Source checksum mismatch")
+  }
+  if (refusal || !parsed) throw refusal
+
+  const model = emlDocument(input.documentId, parsed)
+  const saved = await saveNormalized(input.documentId, input.seal, model)
+  return {
+    normalizedBlobKey: saved.key,
+    normalizedIndex: saved.index,
+    pageCount: model.pages.length,
+    usage: { model },
+  }
+}
+
 /** Reads the whole source, verifies its checksum, and extracts it. */
 async function extractWhole(input: ExtractionInput): Promise<Extracted> {
   const bytes = await getSealed(
@@ -548,13 +766,14 @@ async function extractWhole(input: ExtractionInput): Promise<Extracted> {
   }
 
   const model = await extractByKind(input.documentId, input.kind, bytes)
-  const normalizedBlobKey = await saveNormalized(
-    input.documentId,
-    input.seal,
-    model
-  )
+  const saved = await saveNormalized(input.documentId, input.seal, model)
 
-  return { normalizedBlobKey, pageCount: model.pages.length, usage: { model } }
+  return {
+    normalizedBlobKey: saved.key,
+    normalizedIndex: saved.index,
+    pageCount: model.pages.length,
+    usage: { model },
+  }
 }
 
 /**
@@ -631,7 +850,12 @@ async function extractStreamed(
   const cells =
     extractor instanceof DelimitedExtractionStream ? extractor.cells : 0
 
-  return { normalizedBlobKey, pageCount, usage: { counts: { pages: pageCount, cells } } }
+  return {
+    normalizedBlobKey,
+    normalizedIndex: extractor.index,
+    pageCount,
+    usage: { counts: { pages: pageCount, cells } },
+  }
 }
 
 async function extractByKind(
@@ -717,6 +941,7 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
       encryptionKey: true,
       encryptionFormat: true,
       normalizedBlobKey: true,
+      normalizedIndex: true,
       sourceBlobKey: true,
       preset: true,
     },
@@ -727,11 +952,9 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
   }
 
   const seal = documentSeal(document)
-  const model = await loadNormalized(
-    document.id,
-    document.normalizedBlobKey,
-    seal
-  )
+  // The text of every page and none of its geometry: analysis reads nothing
+  // else, and the geometry is most of what a model weighs.
+  const model = await loadTextModel(readNormalized(document))
 
   // Null when no preset was chosen, which means everything is looked for.
   const preset = presetById(document.preset)
@@ -792,12 +1015,16 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
       .slice(0, MAX_VISION_PAGES)
 
     if (imagePages.length > 0) {
-      const bytes = await getSealed(
-        document.sourceBlobKey,
-        sourceKey(document.id),
-        seal
+      // By ranges: the index and the pages being rendered, not the file.
+      const source = cachedRangeSource(
+        await openSealedObject(
+          document.sourceBlobKey,
+          sourceKey(document.id),
+          seal
+        ),
+        streamingLimits().chunkBytes
       )
-      const rendered = await renderPagesForVision(bytes, imagePages)
+      const rendered = await renderPagesForVision(source, imagePages)
 
       for (const [index, { page, png }] of rendered.entries()) {
         const analysis = await analyzeImageRegions(

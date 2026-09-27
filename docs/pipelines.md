@@ -427,6 +427,12 @@ header, every text part, the *visible* text of every HTML part, quoted replies
 as themselves, attachment filenames, and all of it again recursively for each
 nested `message/rfc822`.
 
+The tree is found in one forward pass (`lib/documents/eml/scan.ts`), a line at
+a time with every open multipart's delimiter on a stack, holding header blocks
+and text parts and letting attachment bodies go past. It reproduces the
+recursive parser it replaced byte for byte, because the exporter edits by these
+offsets — see [streaming.md](./streaming.md) §6.
+
 Each gets a stable address, and this is what makes a detection actionable:
 
 ```

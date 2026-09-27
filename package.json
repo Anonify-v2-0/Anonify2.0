@@ -26,6 +26,7 @@
     "cleanup": "tsx scripts/cleanup.ts",
     "smoke": "tsx scripts/smoke.ts",
     "smoke:storage": "tsx scripts/storage-smoke.ts",
+    "smoke:blob": "tsx scripts/blob-smoke.ts",
     "bench": "tsx scripts/bench-formats.ts",
     "workflow:bootstrap": "node node_modules/@workflow/world-postgres/bin/setup.js"
   },

@@ -1,12 +1,13 @@
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
 import {
+  attachmentsOfParsed,
   decodeAttachment,
-  planExpansion,
+  planAttachments,
   type AttachmentRefusal,
   type ExpansionLimits,
 } from "@/lib/documents/eml/attachments"
-import { decodeEml } from "@/lib/documents/eml/parse"
+import { scanEml } from "@/lib/documents/eml/scan"
 import { isPureContainer } from "@/lib/documents/formats"
 import { newBatchId, newDocumentId, newUsageId } from "@/lib/documents/ids"
 import { mboxLimits, type MboxLimits } from "@/lib/documents/mbox/limits"
@@ -27,7 +28,6 @@ import {
   putSealed,
   type SealedObject,
 } from "@/lib/storage/sealed"
-import { collect } from "@/lib/storage/streams"
 import { failureForCode } from "@/lib/workflows/failure"
 import type { DocumentKind } from "@/types/document"
 
@@ -302,12 +302,14 @@ async function planAttachmentChildren(
   depth: number,
   limits: ExpansionLimits | undefined
 ): Promise<ContainerPlan> {
-  // The MIME tree is built over the whole message, which is the one thing
-  // here that is held whole — streamed in, so its sealed form never is.
-  // Nothing planned keeps a reference to it, so it is gone before the first
-  // child is sealed.
-  const message = decodeEml(await collect(await source.stream()))
-  const plan = planExpansion(message, { depth, limits })
+  // The MIME tree is found as the message streams past, holding its headers
+  // and text and never its attachments; each attachment is then read back by
+  // its range to be sized and sniffed, one at a time.
+  const parsed = await scanEml(await source.stream())
+  const plan = planAttachments(
+    await attachmentsOfParsed(parsed, (start, end) => source.range(start, end)),
+    { depth, limits }
+  )
 
   const children: PlannedChild[] = []
 

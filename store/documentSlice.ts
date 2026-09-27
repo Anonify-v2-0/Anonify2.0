@@ -1,10 +1,28 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit"
 
-import type { DocumentSummary, NormalizedDocument } from "@/types/document"
+import type {
+  DocumentSummary,
+  NormalizedOutline,
+  NormalizedPage,
+} from "@/types/document"
+
+/**
+ * How many pages the editor keeps once it has fetched them.
+ *
+ * Enough for the page on the canvas, the ones either side of it and a rail of
+ * thumbnails; not so many that a long document ends up held whole after all,
+ * which is what loading it a page at a time exists to avoid.
+ */
+export const PAGE_CACHE_LIMIT = 24
 
 type DocumentState = {
   summary: DocumentSummary | null
-  normalized: NormalizedDocument | null
+  /** The model without its pages; see `NormalizedOutline`. */
+  normalized: NormalizedOutline | null
+  /** Pages fetched so far, by number, for the outline's document. */
+  pages: Record<number, NormalizedPage>
+  /** Page numbers in `pages`, least recently used first. */
+  pageOrder: number[]
   loading: boolean
   error: string | null
 }
@@ -12,6 +30,8 @@ type DocumentState = {
 const initialState: DocumentState = {
   summary: null,
   normalized: null,
+  pages: {},
+  pageOrder: [],
   loading: false,
   error: null,
 }
@@ -47,8 +67,32 @@ const documentSlice = createSlice({
       state.summary.error = action.payload.message
       state.summary.errorCode = action.payload.code
     },
-    normalizedLoaded(state, action: PayloadAction<NormalizedDocument>) {
+    normalizedLoaded(state, action: PayloadAction<NormalizedOutline>) {
       state.normalized = action.payload
+      state.pages = {}
+      state.pageOrder = []
+    },
+    /**
+     * A page arrived. One for a document that is no longer open is dropped,
+     * and past the cache limit the page used longest ago is let go; it is
+     * fetched again if it is looked at again.
+     */
+    pageLoaded(
+      state,
+      action: PayloadAction<{ documentId: string; page: NormalizedPage }>
+    ) {
+      const { documentId, page } = action.payload
+      if (state.normalized?.documentId !== documentId) return
+
+      state.pages[page.number] = page
+      state.pageOrder = [
+        ...state.pageOrder.filter((number) => number !== page.number),
+        page.number,
+      ]
+      while (state.pageOrder.length > PAGE_CACHE_LIMIT) {
+        const evicted = state.pageOrder.shift()
+        if (evicted !== undefined) delete state.pages[evicted]
+      }
     },
     documentFailed(state, action: PayloadAction<string>) {
       state.loading = false
@@ -66,6 +110,7 @@ export const {
   documentStatusChanged,
   documentFailureRecorded,
   normalizedLoaded,
+  pageLoaded,
   documentFailed,
   documentCleared,
 } = documentSlice.actions

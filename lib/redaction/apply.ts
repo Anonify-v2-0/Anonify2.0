@@ -102,6 +102,28 @@ function rangeWithinSpan(
 }
 
 /**
+ * The pages of a model that exporting these redactions reads.
+ *
+ * Every plan builder here looks a page up by `redaction.page ?? 1`, for an
+ * accepted redaction and nothing else, and the image plan reads the first
+ * page. So a model holding exactly these pages produces exactly the plan the
+ * whole model would, which is what lets an export read the pages it redacts
+ * and no others. A builder that starts reading pages some other way has to
+ * change this with it; tests/normalized-pages.test.ts holds the two together.
+ */
+export function pagesReadByExport(
+  redactions: Redaction[],
+  firstPage: number | undefined
+): Set<number> {
+  const pages = new Set<number>()
+  if (firstPage !== undefined) pages.add(firstPage)
+  for (const redaction of redactions) {
+    if (isAccepted(redaction)) pages.add(redaction.page ?? 1)
+  }
+  return pages
+}
+
+/**
  * DOCX: map page-level offsets onto the runs that produced them.
  *
  * A value can straddle several runs — Word splits text at every formatting

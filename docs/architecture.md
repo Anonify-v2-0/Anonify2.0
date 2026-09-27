@@ -165,8 +165,9 @@ integrity checksums, identity derivation, and download-token signing (HMAC). It
 is not encryption and is never used as though it were.
 
 Blob URLs are treated as opaque server-side handles. They are never handed to a
-client; downloads go through a route that re-checks ownership, verifies the
-stored checksum, and only then streams bytes.
+client; downloads go through a route that re-checks ownership and streams the
+artifact through its stored checksum, holding the last piece back until the
+checksum matches — see [streaming.md](./streaming.md) §8.
 
 ---
 

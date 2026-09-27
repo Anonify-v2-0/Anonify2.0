@@ -9,7 +9,11 @@ import {
   ocrPdfPages,
   type PageRecognizer,
 } from "@/lib/documents/pdf/ocr"
-import { copyBytes, loadPdfjsForRender } from "@/lib/documents/pdf/render"
+import {
+  loadPdfjsForRender,
+  openPdfDocument,
+  type PdfSource,
+} from "@/lib/documents/pdf/render"
 import { TextStreamBuilder } from "@/lib/documents/shared/text"
 import type {
   BoundingBox,
@@ -183,27 +187,20 @@ export type PdfExtractOptions = {
 
 export async function extractPdf(
   documentId: string,
-  bytes: Uint8Array,
+  /** The file's bytes, or ranged reads of it; the result is the same. */
+  source: PdfSource,
   options: PdfExtractOptions = {}
 ): Promise<PdfExtraction> {
   const pdfjs = await loadPdfjsForRender()
+  const { task, guard } = await openPdfDocument(pdfjs, source)
 
-  const task = pdfjs.getDocument({
-    data: copyBytes(bytes),
-    // Untrusted input: no font-face injection, no network font fetches.
-    disableFontFace: true,
-    useSystemFonts: false,
-    standardFontDataUrl: pdfjs.standardFontDataUrl,
-    cMapUrl: pdfjs.cMapUrl,
-    cMapPacked: true,
-  })
-
-  const pdf = await task.promise
   const pages: NormalizedPage[] = []
   const ocrPages: number[] = []
   let remaining: number[] = []
 
-  try {
+  const extract = async () => {
+    const pdf = await task.promise
+
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
       const page = await pdf.getPage(pageNumber)
       const viewport = page.getViewport({ scale: 1 })
@@ -285,6 +282,12 @@ export async function extractPdf(
         await recognizer.close()
       }
     }
+  }
+
+  try {
+    // A storage read that fails under pdf.js fails this, with that read's
+    // error, rather than leaving pdf.js waiting for bytes that will not come.
+    await guard(extract())
   } finally {
     await task.destroy()
   }

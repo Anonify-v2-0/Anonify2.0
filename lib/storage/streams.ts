@@ -159,6 +159,13 @@ export function holdErrors<T extends Readable>(stream: T): T {
 export function chain<T extends Transform>(source: Readable, transform: T): T {
   holdErrors(transform)
   source.on("error", (error) => transform.destroy(error))
+  // And the other way: a reader that stops early — a page found, a download
+  // the browser abandoned — destroys the transform, and `pipe` would leave the
+  // source open behind it. A file handle, an S3 socket or a fetch body held
+  // until the collector finds it is a leak per abandoned read.
+  transform.once("close", () => {
+    if (!source.destroyed) source.destroy()
+  })
   return source.pipe(transform)
 }
 

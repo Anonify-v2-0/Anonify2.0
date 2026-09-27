@@ -6,6 +6,8 @@ import { pathToFileURL } from "node:url"
 import { createCanvas, type Canvas } from "@napi-rs/canvas"
 import type { PDFPageProxy } from "pdfjs-dist"
 
+import type { RangeSource } from "@/lib/storage/range-source"
+
 /**
  * Shared pdf.js loading for the server.
  *
@@ -154,4 +156,102 @@ export async function loadPdfjsForRender(): Promise<PdfjsRuntime> {
     standardFontDataUrl: assetUrl("standard_fonts"),
     cMapUrl: assetUrl("cmaps"),
   } as PdfjsRuntime
+}
+
+/** A PDF to open: its bytes, or ranged reads of it. */
+export type PdfSource = Uint8Array | RangeSource
+
+/**
+ * The unit pdf.js asks for when it reads by ranges. Small enough that a page
+ * costs roughly what it references; the range source underneath widens reads
+ * to whole storage chunks and keeps the last few, so neighbouring requests do
+ * not each become a round trip.
+ */
+const RANGE_CHUNK_BYTES = 64 * 1024
+
+export type OpenedPdf = {
+  task: ReturnType<PdfjsRuntime["getDocument"]>
+  /**
+   * Runs work against the document, failing it the moment a read under
+   * pdf.js fails. pdf.js has no way to report one, and destroying the task
+   * does not settle everything that was waiting on it.
+   */
+  guard: <T>(work: Promise<T>) => Promise<T>
+}
+
+/**
+ * Opens a PDF for pdf.js, whole or by ranges.
+ *
+ * A PDF cannot be read front to back — its cross-reference table is at the
+ * end — so reading it by ranges means pdf.js asks for the byte ranges it
+ * needs, as it needs them, and only those are fetched and decrypted. With
+ * auto-fetch and streaming off it asks for nothing else: rendering three
+ * pages of a four-hundred-page document reads the index and those pages.
+ *
+ * pdf.js still keeps what it has fetched, in a buffer the length of the file
+ * that fills in as it goes; what the ranges save is everything it never asks
+ * for, and the second whole copy the byte path hands it.
+ *
+ * Its range transport has no way to report a failed read, and a request that
+ * is never answered is a document that never finishes loading — and
+ * destroying the task leaves some of what was waiting on it waiting. So the
+ * failure is raced against the work instead: `guard` rejects with the read
+ * that failed, and the task is destroyed to release the worker.
+ */
+export async function openPdfDocument(
+  pdfjs: PdfjsRuntime,
+  source: PdfSource
+): Promise<OpenedPdf> {
+  const common = {
+    // Untrusted input: no font-face injection, no network font fetches.
+    disableFontFace: true,
+    useSystemFonts: false,
+    standardFontDataUrl: pdfjs.standardFontDataUrl,
+    cMapUrl: pdfjs.cMapUrl,
+    cMapPacked: true,
+  }
+
+  if (source instanceof Uint8Array) {
+    return {
+      task: pdfjs.getDocument({ data: copyBytes(source), ...common }),
+      guard: (work) => work,
+    }
+  }
+
+  const ranged: RangeSource = source
+  let task: OpenedPdf["task"] | null = null
+  const size = ranged.size
+  let fail: (error: unknown) => void = () => {}
+  const failed = new Promise<never>((_, reject) => {
+    fail = reject
+  })
+  // Nobody may be racing it yet when a read fails.
+  failed.catch(() => {})
+
+  class SealedRangeTransport extends pdfjs.PDFDataRangeTransport {
+    requestDataRange(begin: number, end: number) {
+      ranged.range(begin, Math.min(end, size)).then(
+        // Copied: pdf.js may transfer what it is handed, and a transferred
+        // buffer is detached — here, a chunk the range cache is still holding.
+        (chunk: Buffer) => this.onDataRange(begin, new Uint8Array(chunk)),
+        (error: unknown) => {
+          fail(error)
+          void task?.destroy()
+        }
+      )
+    }
+  }
+
+  const initial = new Uint8Array(
+    await ranged.range(0, Math.min(size, RANGE_CHUNK_BYTES))
+  )
+  task = pdfjs.getDocument({
+    ...common,
+    // The length travels on the transport.
+    range: new SealedRangeTransport(size, initial),
+    rangeChunkSize: RANGE_CHUNK_BYTES,
+    disableAutoFetch: true,
+    disableStream: true,
+  })
+  return { task, guard: (work) => Promise.race([work, failed]) }
 }

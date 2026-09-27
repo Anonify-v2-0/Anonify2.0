@@ -77,6 +77,11 @@ model Document {
   /// Encrypted normalized-model artifact. Extracted text never sits in the
   /// database in the clear.
   normalizedBlobKey String?
+  /// Where each page sits in the normalized model's JSON: byte offsets and
+  /// page numbers, never content. Lets a reader take one page by a ranged read
+  /// instead of the whole model. Null for a model written before it existed,
+  /// which is read whole. See lib/documents/normalized-json.ts.
+  normalizedIndex  Json?
   metadata         Json?
 
   redactions       Redaction[]

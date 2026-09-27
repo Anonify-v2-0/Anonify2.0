@@ -1,11 +1,17 @@
 import { prisma } from "@/lib/database/prisma"
 import { newBatchRuleId, newRuleId } from "@/lib/documents/ids"
-import { loadNormalized } from "@/lib/documents/normalized-store"
+import {
+  readNormalized,
+  type NormalizedReader,
+} from "@/lib/documents/normalized-store"
 import { normalizeValue } from "@/lib/documents/shared/text"
-import { findAllOccurrences } from "@/lib/redaction/entities"
+import {
+  occurrencesInPage,
+  occurrencesInSheets,
+  type OccurrenceOptions,
+} from "@/lib/redaction/entities"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
-import { documentSeal } from "@/lib/storage/sealed"
-import type { Redaction } from "@/types/redaction"
+import type { Detection, Redaction } from "@/types/redaction"
 
 /**
  * Applying a decision to a document.
@@ -32,6 +38,7 @@ type RuleTarget = {
   encryptionKey: string
   encryptionFormat: string | null
   normalizedBlobKey: string
+  normalizedIndex: unknown
 }
 
 export async function applyRuleToDocument(input: {
@@ -44,11 +51,13 @@ export async function applyRuleToDocument(input: {
 }): Promise<AppliedRule> {
   const { target, pattern, category } = input
 
-  const model = await loadNormalized(
-    target.id,
-    target.normalizedBlobKey,
-    documentSeal(target)
-  )
+  // Searched before the rule is recorded, as the model used to be loaded
+  // before it: a model that cannot be read leaves no rule without redactions.
+  const occurrences = await findOccurrencesIn(readNormalized(target), pattern, {
+    category,
+    confidence: 1,
+    reason: input.reason,
+  })
 
   const ruleId = newRuleId()
 
@@ -64,12 +73,6 @@ export async function applyRuleToDocument(input: {
     },
   })
 
-  const occurrences = findAllOccurrences(model, pattern, {
-    category,
-    confidence: 1,
-    reason: input.reason,
-  })
-
   const redactions = occurrences.map((occurrence) => ({
     ...detectionToRedaction(target.id, occurrence, "rule"),
     status: "accepted" as const,
@@ -83,6 +86,27 @@ export async function applyRuleToDocument(input: {
   }
 
   return { ruleId, redactions }
+}
+
+/**
+ * `findAllOccurrences`, a page at a time.
+ *
+ * The same answer in the same order — pages first, then sheets — without the
+ * model ever being whole: pages stream past and only what matched is kept.
+ */
+export async function findOccurrencesIn(
+  reader: NormalizedReader,
+  value: string,
+  options: OccurrenceOptions
+): Promise<Detection[]> {
+  if (!value.trim()) return []
+  const found: Detection[] = []
+  for await (const page of reader.pages()) {
+    found.push(...occurrencesInPage(page, value, options))
+  }
+  const { sheets } = await reader.outline()
+  found.push(...occurrencesInSheets(sheets ?? [], value, options))
+  return found
 }
 
 /** The sentence shown against every redaction a batch decision produced. */
@@ -114,6 +138,7 @@ export async function carryBatchRules(
       encryptionKey: true,
       encryptionFormat: true,
       normalizedBlobKey: true,
+      normalizedIndex: true,
     },
   })
 
@@ -146,6 +171,7 @@ export async function carryBatchRules(
         encryptionKey: document.encryptionKey,
         encryptionFormat: document.encryptionFormat,
         normalizedBlobKey: document.normalizedBlobKey,
+        normalizedIndex: document.normalizedIndex,
       },
       pattern: rule.pattern,
       category: rule.category,
@@ -204,6 +230,7 @@ export async function createBatchRule(input: {
       encryptionKey: true,
       encryptionFormat: true,
       normalizedBlobKey: true,
+      normalizedIndex: true,
     },
   })
 
@@ -218,6 +245,7 @@ export async function createBatchRule(input: {
         encryptionKey: target.encryptionKey,
         encryptionFormat: target.encryptionFormat,
         normalizedBlobKey: target.normalizedBlobKey,
+        normalizedIndex: target.normalizedIndex,
       },
       pattern: input.pattern,
       category: input.category,

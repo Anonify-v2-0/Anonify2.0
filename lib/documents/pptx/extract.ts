@@ -285,7 +285,14 @@ export function extractPptx(
   documentId: string,
   bytes: Uint8Array
 ): PptxExtraction {
-  const pkg = openPackage(bytes)
+  return extractPptxPackage(documentId, openPackage(bytes))
+}
+
+/** PPTX extraction over a package already opened, however it was opened. */
+export function extractPptxPackage(
+  documentId: string,
+  pkg: OoxmlPackage
+): PptxExtraction {
 
   if (!readPart(pkg, "ppt/presentation.xml")) {
     throw new Error("ppt/presentation.xml is missing; the file is not a PPTX")

@@ -1,4 +1,4 @@
-import { zipSync } from "fflate"
+import { Zip, ZipDeflate, zipSync } from "fflate"
 
 import {
   REPORT_VERSION,
@@ -24,7 +24,7 @@ export type ArchiveFile = { name: string; bytes: Uint8Array }
  * with the same entry twice loses one of them silently. Suffixed rather than
  * renamed wholesale, so the name the user recognises survives.
  */
-export function uniqueNames(files: ArchiveFile[]): ArchiveFile[] {
+export function uniqueNames<T extends { name: string }>(files: T[]): T[] {
   const taken = new Set<string>()
 
   return files.map((file) => {
@@ -45,7 +45,7 @@ export function uniqueNames(files: ArchiveFile[]): ArchiveFile[] {
     }
 
     taken.add(candidate)
-    return { name: candidate, bytes: file.bytes }
+    return { ...file, name: candidate }
   })
 }
 
@@ -58,6 +58,61 @@ export function buildArchive(files: ArchiveFile[]): Uint8Array {
   // already-compressed document formats, so a higher setting buys almost
   // nothing and costs real time on a large batch.
   return zipSync(entries, { level: 6 })
+}
+
+/**
+ * A file for a streamed archive: bytes already in hand, or a stream opened
+ * when the archive reaches it.
+ */
+export type StreamedArchiveFile =
+  | ArchiveFile
+  | { name: string; open: () => Promise<AsyncIterable<Uint8Array>> }
+
+/**
+ * The archive, written as it is read.
+ *
+ * `buildArchive` holds every file and then the whole zip — a batch of fifty
+ * exports, twice. This opens each file only when the archive reaches it and
+ * compresses it a piece at a time, so what is held is a piece in and what it
+ * compressed to. The same level, for the same reason; the entries carry data
+ * descriptors instead of sizes up front, which every unzip reads.
+ *
+ * A file that fails while it streams fails the archive: its entry is already
+ * half-written, and a zip with a truncated entry is not a smaller archive but
+ * a broken one.
+ */
+export async function* streamArchive(
+  files: StreamedArchiveFile[]
+): AsyncGenerator<Uint8Array> {
+  const out: Uint8Array[] = []
+  let failure: Error | null = null
+  const zip = new Zip((error, data) => {
+    if (error) failure = error
+    else out.push(data)
+  })
+
+  function* drain(): Generator<Uint8Array> {
+    if (failure) throw failure
+    while (out.length > 0) yield out.shift() as Uint8Array
+  }
+
+  for (const file of uniqueNames(files)) {
+    const entry = new ZipDeflate(file.name, { level: 6 })
+    zip.add(entry)
+    if ("bytes" in file) {
+      entry.push(file.bytes, true)
+    } else {
+      for await (const piece of await file.open()) {
+        entry.push(piece)
+        yield* drain()
+      }
+      entry.push(new Uint8Array(0), true)
+    }
+    yield* drain()
+  }
+
+  zip.end()
+  yield* drain()
 }
 
 /** Why a document in the batch is not in the archive. */

@@ -1,9 +1,10 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react"
 
 import { PageThumbnail } from "@/components/editor/page-thumbnail"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { useNormalizedPage } from "@/hooks/use-normalized-document"
 import { usePdfDocument } from "@/hooks/use-pdf-document"
 import { pageChanged } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
@@ -27,8 +28,14 @@ export function PageNavigator({ documentId }: { documentId: string }) {
   const isPdf = summary?.kind === "pdf"
   const { pdf } = usePdfDocument(documentId, isPdf)
 
-  const pageCount =
-    normalized?.pages.length ?? summary?.pageCount ?? 0
+  const pageNumbers = useMemo(
+    () =>
+      normalized?.documentId === documentId
+        ? normalized.pageNumbers
+        : Array.from({ length: summary?.pageCount ?? 0 }, (_, index) => index + 1),
+    [documentId, normalized, summary?.pageCount]
+  )
+  const pageCount = pageNumbers.length
 
   const byPage = useMemo(() => {
     const grouped = new Map<number, typeof redactions>()
@@ -51,26 +58,54 @@ export function PageNavigator({ documentId }: { documentId: string }) {
       <ScrollArea className="flex-1">
         <nav aria-labelledby="page-rail-label">
           <ul className="flex flex-col gap-3 px-4 pb-4">
-            {Array.from({ length: pageCount }, (_, index) => index + 1).map(
-              (pageNumber) => (
-                <li key={pageNumber}>
-                  <PageThumbnail
-                    documentId={documentId}
-                    pageNumber={pageNumber}
-                    page={normalized?.pages.find(
-                      (candidate) => candidate.number === pageNumber
-                    )}
-                    redactions={byPage.get(pageNumber) ?? []}
-                    selected={pageNumber === currentPage}
-                    pdf={pdf}
-                    onSelect={() => dispatch(pageChanged(pageNumber))}
-                  />
-                </li>
-              )
-            )}
+            {pageNumbers.map((pageNumber) => (
+              <li key={pageNumber}>
+                <RailThumbnail
+                  documentId={documentId}
+                  pageNumber={pageNumber}
+                  redactions={byPage.get(pageNumber) ?? []}
+                  selected={pageNumber === currentPage}
+                  pdf={pdf}
+                  onSelect={() => dispatch(pageChanged(pageNumber))}
+                />
+              </li>
+            ))}
           </ul>
         </nav>
       </ScrollArea>
     </aside>
+  )
+}
+
+/**
+ * A thumbnail that fetches its page once it is nearly in view.
+ *
+ * The rail lists every page, and a rail that fetched every page would be the
+ * whole model again by another route. A tile far down a long document asks
+ * for its page when the reader scrolls towards it, and not before.
+ */
+function RailThumbnail(props: Omit<ComponentProps<typeof PageThumbnail>, "page">) {
+  const anchor = useRef<HTMLDivElement>(null)
+  const [near, setNear] = useState(false)
+
+  useEffect(() => {
+    const element = anchor.current
+    if (!element || near) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setNear(true)
+      },
+      { rootMargin: "400px 0px" }
+    )
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [near])
+
+  const page = useNormalizedPage(props.documentId, props.pageNumber, near)
+
+  return (
+    <div ref={anchor}>
+      <PageThumbnail {...props} page={page ?? undefined} />
+    </div>
   )
 }

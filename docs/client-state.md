@@ -33,7 +33,7 @@ and its siblings. Components and hooks import these, never the bare
 
 | Slice | File | Owns | Notable actions |
 | --- | --- | --- | --- |
-| **document** | `documentSlice.ts` | The `DocumentSummary` and the `NormalizedDocument` model; `loading`, `error` | `documentLoaded`, `documentStatusChanged`, `documentFailureRecorded`, `normalizedLoaded`, `documentCleared` |
+| **document** | `documentSlice.ts` | The `DocumentSummary`, the model's `NormalizedOutline`, and the pages fetched so far (at most `PAGE_CACHE_LIMIT`, least recently used let go); `loading`, `error` | `documentLoaded`, `documentStatusChanged`, `documentFailureRecorded`, `normalizedLoaded`, `pageLoaded`, `documentCleared` |
 | **redactions** | `redactionSlice.ts` | The redaction entities + ids, global rules, selection, filters, and the undo/redo history | `redactionAdded`, `redactionStatusSet`, `undone`, `redone`, `ruleAdded`, `ruleRemoved` |
 | **editor** | `editorSlice.ts` | The viewport: `currentPage`, `zoom`, `tool`, `activeSheet`, `fitMode`, `inspectorOpen`, the grid `selection` | `pageChanged`, `zoomChanged`, `toolChanged`, `cellSelected`, `inspectorToggled`, `editorReset` |
 | **processing** | `processingSlice.ts` | The run's `status`, `progress`, the event log, `suggestionCount`, `error` | `statusChanged`, `eventReceived`, `suggestionCountChanged`, `processingFailed`, `processingReset` |
@@ -333,9 +333,21 @@ keys do not, so the browser's own scrolling still works.
 
 ### `use-normalized-document.ts`
 
-Pulls the normalized model once there is one to pull. It is the shared source
-of geometry and text for the canvas, the inspector, and every client-side rule
-match.
+Pulls the model's outline once there is one to pull — everything but the
+pages, and which pages exist — and then pages one at a time, as they are
+looked at:
+
+- `useNormalizedDocument(summary)` fetches `/content?view=outline`.
+- `useNormalizedPage(documentId, n, enabled)` returns page `n` from the store
+  or fetches `/content?page=n`. Requests for the same page at once share one
+  fetch.
+- `usePrefetchPages(documentId, [n - 1, n + 1])` starts the neighbours of the
+  page on the canvas early, so paging does not wait.
+
+The canvas asks for the page it shows; the page rail's thumbnails ask for
+theirs when they scroll within 400px of view. At most 24 pages are kept
+(`PAGE_CACHE_LIMIT`), so a three-thousand-page file costs the browser the pages
+being looked at rather than all of them. See [streaming.md](./streaming.md) §3.
 
 This used to wait for `ready` — the terminal success status — which meant a
 document whose analysis **failed after extraction** never loaded the model it
