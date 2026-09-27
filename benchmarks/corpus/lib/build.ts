@@ -158,8 +158,14 @@ export function buildDocument(
   let negatives = locateNegatives(text, model.negatives, spans, warnings)
   let autoLabelled = 0
   for (const finding of scanForIdentifiers(text)) {
+    // Only a fill that holds the whole finding excuses it: one that merely
+    // touches it ("[[api-key|{{SECRET}}]]@gmail.com") leaves the rest the
+    // model's own writing.
     const filled = spans.some(
-      (span) => span.placeholder && overlaps(span, finding)
+      (span) =>
+        span.placeholder &&
+        span.start <= finding.start &&
+        finding.end <= span.end
     )
     const labelled = spans.some((span) => overlaps(span, finding))
 

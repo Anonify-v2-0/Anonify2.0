@@ -458,6 +458,21 @@ describe("corpus document builder", () => {
   it("counts CSV cells as words", () => {
     expect(countWords("id,name,plan\n1,Ada,Pro\n2,Lin,Basic")).toBe(9)
   })
+
+  it("rejects a real address built onto a fill", () => {
+    const result = buildDocument(
+      spec(),
+      response(
+        `Dear [[person|Priya Raman]], ${FILLER} [[email|{{EMAIL:p1}}]]. Key: [[api-key|{{SECRET}}]]@gmail.com.`
+      ),
+      GENERATOR
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok)
+      expect(result.reasons.join("\n")).toContain(
+        "email outside the reserved ranges"
+      )
+  })
 })
 
 describe("corpus check", () => {
