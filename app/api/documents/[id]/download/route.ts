@@ -1,3 +1,4 @@
+import { contentDisposition } from "@/lib/api/content-disposition"
 import { errorResponse, handleRouteError, streamResponse } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
@@ -100,7 +101,7 @@ export async function GET(
 
     return streamResponse(body, {
       "content-type": wantsReport ? "application/json" : artifact.mimeType,
-      "content-disposition": `attachment; filename="${filename.replace(/"/g, "")}"`,
+      "content-disposition": contentDisposition(filename),
       "cache-control": "no-store, private",
       "x-content-type-options": "nosniff",
     })

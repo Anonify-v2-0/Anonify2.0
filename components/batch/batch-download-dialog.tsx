@@ -26,6 +26,7 @@ import type {
   BatchStartOptions,
 } from "@/hooks/use-batch-export"
 import { isActiveExport } from "@/hooks/use-batch-export"
+import { filenameFromDisposition } from "@/lib/api/content-disposition"
 import type { BatchExportDocument } from "@/lib/documents/batch-exports"
 import type { SkipReason } from "@/lib/redaction/archive"
 import type { BatchOutput } from "@/lib/redaction/batch-layout"
@@ -90,15 +91,6 @@ function withParams(
     else parsed.searchParams.set(key, value)
   }
   return `${parsed.pathname}${parsed.search}`
-}
-
-/**
- * The name the server gave the download. It knows whether this is a mailbox,
- * a single message or a zip; the dialog does not have to guess.
- */
-function filenameFrom(header: string | null, fallback: string): string {
-  const match = /filename="([^"]+)"/.exec(header ?? "")
-  return match?.[1] ?? fallback
 }
 
 /** The archive fetch, which is separate from the run that produced it. */
@@ -264,7 +256,9 @@ export function BatchDownloadDialog({
         }
 
         const type = response.headers.get("content-type") ?? "application/zip"
-        const filename = filenameFrom(
+        // The name the server gave it. It knows whether this is a mailbox, a
+        // single message or a zip; the dialog does not have to guess.
+        const filename = filenameFromDisposition(
           response.headers.get("content-disposition"),
           ARCHIVE_FILENAME
         )

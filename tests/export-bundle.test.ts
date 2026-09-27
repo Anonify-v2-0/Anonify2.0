@@ -1,9 +1,9 @@
 import { unzipSync } from "fflate"
 import { describe, expect, it } from "vitest"
 
+import { contentDisposition } from "@/lib/api/content-disposition"
 import {
   collectBundle,
-  filenameFrom,
   withVariant,
   zipBundle,
   type BundledArtifact,
@@ -17,7 +17,7 @@ import {
 function served(body: string, filename: string, status = 200): Response {
   return new Response(body, {
     status,
-    headers: { "content-disposition": `attachment; filename="${filename}"` },
+    headers: { "content-disposition": contentDisposition(filename) },
   })
 }
 
@@ -91,8 +91,21 @@ describe("naming", () => {
     expect(withVariant("README", "masked")).toBe("README-masked")
   })
 
-  it("reads the name the server gave the file", () => {
-    expect(filenameFrom(served("", "a b.pdf"), "x")).toBe("a b.pdf")
-    expect(filenameFrom(new Response(""), "fallback.pdf")).toBe("fallback.pdf")
+  it("names an entry by the real name, not its ASCII stand-in", async () => {
+    const entries = await collectBundle(
+      ARTIFACTS.slice(0, 1),
+      server({ "/d/masked": served("x", "收件箱-redacted.pdf") })
+    )
+
+    expect(Object.keys(entries)).toContain("收件箱-redacted-masked.pdf")
+  })
+
+  it("falls back to a generic name when the server gave none", async () => {
+    const entries = await collectBundle(
+      ARTIFACTS.slice(0, 1),
+      server({ "/d/masked": new Response("x") })
+    )
+
+    expect(Object.keys(entries)).toContain("document-masked")
   })
 })

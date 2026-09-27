@@ -1,5 +1,6 @@
 import { Readable } from "node:stream"
 
+import { contentDisposition } from "@/lib/api/content-disposition"
 import { errorResponse, handleRouteError, streamResponse } from "@/lib/api/http"
 import { requireBatch } from "@/lib/documents/batches"
 import { serializeBatchReport, streamArchive } from "@/lib/redaction/archive"
@@ -20,10 +21,6 @@ export const maxDuration = 300
 const HEADERS = {
   "cache-control": "no-store, private",
   "x-content-type-options": "nosniff",
-}
-
-function disposition(filename: string): string {
-  return `attachment; filename="${filename.replace(/"/g, "")}"`
 }
 
 /**
@@ -84,7 +81,7 @@ export async function GET(
         headers: {
           ...HEADERS,
           "content-type": "application/json",
-          "content-disposition": disposition("batch-report.json"),
+          "content-disposition": contentDisposition("batch-report.json"),
         },
       })
     }
@@ -93,7 +90,7 @@ export async function GET(
       return streamResponse(await download.open(), {
         ...HEADERS,
         "content-type": download.mimeType,
-        "content-disposition": disposition(download.filename),
+        "content-disposition": contentDisposition(download.filename),
       })
     }
 
@@ -104,7 +101,7 @@ export async function GET(
     return streamResponse(archive, {
       ...HEADERS,
       "content-type": "application/zip",
-      "content-disposition": disposition(download.filename),
+      "content-disposition": contentDisposition(download.filename),
     })
   } catch (error) {
     if (error instanceof NothingToDownloadError) {
