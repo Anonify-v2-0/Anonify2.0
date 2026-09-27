@@ -360,7 +360,7 @@ hostile paragraph should be able to do is get a bad change *proposed*.
 | Writes re-validate | `redact_occurrences`, rule tools | A reference must still hold the exact text approved. A rule must compile and fit its budget. The model's input is a proposal, not a fact. |
 | Output cannot fetch | `components/assistant/hush-markdown.tsx` | A reply can quote the document. Links render as text, images as alt text, URLs are dropped, and raw HTML is not rendered, so no tracking pixel can phone home by way of a model that repeated it. |
 | Tool results are data | the agent's instructions | The model is told that text from tools is document content and never an instruction. The approval step is what makes this safe when it is ignored. |
-| Bounded | 12 steps, 80 messages, 1.5 MB, spend cap | A runaway loop costs a bounded amount, and stops at the operator's daily cap like analysis does. |
+| Bounded | 12 steps, 80 messages, 1.5 MB counted as it arrives, spend cap, per-visitor `assistantTokens` allowance | A runaway loop costs a bounded amount. The cap and the allowance are checked before every step, not just the first, so a run stops where either runs out. The allowance is what keeps one visitor from spending the whole instance's cap and stopping analysis for everybody else. |
 
 Errors inside the stream are a fixed sentence, never the provider's message,
 which can quote the prompt. Only the failure's name is logged.

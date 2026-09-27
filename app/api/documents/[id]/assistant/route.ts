@@ -1,14 +1,14 @@
 import { createAgentUIStreamResponse } from "ai"
 import { z } from "zod"
 
-import {
-  errorResponse,
-  handleRouteError,
-  readJson,
-} from "@/lib/api/http"
+import { errorResponse, handleRouteError, readJsonWithin } from "@/lib/api/http"
 import { buildHushAgent } from "@/lib/assistant/agent"
 import {
+  assertHushMayContinue,
+  HUSH_ALLOWANCE_MESSAGE,
   HUSH_UNAVAILABLE_MESSAGES,
+  hushAllowanceLeft,
+  HushStopped,
   hushStatus,
   recordHushStep,
 } from "@/lib/assistant/hush"
@@ -47,7 +47,10 @@ const bodySchema = z.object({
     .default({}),
 })
 
-/** The largest conversation a request may carry, in bytes. */
+/**
+ * The largest conversation a request may carry, in bytes: counted as the body
+ * arrives, not taken from what the request declares.
+ */
 const MAX_BODY_BYTES = 1_500_000
 
 /**
@@ -67,23 +70,32 @@ export async function POST(
     const identity = await peekIdentity()
     await consumeRateLimit("processing", identity?.networkKey ?? "anonymous")
 
-    const declared = Number(request.headers.get("content-length") ?? 0)
-    if (declared > MAX_BODY_BYTES) {
+    const body = await readJsonWithin(request, MAX_BODY_BYTES)
+    if (body.tooLarge) {
       return errorResponse("This conversation is too long. Start a new one.", 413)
     }
 
-    const parsed = bodySchema.safeParse(await readJson(request))
+    const parsed = bodySchema.safeParse(body.value)
     if (!parsed.success) return errorResponse("Invalid request", 400)
 
     const ruleContext = await requireRuleContext(id, identity?.ownerKey)
     if (ruleContext instanceof Response) return ruleContext
     const { document, target, batchId } = ruleContext
+    // requireRuleContext has already refused a request with no session.
+    const quotaKey = identity?.quotaKey
+    if (!quotaKey) return errorResponse("No session", 401)
 
     const status = await hushStatus()
     if (!status.available) {
       return errorResponse(HUSH_UNAVAILABLE_MESSAGES[status.reason], 503, {
         code: status.reason,
       })
+    }
+
+    // Charged to the visitor rather than the document: the same allowance
+    // whichever document they ask about. Checked again between steps.
+    if (!(await hushAllowanceLeft(quotaKey))) {
+      return errorResponse(HUSH_ALLOWANCE_MESSAGE, 429, { code: "allowance" })
     }
 
     const agent = await buildHushAgent({
@@ -97,6 +109,7 @@ export async function POST(
       },
       view: parsed.data.view,
       readConsent: parsed.data.readConsent,
+      beforeStep: () => assertHushMayContinue(quotaKey),
     })
 
     let stepStarted = Date.now()
@@ -109,6 +122,7 @@ export async function POST(
         const now = Date.now()
         await recordHushStep({
           documentId: document.id,
+          quotaKey,
           inputTokens: step.usage.inputTokens,
           outputTokens: step.usage.outputTokens,
           durationMs: now - stepStarted,
@@ -116,8 +130,10 @@ export async function POST(
         stepStarted = now
       },
       // Never the raw error: a provider message can quote the prompt, and the
-      // prompt holds document text.
+      // prompt holds document text. A run stopped between steps is the one
+      // exception, because its message is a fixed sentence of ours.
       onError: (error) => {
+        if (error instanceof HushStopped) return error.message
         console.error(
           JSON.stringify({
             level: "error",

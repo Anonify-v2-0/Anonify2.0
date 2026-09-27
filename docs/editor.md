@@ -833,7 +833,11 @@ as an `update_rule` card for the reviewer to approve or decline.
 **Cost and limits.**
 - Hush uses the configured analysis provider and stops at the same daily spend
   cap.
-- Every model step is an `AiUsage` row against the document (`assistant`).
+- Every model step is an `AiUsage` row against the document (`assistant`), and
+  its tokens are charged to the visitor's daily `assistantTokens` allowance
+  (300,000 on the demo, unlimited when self-hosted). The cap and the allowance
+  are checked again before each step, so a run stops mid-way when either runs
+  out, and the panel says which.
 - A run is at most 12 steps, and a conversation at most 80 messages.
 - It needs a model verified for structured output, which is the same
   capability as tool calling in every provider supported here.

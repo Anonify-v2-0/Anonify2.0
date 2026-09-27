@@ -6,14 +6,18 @@ import {
   modelId,
 } from "@/lib/ai/providers/config"
 import { spendAllows, spendStatus } from "@/lib/ai/spend"
+import { checkQuota, recordUsage as chargeUsage } from "@/lib/security/usage"
 
 /**
  * Whether Hush can run on this instance, and the accounting for when it does.
  *
  * Hush uses the configured analysis provider, so it is subject to what bounds
  * analysis: the daily spend cap stops it, and every model step is recorded in
- * `AiUsage` against the document it was about. The agent itself is in
- * agent.ts; its tools are in tools.ts.
+ * `AiUsage` against the document it was about. It also has an allowance of its
+ * own per visitor, `assistantTokens`, charged step by step from the tokens the
+ * provider reports — without one, a single visitor could spend the instance's
+ * whole cap in a few minutes and stop analysis for everybody else. The agent
+ * itself is in agent.ts; its tools are in tools.ts.
  */
 
 export type HushUnavailable = "not-configured" | "unsupported" | "budget"
@@ -83,19 +87,65 @@ export const HUSH_UNAVAILABLE_MESSAGES: Record<HushUnavailable, string> = {
     "This instance has reached its daily AI spend cap. Hush is back tomorrow (UTC).",
 }
 
-/** One model step of a Hush run, as a usage row. Never its content. */
+export const HUSH_ALLOWANCE_MESSAGE =
+  "You have used today's Hush allowance. It resets at midnight UTC; search, rules and redacting by hand keep working."
+
+/** Whether this visitor may ask Hush's model anything more today. */
+export async function hushAllowanceLeft(quotaKey: string): Promise<boolean> {
+  return (await checkQuota(quotaKey, "assistantTokens")).allowed
+}
+
+/**
+ * Ends a run between steps. Its message is one of the fixed sentences above,
+ * so the route can hand it to the panel as it is.
+ */
+export class HushStopped extends Error {
+  constructor(readonly code: "budget" | "allowance") {
+    super(
+      code === "budget"
+        ? HUSH_UNAVAILABLE_MESSAGES.budget
+        : HUSH_ALLOWANCE_MESSAGE
+    )
+    this.name = "HushStopped"
+  }
+}
+
+/**
+ * Checked before every step after the first, once the one before it has been
+ * charged. A run is up to twelve steps, each resending the conversation, so a
+ * check made only when the run started is a check on the first step alone.
+ */
+export async function assertHushMayContinue(quotaKey: string): Promise<void> {
+  if (!spendAllows(await spendStatus())) throw new HushStopped("budget")
+  if (!(await hushAllowanceLeft(quotaKey))) throw new HushStopped("allowance")
+}
+
+/**
+ * One model step of a Hush run: a usage row against the document, and its
+ * tokens charged to the visitor's allowance. Never its content.
+ */
 export async function recordHushStep(input: {
   documentId: string
+  quotaKey: string
   inputTokens?: number
   outputTokens?: number
   durationMs: number
 }): Promise<void> {
+  const inputTokens = input.inputTokens ?? 0
+  const outputTokens = input.outputTokens ?? 0
   await recordUsage({
     documentId: input.documentId,
     task: "assistant",
     model: resolveModel(),
-    inputTokens: input.inputTokens ?? 0,
-    outputTokens: input.outputTokens ?? 0,
+    inputTokens,
+    outputTokens,
     durationMs: input.durationMs,
   })
+  if (inputTokens + outputTokens > 0) {
+    await chargeUsage({
+      fingerprint: input.quotaKey,
+      kind: "assistantTokens",
+      quantity: inputTokens + outputTokens,
+    })
+  }
 }

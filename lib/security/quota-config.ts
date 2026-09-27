@@ -28,6 +28,7 @@ export const USAGE_KINDS = [
   "emailKilobytes",
   "pptxSlides",
   "uploads",
+  "assistantTokens",
 ] as const
 
 export type UsageKind = (typeof USAGE_KINDS)[number]
@@ -51,6 +52,11 @@ const DEMO_DEFAULTS: Quotas = {
   emailKilobytes: 512,
   pptxSlides: 20,
   uploads: 20,
+  // Model tokens, in and out, that Hush spends answering one visitor. A
+  // conversation has no pages to count, and every step resends the history,
+  // so tokens are the only unit that tracks the cost. Enough for several
+  // questions about a short document; a single run can use 100,000.
+  assistantTokens: 300_000,
 }
 
 /**
@@ -67,6 +73,7 @@ const SELF_HOSTED_DEFAULTS: Quotas = {
   emailKilobytes: 0,
   pptxSlides: 0,
   uploads: 0,
+  assistantTokens: 0,
 }
 
 export function defaultsFor(profile: Profile): Quotas {

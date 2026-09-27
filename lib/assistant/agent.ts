@@ -119,6 +119,12 @@ export async function buildHushAgent(input: {
   context: HushContext
   view: HushView
   readConsent: boolean
+  /**
+   * Asked before every model step after the first. Throwing ends the run
+   * there, with the error as what the stream reports; the route uses it to
+   * stop at the spend cap or the visitor's allowance mid-run.
+   */
+  beforeStep?: () => Promise<void>
 }) {
   const tools = hushTools(input.context)
 
@@ -153,6 +159,10 @@ export async function buildHushAgent(input: {
     instructions: instructions(input.context, input.view, input.readConsent),
     tools,
     stopWhen: isStepCount(HUSH_MAX_STEPS),
+    prepareStep: async ({ stepNumber }) => {
+      if (stepNumber > 0) await input.beforeStep?.()
+      return undefined
+    },
     maxRetries: 1,
     experimental_toolApprovalSecret: approvalSecret(),
     toolApproval: ({ toolCall }) => {

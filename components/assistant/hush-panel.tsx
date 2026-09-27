@@ -118,6 +118,24 @@ function useHushStatus(open: boolean): Status {
   return status
 }
 
+/**
+ * What to show for a failed turn. A refused request (the allowance, the spend
+ * cap, a conversation too long) reaches `useChat` as the response body, which
+ * is our JSON; its `error` is the sentence meant for the reviewer.
+ */
+function errorText(error: Error): string {
+  let message = error.message
+  try {
+    const body = JSON.parse(message) as { error?: unknown }
+    if (typeof body.error === "string") message = body.error
+  } catch {
+    // Not a response body: a message from the stream, shown as it is.
+  }
+  return message && message.length < 300
+    ? message
+    : "Hush could not answer. Try again."
+}
+
 function improvePrompt(rule: RuleView): string {
   return `Improve my ${rule.scope} RegEx rule \`${rule.pattern}\` (rule id ${rule.id}, category ${rule.category}). Look at what it matched here and which of those matches I rejected, test a tighter pattern with compare_patterns, and propose the change with update_rule. Keep every match I accepted.`
 }
@@ -356,11 +374,7 @@ export function HushPanel({ documentId }: { documentId: string }) {
           role="alert"
           className="mx-4 mb-2 flex items-center gap-2 rounded-md border border-red-border/50 bg-red-soft px-3 py-2 text-xs text-text-secondary"
         >
-          <span className="flex-1">
-            {error.message && error.message.length < 300
-              ? error.message
-              : "Hush could not answer. Try again."}
-          </span>
+          <span className="flex-1">{errorText(error)}</span>
           <Button size="xs" variant="ghost" onClick={() => void regenerate()}>
             <RotateCcw className="size-3" /> Retry
           </Button>

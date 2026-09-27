@@ -616,8 +616,8 @@ takes effect without a restart.
 ### Daily quotas
 
 Separate from rate limits, and counted per identity per UTC day: pages, cells,
-images and uploads. They exist so one anonymous visitor cannot spend the shared
-demo's whole budget.
+images, uploads, and the model tokens Hush spends. They exist so one anonymous
+visitor cannot spend the shared demo's whole budget.
 
 **A self-hosted install has none.** There is nobody to ration against, and a
 quota here is indistinguishable from the software being broken — it arrives as
@@ -633,6 +633,7 @@ ANONIFY_QUOTA_PPTX_SLIDES=200
 ANONIFY_QUOTA_EMAIL_KILOBYTES=4096
 ANONIFY_QUOTA_IMAGES=100
 ANONIFY_QUOTA_UPLOADS=200
+ANONIFY_QUOTA_ASSISTANT_TOKENS=2000000
 ```
 
 The `demo` profile ships with its own defaults — small allowances, since one
@@ -649,6 +650,7 @@ with when none of the env vars above are set:
 | `ANONIFY_QUOTA_EMAIL_KILOBYTES` | 512 | KiB of decoded text |
 | `ANONIFY_QUOTA_PPTX_SLIDES` | 20 | slides |
 | `ANONIFY_QUOTA_UPLOADS` | 20 | uploads |
+| `ANONIFY_QUOTA_ASSISTANT_TOKENS` | 300,000 | model tokens Hush spends |
 
 The self-hosted profile sets every one of these to `0` (unlimited). The values
 come from `lib/security/quota-config.ts`, and `pnpm setup` reads them straight
@@ -664,11 +666,18 @@ The units are not all the same shape, because the work is not:
 | `PPTX_SLIDES` | slides | PPTX |
 | `EMAIL_KILOBYTES` | KiB of decoded text: headers, every body, every nested message | EML, and every message out of an MBOX |
 | `IMAGES` / `UPLOADS` | one each | all |
+| `ASSISTANT_TOKENS` | model tokens, input and output, as the provider reports them | Hush, whichever document it is asked about |
 
 An email is charged by the text it actually decoded rather than as a page,
 because counting it as a page would charge a one-line reply the same as a
 forwarded thread. A deck is charged by its slides; its notes, layouts and
 masters are processed with the slide they belong to.
+
+Hush is charged by the token, step by step, because a conversation has no
+pages and every step resends it. A run that uses up the allowance stops before
+its next step. This is on top of `ANONIFY_AI_DAILY_SPEND_USD`, which is one
+number for the whole instance: without a per-visitor allowance, one visitor
+could spend the cap and stop analysis for everybody.
 
 A message additionally has parser limits of its own — MIME depth, part count,
 decoded text, header size, attachment count, nesting — which are independent of

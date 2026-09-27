@@ -357,6 +357,8 @@ model UsageRecord {
   /// they belong to rather than charged separately.
   pptxSlides  Int      @default(0)
   uploads     Int      @default(0)
+  /// Model tokens, input and output, spent by Hush on this identity's behalf.
+  assistantTokens Int  @default(0)
 
   @@unique([fingerprint, date])
 }

@@ -461,8 +461,11 @@ tools over this document (see [editor.md §16](./editor.md#16-hush-the-review-as
 - Approvals are HMAC-signed when issued and verified when replayed. A forged or
   altered approval is refused before any tool runs.
 
-The loop is bound by the daily spend cap. Each model step is recorded in
-`AiUsage` (`task: "assistant"`). A run is at most 12 steps.
+The loop is bound by the daily spend cap and by the caller's daily
+`assistantTokens` allowance (`ANONIFY_QUOTA_ASSISTANT_TOKENS`). Each model step
+is recorded in `AiUsage` (`task: "assistant"`) and its tokens are charged to the
+allowance. Both are checked before the run and again before every step after
+the first, so a run stops where either runs out. A run is at most 12 steps.
 
 - **Auth:** session
 - **Rate limit:** `processing`
@@ -477,14 +480,17 @@ The loop is bound by the daily spend cap. Each model step is recorded in
     }
   }
   ```
-  At most 1.5 MB.
+  At most 1.5 MB, counted as the body arrives: a chunked request with no
+  `content-length` is cut off at the limit rather than buffered.
 - **Response `200`:** a UI message stream (`text/event-stream`). Tool calls
   appear as typed tool parts (`tool-find_occurrences`, `tool-create_rule`, …)
   and pass through `approval-requested` when they need the reviewer.
   `approval.requestReason` is `read-consent` or `change`.
 - **Errors:** `400` invalid body; `409` not ready; `413` conversation too long;
-  `503` with `code` `not-configured`, `unsupported` or `budget`. An error
-  inside the stream is sent as a fixed sentence, never the provider's message.
+  `429` with `code: "allowance"` when the caller's allowance is spent; `503`
+  with `code` `not-configured`, `unsupported` or `budget`. An error inside the
+  stream is sent as a fixed sentence, never the provider's message; a run
+  stopped between steps by the cap or the allowance ends with that sentence.
 
 ### `POST /api/documents/:id/process`
 

@@ -457,6 +457,7 @@ Per-fingerprint daily quota accounting. Enforced server-side only.
 | `emailKilobytes` | `Int` `@default(0)` | Kibibytes of decoded text pulled out of a message: headers, every text part, every nested message. An email is not a page. |
 | `pptxSlides` | `Int` `@default(0)` | Slides in a deck. Notes, layouts and masters are processed with the slide they belong to. |
 | `uploads` | `Int` `@default(0)` | Documents uploaded. Pre-checked at reservation. |
+| `assistantTokens` | `Int` `@default(0)` | Model tokens, input and output, spent by Hush for this identity. Charged after each step; checked before a run and between its steps. |
 
 Constraint: `@@unique([fingerprint, date])` — one row per fingerprint per day,
 so an increment is an upsert rather than an insert-or-accumulate.
