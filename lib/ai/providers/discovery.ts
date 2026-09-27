@@ -1,5 +1,5 @@
 import { selectedProvider } from "./index"
-import { ollamaUrl, type ProviderEnv } from "./config"
+import { compatibleBaseUrl, ollamaUrl, type ProviderEnv } from "./config"
 
 export type ModelDefinition = {
   id: string
@@ -129,7 +129,8 @@ function perMillion(perToken: number): number | undefined {
 
 /**
  * Only from model lists whose unit is part of the field's contract: the AI
- * Gateway publishes USD per token, DeepInfra names its fields cents per token.
+ * Gateway and OpenRouter publish USD per token, DeepInfra names its fields
+ * cents per token.
  * Providers whose model APIs carry no price, or carry one in an undocumented
  * unit, get none — a price off by a factor of a hundred is worse than "not
  * published", because it looks exactly like a real one.
@@ -144,6 +145,9 @@ export function listPrice(
   if (provider === "gateway") {
     input = amount(pricing.input)
     output = amount(pricing.output)
+  } else if (provider === "openrouter") {
+    input = amount(pricing.prompt)
+    output = amount(pricing.completion)
   } else if (provider === "deepinfra" && pricing.type === "tokens") {
     const inputCents = amount(pricing.cents_per_input_token)
     const outputCents = amount(pricing.cents_per_output_token)
@@ -237,6 +241,14 @@ export function parseModel(
     model.textOutput = caps.completion_chat
   if (typeof caps.structured_outputs === "boolean")
     model.structuredOutput = caps.structured_outputs
+  // OpenRouter: the request parameters a model accepts. Structured output
+  // is `structured_outputs`; `response_format` alone may mean JSON mode
+  // without a schema, which the probe still has to settle.
+  const parameters = strings(row.supported_parameters)
+  if (parameters)
+    model.structuredOutput =
+      parameters.includes("structured_outputs") ||
+      parameters.includes("response_format")
   if (methods) model.textOutput = methods.includes("generateContent")
   if (endpoints) model.textOutput = endpoints.includes("chat")
   if (typeof row.type === "string") {
@@ -330,6 +342,38 @@ export async function discoverModels(
     }
     return models.sort((a, b) => a.id.localeCompare(b.id))
   }
+  if (provider.login) {
+    return (await import("./subscription")).discoverSubscriptionModels(fetcher)
+  }
+  if (provider.compatible) {
+    let base: string
+    try {
+      base = compatibleBaseUrl(env)
+    } catch (error) {
+      // Our own configuration message, with nothing from a server in it.
+      throw new DiscoveryError((error as Error).message)
+    }
+    const key = provider.envKey ? env[provider.envKey]?.trim() : undefined
+    const raw = await readModelJson(
+      `${base}/models`,
+      key ? { headers: { Authorization: `Bearer ${key}` } } : {},
+      fetcher
+    )
+    const result = bag(raw)
+    // llama.cpp answers with both `data` and its own `models`; `data` is the
+    // OpenAI-shaped one.
+    const rows = Array.isArray(raw) ? raw : (result.data ?? result.models)
+    if (!Array.isArray(rows))
+      throw new DiscoveryError(
+        "The endpoint did not return an OpenAI-style model list."
+      )
+    const models = new Map<string, ModelDefinition>()
+    for (const row of rows) {
+      const model = parseModel(provider.id, row)
+      if (model) models.set(model.id, model)
+    }
+    return [...models.values()].sort((a, b) => a.id.localeCompare(b.id))
+  }
   if (!provider.modelsUrl)
     throw new DiscoveryError(
       "This provider has no model-list API for its SDK transport. Enter a model ID to verify it."
@@ -395,6 +439,30 @@ export async function ollamaAvailable(
       )
     )
     return Array.isArray(result.models)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether the selected local server is answering, within a second. Setup
+ * uses it to offer a local provider by default on `--local`.
+ */
+export async function localServerAvailable(
+  env: ProviderEnv,
+  fetcher: typeof fetch = fetch
+): Promise<boolean> {
+  if (selectedProvider(env).id === "ollama")
+    return ollamaAvailable(env, fetcher)
+  try {
+    const result = bag(
+      await readModelJson(
+        `${compatibleBaseUrl(env)}/models`,
+        { signal: AbortSignal.timeout(1000) },
+        fetcher
+      )
+    )
+    return Array.isArray(result.data)
   } catch {
     return false
   }

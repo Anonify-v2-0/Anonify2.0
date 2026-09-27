@@ -4,6 +4,7 @@
  *   pnpm smoke                          # http://127.0.0.1:3000
  *   pnpm smoke http://localhost:8080
  *   pnpm smoke --only=docx,xlsx         # one or more cases
+ *   pnpm smoke --ai                     # the model pass, against a configured model
  *
  * For every supported format: upload, process, accept, export, download — then
  * open the downloaded artifact the way an adversary would and fail if an
@@ -474,7 +475,104 @@ type SmokeCase = {
   /** Fixture values that must not survive, checked by name as well as by id. */
   sensitive: string[]
   verifyOutput: (artifact: Buffer, context: VerifyContext) => Promise<void>
+  /** What the analysis reported, checked before anything is accepted. */
+  verifyAnalysis?: (
+    usage: Usage,
+    redactions: Redaction[],
+    source: string
+  ) => void
 }
+
+type Usage = {
+  totals: { calls: number; inputTokens: number; outputTokens: number }
+  models: string[]
+  degraded: { reason: string; calls: number } | null
+}
+
+// --- the model pass ---------------------------------------------------------
+
+/**
+ * A letter whose contextual content — a name, an address, a date of birth —
+ * is exactly what pattern detection cannot see. The email is there so the
+ * deterministic half has something to find whatever the model does.
+ */
+const LETTER = [
+  "Referral letter",
+  "",
+  "Dear Dr. Okafor,",
+  "",
+  "I am referring my patient, Maria Lopez (date of birth 14/03/1981), who lives",
+  "at 22 Harbour Lane, Leeds. She can be reached at maria.lopez@example.com.",
+  "",
+  "Kind regards,",
+  "Dr. Sam Whitfield",
+  "",
+].join("\n")
+
+/**
+ * Run with `--ai`, against an instance with a model configured and verified.
+ *
+ * Like tests/ollama-contract.test.ts, this asserts the contract and not the
+ * semantics: that model calls were made through the configured provider and
+ * accounted for, that none of them failed, and that every suggestion quotes
+ * the document. Whether a small local model thinks "Maria Lopez" is a name is
+ * printed, and not something to fail a build over. The rest of the case is
+ * the ordinary one: accept everything, export, and look for what was accepted.
+ */
+const AI_CASES: SmokeCase[] = [
+  {
+    name: "ai-letter",
+    filename: "letter.txt",
+    contentType: "text/plain",
+    bytes: async () => new TextEncoder().encode(LETTER),
+    expectedRedactions: 1,
+    sensitive: ["maria.lopez@example.com"],
+    verifyAnalysis(usage, redactions, source) {
+      if (usage.degraded) {
+        throw new Error(
+          `the model pass degraded (${usage.degraded.reason}, ${usage.degraded.calls} call(s) lost)`
+        )
+      }
+      if (usage.totals.calls < 1) {
+        throw new Error(
+          "no model call was recorded: the contextual pass did not run. Is a model configured and verified (pnpm ai status)?"
+        )
+      }
+      const expected = process.env.ANONIFY_SMOKE_AI_MODEL?.trim()
+      if (expected && !usage.models.includes(expected)) {
+        throw new Error(
+          `usage was recorded for ${usage.models.join(", ") || "nothing"}, not ${expected}`
+        )
+      }
+      step(
+        `${usage.totals.calls} model call(s) on ${usage.models.join(", ")}: ` +
+          `${usage.totals.inputTokens} tokens in, ${usage.totals.outputTokens} out`
+      )
+      // Invariant 5, seen from outside: output is located in the source or
+      // discarded, whoever produced it.
+      for (const redaction of redactions) {
+        if (redaction.text && !source.includes(redaction.text)) {
+          throw new Error(
+            "a suggestion quotes text that is not in the document"
+          )
+        }
+      }
+      const found = ["Maria Lopez", "22 Harbour Lane", "Sam Whitfield"].filter(
+        (value) => redactions.some((redaction) => redaction.text?.includes(value))
+      )
+      step(
+        `contextual values proposed: ${found.length ? found.join(", ") : "none"} (informational)`
+      )
+    },
+    async verifyOutput(artifact, context) {
+      const text = artifact.toString("utf8")
+      assertAbsent(text, context.accepted, "the exported letter")
+      if (!text.includes("Referral letter")) {
+        throw new Error("the export lost content it was not asked to touch")
+      }
+    },
+  },
+]
 
 const CASES: SmokeCase[] = [
   {
@@ -897,6 +995,7 @@ function splitCsvRow(row: string): string[] {
 // --- HTTP -------------------------------------------------------------------
 
 const argv = process.argv.slice(2)
+const ai = argv.includes("--ai")
 const only = argv
   .find((argument) => argument.startsWith("--only="))
   ?.slice("--only=".length)
@@ -910,8 +1009,11 @@ const BASE = (
   "http://127.0.0.1:3000"
 ).replace(/\/$/, "")
 
-/** How long the pipeline gets before we call it hung. */
-const READY_TIMEOUT_MS = 180_000
+/**
+ * How long the pipeline gets before we call it hung. A model on a CPU runner
+ * is minutes per call, and a document is several calls.
+ */
+const READY_TIMEOUT_MS = ai ? 30 * 60_000 : 180_000
 const POLL_INTERVAL_MS = 2_000
 
 /**
@@ -1067,6 +1169,18 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
     )
   }
   step(`${redactions.length} suggestion(s)`)
+
+  if (smokeCase.verifyAnalysis) {
+    const usage = await json<Usage>(
+      await call(`/api/documents/${reserved.id}/usage`),
+      "usage"
+    )
+    smokeCase.verifyAnalysis(
+      usage,
+      redactions,
+      new TextDecoder().decode(bytes)
+    )
+  }
 
   // 5. A reviewer's own redactions, for formats where detection finds nothing
   //    textual to propose.
@@ -1332,14 +1446,15 @@ async function runMailbox(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const pool = ai ? AI_CASES : CASES
   const selected = only
-    ? CASES.filter((smokeCase) => only.includes(smokeCase.name))
-    : CASES
-  const mailbox = !only || only.includes("mbox")
+    ? pool.filter((smokeCase) => only.includes(smokeCase.name))
+    : pool
+  const mailbox = !ai && (!only || only.includes("mbox"))
 
   if (selected.length === 0 && !mailbox) {
     throw new Error(
-      `no cases matched --only; available: ${CASES.map((c) => c.name).join(", ")}`
+      `no cases matched --only; available: ${pool.map((c) => c.name).join(", ")}`
     )
   }
 

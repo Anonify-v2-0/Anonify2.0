@@ -141,7 +141,8 @@ export function classifyServiceError(error: unknown): ServiceFailure {
   const message = error instanceof Error ? error.message : String(error)
 
   // Node fetch wraps a refused local connection in a cause. Waiting cannot
-  // start Ollama; classify the code without exposing its raw error message.
+  // start a local model server; classify the code without exposing its raw
+  // error message.
   let cause: unknown = error
   for (
     let depth = 0;

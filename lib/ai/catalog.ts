@@ -33,7 +33,13 @@ import path from "node:path"
 import { z } from "zod"
 
 import { PROVIDERS, selectedProvider } from "./providers"
-import { ollamaUrl, providerId, type ProviderEnv } from "./providers/config"
+import {
+  compatibleBaseUrl,
+  isLocalProvider,
+  ollamaUrl,
+  providerId,
+  type ProviderEnv,
+} from "./providers/config"
 import {
   discoverModels,
   DiscoveryError,
@@ -54,7 +60,7 @@ export const MODEL_TTL_MS = 7 * 24 * HOUR
  * Read with no credential at all. `pnpm models:warm --all` refreshes these
  * even for providers you have not configured.
  */
-export const PUBLIC_CATALOGS = new Set(["gateway", "deepinfra"])
+export const PUBLIC_CATALOGS = new Set(["gateway", "deepinfra", "openrouter"])
 
 /** Cloud providers authenticate from ambient credential chains. */
 const AMBIENT = new Set(["azure", "amazon-bedrock", "google-vertex"])
@@ -113,22 +119,25 @@ export function catalogDirectory(env: ProviderEnv = process.env): string {
 
 /**
  * The account or endpoint a catalog describes, so a cache written for one
- * Azure resource or Ollama server is never shown for another. Deliberately
- * nothing secret: the file sits on disk in plain text.
+ * Azure resource or compatible endpoint is never shown for another.
+ * Deliberately nothing secret: the file sits on disk in plain text.
  */
 export function catalogTarget(env: ProviderEnv): string {
   const id = providerId(env)
-  let ollama = ""
-  if (id === "ollama") {
+  const compatible = PROVIDERS.find((entry) => entry.id === id)?.compatible
+  let server = ""
+  if (id === "ollama" || compatible) {
     try {
-      ollama = ollamaUrl(env, false)
+      server = compatible
+        ? compatibleBaseUrl(env, false)
+        : ollamaUrl(env, false)
     } catch {
-      ollama = "invalid"
+      server = "invalid"
     }
   }
   return JSON.stringify([
     id,
-    ollama,
+    server,
     env.AZURE_SUBSCRIPTION_ID || "",
     env.AZURE_RESOURCE_GROUP || "",
     env.AZURE_RESOURCE_NAME || "",
@@ -300,9 +309,16 @@ export type CatalogResult = {
   saved?: string
 }
 
-/** Ollama lists what is installed right now, locally and for free. */
+/**
+ * A local server lists what is installed right now, locally and for free. A
+ * subscription's list belongs to whoever is signed in, and needs the sealed
+ * token to read at all.
+ */
 export function cacheable(env: ProviderEnv): boolean {
-  return providerId(env) !== "ollama"
+  const id = providerId(env)
+  return (
+    !isLocalProvider(id) && !PROVIDERS.find((entry) => entry.id === id)?.login
+  )
 }
 
 function reason(error: unknown): string {
@@ -333,7 +349,9 @@ export async function loadCatalog(
   const { refresh = "auto", now = new Date() } = options
   if (!cacheable(env)) {
     if (refresh === "never")
-      throw new DiscoveryError("Ollama models are always read live.")
+      throw new DiscoveryError(
+        "This provider's models are always read live, never from a saved list."
+      )
     return {
       models: await discoverModels(env, options.fetcher),
       origin: "live",
@@ -392,9 +410,16 @@ function configured(id: string, env: ProviderEnv): boolean {
     return Boolean(
       env.AI_GATEWAY_API_KEY?.trim() || env.VERCEL_OIDC_TOKEN?.trim()
     )
-  // Credential chains and local servers cannot be detected without using
-  // them, so they count only when they are the provider actually selected.
-  if (AMBIENT.has(id) || id === "ollama") return id === providerId(env)
+  // Credential chains, local servers, a URL-only endpoint and a stored login
+  // cannot be detected without using them, so they count only when they are
+  // the provider actually selected.
+  if (
+    AMBIENT.has(id) ||
+    isLocalProvider(id) ||
+    provider.keyOptional ||
+    provider.login
+  )
+    return id === providerId(env)
   return Boolean(provider.envKey && env[provider.envKey]?.trim())
 }
 
@@ -450,8 +475,9 @@ export async function warmCatalogs(
       rows.push({
         provider: id,
         status: "skipped",
-        detail:
-          "read live by setup; installed models change too often to cache",
+        detail: isLocalProvider(id)
+          ? "read live by setup; installed models change too often to cache"
+          : "read live by setup; the list belongs to the signed-in account",
       })
       continue
     }

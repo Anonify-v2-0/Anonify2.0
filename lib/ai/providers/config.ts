@@ -1,3 +1,5 @@
+import { compatibleProfile, takesBaseUrl } from "./compatible"
+
 export type ProviderEnv = Record<string, string | undefined>
 
 export const DEFAULT_GATEWAY_MODEL = "anthropic/claude-haiku-4.5"
@@ -26,11 +28,21 @@ export function usageModelId(env: ProviderEnv = process.env): string {
     : `${providerId(env)}:${modelId(env)}`
 }
 
-export function ollamaUrl(
-  env: ProviderEnv = process.env,
-  connect = true
-): string {
-  const url = new URL(env.OLLAMA_BASE_URL?.trim() || DEFAULT_OLLAMA_URL)
+/**
+ * A server the operator named by URL, checked and normalized.
+ *
+ * No credentials, query or fragment: a key belongs in its own variable, where
+ * setup conceals it, and not in a URL that ends up in a capability
+ * declaration, a cache file and a bug report. `toHost` is for a container,
+ * where a loopback address means the host rather than the container itself.
+ */
+function serverUrl(raw: string, name: string, toHost: boolean): string {
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    throw new Error(`${name} must be an HTTP(S) URL`)
+  }
   if (
     !["http:", "https:"].includes(url.protocol) ||
     url.username ||
@@ -39,22 +51,53 @@ export function ollamaUrl(
     url.hash
   ) {
     throw new Error(
-      "OLLAMA_BASE_URL must be an HTTP(S) server URL without credentials or a query"
+      `${name} must be an HTTP(S) server URL without credentials or a query`
     )
   }
-  if (
-    connect &&
-    env.ANONIFY_CONTAINER === "1" &&
-    ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
-  ) {
+  if (toHost && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
     url.hostname = "host.docker.internal"
   }
   return url.toString().replace(/\/$/, "")
 }
 
+export function ollamaUrl(
+  env: ProviderEnv = process.env,
+  connect = true
+): string {
+  return serverUrl(
+    env.OLLAMA_BASE_URL?.trim() || DEFAULT_OLLAMA_URL,
+    "OLLAMA_BASE_URL",
+    connect && env.ANONIFY_CONTAINER === "1"
+  )
+}
+
+/** The chat-completions base URL of the selected OpenAI-compatible profile. */
+export function compatibleBaseUrl(
+  env: ProviderEnv = process.env,
+  connect = true
+): string {
+  const profile = compatibleProfile(providerId(env))
+  if (!profile)
+    throw new Error("The selected AI provider is not an OpenAI-compatible one")
+  const raw = takesBaseUrl(profile)
+    ? env.AI_BASE_URL?.trim() || profile.baseUrl
+    : profile.baseUrl
+  if (!raw)
+    throw new Error(`AI_BASE_URL is required for AI_PROVIDER=${profile.id}`)
+  return serverUrl(raw, "AI_BASE_URL", connect && env.ANONIFY_CONTAINER === "1")
+}
+
+/**
+ * Runs on the operator's machine: no provider spend, one request at a time,
+ * and a model list read live because it is whatever is installed right now.
+ */
+export function isLocalProvider(id: string = providerId()): boolean {
+  return id === "ollama" || Boolean(compatibleProfile(id)?.local)
+}
+
 /** Bind verification to the destination as well as the model, so edits invalidate it. */
 export function capabilityTarget(env: ProviderEnv): string {
-  return JSON.stringify([
+  const target: unknown[] = [
     providerId(env),
     modelId(env),
     providerId(env) === "ollama" ? ollamaUrl(env, false) : "",
@@ -63,7 +106,18 @@ export function capabilityTarget(env: ProviderEnv): string {
     env.GOOGLE_VERTEX_PROJECT || "",
     env.GOOGLE_VERTEX_LOCATION || "",
     Boolean(env.GOOGLE_VERTEX_API_KEY),
-  ])
+  ]
+  // Appended rather than inserted: every declaration already written for the
+  // providers above has to keep matching, or an upgrade would quietly turn
+  // their contextual pass into "unsupported".
+  if (compatibleProfile(providerId(env))) {
+    try {
+      target.push(compatibleBaseUrl(env, false))
+    } catch {
+      target.push("invalid")
+    }
+  }
+  return JSON.stringify(target)
 }
 
 export function capabilityDeclaration(

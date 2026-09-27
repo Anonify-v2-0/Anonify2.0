@@ -11,8 +11,10 @@ import { PROVIDERS, selectedProvider } from "@/lib/ai/providers"
 import {
   capabilityDeclaration,
   capabilityTarget,
+  compatibleBaseUrl,
   configuredCapabilities,
   DEFAULT_OLLAMA_URL,
+  isLocalProvider,
   modelId,
   providerId,
   usageModelId,
@@ -22,7 +24,7 @@ import {
 import {
   blockedReason,
   DiscoveryError,
-  ollamaAvailable,
+  localServerAvailable,
   type ListPrice,
   type ModelDefinition,
 } from "@/lib/ai/providers/discovery"
@@ -261,10 +263,19 @@ export async function askAiProvider(
     env.VERCEL_OIDC_TOKEN ||
     env.AI_MODEL
   )
-  const defaultId =
-    !existing && local && (await ollamaAvailable(env))
-      ? "ollama"
-      : providerId(env)
+  // `--local` means local: the first local server that answers is offered
+  // first, on a fresh configuration only. An existing choice is never replaced.
+  let defaultId = providerId(env)
+  if (!existing && local) {
+    for (const entry of PROVIDERS.filter((entry) =>
+      isLocalProvider(entry.id)
+    )) {
+      if (await localServerAvailable({ ...env, AI_PROVIDER: entry.id })) {
+        defaultId = entry.id
+        break
+      }
+    }
+  }
   const picked = await prompt.choose(
     "Which AI provider?",
     PROVIDERS.map((entry) => ({ value: entry.id, label: entry.label })),
@@ -278,23 +289,60 @@ export async function askAiProvider(
   if (changed) {
     env.AI_MODEL = ""
     env.AI_MODEL_CAPABILITIES = ""
+    // One provider's server is not another's default.
+    env.AI_BASE_URL = ""
   }
   const provider = selectedProvider(env)
-  if (provider.envKey)
+  if (provider.login) {
+    note(
+      "Signing in uses the public client OpenAI ships with Codex CLI, against the backend Codex uses. OpenAI's terms decide whether a subscription may be used this way, and they can change. For a deployed instance, use an OpenAI API key instead."
+    )
+    const signedIn = await import("@/lib/ai/providers/subscription")
+      .then(({ loadLogin }) => loadLogin())
+      .then(Boolean)
+      .catch(() => false)
+    if (!signedIn) {
+      note(
+        "Once the database is up: pnpm ai login --provider openai, then pnpm ai verify to choose and verify a model."
+      )
+      return env
+    }
+  }
+  if (provider.envKey) {
+    if (provider.keyOptional)
+      note("Leave the key blank if the endpoint does not take one.")
     env[provider.envKey] = await prompt.secret(
       provider.envKey,
       env[provider.envKey]
     )
+  }
   for (const field of provider.fields ?? []) {
-    env[field] = await prompt.ask(field, {
-      fallback:
-        env[field] ||
-        (field === "OLLAMA_BASE_URL"
-          ? DEFAULT_OLLAMA_URL
-          : field === "FIREWORKS_ACCOUNT_ID"
-            ? "fireworks"
-            : ""),
-    })
+    for (;;) {
+      env[field] = await prompt.ask(field, {
+        fallback:
+          env[field] ||
+          (field === "OLLAMA_BASE_URL"
+            ? DEFAULT_OLLAMA_URL
+            : field === "FIREWORKS_ACCOUNT_ID"
+              ? "fireworks"
+              : field === "AI_BASE_URL"
+                ? (provider.compatible?.baseUrl ?? "")
+                : ""),
+        hint:
+          field === "AI_BASE_URL"
+            ? "The base URL the endpoint's /chat/completions and /models sit under, usually ending in /v1."
+            : undefined,
+      })
+      if (field !== "AI_BASE_URL") break
+      try {
+        compatibleBaseUrl(env, false)
+        break
+      } catch (error) {
+        // Our own validation message; it never repeats the value.
+        warn((error as Error).message)
+        env[field] = ""
+      }
+    }
   }
   if (picked === "amazon-bedrock")
     note(
@@ -355,6 +403,7 @@ export async function askAiProvider(
   }
   if (
     provider.envKey &&
+    !provider.keyOptional &&
     !env[provider.envKey] &&
     !(picked === "gateway" && env.VERCEL_OIDC_TOKEN)
   ) {
@@ -376,6 +425,23 @@ export async function askAiProvider(
   )
     return env
 
+  return chooseModel(prompt, env, current)
+}
+
+/**
+ * Discover, choose and verify a model for the provider already in `env`, and
+ * return `env` with it declared; or `current` if the operator backs out.
+ * Shared by setup and `pnpm ai verify`.
+ */
+export async function chooseModel(
+  prompt: Prompter,
+  env: ProviderEnv,
+  current: ProviderEnv
+): Promise<ProviderEnv> {
+  env = { ...env }
+  const picked = providerId(env)
+  const provider = selectedProvider(env)
+  const changed = picked !== providerId(current)
   const requireVision = await prompt.choose("What should the model analyze?", [
     {
       value: true,
@@ -393,12 +459,11 @@ export async function askAiProvider(
   const listed = await readModels(prompt, env)
   const models: ModelDefinition[] = listed?.models ?? []
   const catalog = listed?.catalog
-  const prices: PriceState =
-    picked === "ollama"
-      ? "local"
-      : catalog?.sources.prices
-        ? freshness(catalog).prices
-        : undefined
+  const prices: PriceState = isLocalProvider(picked)
+    ? "local"
+    : catalog?.sources.prices
+      ? freshness(catalog).prices
+      : undefined
   const manual = Symbol("manual")
   const cancel = Symbol("cancel")
   const currentId = changed ? "" : modelId(current)

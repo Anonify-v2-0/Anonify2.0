@@ -23,6 +23,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "ocr:warm": "tsx scripts/warm-ocr.ts",
     "models:warm": "tsx scripts/warm-models.ts",
+    "ai": "tsx scripts/ai.ts",
     "cleanup": "tsx scripts/cleanup.ts",
     "smoke": "tsx scripts/smoke.ts",
     "smoke:storage": "tsx scripts/storage-smoke.ts",

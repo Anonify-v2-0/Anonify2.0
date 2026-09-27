@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/database/prisma"
 import { configuredRates, estimateRows } from "@/lib/ai/rates"
-import { providerId } from "@/lib/ai/providers/config"
+import { isLocalProvider } from "@/lib/ai/providers/config"
 import {
   dailySpendCapUsd,
   SPEND_ENV_NAME,
@@ -85,7 +85,7 @@ export async function spentTodayUsd(
 export async function spendStatus(
   now: Date = new Date()
 ): Promise<SpendStatus> {
-  if (providerId() === "ollama") {
+  if (isLocalProvider()) {
     setConcurrencyCeiling("ai", null)
     return { state: "uncapped", reason: "local" }
   }

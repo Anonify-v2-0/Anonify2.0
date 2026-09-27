@@ -229,6 +229,12 @@ services:
       # IAM credential files/profiles must be mounted explicitly; see docs/ai-providers.md.
       ANONIFY_CONTAINER: "1"
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://localhost:11434}
+      # OpenAI-compatible profiles. A loopback AI_BASE_URL is rewritten to the
+      # Docker host too, so LM Studio or llama.cpp on the host is reachable.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      SYNTHETIC_API_KEY: ${SYNTHETIC_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
       AI_PRICE_INPUT_PER_MTOK: ${AI_PRICE_INPUT_PER_MTOK:-}
       AI_PRICE_OUTPUT_PER_MTOK: ${AI_PRICE_OUTPUT_PER_MTOK:-}
 

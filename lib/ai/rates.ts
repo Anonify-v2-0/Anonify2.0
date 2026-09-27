@@ -1,4 +1,9 @@
-import { usageModelId, type ProviderEnv } from "./providers/config"
+import { PROVIDERS } from "./providers"
+import {
+  isLocalProvider,
+  usageModelId,
+  type ProviderEnv,
+} from "./providers/config"
 import { estimateCost, type ModelRates } from "./usage-types"
 
 /** Prices belong to a provider/model pair, including historical rows after switching. */
@@ -14,7 +19,15 @@ export function ratesFor(
   env: ProviderEnv,
   model = usageModelId(env)
 ): ModelRates | null {
-  if (model.startsWith("ollama:"))
+  // Usage rows are `provider:model`, so a historical row keeps its own
+  // provider's answer after the instance switches away from it. A local
+  // server costs nothing per token, and neither does a flat subscription:
+  // leaving either unpriced would make the whole spend cap unenforceable.
+  const provider = model.slice(0, Math.max(0, model.indexOf(":")))
+  if (
+    isLocalProvider(provider) ||
+    PROVIDERS.find((entry) => entry.id === provider)?.login
+  )
     return { inputPerMillion: 0, outputPerMillion: 0 }
   if (env.AI_MODEL_PRICES?.trim()) {
     try {

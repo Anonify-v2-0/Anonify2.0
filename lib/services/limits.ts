@@ -19,6 +19,8 @@
  * calling it. So there is one conservative set of defaults and no profile split.
  */
 
+import { isLocalProvider } from "@/lib/ai/providers/config"
+
 export const SERVICES = ["ai", "ocr"] as const
 
 export type ServiceName = (typeof SERVICES)[number]
@@ -96,12 +98,11 @@ const BOUNDS: Record<ServiceLimitKey, { min: number; max: number }> = {
 
 export function serviceDefaults(service: ServiceName): ServiceLimits {
   // One instance selects one AI provider, so its existing overrides still
-  // describe the only outbound AI gate. A local GPU starts one request at a time.
+  // describe the only outbound AI gate. A local GPU starts one request at a
+  // time, whichever server (Ollama, LM Studio, llama.cpp) is in front of it.
   return {
     ...DEFAULTS[service],
-    ...(service === "ai" && process.env.AI_PROVIDER === "ollama"
-      ? { concurrency: 1 }
-      : {}),
+    ...(service === "ai" && isLocalProvider() ? { concurrency: 1 } : {}),
   }
 }
 

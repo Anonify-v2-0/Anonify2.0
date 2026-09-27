@@ -27,9 +27,19 @@ name: Local model
 # also not cached: GitHub evicts a cache unused for seven days, so a weekly job
 # would restore nothing and pay for the upload anyway.
 #
+# A second job, "Local install", takes the same model through the whole
+# self-hosted stack: `docker compose up`, a document uploaded over HTTP,
+# analysed by the model, redacted, exported and read back. The Compose job in
+# ci.yml proves local Postgres, RustFS and Tesseract that way on every pull
+# request; this is the same proof for the model, the third service, so that
+# "no account anywhere" is something CI has seen rather than something the
+# docs say. It configures the instance the way a scripted install would —
+# `pnpm ai verify`, setup's probe without the prompts — and asserts that model
+# calls were made and none failed, not what a 2B model finds.
+#
 # The runtime image, model tag and model digest are pinned in
 # tests/fixtures/ollama/model.json. When the registry republishes the tag, the
-# digest check below fails and says so; update the digest there on purpose,
+# digest check in .github/scripts/ollama-prepare.sh fails and says so; update the digest there on purpose,
 # after reading what changed, rather than having the model move underneath the
 # assertions.
 
@@ -39,15 +49,19 @@ on:
     # off the hour because on-the-hour schedules are the ones it delays most.
     - cron: "17 4 * * 1"
   workflow_dispatch:
-  # Also on a pull request that changes the contract itself: the pin, the suite,
-  # or this file. Nothing else here runs them, and this workflow's first run was
-  # after it had merged — and failed on a missing DATABASE_URL.
+  # Also on a pull request that changes what these jobs exercise directly: the
+  # pin, the suite, the provider layer and the CLI that configures it, or this
+  # file. Nothing else runs them, and this workflow's first run was after it
+  # had merged — and failed on a missing DATABASE_URL.
   pull_request:
     branches: [main]
     paths:
       - .github/workflows/local-model.yml
+      - .github/scripts/ollama-prepare.sh
       - tests/ollama-contract.test.ts
       - tests/fixtures/ollama/**
+      - lib/ai/providers/**
+      - scripts/ai.ts
 
 permissions:
   contents: read
@@ -56,6 +70,14 @@ concurrency:
   group: local-model-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  OLLAMA_BASE_URL: http://127.0.0.1:11434
+  PIN: tests/fixtures/ollama/model.json
+  # A placeholder, as in ci.yml: postinstall runs `prisma generate`, and
+  # prisma.config.ts refuses to load without a DATABASE_URL. The contract
+  # suite mocks the Prisma client; the Compose app is given its own.
+  DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
+
 jobs:
   ollama:
     name: Ollama contract
@@ -63,81 +85,26 @@ jobs:
     timeout-minutes: 60
     env:
       ANONIFY_OLLAMA_TESTS: "1"
-      OLLAMA_BASE_URL: http://127.0.0.1:11434
-      PIN: tests/fixtures/ollama/model.json
-      # A placeholder, as in ci.yml: postinstall runs `prisma generate`, and
-      # prisma.config.ts refuses to load without a DATABASE_URL. Nothing
-      # connects to it — the suite mocks the Prisma client.
-      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
     steps:
       - uses: actions/checkout@v5
 
-      # The runtime image (3.7 GB) and the model (1.9 GB) are most of this job's
-      # wall clock, and neither depends on node_modules. So they download while
-      # the next step installs, and "Wait for Ollama" joins them afterwards.
-      #
-      # The script also loads the model into memory once it is pulled, and the
-      # container keeps it there (OLLAMA_KEEP_ALIVE=-1), so the first test is
-      # not the one that pays for loading the model from disk.
+      # The runtime image and the model download while the next step installs;
+      # "Wait for Ollama" joins them afterwards. A status file rather than
+      # `wait`, which cannot reach across steps.
       - name: Start Ollama and pull the pinned model, in the background
         run: |
-          set -euo pipefail
-          script="$RUNNER_TEMP/ollama-prepare.sh"
-          cat > "$script" <<'SCRIPT'
-          set -euo pipefail
-          runtime=$(jq -r .runtime "$PIN")
-          model=$(jq -r .model "$PIN")
-          pinned=$(jq -r .digest "$PIN")
-
-          docker pull --quiet "$runtime"
-          docker run --detach --name ollama --publish 11434:11434 \
-            --env OLLAMA_KEEP_ALIVE=-1 "$runtime"
-
-          started=
-          for _ in $(seq 60); do
-            if curl -fsS "$OLLAMA_BASE_URL/api/version"; then started=1; break; fi
-            sleep 1
-          done
-          echo
-          if [ -z "$started" ]; then
-            echo "::error::Ollama did not start within a minute."
-            exit 1
-          fi
-
-          # The API rather than `ollama pull`, which draws a progress bar per
-          # layer into the log.
-          curl -fsS --max-time 1800 "$OLLAMA_BASE_URL/api/pull" \
-            -d "$(jq -n --arg model "$model" '{model: $model, stream: false}')"
-          echo
-
-          actual=$(curl -fsS "$OLLAMA_BASE_URL/api/tags" \
-            | jq -r --arg model "$model" '.models[] | select(.name == $model) | .digest')
-          if [ "$actual" != "$pinned" ]; then
-            echo "::error::$model is $actual, but $PIN pins $pinned. The registry has republished the tag; read what changed, then update the digest."
-            exit 1
-          fi
-          echo "$model is the pinned $pinned"
-
-          # A generate request without a prompt only loads the model.
-          curl -fsS --max-time 600 "$OLLAMA_BASE_URL/api/generate" \
-            -d "$(jq -n --arg model "$model" '{model: $model, keep_alive: -1}')" >/dev/null
-          echo "$model is loaded"
-          SCRIPT
-
-          # A status file rather than `wait`, which cannot reach across steps.
           # shellcheck disable=SC2016 # expanded by the inner bash, on purpose
-          nohup bash -c 'status=0; bash "$1" > "$1.log" 2>&1 || status=$?; echo "$status" > "$1.status"' \
-            _ "$script" >/dev/null 2>&1 &
+          nohup bash -c 'status=0; bash "$1" > "$2.log" 2>&1 || status=$?; echo "$status" > "$2.status"' \
+            _ .github/scripts/ollama-prepare.sh "$RUNNER_TEMP/ollama" >/dev/null 2>&1 &
 
       - uses: ./.github/actions/setup
 
       - name: Wait for Ollama
         timeout-minutes: 35
         run: |
-          prepare="$RUNNER_TEMP/ollama-prepare.sh"
-          until [ -s "$prepare.status" ]; do sleep 2; done
-          cat "$prepare.log"
-          exit "$(cat "$prepare.status")"
+          until [ -s "$RUNNER_TEMP/ollama.status" ]; do sleep 2; done
+          cat "$RUNNER_TEMP/ollama.log"
+          exit "$(cat "$RUNNER_TEMP/ollama.status")"
 
       - name: Contract suite
         run: pnpm exec vitest run tests/ollama-contract.test.ts
@@ -150,5 +117,68 @@ jobs:
             docker logs --tail 300 ollama
           else
             echo "The Ollama container never started."
-            cat "$RUNNER_TEMP/ollama-prepare.sh.log" 2>/dev/null || true
+            cat "$RUNNER_TEMP/ollama.log" 2>/dev/null || true
           fi
+
+  install:
+    name: Local install
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      # The compose file refuses to start without these. Workflow placeholders,
+      # as in ci.yml; this stack is destroyed at the end of the job.
+      ENCRYPTION_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+      FINGERPRINT_SECRET: "feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Start Ollama and pull the pinned model, in the background
+        run: |
+          # shellcheck disable=SC2016 # expanded by the inner bash, on purpose
+          nohup bash -c 'status=0; bash "$1" > "$2.log" 2>&1 || status=$?; echo "$status" > "$2.status"' \
+            _ .github/scripts/ollama-prepare.sh "$RUNNER_TEMP/ollama" >/dev/null 2>&1 &
+
+      - uses: ./.github/actions/setup
+
+      # Also independent of the model, so it overlaps the download too.
+      - name: Build the stack's images
+        run: docker compose build
+
+      - name: Wait for Ollama
+        timeout-minutes: 35
+        run: |
+          until [ -s "$RUNNER_TEMP/ollama.status" ]; do sleep 2; done
+          cat "$RUNNER_TEMP/ollama.log"
+          exit "$(cat "$RUNNER_TEMP/ollama.status")"
+
+      # What an operator does without a terminal: choose the provider, then
+      # verify the model, which writes its capability declaration into .env.
+      # OLLAMA_BASE_URL stays in the job's environment, so the host (here) and
+      # the container (through host.docker.internal) name the same server, and
+      # the declaration is bound to that name. Compose reads the rest of .env.
+      - name: Configure the instance for the pinned local model
+        run: |
+          set -euo pipefail
+          echo 'AI_PROVIDER=ollama' > .env
+          pnpm ai verify --model "$(jq -r .model "$PIN")"
+          pnpm ai status
+          grep '^AI_' .env
+
+      - name: Start the stack
+        run: docker compose up -d --wait
+
+      - name: Upload, analyse with the model, redact, export, download
+        run: |
+          ANONIFY_SMOKE_AI_MODEL="ollama:$(jq -r .model "$PIN")" \
+            pnpm smoke --ai http://127.0.0.1:3000
+
+      - name: Show what the containers said
+        if: failure()
+        run: |
+          df -h /
+          docker compose logs --no-color --timestamps
+          docker logs --tail 300 ollama 2>/dev/null || cat "$RUNNER_TEMP/ollama.log" 2>/dev/null || true
+
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes --remove-orphans
