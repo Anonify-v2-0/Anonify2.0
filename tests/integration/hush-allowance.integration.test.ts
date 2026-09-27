@@ -102,6 +102,7 @@ let identity = {
 vi.mock("@/lib/security/fingerprint", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/security/fingerprint")>()),
   peekIdentity: async () => identity,
+  renewIdentity: async () => identity,
 }))
 
 const { prisma } = await import("@/lib/database/prisma")
