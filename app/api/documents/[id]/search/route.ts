@@ -4,6 +4,7 @@ import {
   errorResponse,
   handleRouteError,
   jsonResponse,
+  rateLimitResponse,
   readJson,
 } from "@/lib/api/http"
 import { readNormalized } from "@/lib/documents/normalized-store"
@@ -44,10 +45,18 @@ export async function POST(
   try {
     const { id } = await context.params
     const identity = await peekIdentity()
-    await consumeRateLimit("read", identity?.networkKey ?? "anonymous")
 
     const parsed = searchSchema.safeParse(await readJson(request))
     if (!parsed.success) return errorResponse("Invalid search", 400)
+
+    // One page's hits cost what reading the page does. Where every hit is
+    // means scanning the whole document, once per query as the reviewer
+    // types, which is what the `search` bucket is sized for.
+    const limit = await consumeRateLimit(
+      parsed.data.page !== undefined ? "read" : "search",
+      identity?.networkKey ?? "anonymous"
+    )
+    if (!limit.allowed) return rateLimitResponse(limit, "searches")
 
     const ruleContext = await requireRuleContext(id, identity?.ownerKey)
     if (ruleContext instanceof Response) return ruleContext

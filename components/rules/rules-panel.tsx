@@ -213,6 +213,15 @@ export function RulesPanel({ documentId }: { documentId: string }) {
                     ))}
                   </ul>
                 )}
+                {section.scope === "global" ? (
+                  // Said where the rules are, not only when one is made: the
+                  // session is the only thing that reaches them.
+                  <p className="pt-2 text-[11px] leading-relaxed text-text-muted">
+                    Global rules belong to this browser session. They end 30
+                    days after they last apply, or sooner if this browser’s
+                    cookies are cleared. Export them to keep them.
+                  </p>
+                ) : null}
               </section>
             )
           })}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { readFailure } from "@/lib/api/errors"
 import { patternProblem } from "@/lib/redaction/patterns"
@@ -50,6 +50,9 @@ export function useSearch(
 
   const spec = specOfSearch(search)
   const key = search.open && search.query ? searchKey(spec) : null
+  // Bumped to ask again once a rate limit's wait is over, so the reviewer is
+  // not left to retype the query to find out whether it has passed.
+  const [retries, setRetries] = useState(0)
 
   // Where every hit is, once per question.
   useEffect(() => {
@@ -62,6 +65,7 @@ export function useSearch(
     }
 
     const controller = new AbortController()
+    let retry: ReturnType<typeof setTimeout> | undefined
     const timer = setTimeout(async () => {
       dispatch(searchStarted(key))
       try {
@@ -74,6 +78,12 @@ export function useSearch(
         if (!response.ok) {
           const failure = await readFailure(response, "Search failed.")
           dispatch(searchFailed({ key, error: failure.message }))
+          if (failure.rateLimited) {
+            retry = setTimeout(
+              () => setRetries((count) => count + 1),
+              (failure.retryAfterSeconds ?? 5) * 1000
+            )
+          }
           return
         }
         const summary = (await response.json()) as SearchSummary
@@ -94,11 +104,12 @@ export function useSearch(
 
     return () => {
       clearTimeout(timer)
+      clearTimeout(retry)
       controller.abort()
     }
     // `spec` is derived from `key`, which is its identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, dispatch, documentId, key, store])
+  }, [active, dispatch, documentId, key, retries, store])
 
   // The hits on the page being shown, which is what gets highlighted.
   const hasHitsHere = search.pages.some((entry) => entry.page === currentPage)

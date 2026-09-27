@@ -55,7 +55,7 @@ const SCOPE_COPY: Record<RuleScope, { label: string; hint: string }> = {
   },
   global: {
     label: "All my future uploads",
-    hint: "Every match here, and in every document you upload from now on. Kept, encrypted, for 30 days after it last applies; export it from the rules panel to keep it longer.",
+    hint: "Every match here, and in every document you upload from now on. Kept, encrypted, with this browser session: for 30 days after it last applies, or until this browser’s cookies are cleared. Export it from the rules panel to keep it longer.",
   },
 }
 
@@ -148,9 +148,13 @@ function RuleForm({
 
   // Preview as the reviewer types, once the pattern is one the server would run.
   const previewKey = JSON.stringify([spec, scope])
+  // Bumped to preview again once a rate limit's wait is over: the confirm
+  // button waits on a preview, and retyping should not be how to get one.
+  const [retries, setRetries] = useState(0)
   useEffect(() => {
     if (problem) return
     const controller = new AbortController()
+    let retry: ReturnType<typeof setTimeout> | undefined
     const timer = setTimeout(async () => {
       setPreview({ state: "loading" })
       try {
@@ -169,6 +173,12 @@ function RuleForm({
             "This pattern could not be previewed."
           )
           setPreview({ state: "error", message: failure.message })
+          if (failure.rateLimited) {
+            retry = setTimeout(
+              () => setRetries((count) => count + 1),
+              (failure.retryAfterSeconds ?? 5) * 1000
+            )
+          }
           return
         }
         const payload = (await response.json()) as {
@@ -186,11 +196,12 @@ function RuleForm({
     }, 300)
     return () => {
       clearTimeout(timer)
+      clearTimeout(retry)
       controller.abort()
     }
     // `previewKey` is the identity of spec and scope.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentId, previewKey, problem])
+  }, [documentId, previewKey, problem, retries])
 
   const ready = !problem && preview.state === "ready"
   const count = preview.state === "ready" ? preview.here.count : 0

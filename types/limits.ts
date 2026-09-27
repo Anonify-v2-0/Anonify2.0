@@ -57,6 +57,7 @@ export const RATE_LIMIT_LABELS: Record<RateLimitName, string> = {
   processing: "Processing",
   export: "Exports",
   read: "Reads",
+  search: "Searches",
 }
 
 export const QUOTA_LABELS: Record<UsageKind, string> = {

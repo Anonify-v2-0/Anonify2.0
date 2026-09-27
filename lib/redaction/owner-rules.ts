@@ -39,6 +39,14 @@ import type { Redaction } from "@/types/redaction"
  *   - export and import are how somebody keeps a rule set beyond that, in a
  *     file they hold, which is also how a team shares one across instances.
  *
+ * The two clocks are kept in step from the cookie's side. The session rolls
+ * (lib/security/fingerprint.ts): every request that uses a rule renews it
+ * before the rule is touched — an upload, which the rules are later carried
+ * into, and a create, an edit, an import or a Hush turn. So a rule's expiry
+ * is never later than the cookie's, and a reviewer who keeps working keeps
+ * both. Clearing cookies or changing browser still ends the session early;
+ * the rules go unreachable then and are deleted at their own expiry.
+ *
  * A document's copy of a global rule is an ordinary `GlobalRule` row carrying
  * `ownerRuleId`, and it is deleted with its document like every other copy.
  */
@@ -207,12 +215,39 @@ export async function createOwnerRule(input: {
 }
 
 /**
+ * When the upload that produced this document was made.
+ *
+ * That request renewed the owner's session, and processing runs after it —
+ * minutes later, or much later for a retry — outside any request that could
+ * renew it again. A mailbox's messages and an email's attachments are created
+ * by processing, so it is their outermost container's upload that counts.
+ */
+async function uploadedAt(documentId: string): Promise<Date> {
+  let id: string | null = documentId
+  let at = new Date()
+  // Containers nest a few levels at most; the bound only stops a cycle.
+  for (let hop = 0; id && hop < 16; hop += 1) {
+    const row: { createdAt: Date; parentDocumentId: string | null } | null =
+      await prisma.document.findUnique({
+        where: { id },
+        select: { createdAt: true, parentDocumentId: true },
+      })
+    if (!row) break
+    if (row.createdAt < at) at = row.createdAt
+    id = row.parentDocumentId
+  }
+  return at
+}
+
+/**
  * Applies every global rule this document has not seen yet.
  *
  * Run at the end of processing beside `carryBatchRules`, with the same
  * guarantee: a copy already materialized is skipped, so a retried step does
  * not double anything. Each rule it applies is marked used, which is what
- * keeps a rule that is still doing its job from expiring.
+ * keeps a rule that is still doing its job from expiring — counted from the
+ * upload, when the session was last renewed, rather than from now, so the
+ * rule is not kept past the cookie that owns it. It is never moved earlier.
  */
 export async function carryOwnerRules(
   documentId: string
@@ -223,6 +258,7 @@ export async function carryOwnerRules(
   })
   const target = document ? asTarget(document) : null
   if (!document || !target) return { rulesApplied: 0, redactions: 0 }
+  const usedUntil = idleExpiry(await uploadedAt(documentId))
 
   const [rules, existing] = await Promise.all([
     liveRules(document.userFingerprint, { enabled: true }),
@@ -251,7 +287,10 @@ export async function carryOwnerRules(
       ...planWrites([plan]),
       prisma.ownerRule.update({
         where: { id: rule.id },
-        data: { lastUsedAt: now, expiresAt: idleExpiry(now) },
+        data: {
+          lastUsedAt: now,
+          expiresAt: usedUntil > rule.expiresAt ? usedUntil : rule.expiresAt,
+        },
       }),
     ])
     rulesApplied += 1

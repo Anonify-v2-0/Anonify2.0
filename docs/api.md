@@ -339,7 +339,8 @@ is usually the very value being looked for, and a query string is what access
 logs keep. See `lib/redaction/search.ts`.
 
 - **Auth:** session
-- **Rate limit:** `read`
+- **Rate limit:** `search` without `page` (a whole-document scan, once per
+  query as the reviewer types); `read` with `page`
 - **Body:**
   ```json
   {
@@ -358,7 +359,7 @@ logs keep. See `lib/redaction/search.ts`.
   into that page's text.
 - **Errors:** `400` invalid body, or a pattern the compiler refuses (the
   message says why; `code` names it); `409` not ready; `422` more than 50,000
-  matches or the time budget spent.
+  matches or the time budget spent; `429` search rate limit.
 
 ### `GET /api/documents/:id/rules`
 
@@ -380,13 +381,15 @@ context. Runs under the compiler and budget the rule itself runs under, so a
 preview that succeeds is a rule that will. Writes nothing.
 
 - **Auth:** session
-- **Rate limit:** `read`
+- **Rate limit:** `search`; `processing` for `scope: "batch"`, which scans every
+  document in the batch
 - **Body:** `{ "spec": PatternSpec, "scope": "document" | "batch" | "global" }`
 - **Response `200`:** `{ here: { count, samples: [{ page?, worksheet?, row?,
   column?, before, match, after }] } }`; for `scope: "batch"` also `batch: {
   documents: [{ id, name, status, count | null, note? }], total }`.
 - **Errors:** `400` refused pattern; `409` not ready; `422` over budget — in a
-  batch preview the message names the document that would fail.
+  batch preview the message names the document that would fail; `429` rate
+  limit.
 
 ### `POST /api/documents/:id/rules`
 
@@ -403,7 +406,7 @@ downgraded) for a document that is not in a batch. `scope: "global"` records it
 for the owner — applied here now, and to every document they upload
 afterwards (see `OwnerRule` in [data-model.md](./data-model.md)).
 
-- **Auth:** session
+- **Auth:** session, renewed (a global rule lasts as long as it does)
 - **Rate limit:** `processing`
 - **Path params:** `id`
 - **Body:**
@@ -420,7 +423,7 @@ afterwards (see `OwnerRule` in [data-model.md](./data-model.md)).
   redactions }` totalling the rule's reach.
 - **Errors:** `400` invalid body or refused pattern; `404`/`410` access; `409`
   not ready, `scope: "batch"` outside a batch, or more than 200 global rules;
-  `422` over budget (nothing was written).
+  `422` over budget (nothing was written); `429` rate limit.
 
 ### `PATCH /api/documents/:id/rules`
 
@@ -428,23 +431,27 @@ Switches a rule off or on, or rewrites it, at whatever scope it lives, and
 everywhere it reached. Off removes its redactions and keeps it listed; on, or
 an edit, re-plans it and replaces its redactions in one transaction.
 
-- **Auth:** session
+- **Auth:** session, renewed
 - **Rate limit:** `processing`
 - **Body:** `{ "id", "scope", "enabled"?, "spec"?, "category"? }`
 - **Response `200`:** `{ "updated": true }`
-- **Errors:** `400`; `404` no such rule in scope; `409`; `422`.
+- **Errors:** `400`; `404` no such rule in scope; `409`; `422`; `429`.
 
 ### `DELETE /api/documents/:id/rules`
 
 Removes a rule and every redaction it created, everywhere it reached.
 
 - **Auth:** session
+- **Rate limit:** `processing`
 - **Path params:** `id`
 - **Query params:** `ruleId` (required); `scope` — `document` (default),
-  `batch` or `global`
+  `batch` or `global`. With `document`, `ruleId` must be this document's own
+  rule: its copy of a batch or global rule (`copyId`) is `404`, and is removed
+  at the rule's own scope.
 - **Response `200`:** `{ "deleted": <redactions removed> }`, plus `documents`
   for a batch or global rule.
-- **Errors:** `400` no rule specified; `404`/`410` access.
+- **Errors:** `400` no rule specified; `404` no such rule in scope; `404`/`410`
+  access; `429` rate limit.
 
 ### `POST /api/documents/:id/assistant`
 
@@ -467,7 +474,7 @@ is recorded in `AiUsage` (`task: "assistant"`) and its tokens are charged to the
 allowance. Both are checked before the run and again before every step after
 the first, so a run stops where either runs out. A run is at most 12 steps.
 
-- **Auth:** session
+- **Auth:** session, renewed (an approved tool can create or edit a global rule)
 - **Rate limit:** `processing`
 - **Body:**
   ```json
@@ -720,7 +727,8 @@ listed with `count: null` and a `note`, never as `0`.
 - **Rate limit:** `processing`
 - **Body:** `{ "spec": PatternSpec }`
 - **Response `200`:** `{ "documents": [{ id, name, status, count | null, note? }] }`
-- **Errors:** `400` refused pattern; `404` batch not found / foreign.
+- **Errors:** `400` refused pattern; `404` batch not found / foreign; `429`
+  rate limit.
 
 ### `PATCH /api/batches/:id/rules`
 

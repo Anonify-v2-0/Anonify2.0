@@ -165,6 +165,7 @@ services:
       ANONIFY_RATE_LIMIT_PROCESSING: ${ANONIFY_RATE_LIMIT_PROCESSING:-}
       ANONIFY_RATE_LIMIT_EXPORT: ${ANONIFY_RATE_LIMIT_EXPORT:-}
       ANONIFY_RATE_LIMIT_READ: ${ANONIFY_RATE_LIMIT_READ:-}
+      ANONIFY_RATE_LIMIT_SEARCH: ${ANONIFY_RATE_LIMIT_SEARCH:-}
 
       # Daily allowances. Unlimited on the self-hosted profile, which is the
       # default — set these only if you are running something shared. 0 is

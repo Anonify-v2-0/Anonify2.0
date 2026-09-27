@@ -14,7 +14,7 @@ import {
 } from "@/lib/assistant/hush"
 import { SubscriptionAuthError } from "@/lib/ai/providers/subscription"
 import { requireRuleContext } from "@/lib/redaction/pattern-api"
-import { peekIdentity } from "@/lib/security/fingerprint"
+import { renewIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 
 export const runtime = "nodejs"
@@ -67,7 +67,10 @@ export async function POST(
 ) {
   try {
     const { id } = await context.params
-    const identity = await peekIdentity()
+    // Renewed now, before the stream starts and the headers go: an approved
+    // tool can create or edit a global rule, which is kept as long as the
+    // session that owns it (lib/redaction/owner-rules.ts).
+    const identity = await renewIdentity()
     await consumeRateLimit("processing", identity?.networkKey ?? "anonymous")
 
     const body = await readJsonWithin(request, MAX_BODY_BYTES)

@@ -4,6 +4,7 @@ import {
   errorResponse,
   handleRouteError,
   jsonResponse,
+  rateLimitResponse,
   readJson,
 } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
@@ -29,7 +30,7 @@ import {
   updateDocumentRule,
 } from "@/lib/redaction/rules"
 import { requireDocument } from "@/lib/security/access-control"
-import { peekIdentity } from "@/lib/security/fingerprint"
+import { peekIdentity, renewIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 
 export const runtime = "nodejs"
@@ -115,8 +116,14 @@ export async function POST(
 ) {
   try {
     const { id } = await context.params
-    const identity = await peekIdentity()
-    await consumeRateLimit("processing", identity?.networkKey ?? "anonymous")
+    // Renewed, because a global rule made here is kept as long as the session
+    // that owns it: see lib/redaction/owner-rules.ts.
+    const identity = await renewIdentity()
+    const limit = await consumeRateLimit(
+      "processing",
+      identity?.networkKey ?? "anonymous"
+    )
+    if (!limit.allowed) return rateLimitResponse(limit, "rule changes")
 
     const parsed = createSchema.safeParse(await readJson(request))
     if (!parsed.success) {
@@ -201,8 +208,13 @@ export async function PATCH(
 ) {
   try {
     const { id } = await context.params
-    const identity = await peekIdentity()
-    await consumeRateLimit("processing", identity?.networkKey ?? "anonymous")
+    // Renewed for the same reason as POST: an edit or a switch-on is a use.
+    const identity = await renewIdentity()
+    const limit = await consumeRateLimit(
+      "processing",
+      identity?.networkKey ?? "anonymous"
+    )
+    if (!limit.allowed) return rateLimitResponse(limit, "rule changes")
 
     const parsed = updateSchema.safeParse(await readJson(request))
     if (!parsed.success) return errorResponse("Invalid rule change", 400)
@@ -240,6 +252,12 @@ export async function DELETE(
   try {
     const { id } = await context.params
     const identity = await peekIdentity()
+    const limit = await consumeRateLimit(
+      "processing",
+      identity?.networkKey ?? "anonymous"
+    )
+    if (!limit.allowed) return rateLimitResponse(limit, "rule changes")
+
     const document = await requireDocument(id, identity?.ownerKey)
 
     const url = new URL(request.url)
@@ -263,12 +281,27 @@ export async function DELETE(
       return jsonResponse({ deleted: removed.redactions, ...removed })
     }
 
+    // Only this document's own rule. Its copy of a batch or global rule has an
+    // id too (`RuleView.copyId`), but removing the copy alone would leave the
+    // batch's and the owner's counts wrong, and the next carry would put it
+    // back; those are removed at their own scope.
+    const rule = await prisma.globalRule.findFirst({
+      where: {
+        id: ruleId,
+        documentId: document.id,
+        batchRuleId: null,
+        ownerRuleId: null,
+      },
+      select: { id: true },
+    })
+    if (!rule) return errorResponse("Rule not found", 404)
+
     const [removed] = await prisma.$transaction([
       prisma.redaction.deleteMany({
-        where: { documentId: document.id, ruleId },
+        where: { documentId: document.id, ruleId: rule.id },
       }),
       prisma.globalRule.deleteMany({
-        where: { documentId: document.id, id: ruleId },
+        where: { documentId: document.id, id: rule.id },
       }),
     ])
 

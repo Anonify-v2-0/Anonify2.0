@@ -279,6 +279,14 @@ content kept longer than any document is. Two things follow:
   on moves it forward. The cleanup sweep deletes expired rows
   (`pruneOwnerRules`). JSON export and import are how anybody keeps a rule set
   longer than that.
+- **It ends with the browser session.** The session cookie rolls: the requests
+  that use a rule — an upload, which the rule is carried into, a create, an
+  edit, an import, a Hush turn — renew it for another 30 days before the rule
+  is touched. A carry, which runs during processing, counts from the upload
+  rather than from when it ran. So `expiresAt` is never later than the cookie's
+  expiry, and a reviewer who keeps working keeps both. Clearing cookies, a
+  private window or another browser is a new session that cannot reach these
+  rules; reviewers should export them before then.
 
 | Column | Type | Purpose / notes |
 | --- | --- | --- |
@@ -286,7 +294,7 @@ content kept longer than any document is. Two things follow:
 | `userFingerprint` | `String` | Owner. |
 | `createdAt`, `updatedAt` | `DateTime` | |
 | `lastUsedAt` | `DateTime` | Last applied, edited or switched on. |
-| `expiresAt` | `DateTime` | `lastUsedAt` + 30 days. |
+| `expiresAt` | `DateTime` | 30 days after the last use: `lastUsedAt`, or for a carry the upload it was carried into. Never moved earlier. |
 | `kind` | `String` | `literal` or `regex`. |
 | `sealedPattern` | `String` | The pattern, sealed with the master key, base64. |
 | `matchCase`, `wholeWord` | `Boolean` | As on `BatchRule`. |

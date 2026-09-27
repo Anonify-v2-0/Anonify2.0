@@ -283,7 +283,7 @@ and read back on every subsequent request:
 
 ```ts
 sessionId = randomBytes(24).toString("hex")   // 48 hex chars, ≥ 32 required
-cookieStore.set(SESSION_COOKIE, sessionId, {
+cookieStore.set(SESSION_COOKIE, sessionId, {   // writeSession()
   httpOnly: true,
   sameSite: "lax",
   secure: process.env.NODE_ENV === "production",
@@ -297,7 +297,7 @@ cookieStore.set(SESSION_COOKIE, sessionId, {
 | `httpOnly` | `true` | The cookie is never readable by client-side JavaScript. It is an identity token, not something the page needs to inspect, and `httpOnly` keeps it out of any XSS that reaches `document.cookie`. |
 | `sameSite` | `"lax"` | The cookie is sent on same-site requests and top-level navigations from other sites, but not on cross-site subrequests (images, `fetch` from another origin). `lax` rather than `strict` so a link from another site still lands authenticated; `strict` would break that for no real gain here, since the cookie carries no privilege beyond owning documents on this instance. |
 | `secure` | `true` in production | The cookie only travels over HTTPS in production. In development (`NODE_ENV !== "production"`) it is allowed over plain HTTP so a local clone without TLS still works. |
-| `maxAge` | `30 days` (`SESSION_MAX_AGE = 60 * 60 * 24 * 30`, `fingerprint.ts:18`) | The session lasts a month of inactivity. Ownership flows through `deriveOwnerKey(sessionId)` (`fingerprint.ts:47`), so a stable session id is what keeps a document reachable; a rolling 30-day window is long enough to come back to a document and short enough that an abandoned browser does not own documents forever. |
+| `maxAge` | `30 days` (`SESSION_MAX_AGE = 60 * 60 * 24 * 30`, `fingerprint.ts:18`) | The session lasts a month after it was last renewed. Ownership flows through `deriveOwnerKey(sessionId)` (`fingerprint.ts:47`), so a stable session id is what keeps a document reachable; a rolling 30-day window is long enough to come back to a document and short enough that an abandoned browser does not own documents forever. The window rolls on the requests that use what the session owns beyond a document's own lifetime — uploads (`getIdentity`), and creating or editing a global rule, directly or through Hush (`renewIdentity`) — so a global rule, kept for 30 days after its last use, never outlives the cookie that reaches it (see [data-model.md §6a](./data-model.md#6a-ownerrule)). Renewing keeps the same id; it retains nothing server-side, since documents keep their own expiry. |
 | `path` | `"/"` | The cookie is scoped to the whole origin, so every route — upload, workspace, download — reads the same identity. |
 
 `peekIdentity` (`fingerprint.ts:109`) is the read-only variant for contexts

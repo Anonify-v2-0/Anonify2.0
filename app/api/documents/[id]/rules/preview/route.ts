@@ -4,6 +4,7 @@ import {
   errorResponse,
   handleRouteError,
   jsonResponse,
+  rateLimitResponse,
   readJson,
 } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
@@ -51,10 +52,18 @@ export async function POST(
   try {
     const { id } = await context.params
     const identity = await peekIdentity()
-    await consumeRateLimit("read", identity?.networkKey ?? "anonymous")
 
     const parsed = previewSchema.safeParse(await readJson(request))
     if (!parsed.success) return errorResponse("Invalid preview", 400)
+
+    // Priced as the search it is: this document is scanned whole, and for a
+    // batch rule every other document in the batch is too, which costs what
+    // the batch search does.
+    const limit = await consumeRateLimit(
+      parsed.data.scope === "batch" ? "processing" : "search",
+      identity?.networkKey ?? "anonymous"
+    )
+    if (!limit.allowed) return rateLimitResponse(limit, "rule previews")
 
     const ruleContext = await requireRuleContext(id, identity?.ownerKey)
     if (ruleContext instanceof Response) return ruleContext

@@ -1,6 +1,23 @@
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
 
 import { hasDatabase, testFingerprint, testId } from "./support"
+
+// The routes read the caller from a cookie, which needs a request Next.js is
+// serving. Here the caller is whoever the test says it is.
+const caller = vi.hoisted(() => ({
+  ownerKey: "",
+  networkKey: `test_rules_network_${Math.random().toString(16).slice(2)}`,
+}))
+vi.mock("@/lib/security/fingerprint", () => {
+  const identity = async () => ({
+    sessionId: "test-session",
+    normalizedIp: "unknown",
+    ownerKey: caller.ownerKey,
+    quotaKey: caller.ownerKey,
+    networkKey: caller.networkKey,
+  })
+  return { peekIdentity: identity, renewIdentity: identity, getIdentity: identity }
+})
 
 /**
  * Rules against Postgres: that a rule is written whole or not at all, that
@@ -19,6 +36,7 @@ const { newBatchId } = await import("@/lib/documents/ids")
 const rules = await import("@/lib/redaction/rules")
 const owned = await import("@/lib/redaction/owner-rules")
 const { PatternBudgetError, RULE_MATCH_LIMIT } = await import("@/lib/redaction/patterns")
+const rulesRoute = await import("@/app/api/documents/[id]/rules/route")
 
 const owners: string[] = []
 
@@ -119,6 +137,7 @@ describe.skipIf(!hasDatabase)("rules against Postgres", () => {
       await prisma.batch.deleteMany({ where: { userFingerprint: value } })
       await prisma.ownerRule.deleteMany({ where: { userFingerprint: value } })
     }
+    await prisma.rateLimit.deleteMany({ where: { key: { endsWith: caller.networkKey } } })
   })
 
   it("applies a RegEx rule as accepted redactions that record the rule", async () => {
@@ -312,6 +331,108 @@ describe.skipIf(!hasDatabase)("rules against Postgres", () => {
     expect((await owned.listOwnerRules(elsewhere)).map((rule) => rule.pattern)).toEqual([
       "EMP-\\d{5}",
     ])
+  })
+
+  it("counts a carried rule's idle time from the upload, so it never outlives the session", async () => {
+    const DAY = 24 * 3600 * 1000
+    const ownerKey = owner("rules-idle")
+    const origin = await seedDocument({ ownerKey, text: TEXT })
+    const { ownerRuleId } = await owned.createOwnerRule({
+      ownerKey,
+      spec: literal("Jane"),
+      category: "person",
+      origin: await targetOf(origin),
+    })
+    const expiry = async () =>
+      (await prisma.ownerRule.findUniqueOrThrow({ where: { id: ownerRuleId } })).expiresAt.getTime()
+    const dueIn = (days: number) =>
+      prisma.ownerRule.update({
+        where: { id: ownerRuleId },
+        data: { expiresAt: new Date(Date.now() + days * DAY) },
+      })
+
+    // Uploaded ten days ago and only processed now — a retry, say. The upload
+    // is the last time the session was renewed, so the rule is kept for 30
+    // days from then, not from now.
+    const uploaded = new Date(Date.now() - 10 * DAY)
+    const late = await seedDocument({ ownerKey, text: "Jane" })
+    await prisma.document.update({ where: { id: late }, data: { createdAt: uploaded } })
+    await dueIn(5)
+    expect((await owned.carryOwnerRules(late)).rulesApplied).toBe(1)
+    expect(await expiry()).toBe(uploaded.getTime() + 30 * DAY)
+
+    // A message in a mailbox is created by processing; its mailbox's upload
+    // is the one that counts.
+    const message = await seedDocument({ ownerKey, text: "Jane wrote." })
+    await prisma.document.update({ where: { id: message }, data: { parentDocumentId: late } })
+    await dueIn(5)
+    await owned.carryOwnerRules(message)
+    expect(await expiry()).toBe(uploaded.getTime() + 30 * DAY)
+
+    // And a carry never shortens a rule that was used more recently.
+    await dueIn(29)
+    const kept = await expiry()
+    const older = await seedDocument({ ownerKey, text: "Jane" })
+    await prisma.document.update({ where: { id: older }, data: { createdAt: uploaded } })
+    await owned.carryOwnerRules(older)
+    expect(await expiry()).toBe(kept)
+  })
+
+  it("refuses to delete a document's copy of a batch or global rule as if it were its own", async () => {
+    const ownerKey = owner("rules-delete-copy")
+    caller.ownerKey = ownerKey
+    const batchId = await seedBatch(ownerKey)
+    const here = await seedDocument({ ownerKey, batchId, text: TEXT })
+    const other = await seedDocument({ ownerKey, batchId, text: "Also EMP-00999." })
+    const { batchRuleId } = await rules.createBatchRule({
+      batchId,
+      spec: regex("EMP-\\d{5}"),
+      category: "customer-id",
+      originDocumentId: here,
+    })
+    const { ownerRuleId } = await owned.createOwnerRule({
+      ownerKey,
+      spec: literal("Jane"),
+      category: "person",
+      origin: await targetOf(here),
+    })
+    const own = await rules.applyRuleToDocument({
+      target: await targetOf(here),
+      spec: literal("ORDER-99999"),
+      category: "other",
+      reason: "test",
+    })
+
+    const remove = (query: string) =>
+      rulesRoute.DELETE(
+        new Request(`http://localhost/api/documents/${here}/rules?${query}`, {
+          method: "DELETE",
+        }),
+        { params: Promise.resolve({ id: here }) }
+      )
+
+    const batchCopy = await prisma.globalRule.findFirstOrThrow({
+      where: { documentId: here, batchRuleId },
+    })
+    const ownerCopy = await prisma.globalRule.findFirstOrThrow({
+      where: { documentId: here, ownerRuleId },
+    })
+    // Scope omitted means `document`, and so does saying it.
+    expect((await remove(`ruleId=${batchCopy.id}`)).status).toBe(404)
+    expect((await remove(`ruleId=${ownerCopy.id}&scope=document`)).status).toBe(404)
+
+    // Nothing moved: both copies, all their redactions, and the rules.
+    expect(await prisma.globalRule.count({ where: { batchRuleId } })).toBe(2)
+    expect(await prisma.globalRule.count({ where: { ownerRuleId } })).toBe(1)
+    expect(await prisma.redaction.count({ where: { documentId: { in: [here, other] } } })).toBe(5)
+    expect(await prisma.batchRule.count({ where: { id: batchRuleId } })).toBe(1)
+    expect(await prisma.ownerRule.count({ where: { id: ownerRuleId } })).toBe(1)
+
+    // The document's own rule still goes, with what it made.
+    const removed = await remove(`ruleId=${own.ruleId}`)
+    expect(removed.status).toBe(200)
+    expect(await removed.json()).toEqual({ deleted: 1 })
+    expect(await prisma.globalRule.count({ where: { id: own.ruleId } })).toBe(0)
   })
 
   it("prunes a global rule nobody has used for the idle window", async () => {

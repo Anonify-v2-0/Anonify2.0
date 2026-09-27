@@ -4,6 +4,7 @@ import {
   errorResponse,
   handleRouteError,
   jsonResponse,
+  rateLimitResponse,
   readJson,
 } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
@@ -43,7 +44,11 @@ export async function POST(
     const identity = await peekIdentity()
 
     const batch = await requireBatch(id, identity?.ownerKey)
-    await consumeRateLimit("processing", identity?.networkKey ?? "anonymous")
+    const limit = await consumeRateLimit(
+      "processing",
+      identity?.networkKey ?? "anonymous"
+    )
+    if (!limit.allowed) return rateLimitResponse(limit, "batch searches")
 
     const parsed = searchSchema.safeParse(await readJson(request))
     if (!parsed.success) return errorResponse("Invalid search", 400)
