@@ -54,17 +54,23 @@ export async function listBatchDocuments(
   batchId: string,
   now = new Date()
 ): Promise<DocumentListItem[]> {
-  return query({ batchId, expiresAt: { gt: now } }, "asc")
+  // Every document, not the first fifty. The ceiling above is for a session's
+  // own list; a batch is already bounded by the batch cap and the mailbox
+  // limits, and a mailbox of nine hundred messages is a batch of nine hundred
+  // and one. Capped here, the export planned from this list quietly covered
+  // the first fifty messages and the rest were never exported at all.
+  return query({ batchId, expiresAt: { gt: now } }, "asc", null)
 }
 
 async function query(
   where: Prisma.DocumentWhereInput,
-  direction: "asc" | "desc"
+  direction: "asc" | "desc",
+  limit: number | null = LIST_LIMIT
 ): Promise<DocumentListItem[]> {
   const documents = await prisma.document.findMany({
     where,
     orderBy: { createdAt: direction },
-    take: LIST_LIMIT,
+    ...(limit === null ? {} : { take: limit }),
     select: {
       id: true,
       originalName: true,
