@@ -22,7 +22,8 @@ name: Local model
 # of closing its JSON, which cost 270 s of CPU for an answer that did not parse
 # and failed the analysis pass as invalid output. A contract suite that fails
 # on the model's mood is not guarding the contract. The 4B is slower per token
-# but closes its answers.
+# but closes its answers, so the suite is faster as a whole: 225 s against the
+# 2B's 436 s, and the analysis pass 74 s rather than 300 s.
 #
 # The instruct tag, not `qwen3-vl:4b`: that tag is the thinking model, which
 # writes hundreds of tokens of reasoning before every answer — minutes per call
