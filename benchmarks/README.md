@@ -21,7 +21,9 @@ are random and can coincide with a real one; see
 | `corpus/check.ts`: CI check that committed files hold only reserved values                        | done, runs in the `Test` job                  |
 | `corpus/synthetic-v1.tar.gz`: the 600 documents, with `manifest.json` beside it                   | 534 of 600, not yet reviewed                  |
 | `corpus/render.ts`: txt / eml / pdf / docx / csv / xlsx                                           | done; `corpus:score --format` reads them back |
-| `score.ts`: per-category precision and recall, weighted cost, agreement                           | done; charts for #59 not yet                  |
+| `score.ts`: per-category precision and recall, weighted cost, agreement                           | done                                          |
+| `models.ts`: models against each other, and deterministic-first against model-only (#59, #55)     | done; no model has been run yet               |
+| `charts.ts`: the five charts in CONTRIBUTING §4 and two for #55, from the committed results       | done; drawn once a model has been run         |
 
 ## Generating
 
@@ -457,9 +459,176 @@ a copy under 4 KB in Node's shared buffer pool, and then slices the pool's
 corrupt zip or not, depending on where the pool is, so which files fail varies
 from run to run.
 
-The charts #59 asks for are not drawn yet. The results files hold what they
-need, except tokens without the deterministic pass: every run is
-deterministic-first.
+`corpus:score --detector pipeline` scores one model once. Comparing models,
+and measuring what the deterministic pass saves, is `bench:models`, below.
+
+## Benchmarking models
+
+Two questions, one harness. #59 asks what a model buys: its cost per
+document, its quality per category, and where the provider's rate limit
+starts to bite. #55 asks whether running the patterns first actually saves
+tokens at comparable quality, which is the claim the whole pipeline is built
+on and which nobody had measured. Both are answered from the same runs.
+
+```sh
+pnpm bench:models --dry-run                   # what would run, and what is already measured
+pnpm bench:models --limit 20                  # a first look: 20 documents, every phase
+pnpm bench:models                             # the model in .env, over the 395 test documents
+pnpm bench:charts                             # redraw the charts and the Results section below
+```
+
+### Choosing the models
+
+The models come from the environment, the same way the app's does, so there is
+nothing to configure twice:
+
+| Variable           | What it does                                                                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `BENCH_MODELS`     | The models to run, one after another: `provider:model`, comma-separated, each with an optional `=label` for the charts           |
+| `AI_PROVIDER`, `AI_MODEL` | Used when `BENCH_MODELS` is unset: the one model the app is configured with                                               |
+| each provider's key | Read from `.env` exactly as the app reads it, so every provider in `BENCH_MODELS` needs its key there                          |
+| `AI_MODEL_PRICES`  | Prices, keyed by the usage id: the model id on the gateway, `provider:model` elsewhere. A model without one has tokens but no cost |
+| `ANONIFY_AI_REQUESTS_PER_MINUTE`, `ANONIFY_AI_MAX_ATTEMPTS` | Pacing and retries, as in the app; recorded in each results file                       |
+
+```sh
+# .env
+BENCH_MODELS=gateway:anthropic/claude-haiku-4.5=Haiku 4.5, openai:gpt-5-mini=GPT-5 mini
+AI_GATEWAY_API_KEY=...
+OPENAI_API_KEY=...
+AI_MODEL_PRICES={"anthropic/claude-haiku-4.5":{"inputPerMillion":1,"outputPerMillion":5},"openai:gpt-5-mini":{"inputPerMillion":0.25,"outputPerMillion":2}}
+```
+
+The prices above are an example, not a quote. `--models` takes the same list
+on the command line and wins over the variable. The provider is everything before the first colon, so
+`ollama:llama3.1:8b` works, and an entry with no colon is a gateway model.
+Prices change and differ per account, so they are yours to set: check them
+against the provider's page on the day you run. Each results file records the
+rates it was priced at.
+
+A model from a different family than the one that wrote the corpus (Codex,
+GPT 6 Luna) should be among them: a model may do better on its own family's
+writing.
+
+### What a run does
+
+For each model, three phases, each written to the results file as soon as it
+finishes:
+
+| Phase                 | Documents                     | What it measures                                                                                                                                                 |
+| --------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deterministic-first` | the split (395 test)          | The pipeline as it ships: quality per category, tokens and cost per document, wall-clock by stage, and what the patterns, the model and the local search each contributed |
+| `model-only`          | the same documents            | The same model with the deterministic pass switched off: the tokens and quality the patterns save, or do not                                                     |
+| `throughput`          | 24, at 1, 2, 4 and 8 at once  | Documents per minute as concurrency rises, and where the provider starts cutting the model pass short                                                            |
+
+`--phases deterministic-first,model-only` runs a subset, `--sweep 1,2,4,8,16`
+and `--sweep-documents 40` change the throughput phase, `--concurrency` sets
+how many documents the two quality phases analyse at once (default 4), and
+`--format pdf` (or any rendered format) runs every document through rendering,
+extraction and a full export as well, which is the only way the extract and
+export stages get timed.
+
+**What it costs.** Every model call goes through the provider's real API. Try
+`--limit 20` first: the summary prints the cost per document, and the full test
+split is about twenty times that per phase. The model-only phase costs more
+than the first, since that is the point of it. The throughput phase adds about
+four times its sample. Nothing is recorded against the instance's daily spend
+cap or written to its usage table.
+
+**Stopping and resuming.** In a terminal the run is a live view: a progress
+bar, what each worker is analysing and at which stage, tokens and dollars so
+far, and recall and precision so far, with each finished document scrolling
+past. Piped or in CI it prints a line per document instead. Every finished
+document is checkpointed under `benchmarks/results/.checkpoints/` (ignored by
+git), so ctrl+c, a dropped connection or a crash loses only the documents in
+flight: run the same command again and it resumes. `--fresh` starts a phase
+over.
+
+### Adding a model later
+
+Results live in `benchmarks/results/models/<corpus>-<split>-<format>/`, one
+file per model. Benchmarking a new model adds a file and touches no other.
+Rerunning a model skips every phase it has already measured and runs only
+what is missing, so a model benchmarked without prices, or without the
+throughput phase, can be completed later; `--replace` measures a phase again.
+A model measured on an older version of the corpus is left out of the charts,
+and named, until it is measured again on this one.
+
+```sh
+BENCH_MODELS=gateway:google/gemini-2.5-flash pnpm bench:models
+pnpm bench:charts
+git add benchmarks/results/models benchmarks/charts benchmarks/README.md README.md
+```
+
+Each model keeps its colour in every chart, in the order models were first
+measured, so adding one never repaints the others.
+
+### The results file
+
+The top level is the shape CONTRIBUTING §4 asks for (`model`, `corpus`,
+`commit`, `documents`, `deterministicFirst`, `totals`, `perDocument`,
+`quality`), taken from the deterministic-first run. Under `runs`, each phase
+holds its quality per category, per document type, per length and per PII
+density, tokens by task, timings by stage, the attribution and expansion
+figures below, the documents the app refused, and a record per document: its
+detections and each pass's detections as `[start, end, category]` offsets,
+never text, with its tokens and timings. The charts are drawn from these
+alone, so a later change to the scoring or to a chart needs no model call.
+
+### How each number is taken
+
+- **Model-only** is the same analysis with a preset whose detector list is
+  empty, so no pattern runs, and with nothing else changed: the model is asked
+  exactly what it is asked with no preset, and the local search still expands
+  what it finds. It is not a preset anyone can pick. Its tokens against the
+  deterministic-first run's are the saving.
+- **Where the result comes from.** The analysis reports what each pass found
+  before they are merged. Each covered label is credited to the first pass
+  that covers it alone, in the order the pipeline runs them: the patterns
+  (after verification), then the model, then the local search. A label that
+  only their combination covers is counted as that.
+- **Local expansion** is measured as the occurrences the local search added at
+  positions neither the patterns nor the model had found, against how often
+  the document's cast is mentioned. The pipeline never asks the model per
+  occurrence, so the calls this saves are not observed; each added occurrence
+  is one a per-occurrence design would have had to pay for.
+- **Throughput** takes the same sample of documents at each level, with
+  `ANONIFY_AI_CONCURRENCY` and the documents in flight both set to it. A level
+  where the provider cut the model pass short is marked: that is the rate
+  limit.
+- **Recall by category** groups the categories a pattern can check the shape
+  of (email, phone, URL, API key, bank account, financial, government ID,
+  customer ID) apart from those that need a reader (person, address, date of
+  birth, confidential, other). The pipeline's premise is that models differ on
+  the second group and not the first. If the heatmap shows otherwise, that is
+  a finding to file, not a chart to redraw.
+
+### The charts
+
+`pnpm bench:charts` draws them from every results file into
+`benchmarks/charts/`, each in a light and a dark version, and rewrites the
+[Results](#results) section below and the Benchmarks section of the top-level
+README to show them, with a table of the numbers behind each chart. The palette
+is validated for the common colour-vision deficiencies in both themes, and no
+chart relies on colour alone. `pnpm bench:charts --check` changes nothing and
+fails if a chart or a section is out of date with the committed results.
+Commit the results, the charts and the two READMEs together.
+
+## Results
+
+<!-- bench:results:start -->
+<!-- Generated by `pnpm bench:charts` from `benchmarks/results/models/synthetic-v1-test-text/` and `benchmarks/results/synthetic-v1-test-patterns.json`. Edits here are overwritten. -->
+
+No model has been benchmarked on this corpus yet. Run `pnpm bench:models`, then `pnpm bench:charts`, and this section fills itself in.
+
+Not drawn yet:
+
+- Cost per document: needs a model with a price in AI_MODEL_PRICES, that made model calls.
+- Cost against quality: needs a priced model with a deterministic-first run.
+- Token savings: needs a model with both the deterministic-first and model-only phases, that made model calls.
+- Throughput: needs a model with the throughput phase.
+- Recall by category: needs a model with a deterministic-first run.
+
+<!-- bench:results:end -->
 
 ## Rendering
 
