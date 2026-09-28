@@ -19,7 +19,7 @@ are random and can coincide with a real one; see
 | `corpus/generate.ts`: spec sampler, prompt, placeholder filler, markup stripper, rejection checks | done                                          |
 | `corpus/validate.ts`: cross-family validator, disagreements queued for a person                   | done                                          |
 | `corpus/check.ts`: CI check that committed files hold only reserved values                        | done, runs in the `Test` job                  |
-| `corpus/synthetic-v1.tar.gz`: the 600 documents, with `manifest.json` beside it                   | 470 of 600, not yet reviewed                  |
+| `corpus/synthetic-v1.tar.gz`: the 600 documents, with `manifest.json` beside it                   | 534 of 600, not yet reviewed                  |
 | `corpus/render.ts`: txt / eml / pdf / docx / csv / xlsx                                           | done; `corpus:score --format` reads them back |
 | `score.ts`: per-category precision and recall, weighted cost, agreement                           | done; charts for #59 not yet                  |
 
@@ -71,7 +71,8 @@ are told why the last cached one was rejected.
 **Speed.** The first full run, with Codex and GPT 6 Luna at the reasoning
 effort set in `~/.codex/config.toml` (`high`), took about 90 seconds a call
 and seven hours for 1,106 calls: 470 documents written, 130 given up after
-three attempts. Three things now cut that:
+three attempts. A later run wrote 64 of those 130, bringing the corpus to
+534. Three things now cut that:
 
 - `--effort` sets Codex's reasoning effort for the corpus alone, and defaults
   to `low`. `--effort config` uses your config file instead.
