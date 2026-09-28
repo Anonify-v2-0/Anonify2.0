@@ -307,6 +307,59 @@ describe("dedupe across paths", () => {
   })
 })
 
+describe("what each pass contributed", () => {
+  const text =
+    "Email jane@example.com about it. Contact Maria Lopez today. Maria Lopez agreed."
+
+  it("reports the patterns, the model and the local search apart", async () => {
+    scripted.setScript({
+      detect: () => ({ detections: [found("Maria Lopez", { global: true })] }),
+    })
+
+    const { detections, passes } = await analyzeDocument(
+      "doc_1",
+      doc([page(1, text)])
+    )
+
+    expect(passes.patterns.map((d) => d.text)).toEqual(["jane@example.com"])
+    expect(passes.rejected).toBe(0)
+    expect(passes.model.map((d) => d.text)).toEqual(["Maria Lopez"])
+    // Both occurrences come back from the search; the first is the model's
+    // own, and the merge keeps one of each. The email is global too, so it is
+    // searched for as well.
+    expect(
+      passes.expanded
+        .filter((d) => d.text === "Maria Lopez")
+        .map((d) => d.start)
+    ).toEqual([text.indexOf("Maria"), text.lastIndexOf("Maria")])
+    expect(detections.filter((d) => d.text === "Maria Lopez")).toHaveLength(2)
+  })
+
+  it("runs no pattern under the benchmark's model-only preset", async () => {
+    const { MODEL_ONLY } = await import("../benchmarks/lib/pipeline")
+    scripted.setScript({ detect: reportMatches(/Maria Lopez/g) })
+
+    const { passes, detections } = await analyzeDocument(
+      "doc_1",
+      doc([page(1, text)]),
+      undefined,
+      MODEL_ONLY
+    )
+
+    expect(passes.patterns).toEqual([])
+    expect(detections.some((d) => d.text === "jane@example.com")).toBe(false)
+    // The model is asked as it is with no preset, with nothing marked as
+    // already found.
+    const prompt = scripted.callsFor("detect")[0].prompt
+    expect(prompt).not.toContain("jane@example.com\n")
+    expect(prompt).toContain(text)
+    expect(passes.model.map((d) => d.text)).toEqual([
+      "Maria Lopez",
+      "Maria Lopez",
+    ])
+  })
+})
+
 describe("global expansion", () => {
   it("finds the other occurrences locally rather than by asking again", async () => {
     const model = doc([

@@ -23,23 +23,22 @@
  * extracted text with the original (lib/extraction.ts).
  */
 
-import { execFileSync } from "node:child_process"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { parseArgs } from "node:util"
 
-import { syncBeforeRun } from "./corpus/lib/archive"
 import { int } from "./corpus/lib/args"
-import { listDocumentFiles } from "./corpus/lib/manifest"
-import {
-  isRenderFormat,
-  RENDER_FORMATS,
-  renderDocument,
-  type RenderFormat,
-} from "./corpus/lib/render"
+import { isRenderFormat, RENDER_FORMATS } from "./corpus/lib/render"
 import { palette, progressBar, type Palette } from "./corpus/lib/tui"
 import type { LabelledDocument } from "./corpus/lib/types"
-import { extract, SourceMap } from "./lib/extraction"
+import { corpusHash, gitCommit, loadCorpus, percentile } from "./lib/corpus"
+import {
+  analyse,
+  captureUsage,
+  liftSpendCap,
+  withoutModel,
+  type Usage,
+} from "./lib/pipeline"
 import {
   agreement,
   aggregate,
@@ -138,106 +137,7 @@ type Results = {
   detections: Record<string, Stored>
 }
 
-// --- the corpus -------------------------------------------------------------
-
-async function loadCorpus(
-  root: string,
-  split: string
-): Promise<LabelledDocument[]> {
-  await syncBeforeRun(root)
-  const files = (await listDocumentFiles(root)).filter(
-    (file) => split === "all" || file.startsWith(`${split}/`)
-  )
-  if (files.length === 0) {
-    throw new Error(
-      `no ${split === "all" ? "" : `${split} `}documents in ${path.relative(process.cwd(), root)}; is ${path.basename(root)}.tar.gz there?`
-    )
-  }
-  return Promise.all(
-    files.map(
-      async (file) =>
-        JSON.parse(
-          await readFile(path.join(root, file), "utf8")
-        ) as LabelledDocument
-    )
-  )
-}
-
-async function corpusHash(root: string): Promise<string | null> {
-  try {
-    const manifest = JSON.parse(
-      await readFile(path.join(root, "manifest.json"), "utf8")
-    )
-    return manifest.corpus ?? null
-  } catch {
-    return null
-  }
-}
-
-function gitCommit(): string | null {
-  try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], {
-      encoding: "utf8",
-    }).trim()
-  } catch {
-    return null
-  }
-}
-
 // --- running the detectors --------------------------------------------------
-
-type Usage = { calls: number; inputTokens: number; outputTokens: number }
-
-/**
- * Model usage, per document, as the pipeline records it.
- *
- * `runStructured` writes every call to `prisma.aiUsage`. Here that one table
- * is replaced by a tally, so the benchmark's tokens are counted without a
- * database and never land in the instance's own spend history. Anything else
- * a provider asks the database for (a stored subscription login) goes to the
- * real one when DATABASE_URL is set.
- */
-async function captureUsage(): Promise<Map<string, Usage>> {
-  const usage = new Map<string, Usage>()
-  const aiUsage = {
-    create: async ({
-      data,
-    }: {
-      data: { documentId: string; inputTokens: number; outputTokens: number }
-    }) => {
-      const entry = usage.get(data.documentId) ?? {
-        calls: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-      }
-      entry.calls++
-      entry.inputTokens += data.inputTokens
-      entry.outputTokens += data.outputTokens
-      usage.set(data.documentId, entry)
-      return data
-    },
-  }
-  let real: object | null = null
-  if (process.env.DATABASE_URL) {
-    const { getPrisma } = await import("@/lib/database/prisma")
-    real = getPrisma()
-  }
-  ;(globalThis as { prisma?: unknown }).prisma = new Proxy(
-    {},
-    {
-      get(_target, property) {
-        if (property === "aiUsage") return aiUsage
-        if (!real) {
-          throw new Error(
-            `the provider needs the database (prisma.${String(property)}); set DATABASE_URL`
-          )
-        }
-        return Reflect.get(real, property, real)
-      },
-    }
-  )
-  return usage
-}
 
 type Detection = {
   detections: Detected[]
@@ -255,30 +155,16 @@ type Detector = {
   detect(document: LabelledDocument, format: string): Promise<Detection>
 }
 
-function labelCharacters(document: LabelledDocument): number {
-  let count = 0
-  for (const span of document.spans)
-    count += span.value.replace(/\s/g, "").length
-  return count
-}
-
 async function createDetector(name: string): Promise<Detector> {
   if (name !== "patterns" && name !== "pipeline") {
     throw new Error(
       `--detector must be patterns or pipeline, not ${JSON.stringify(name)}`
     )
   }
-  // The day's spend cap is the instance's, for its users; a benchmark is
-  // measuring, and its calls are not recorded against it (see captureUsage).
-  process.env.ANONIFY_AI_DAILY_SPEND_USD = "0"
-  if (name === "patterns") {
-    process.env.AI_PROVIDER = "gateway"
-    delete process.env.AI_GATEWAY_API_KEY
-    delete process.env.VERCEL_OIDC_TOKEN
-  }
+  liftSpendCap()
+  if (name === "patterns") withoutModel()
 
   const { aiConfigured, resolveModel } = await import("@/lib/ai/gateway")
-  const { analyzeDocument } = await import("@/lib/ai/analyze")
   if (name === "pipeline" && !aiConfigured()) {
     throw new Error(
       "--detector pipeline needs a configured provider: set AI_PROVIDER, AI_MODEL and its key in .env (pnpm setup writes them)"
@@ -289,53 +175,13 @@ async function createDetector(name: string): Promise<Detector> {
     name,
     model: name === "patterns" ? "none" : resolveModel(),
     async detect(document, format) {
-      if (format !== "text") {
-        const rendered = await renderDocument(document, format as RenderFormat)
-        const model = await extract(
-          document.id,
-          rendered.format,
-          rendered.bytes
-        )
-        const map = new SourceMap(document.text, model)
-        const result = await analyzeDocument(document.id, model)
-        const mapped = result.detections.map((d) => map.detection(d))
-        const columns = result.sensitiveColumns.flatMap((column) =>
-          map.column(column.worksheet, column.column, column.category)
-        )
-        const total = labelCharacters(document)
-        return {
-          detections: [
-            ...mapped.filter((d): d is Detected => d !== null),
-            ...columns,
-          ],
-          degraded: result.degraded?.reason ?? null,
-          outside: mapped.filter((d) => d === null).length,
-          recovered: [
-            Math.round(map.recovered(document.text, document.spans) * total),
-            total,
-          ],
-          substituted: rendered.substituted,
-        }
-      }
-      const result = await analyzeDocument(document.id, {
-        documentId: document.id,
-        kind: "txt",
-        pages: [
-          { number: 1, width: 0, height: 0, text: document.text, spans: [] },
-        ],
-      })
+      const result = await analyse(document, format)
       return {
-        detections: result.detections
-          .filter(
-            (detection) =>
-              detection.start !== undefined && detection.end !== undefined
-          )
-          .map((detection) => ({
-            start: detection.start!,
-            end: detection.end!,
-            category: detection.category,
-          })),
-        degraded: result.degraded?.reason ?? null,
+        detections: result.detections,
+        degraded: result.degraded,
+        outside: result.outside,
+        recovered: result.recovered,
+        substituted: result.substituted,
       }
     },
   }
@@ -345,12 +191,6 @@ async function createDetector(name: string): Promise<Detector> {
 
 function percent(value: number | null): string {
   return value === null ? "  —  " : `${(value * 100).toFixed(1)}%`.padStart(6)
-}
-
-function percentile(values: number[], p: number): number {
-  if (values.length === 0) return 0
-  const sorted = [...values].sort((a, b) => a - b)
-  return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
 }
 
 function printQuality(quality: Quality, c: Palette) {

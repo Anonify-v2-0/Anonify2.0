@@ -1,0 +1,730 @@
+/**
+ * Benchmarks models on the labelled corpus (issues #59 and #55).
+ *
+ *   pnpm bench:models                          # the model in .env (AI_PROVIDER, AI_MODEL)
+ *   BENCH_MODELS="gateway:anthropic/claude-haiku-4.5, openai:gpt-5-mini" pnpm bench:models
+ *   pnpm bench:models --limit 20 --phases deterministic-first   # a quick look
+ *   pnpm bench:models --dry-run                # what would run, and what is already measured
+ *   pnpm bench:charts                          # redraw the charts from every results file
+ *
+ * For each model, up to three phases, each written as soon as it finishes:
+ *
+ * - deterministic-first: the pipeline as it ships. Quality per category,
+ *   tokens and cost per document, wall-clock by stage, and what the patterns,
+ *   the model and the local search each contributed.
+ * - model-only: the same documents with the deterministic pass switched off,
+ *   so the tokens it saves are measured rather than asserted (#55).
+ * - throughput: a fixed sample at rising concurrency, to find where the
+ *   provider's rate limit starts to bite.
+ *
+ * Results go to benchmarks/results/models/<corpus>-<split>-<format>/<model>.json,
+ * one file per model. Benchmarking a new model adds a file; rerunning one
+ * leaves every phase it has already measured alone unless --replace says
+ * otherwise. Every finished document is checkpointed, so an interrupted run
+ * resumes where it stopped instead of paying for the same calls twice.
+ */
+
+import { existsSync } from "node:fs"
+import {
+  appendFile,
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises"
+import path from "node:path"
+import { parseArgs } from "node:util"
+
+import { int } from "./corpus/lib/args"
+import { isRenderFormat, RENDER_FORMATS } from "./corpus/lib/render"
+import { box, duration, palette, type Palette } from "./corpus/lib/tui"
+import type { LabelledDocument } from "./corpus/lib/types"
+import {
+  BENCH_SCHEMA,
+  MODES,
+  modelSlug,
+  notMeasured,
+  parseModels,
+  resultsDirectory,
+  serialise,
+  summarise,
+  throughputPoint,
+  toRecord,
+  withHeadline,
+  type DocumentRecord,
+  type FailedDocument,
+  type Mode,
+  type ModelEntry,
+  type ModelResults,
+  type RunSummary,
+} from "./lib/bench"
+import { corpusHash, gitCommit, loadCorpus, parseSplit } from "./lib/corpus"
+import { BenchDashboard, compact, pct } from "./lib/dashboard"
+import {
+  analyse,
+  captureUsage,
+  liftSpendCap,
+  MODEL_ONLY,
+  selectModel,
+  type Usage,
+} from "./lib/pipeline"
+import { scoreDocument } from "./lib/scoring"
+import type { ModelRates } from "@/lib/ai/usage-types"
+
+const HERE = import.meta.dirname
+const RESULTS = path.join(HERE, "results", "models")
+const CHECKPOINTS = path.join(HERE, "results", ".checkpoints")
+
+const PHASES = [...MODES, "throughput"] as const
+type Phase = (typeof PHASES)[number]
+
+const USAGE = `Usage: pnpm bench:models [options]
+
+Models come from BENCH_MODELS (or --models): entries separated by commas or
+new lines, each provider:model, optionally =label. Without it, the one model
+.env configures (AI_PROVIDER, AI_MODEL). Keys and provider settings come from
+.env exactly as the app reads them; prices from AI_MODEL_PRICES, keyed by the
+usage id (the model id on the gateway, provider:model elsewhere).
+
+  --models <list>        instead of BENCH_MODELS
+  --phases <list>        any of ${PHASES.join(", ")}
+                         (default: all three)
+  --corpus <dir>         corpus directory (default benchmarks/corpus/synthetic-v1)
+  --split <name>         test (default), dev or all
+  --format <name>        text (default): each document as one plain-text page;
+                         or ${RENDER_FORMATS.join(", ")}: rendered, extracted, analysed and
+                         exported, for the documents that list that format
+  --ids <a,b,...>        only these documents
+  --limit <n>            only the first n documents
+  --concurrency <n>      documents analysed at once (default 4)
+  --sweep <list>         concurrency levels for the throughput phase (default 1,2,4,8)
+  --sweep-documents <n>  documents per level (default 24)
+  --replace              measure again a phase this model already has
+  --fresh                ignore a checkpoint and start the phase over
+  --dry-run              show what would run, and stop
+`
+
+type Options = {
+  split: string
+  format: string
+  concurrency: number
+  sweep: number[]
+  sweepDocuments: number
+  replace: boolean
+  fresh: boolean
+}
+
+// --- files ------------------------------------------------------------------
+
+async function readResults(file: string): Promise<ModelResults | null> {
+  if (!existsSync(file)) return null
+  const results = JSON.parse(await readFile(file, "utf8")) as ModelResults
+  if (results.schema !== BENCH_SCHEMA)
+    throw new Error(
+      `${path.relative(process.cwd(), file)} is schema ${results.schema}, not ${BENCH_SCHEMA}; move it aside or pass --replace`
+    )
+  return results
+}
+
+type Checkpoint = {
+  records: DocumentRecord[]
+  failed: FailedDocument[]
+  previousMs: number
+}
+
+async function readCheckpoint(
+  file: string,
+  header: object
+): Promise<Checkpoint> {
+  const empty = { records: [], failed: [], previousMs: 0 }
+  if (!existsSync(file)) return empty
+  const [first, ...rest] = (await readFile(file, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+  if (first !== JSON.stringify(header)) return empty
+  const checkpoint: Checkpoint = empty
+  for (const line of rest) {
+    try {
+      const entry = JSON.parse(line)
+      if (entry.record) checkpoint.records.push(entry.record)
+      else if (entry.failed) checkpoint.failed.push(entry.failed)
+      else if (typeof entry.sessionMs === "number")
+        checkpoint.previousMs += entry.sessionMs
+    } catch {
+      // A line cut short by a crash: the document is simply analysed again.
+    }
+  }
+  return checkpoint
+}
+
+// --- one phase --------------------------------------------------------------
+
+let stopping = false
+
+async function runPhase(input: {
+  mode: Mode
+  documents: LabelledDocument[]
+  concurrency: number
+  format: string
+  rates: ModelRates | null
+  usage: Map<string, Usage>
+  checkpoint: string | null
+  header: object
+  fresh: boolean
+  onCall: { current: BenchDashboard | null }
+  title: string
+}): Promise<{
+  records: DocumentRecord[]
+  failed: FailedDocument[]
+  durationMs: number
+} | null> {
+  const resumed =
+    input.checkpoint && !input.fresh
+      ? await readCheckpoint(input.checkpoint, input.header)
+      : { records: [], failed: [], previousMs: 0 }
+  const done = new Set([
+    ...resumed.records.map((r) => r.id),
+    ...resumed.failed.map((f) => f.id),
+  ])
+  const todo = input.documents.filter((d) => !done.has(d.id))
+  if (input.checkpoint) {
+    await mkdir(path.dirname(input.checkpoint), { recursive: true })
+    if (resumed.records.length === 0 && resumed.failed.length === 0)
+      await writeFile(input.checkpoint, `${JSON.stringify(input.header)}\n`)
+  }
+
+  const board = new BenchDashboard({
+    title: input.title,
+    total: todo.length,
+    concurrency: Math.min(input.concurrency, Math.max(1, todo.length)),
+    rates: input.rates,
+  })
+  const c = board.c
+  if (done.size > 0)
+    board.log(
+      c.dim(
+        `  resuming: ${done.size} of ${input.documents.length} documents already analysed in an earlier session`
+      )
+    )
+  input.onCall.current = board
+  board.start()
+
+  const records: DocumentRecord[] = []
+  const failed: FailedDocument[] = []
+  const began = Date.now()
+  let next = 0
+  const append = async (line: object) => {
+    if (input.checkpoint)
+      await appendFile(input.checkpoint, `${JSON.stringify(line)}\n`)
+  }
+
+  const worker = async (slot: number) => {
+    while (!stopping && next < todo.length) {
+      const document = todo[next++]
+      board.begin(slot, document.id, `${document.docType} · ${document.length}`)
+      try {
+        const analysed = await analyse(document, input.format, {
+          preset: input.mode === "model-only" ? MODEL_ONLY : null,
+          timeExport: input.format !== "text",
+          onStage: (stage) => board.stage(slot, stage),
+        })
+        const usage = input.usage.get(document.id)
+        input.usage.delete(document.id)
+        const record = toRecord(document, analysed, usage)
+        records.push(record)
+        await append({ record })
+        const score = scoreDocument(document, analysed.detections)
+        const covered = score.labels.filter((l) => l.covered).length
+        const correct = score.detections.filter((d) => d.correct).length
+        board.finish(slot, {
+          degraded: Boolean(analysed.degraded),
+          labels: score.labels.length,
+          covered,
+          detections: score.detections.length,
+          correct,
+        })
+        const recall = score.labels.length
+          ? covered / score.labels.length
+          : null
+        const mark = analysed.degraded
+          ? c.yellow("⚠")
+          : recall === null || recall >= 0.9
+            ? c.green("✓")
+            : recall >= 0.5
+              ? c.yellow("✓")
+              : c.red("✓")
+        board.log(
+          `  ${mark} ${c.bold(document.id)}  ${c.dim(`${document.docType} · ${document.length}`.padEnd(30))} ${c.dim("recall")} ${pct(recall).padStart(6)}  ${c.dim(`${record.usage.calls} calls · ${compact(record.usage.inputTokens + record.usage.outputTokens)} tok · ${(record.timings.analyzeMs / 1000).toFixed(1)}s`)}${analysed.degraded ? c.yellow(`  model pass cut short: ${analysed.degraded}`) : ""}${analysed.exportError ? c.yellow(`  export failed: ${analysed.exportError}`) : ""}`
+        )
+      } catch (error) {
+        input.usage.delete(document.id)
+        const entry = {
+          id: document.id,
+          error: (error as Error).message.split("\n")[0].slice(0, 200),
+        }
+        failed.push(entry)
+        await append({ failed: entry })
+        board.finish(slot, { failed: true })
+        board.log(
+          `  ${c.red("✗")} ${c.bold(document.id)}  ${c.red(entry.error)}`
+        )
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(input.concurrency, Math.max(1, todo.length)) },
+      (_, slot) => worker(slot)
+    )
+  )
+  board.stop()
+  input.onCall.current = null
+  const sessionMs = Date.now() - began
+  await append({ sessionMs })
+  if (stopping) return null
+  return {
+    records: [...resumed.records, ...records],
+    failed: [...resumed.failed, ...failed],
+    durationMs: resumed.previousMs + sessionMs,
+  }
+}
+
+// --- reporting --------------------------------------------------------------
+
+function printRun(run: RunSummary, c: Palette, baseline?: RunSummary) {
+  const q = run.quality
+  const lines = [
+    `${c.dim("documents")} ${run.documents}${run.failed.length ? c.yellow(`  (${run.failed.length} refused, left out)`) : ""}`,
+    `${c.dim("recall")} ${c.bold(pct(q.recall))}  ${c.dim("precision")} ${c.bold(pct(q.precision))}  ${c.dim("F1")} ${c.bold(pct(q.f1))}  ${c.dim("weighted cost")} ${q.weightedCost.perDocument ?? "—"} ${c.dim("a document")}`,
+    `${c.dim("tokens")} ${compact(run.totals.inputTokens)} in · ${compact(run.totals.outputTokens)} out  ${c.dim(`(${compact(run.perDocument.inputTokens + run.perDocument.outputTokens)} a document, ${run.totals.calls} calls)`)}`,
+    `${c.dim("cost")} ${run.totals.costUsd === null ? c.yellow("no price configured (AI_MODEL_PRICES)") : `$${run.totals.costUsd.toFixed(4)}  ${c.dim(`$${run.perDocument.costUsd?.toFixed(5)} a document`)}`}`,
+    `${c.dim("time")} ${duration(run.totals.durationMs)}  ${c.dim(`median ${(run.perDocument.medianMs / 1000).toFixed(1)}s, p95 ${(run.perDocument.p95Ms / 1000).toFixed(1)}s a document, ${run.concurrency} at once`)}`,
+  ]
+  if (run.mode === "deterministic-first") {
+    const a = run.attribution
+    const share = (n: number) => pct(a.covered ? n / a.covered : null)
+    lines.push(
+      `${c.dim("covered by")} patterns ${share(a.patterns)} · model ${share(a.model)} · local search ${share(a.expansion)} · together ${share(a.together)}`
+    )
+  }
+  if (baseline) {
+    const withTokens =
+      baseline.totals.inputTokens + baseline.totals.outputTokens
+    const without = run.totals.inputTokens + run.totals.outputTokens
+    if (without > 0)
+      lines.push(
+        `${c.dim("deterministic-first spends")} ${c.bold(pct(without ? 1 - withTokens / without : null))} ${c.dim("fewer tokens than this, at recall")} ${pct(baseline.quality.recall)} ${c.dim("against")} ${pct(q.recall)}`
+      )
+  }
+  if (run.degraded.documents)
+    lines.push(
+      (run.degraded.documents === run.documents ? c.red : c.yellow)(
+        `model pass cut short on ${run.degraded.documents} of ${run.documents} documents: ${Object.entries(
+          run.degraded.reasons
+        )
+          .map(([k, v]) => `${k} ${v}`)
+          .join(", ")}`
+      ),
+      ...(run.degraded.documents === run.documents
+        ? [
+            c.red(
+              "every document: these are the patterns' numbers, not the model's. Check the key, the plan and pnpm ai verify, then --replace."
+            ),
+          ]
+        : [])
+    )
+  console.log(`\n${box(lines, c, run.mode)}`)
+}
+
+async function printTable(directory: string, c: Palette) {
+  if (!existsSync(directory)) return
+  const files = (await readdir(directory)).filter((f) => f.endsWith(".json"))
+  const rows: string[][] = []
+  for (const file of files) {
+    const r = JSON.parse(
+      await readFile(path.join(directory, file), "utf8")
+    ) as ModelResults
+    const first = r.runs["deterministic-first"]
+    const only = r.runs["model-only"]
+    const without = only
+      ? only.totals.inputTokens + only.totals.outputTokens
+      : 0
+    const saved =
+      first && without > 0
+        ? 1 - (first.totals.inputTokens + first.totals.outputTokens) / without
+        : null
+    rows.push([
+      r.label,
+      pct(first?.quality.recall ?? null),
+      pct(first?.quality.precision ?? null),
+      pct(first?.quality.f1 ?? null),
+      first?.perDocument.costUsd == null
+        ? "—"
+        : `$${first.perDocument.costUsd.toFixed(5)}`,
+      first
+        ? compact(
+            first.perDocument.inputTokens + first.perDocument.outputTokens
+          )
+        : "—",
+      pct(saved),
+      r.throughput
+        ? `${Math.max(...r.throughput.points.map((p) => p.documentsPerMinute)).toFixed(1)}`
+        : "—",
+    ])
+  }
+  if (rows.length === 0) return
+  const head = [
+    "model",
+    "recall",
+    "precision",
+    "F1",
+    "$/doc",
+    "tok/doc",
+    "saved",
+    "best docs/min",
+  ]
+  const widths = head.map((h, i) =>
+    Math.max(h.length, ...rows.map((r) => r[i].length))
+  )
+  const line = (cells: string[]) =>
+    cells
+      .map((cell, i) =>
+        i === 0 ? cell.padEnd(widths[i]) : cell.padStart(widths[i])
+      )
+      .join("  ")
+  console.log(
+    `\n${box([c.dim(line(head)), ...rows.map(line)], c, `every model on ${path.basename(directory)}`)}`
+  )
+}
+
+// --- main -------------------------------------------------------------------
+
+function sample(documents: LabelledDocument[], n: number): LabelledDocument[] {
+  if (documents.length <= n) return documents
+  const step = documents.length / n
+  return Array.from({ length: n }, (_, i) => documents[Math.floor(i * step)])
+}
+
+async function main() {
+  const { values } = parseArgs({
+    options: {
+      models: { type: "string" },
+      phases: { type: "string", default: PHASES.join(",") },
+      corpus: {
+        type: "string",
+        default: path.join(HERE, "corpus", "synthetic-v1"),
+      },
+      split: { type: "string", default: "test" },
+      format: { type: "string", default: "text" },
+      ids: { type: "string" },
+      limit: { type: "string" },
+      concurrency: { type: "string", default: "4" },
+      sweep: { type: "string", default: "1,2,4,8" },
+      "sweep-documents": { type: "string", default: "24" },
+      replace: { type: "boolean", default: false },
+      fresh: { type: "boolean", default: false },
+      "dry-run": { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  })
+  if (values.help) {
+    process.stdout.write(USAGE)
+    return
+  }
+  const c = palette()
+
+  const phases = values.phases
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)
+  for (const phase of phases)
+    if (!(PHASES as readonly string[]).includes(phase))
+      throw new Error(
+        `--phases takes ${PHASES.join(", ")}, not ${JSON.stringify(phase)}`
+      )
+  const format = values.format
+  if (format !== "text" && !isRenderFormat(format))
+    throw new Error(
+      `--format must be text or one of ${RENDER_FORMATS.join(", ")}, not ${JSON.stringify(format)}`
+    )
+  const options: Options = {
+    split: parseSplit(values.split),
+    format,
+    concurrency: int("concurrency", values.concurrency, 1),
+    sweep: values.sweep.split(",").map((v) => int("sweep", v.trim(), 1)),
+    sweepDocuments: int("sweep-documents", values["sweep-documents"], 1),
+    replace: values.replace,
+    fresh: values.fresh,
+  }
+
+  const { modelId, providerId } = await import("@/lib/ai/providers/config")
+  const listed = values.models ?? process.env.BENCH_MODELS ?? ""
+  const entries: ModelEntry[] = listed.trim()
+    ? parseModels(listed)
+    : [{ provider: providerId(), model: modelId(), label: modelId() }]
+
+  const root = path.resolve(values.corpus)
+  let documents = await loadCorpus(root, options.split)
+  if (format !== "text")
+    documents = documents.filter((d) => d.render.includes(format))
+  if (values.ids) {
+    const wanted = new Set(values.ids.split(",").map((id) => id.trim()))
+    documents = documents.filter((d) => wanted.has(d.id))
+  }
+  documents.sort((a, b) => a.id.localeCompare(b.id))
+  if (values.limit !== undefined)
+    documents = documents.slice(0, int("limit", values.limit, 1))
+  if (documents.length === 0) throw new Error("no documents to run")
+
+  const corpus = path.basename(root)
+  const hash = await corpusHash(root)
+  const directory = path.join(
+    RESULTS,
+    resultsDirectory(corpus, options.split, format)
+  )
+  const partial = values.ids !== undefined || values.limit !== undefined
+
+  console.log(
+    box(
+      [
+        `${c.dim("corpus")} ${corpus} ${c.dim(`(${hash?.slice(7, 19) ?? "no manifest"}…)`)}  ${c.dim("split")} ${options.split}  ${c.dim("format")} ${format}  ${c.dim("documents")} ${documents.length}`,
+        `${c.dim("models")} ${entries.map((e) => `${e.provider}:${e.model}`).join(", ")}`,
+        `${c.dim("phases")} ${phases.join(" → ")}  ${c.dim("concurrency")} ${options.concurrency}${phases.includes("throughput") ? `  ${c.dim("sweep")} ${options.sweep.join(", ")} × ${Math.min(options.sweepDocuments, documents.length)} documents` : ""}`,
+        `${c.dim("results")} ${path.relative(process.cwd(), directory)}`,
+        ...(partial
+          ? [
+              c.yellow(
+                "--ids or --limit: a partial run, written as the model's results all the same"
+              ),
+            ]
+          : []),
+      ],
+      c,
+      "bench:models"
+    )
+  )
+
+  liftSpendCap()
+  const live: { current: BenchDashboard | null } = { current: null }
+  const usage = await captureUsage((row) =>
+    live.current?.call(
+      row.documentId,
+      row.task,
+      row.inputTokens,
+      row.outputTokens
+    )
+  )
+  const { aiConfigured, resolveModel } = await import("@/lib/ai/gateway")
+  const { configuredRates } = await import("@/lib/ai/rates")
+
+  process.on("SIGINT", () => {
+    if (stopping) process.exit(130)
+    stopping = true
+    live.current?.setNote(
+      "stopping after the documents in flight; ctrl+c again to quit now"
+    )
+  })
+
+  for (const entry of entries) {
+    if (stopping) break
+    selectModel(entry.provider, entry.model)
+    const model = resolveModel()
+    const file = path.join(directory, `${modelSlug(model)}.json`)
+    console.log(`\n${c.bold(entry.label)} ${c.dim(`(${model})`)}`)
+    if (!aiConfigured()) {
+      console.log(
+        c.red(
+          `  ${entry.provider} is not configured: set its key in .env (pnpm setup writes it). Skipped.`
+        )
+      )
+      process.exitCode = 1
+      continue
+    }
+    const rates = configuredRates(model)
+    if (!rates)
+      console.log(
+        c.yellow(
+          `  No price for ${model}: tokens are counted, cost is left empty. Add it to AI_MODEL_PRICES to price it.`
+        )
+      )
+
+    let results = await readResults(file)
+    if (results && results.corpusHash !== hash) {
+      if (!options.replace) {
+        console.log(
+          c.yellow(
+            `  ${path.relative(process.cwd(), file)} was measured on another version of the corpus; --replace to measure it again on this one. Skipped.`
+          )
+        )
+        continue
+      }
+      results = null
+    }
+    results ??= {
+      schema: BENCH_SCHEMA,
+      model,
+      provider: entry.provider,
+      label: entry.label,
+      firstMeasuredAt: new Date().toISOString(),
+      corpus,
+      corpusHash: hash,
+      split: options.split,
+      format,
+      rates,
+      commit: null,
+      createdAt: new Date().toISOString(),
+      documents: 0,
+      deterministicFirst: true,
+      totals: null,
+      perDocument: null,
+      quality: null,
+      runs: {},
+      throughput: null,
+      settings: { aiRequestsPerMinute: null, aiMaxAttempts: null },
+      notMeasured: notMeasured(format),
+    }
+    results.label = entry.label
+    results.rates = rates
+    results.settings = {
+      aiRequestsPerMinute: process.env.ANONIFY_AI_REQUESTS_PER_MINUTE ?? null,
+      aiMaxAttempts: process.env.ANONIFY_AI_MAX_ATTEMPTS ?? null,
+    }
+
+    for (const phase of phases as Phase[]) {
+      if (stopping) break
+      const measured =
+        phase === "throughput"
+          ? results.throughput !== null
+          : results.runs[phase] !== undefined
+      if (measured && !options.replace) {
+        console.log(
+          c.dim(`  ${phase}: already measured; --replace to measure it again`)
+        )
+        continue
+      }
+      if (values["dry-run"]) {
+        console.log(`  ${phase}: ${c.cyan("would run")}`)
+        continue
+      }
+
+      if (phase === "throughput") {
+        const picked = sample(documents, options.sweepDocuments)
+        const points = []
+        const previous = process.env.ANONIFY_AI_CONCURRENCY
+        for (const level of options.sweep) {
+          if (stopping) break
+          process.env.ANONIFY_AI_CONCURRENCY = String(level)
+          const run = await runPhase({
+            mode: "deterministic-first",
+            documents: picked,
+            concurrency: level,
+            format: "text",
+            rates,
+            usage,
+            checkpoint: null,
+            header: {},
+            fresh: true,
+            onCall: live,
+            title: `${entry.label} · throughput at ${level} at once`,
+          })
+          if (!run) break
+          const point = throughputPoint(level, run.records, run.durationMs)
+          points.push(point)
+          console.log(
+            `  ${c.dim("concurrency")} ${String(level).padStart(2)}  ${c.bold(point.documentsPerMinute.toFixed(1))} ${c.dim("docs/min")}  ${point.callsPerMinute} ${c.dim("calls/min")}  ${c.dim("p95")} ${(point.p95Ms / 1000).toFixed(1)}s${
+              Object.keys(point.degraded).length
+                ? c.yellow(
+                    `  cut short: ${Object.entries(point.degraded)
+                      .map(([k, v]) => `${k} ${v}`)
+                      .join(", ")}`
+                  )
+                : ""
+            }`
+          )
+        }
+        if (previous === undefined) delete process.env.ANONIFY_AI_CONCURRENCY
+        else process.env.ANONIFY_AI_CONCURRENCY = previous
+        if (stopping) break
+        results.throughput = { documents: picked.map((d) => d.id), points }
+      } else {
+        const header = {
+          corpusHash: hash,
+          split: options.split,
+          format,
+          model,
+          mode: phase,
+          documents: documents.length,
+        }
+        const checkpoint = path.join(
+          CHECKPOINTS,
+          resultsDirectory(corpus, options.split, format),
+          `${modelSlug(model)}.${phase}.jsonl`
+        )
+        const run = await runPhase({
+          mode: phase,
+          documents,
+          concurrency: options.concurrency,
+          format,
+          rates,
+          usage,
+          checkpoint,
+          header,
+          fresh: options.fresh,
+          onCall: live,
+          title: `${entry.label} · ${phase}`,
+        })
+        if (!run) break
+        const summary = summarise({
+          mode: phase,
+          records: run.records,
+          failed: run.failed,
+          documents,
+          rates,
+          durationMs: run.durationMs,
+          concurrency: options.concurrency,
+          commit: gitCommit(),
+        })
+        results.runs[phase] = summary
+        printRun(
+          summary,
+          c,
+          phase === "model-only"
+            ? results.runs["deterministic-first"]
+            : undefined
+        )
+        await rm(checkpoint, { force: true })
+      }
+
+      results = withHeadline({
+        ...results,
+        createdAt: new Date().toISOString(),
+      })
+      await mkdir(directory, { recursive: true })
+      await writeFile(file, serialise(results))
+      console.log(c.dim(`  ${path.relative(process.cwd(), file)}`))
+    }
+  }
+
+  if (stopping) {
+    console.log(
+      c.yellow(
+        "\nStopped. Every finished document is checkpointed; run the same command again to resume."
+      )
+    )
+    process.exitCode = 130
+    return
+  }
+  if (!values["dry-run"]) {
+    await printTable(directory, c)
+    console.log(
+      c.dim("\n  pnpm bench:charts redraws the charts from these files.")
+    )
+  }
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : error)
+  process.exitCode = 1
+})

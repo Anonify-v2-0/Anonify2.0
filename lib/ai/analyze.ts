@@ -118,6 +118,24 @@ export type AnalysisResult = {
     filledRows: number
     totalRows: number
   }[]
+  /**
+   * What each pass contributed before they were merged, so the claim above can
+   * be checked: how much the patterns settled, how much the model added, and
+   * how much the local search found that neither asked for. Nothing in the app
+   * reads it; the benchmarks do (benchmarks/models.ts).
+   */
+  passes: AnalysisPasses
+}
+
+export type AnalysisPasses = {
+  /** Deterministic hits that stood: the confident ones, and those verification kept. */
+  patterns: Detection[]
+  /** Deterministic hits the verification call judged not sensitive. */
+  rejected: number
+  /** What the contextual pass proposed, located in the text. */
+  model: Detection[]
+  /** Occurrences the local search added for global values, before dedupe. */
+  expanded: Detection[]
 }
 
 /** Runs tasks with a ceiling on how many are in flight at once. */
@@ -560,6 +578,7 @@ export async function analyzeDocument(
       classification: null,
       degraded: { reason: "budget", calls: 0 },
       sensitiveColumns: [],
+      passes: { patterns: deterministic, rejected: 0, model: [], expanded: [] },
     }
   }
 
@@ -651,5 +670,11 @@ export async function analyzeDocument(
     classification,
     degraded: tally.result(),
     sensitiveColumns,
+    passes: {
+      patterns: [...solid, ...verified],
+      rejected: shaky.length - verified.length,
+      model: contextual,
+      expanded,
+    },
   }
 }

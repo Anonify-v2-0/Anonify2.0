@@ -1,0 +1,812 @@
+import type { ModelResults, RunSummary } from "./bench"
+import { REPEAT_BUCKETS } from "./bench"
+import {
+  frontier,
+  heatmap,
+  lines,
+  logBars,
+  MAX_SERIES,
+  paretoFrontier,
+  stacked,
+  THEMES,
+  type Theme,
+} from "./svg"
+
+/**
+ * From every results file to the charts #59 and CONTRIBUTING §4 ask for,
+ * the two #55 adds, and the Markdown that shows them with their numbers.
+ *
+ * Pure: `pnpm bench:charts` does the reading and writing. A chart with
+ * nothing to draw is left out rather than drawn empty, and the Markdown says
+ * which, and why.
+ */
+
+export type PatternsBaseline = {
+  corpusHash: string | null
+  quality: {
+    f1: number | null
+    recall: number | null
+    precision: number | null
+    byCategory: Record<string, { recall: number | null; labels: number }>
+  }
+  documents: number
+}
+
+export type Chart = {
+  name: string
+  title: string
+  /** What the chart shows, for the alt text and the screen reader. */
+  alt: string
+  /** How to read it, one or two sentences, above the chart in the README. */
+  reading: string
+  svg: Record<Theme["name"], string>
+  /** The numbers behind it, as a Markdown table. */
+  table: string
+}
+
+export type Report = {
+  charts: Chart[]
+  /** Charts that could not be drawn, and what they need. */
+  missing: Array<{ title: string; needs: string }>
+  models: ModelResults[]
+  excluded: Array<{ model: string; reason: string }>
+  /** Runs whose numbers need a warning beside them. */
+  caveats: string[]
+}
+
+/**
+ * Categories a pattern can check the shape of, then those that need a
+ * reader. The heatmap draws them in two groups because the pipeline's
+ * premise is that the difference between models shows up in the second.
+ */
+export const STRUCTURED = [
+  "email",
+  "phone",
+  "url",
+  "api-key",
+  "bank-account",
+  "financial",
+  "government-id",
+  "customer-id",
+]
+export const CONTEXTUAL = [
+  "person",
+  "address",
+  "date-of-birth",
+  "confidential",
+  "other",
+]
+
+const LENGTHS = ["short", "medium", "long"]
+
+/** Dollars to two significant figures: $0.0036, $0.013, $0.10, $2.40. */
+export function money(value: number): string {
+  if (value === 0) return "$0"
+  if (value >= 1) return `$${value.toFixed(2)}`
+  const digits = Math.max(2, 1 - Math.floor(Math.log10(value)))
+  return `$${Number(value.toPrecision(2))
+    .toFixed(Math.min(6, digits))
+    .replace(/(\.\d{2,}?)0+$/, "$1")}`
+}
+
+export function percent(value: number | null): string {
+  return value === null ? "—" : `${(value * 100).toFixed(1)}%`
+}
+
+function tokens(value: number): string {
+  if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`
+  if (value >= 1e3) return `${(value / 1e3).toFixed(1)}k`
+  return String(Math.round(value))
+}
+
+function table(head: string[], rows: string[][]): string {
+  const line = (cells: string[]) => `| ${cells.join(" | ")} |`
+  return [
+    line(head),
+    line(head.map((_, i) => (i === 0 ? "---" : "---:"))),
+    ...rows.map(line),
+  ].join("\n")
+}
+
+function both(draw: (theme: Theme) => string): Record<Theme["name"], string> {
+  return Object.fromEntries(
+    THEMES.map((theme) => [theme.name, draw(theme)])
+  ) as Record<Theme["name"], string>
+}
+
+function totalTokens(run: {
+  inputTokens: number
+  outputTokens: number
+}): number {
+  return run.inputTokens + run.outputTokens
+}
+
+export function buildReport(input: {
+  results: ModelResults[]
+  baseline: PatternsBaseline | null
+  corpusHash: string | null
+  context: string
+}): Report {
+  const excluded: Report["excluded"] = []
+  const models = input.results
+    .filter((r) => {
+      if (input.corpusHash && r.corpusHash !== input.corpusHash) {
+        excluded.push({
+          model: r.label,
+          reason:
+            "measured on another version of the corpus; rerun with --replace",
+        })
+        return false
+      }
+      return true
+    })
+    .sort((a, b) => a.firstMeasuredAt.localeCompare(b.firstMeasuredAt))
+  const baseline =
+    input.baseline &&
+    (!input.corpusHash || input.baseline.corpusHash === input.corpusHash)
+      ? input.baseline
+      : null
+
+  // A model's colour is its place in the order it was first measured, and
+  // stays with it; past eight, a model is drawn without a hue of its own.
+  const slot = new Map(models.map((m, i) => [m.model, i]))
+  const hued = models.filter((m) => slot.get(m.model)! < MAX_SERIES)
+  const charts: Chart[] = []
+  const missing: Report["missing"] = []
+  const first = (m: ModelResults) => m.runs["deterministic-first"]
+  const context = input.context
+
+  // 1. Cost per document by model, page count held constant. A model that
+  // cost nothing (a local server) has no place on a log scale; the tables
+  // still carry it.
+  const priced = models.filter((m) => (first(m)?.totals.costUsd ?? 0) > 0)
+  if (priced.length > 0) {
+    const rows = priced.map((m) => ({
+      label: m.label,
+      values: LENGTHS.map(
+        (length) => first(m)!.byLength[length]?.costPerDocumentUsd ?? null
+      ),
+    }))
+    charts.push({
+      name: "cost-per-document",
+      title: "Cost per document, by model",
+      alt: "Horizontal bars on a log scale: dollars per document for each model, one bar per document length.",
+      reading:
+        "Each colour is one length of document, so page count is held constant within it; the scale is logarithmic, so equal steps are ten times the cost.",
+      svg: both((theme) =>
+        logBars(theme, {
+          title: "Cost per document, by model",
+          subtitle: `${context} · deterministic-first · log scale`,
+          note: "Tokens times each model's configured price. Short is up to a page, medium two to five, long ten to thirty.",
+          series: LENGTHS.map((l) => `${l} documents`),
+          rows,
+          format: money,
+        })
+      ),
+      table: table(
+        ["Model", "Short", "Medium", "Long", "All"],
+        priced.map((m) => [
+          m.label,
+          ...LENGTHS.map((l) => {
+            const v = first(m)!.byLength[l]?.costPerDocumentUsd
+            return v == null ? "—" : money(v)
+          }),
+          money(first(m)!.perDocument.costUsd ?? 0),
+        ])
+      ),
+    })
+  } else
+    missing.push({
+      title: "Cost per document",
+      needs: "a model with a price in AI_MODEL_PRICES, that made model calls",
+    })
+
+  // 2. Cost against quality, one point per model.
+  const points = priced
+    .filter(
+      (m) =>
+        (first(m)!.perDocument.costUsd ?? 0) > 0 &&
+        first(m)!.quality.f1 !== null
+    )
+    .map((m) => ({
+      label: m.label,
+      x: first(m)!.perDocument.costUsd!,
+      y: first(m)!.quality.f1!,
+    }))
+  if (points.length > 0) {
+    const onFrontier = new Set(paretoFrontier(points).map((p) => p.label))
+    charts.push({
+      name: "cost-quality-frontier",
+      title: "What each model buys: cost against F1",
+      alt: "Scatter of dollars per document against F1, one point per model, with the frontier of models nothing cheaper beats joined by a line.",
+      reading:
+        "A model on the line is one no cheaper model beats; a point below and to the right of it costs more for less. The level line is the patterns alone, which cost nothing.",
+      svg: both((theme) =>
+        frontier(theme, {
+          title: "What each model buys: cost against F1",
+          subtitle: `${context} · deterministic-first · cost on a log scale`,
+          note: "F1 from covered recall and precision over every category.",
+          xLabel: "dollars per document",
+          yLabel: "F1",
+          points,
+          baseline:
+            baseline?.quality.f1 != null
+              ? { label: "patterns alone, at $0", y: baseline.quality.f1 }
+              : undefined,
+          formatX: money,
+          formatY: (v) => `${Math.round(v * 100)}%`,
+        })
+      ),
+      table: table(
+        ["Model", "$ / document", "F1", "Recall", "Precision", "Frontier"],
+        [
+          ...(baseline
+            ? [
+                [
+                  "patterns alone",
+                  "$0",
+                  percent(baseline.quality.f1),
+                  percent(baseline.quality.recall),
+                  percent(baseline.quality.precision),
+                  "",
+                ],
+              ]
+            : []),
+          ...priced.map((m) => {
+            const run = first(m)!
+            return [
+              m.label,
+              money(run.perDocument.costUsd ?? 0),
+              percent(run.quality.f1),
+              percent(run.quality.recall),
+              percent(run.quality.precision),
+              onFrontier.has(m.label) ? "yes" : "",
+            ]
+          }),
+        ]
+      ),
+    })
+  } else
+    missing.push({
+      title: "Cost against quality",
+      needs: "a priced model with a deterministic-first run",
+    })
+
+  // 3. Tokens saved by the deterministic pass, per document type.
+  const paired = models.filter(
+    (m) =>
+      first(m) &&
+      m.runs["model-only"] &&
+      totalTokens(m.runs["model-only"]!.totals) > 0
+  )
+  if (paired.length > 0) {
+    const panels = paired.map((m) => {
+      const w = first(m)!
+      const wo = m.runs["model-only"]!
+      const types = Object.keys(w.byDocType).filter((t) => wo.byDocType[t])
+      return {
+        title: m.label,
+        rows: types.map((type) => {
+          const spent = w.byDocType[type].tokensPerDocument
+          const without = wo.byDocType[type].tokensPerDocument
+          return {
+            label: type,
+            segments:
+              spent <= without
+                ? [spent, without - spent, 0]
+                : [without, 0, spent - without],
+            total: `${tokens(without)} without · ${pctChange(spent, without)}`,
+          }
+        }),
+      }
+    })
+    charts.push({
+      name: "token-savings",
+      title: "Tokens the deterministic pass saves, by document type",
+      alt: "Stacked horizontal bars per document type and model: tokens spent with the patterns first, and the tokens saved against the same model with the patterns off.",
+      reading:
+        "The whole bar is what the model spends on a document when nothing is settled before it is asked. The first segment is what it spends with the patterns first; the second is the saving. A third segment would mean the patterns cost more than they save.",
+      svg: both((theme) =>
+        stacked(theme, {
+          title: "Tokens the deterministic pass saves, by document type",
+          subtitle: `${context} · tokens per document, input and output`,
+          note: "Same documents, same model, same prompts; the only difference is whether the patterns run first.",
+          series: [
+            "spent, patterns first",
+            "saved by the patterns",
+            "spent beyond model-only",
+          ],
+          panels,
+          format: tokens,
+        })
+      ),
+      table: table(
+        ["Model", "Document type", "Patterns first", "Model only", "Saved"],
+        paired.flatMap((m) => {
+          const w = first(m)!
+          const wo = m.runs["model-only"]!
+          return Object.keys(w.byDocType)
+            .filter((t) => wo.byDocType[t])
+            .map((t) => [
+              m.label,
+              t,
+              tokens(w.byDocType[t].tokensPerDocument),
+              tokens(wo.byDocType[t].tokensPerDocument),
+              pctChange(
+                w.byDocType[t].tokensPerDocument,
+                wo.byDocType[t].tokensPerDocument
+              ),
+            ])
+        })
+      ),
+    })
+  } else
+    missing.push({
+      title: "Token savings",
+      needs:
+        "a model with both the deterministic-first and model-only phases, that made model calls",
+    })
+
+  // 4. Throughput against concurrency.
+  const swept = hued.filter(
+    (m) => m.throughput && m.throughput.points.length > 0
+  )
+  if (swept.length > 0) {
+    const levels = [
+      ...new Set(
+        swept.flatMap((m) => m.throughput!.points.map((p) => p.concurrency))
+      ),
+    ].sort((a, b) => a - b)
+    charts.push({
+      name: "throughput",
+      title: "Throughput against concurrency",
+      alt: "Lines of documents per minute against the number of documents and model calls in flight, one line per model.",
+      reading:
+        "Where a line flattens, adding concurrency stops buying throughput; a hollow marker is a level where the provider cut the model pass short, which is where its rate limit bites.",
+      svg: both((theme) =>
+        lines(theme, {
+          title: "Throughput against concurrency",
+          subtitle: `${context} · the same sample of documents at each level`,
+          note: "Concurrency is documents and model calls in flight at once (ANONIFY_AI_CONCURRENCY). One run, one afternoon, one network.",
+          x: levels.map(String),
+          xLabel: "in flight at once",
+          yLabel: "documents per minute",
+          series: swept.map((m) => ({
+            label: m.label,
+            slot: slot.get(m.model)!,
+            values: levels.map(
+              (l) =>
+                m.throughput!.points.find((p) => p.concurrency === l)
+                  ?.documentsPerMinute ?? null
+            ),
+            flagged: levels.map((l) => {
+              const p = m.throughput!.points.find((q) => q.concurrency === l)
+              return p ? Object.keys(p.degraded).length > 0 : false
+            }),
+          })),
+          format: (v) => v.toFixed(v >= 10 ? 0 : 1),
+          flagLabel: "the model pass was cut short at this level",
+        })
+      ),
+      table: table(
+        ["Model", ...levels.map((l) => `${l} at once`), "Cut short"],
+        swept.map((m) => [
+          m.label,
+          ...levels.map((l) => {
+            const p = m.throughput!.points.find((q) => q.concurrency === l)
+            return p ? `${p.documentsPerMinute.toFixed(1)}/min` : "—"
+          }),
+          m
+            .throughput!.points.filter((p) => Object.keys(p.degraded).length)
+            .map(
+              (p) =>
+                `${p.concurrency}: ${Object.entries(p.degraded)
+                  .map(([k, v]) => `${k} ${v}`)
+                  .join(", ")}`
+            )
+            .join("; ") || "never",
+        ])
+      ),
+    })
+  } else
+    missing.push({
+      title: "Throughput",
+      needs: "a model with the throughput phase",
+    })
+
+  // 5. Recall by category, model against category.
+  const measured = models.filter((m) => first(m))
+  if (measured.length > 0) {
+    const columns = [...STRUCTURED, ...CONTEXTUAL]
+    const rows = [
+      ...(baseline
+        ? [{ label: "patterns alone", byCategory: baseline.quality.byCategory }]
+        : []),
+      ...measured.map((m) => ({
+        label: m.label,
+        byCategory: first(m)!.quality.byCategory,
+      })),
+    ]
+    const values = rows.map((r) =>
+      columns.map((c) =>
+        r.byCategory[c]?.labels ? r.byCategory[c].recall : null
+      )
+    )
+    charts.push({
+      name: "recall-heatmap",
+      title: "Recall by category",
+      alt: "Heatmap of covered recall, one row per model and one column per category, structured categories first and contextual ones after.",
+      reading:
+        "Darker is more of that category found in full. The premise is that a small model does as well as a large one on the structured half, where the patterns do the work, and worse on the contextual half; if the rows do not differ on the right, the premise is wrong.",
+      svg: both((theme) =>
+        heatmap(theme, {
+          title: "Recall by category",
+          subtitle: `${context} · covered recall: every character of the value redacted`,
+          note: "A partly covered value counts as missed, because what is left can be read.",
+          rows: rows.map((r) => r.label),
+          columns,
+          groups: [
+            { label: "structured", from: 0, to: STRUCTURED.length - 1 },
+            {
+              label: "contextual",
+              from: STRUCTURED.length,
+              to: columns.length - 1,
+            },
+          ],
+          values,
+          format: (v) => `${Math.round(v * 100)}`,
+        })
+      ),
+      table: table(
+        ["Model", ...columns],
+        rows.map((r, i) => [
+          r.label,
+          ...values[i].map((v) =>
+            v === null ? "—" : `${Math.round(v * 100)}%`
+          ),
+        ])
+      ),
+    })
+  } else
+    missing.push({
+      title: "Recall by category",
+      needs: "a model with a deterministic-first run",
+    })
+
+  // 6. (#55) Where the covered labels came from.
+  if (measured.length > 0) {
+    const SOURCES = ["patterns", "model", "local search", "only together"]
+    charts.push({
+      name: "sources",
+      title: "Where the result comes from",
+      alt: "Stacked bars per model, each 100%: the share of covered labels the patterns, the model, the local search, and only their combination covered.",
+      reading:
+        "Each covered label is credited to the first pass that covers it alone, in the order the pipeline runs them. The local search share is what expansion adds on top of the model's own answers.",
+      svg: both((theme) =>
+        stacked(theme, {
+          title: "Where the result comes from",
+          subtitle: `${context} · share of covered labels, deterministic-first`,
+          note: "Only together: a value no single pass covered in full, such as a name the model found half of.",
+          series: SOURCES,
+          scale: "share",
+          panels: [
+            {
+              rows: measured.map((m) => {
+                const a = first(m)!.attribution
+                return {
+                  label: m.label,
+                  segments: [a.patterns, a.model, a.expansion, a.together],
+                  total: `${a.covered} of ${a.labels}`,
+                }
+              }),
+            },
+          ],
+          format: (v) => String(v),
+        })
+      ),
+      table: table(
+        [
+          "Model",
+          "Covered",
+          "Patterns",
+          "Model",
+          "Local search",
+          "Only together",
+          "Rejected by verification",
+        ],
+        measured.map((m) => {
+          const a = first(m)!.attribution
+          const share = (n: number) => percent(a.covered ? n / a.covered : null)
+          return [
+            m.label,
+            `${a.covered} of ${a.labels}`,
+            share(a.patterns),
+            share(a.model),
+            share(a.expansion),
+            share(a.together),
+            String(a.detections.rejected),
+          ]
+        })
+      ),
+    })
+  }
+
+  // 7. (#55) What local expansion adds, as values repeat.
+  const expanding = hued.filter((m) => first(m)?.expansion.length)
+  if (expanding.length > 0) {
+    const buckets = REPEAT_BUCKETS.map(([b]) => b).filter((b) =>
+      expanding.some((m) => first(m)!.expansion.some((e) => e.bucket === b))
+    )
+    charts.push({
+      name: "expansion",
+      title: "What local expansion adds as values repeat",
+      alt: "Lines of occurrences added by local search per document against how often each cast member is mentioned, one line per model.",
+      reading:
+        "Each occurrence the local search adds is one the model did not have to find; the pipeline never asks per occurrence, so this is the most a per-occurrence design would have spent on top.",
+      svg: both((theme) =>
+        lines(theme, {
+          title: "What local expansion adds as values repeat",
+          subtitle: `${context} · occurrences added per document, deterministic-first`,
+          note: "Repetition is the mean number of mentions per cast member in the document's spec.",
+          x: buckets,
+          xLabel: "mentions per cast member",
+          yLabel: "occurrences added per document",
+          series: expanding.map((m) => ({
+            label: m.label,
+            slot: slot.get(m.model)!,
+            values: buckets.map(
+              (b) =>
+                first(m)!.expansion.find((e) => e.bucket === b)
+                  ?.addedPerDocument ?? null
+            ),
+          })),
+          format: (v) => v.toFixed(v >= 10 ? 0 : 1),
+        })
+      ),
+      table: table(
+        [
+          "Model",
+          "Mentions",
+          "Documents",
+          "Added",
+          "Per document",
+          "Labels only expansion covered",
+        ],
+        expanding.flatMap((m) =>
+          first(m)!.expansion.map((e) => [
+            m.label,
+            e.bucket,
+            String(e.documents),
+            String(e.added),
+            e.addedPerDocument.toFixed(2),
+            String(e.labelsOnlyByExpansion),
+          ])
+        )
+      ),
+    })
+  }
+
+  // A run whose model pass was cut short is partly the patterns alone, and
+  // reads as a worse model unless it says so.
+  const caveats = models.flatMap((m) =>
+    Object.values(m.runs)
+      .filter((run) => run && run.degraded.documents > 0)
+      .map(
+        (run) =>
+          `${m.label}, ${run!.mode}: the model pass was cut short on ${run!.degraded.documents} of ${run!.documents} documents (${Object.entries(
+            run!.degraded.reasons
+          )
+            .map(([k, v]) => `${k} ${v}`)
+            .join(", ")}), so those documents were scored on the patterns alone`
+      )
+  )
+
+  return { charts, missing, models, excluded, caveats }
+}
+
+function pctChange(spent: number, without: number): string {
+  if (without === 0) return "—"
+  const saved = 1 - spent / without
+  return saved >= 0
+    ? `${(saved * 100).toFixed(0)}% saved`
+    : `${(-saved * 100).toFixed(0)}% more`
+}
+
+// --- the Markdown -----------------------------------------------------------
+
+function picture(chart: Chart, prefix: string): string {
+  return [
+    "<picture>",
+    `  <source media="(prefers-color-scheme: dark)" srcset="${prefix}${chart.name}-dark.svg">`,
+    `  <img alt="${chart.alt.replace(/"/g, "&quot;")}" src="${prefix}${chart.name}-light.svg" width="880">`,
+    "</picture>",
+  ].join("\n")
+}
+
+function stageTable(models: ModelResults[]): string | null {
+  const runs = models
+    .map((m) => [m, m.runs["deterministic-first"]] as const)
+    .filter((pair): pair is readonly [ModelResults, RunSummary] =>
+      Boolean(pair[1])
+    )
+  if (runs.length === 0) return null
+  const ms = (t: { medianMs: number; p95Ms: number } | null) =>
+    t ? `${t.medianMs} / ${t.p95Ms} ms` : "not timed"
+  return table(
+    ["Model", "Extract + normalize", "Analyze", "Export", "Export failures"],
+    runs.map(([m, r]) => [
+      m.label,
+      ms(r.stages.extract),
+      ms(r.stages.analyze),
+      ms(r.stages.export),
+      String(r.stages.exportFailures.length),
+    ])
+  )
+}
+
+function scalingTable(
+  models: ModelResults[],
+  key: "byLength" | "byDensity"
+): string | null {
+  const runs = models.filter((m) => m.runs["deterministic-first"])
+  if (runs.length === 0) return null
+  const rows: string[][] = []
+  for (const m of runs) {
+    for (const [group, g] of Object.entries(
+      m.runs["deterministic-first"]![key]
+    )) {
+      rows.push([
+        m.label,
+        group,
+        String(g.documents),
+        String(Math.round(g.words / Math.max(1, g.documents))),
+        tokens(g.tokensPerDocument),
+        g.costPerDocumentUsd === null ? "—" : money(g.costPerDocumentUsd),
+        `${(g.medianMs / 1000).toFixed(1)} s`,
+        percent(g.recall),
+      ])
+    }
+  }
+  return table(
+    [
+      "Model",
+      key === "byLength" ? "Length" : "PII density",
+      "Documents",
+      "Words",
+      "Tokens / doc",
+      "$ / doc",
+      "Median time",
+      "Recall",
+    ],
+    rows
+  )
+}
+
+export const MARKERS = {
+  start: "<!-- bench:results:start -->",
+  end: "<!-- bench:results:end -->",
+}
+
+/** The generated section of benchmarks/README.md. */
+export function benchmarksMarkdown(
+  report: Report,
+  context: string,
+  sources: string
+): string {
+  const out: string[] = [
+    MARKERS.start,
+    `<!-- Generated by \`pnpm bench:charts\` from ${sources}. Edits here are overwritten. -->`,
+    "",
+  ]
+  if (report.models.length === 0) {
+    out.push(
+      "No model has been benchmarked on this corpus yet. Run `pnpm bench:models`, then `pnpm bench:charts`, and this section fills itself in.",
+      ""
+    )
+  } else {
+    out.push(
+      `${context}. ${report.models.length} model${report.models.length === 1 ? "" : "s"}: ${report.models.map((m) => `\`${m.model}\``).join(", ")}. Measured at ${[...new Set(report.models.flatMap((m) => Object.values(m.runs).map((r) => r?.commit)).filter(Boolean))].map((c) => `\`${c}\``).join(", ") || "an unknown commit"}.`,
+      ""
+    )
+    if (report.caveats.length > 0)
+      out.push("> [!WARNING]", ...report.caveats.map((c) => `> - ${c}.`), "")
+    for (const chart of report.charts) {
+      out.push(
+        `#### ${chart.title}`,
+        "",
+        chart.reading,
+        "",
+        picture(chart, "charts/"),
+        "",
+        "<details><summary>The numbers</summary>",
+        "",
+        chart.table,
+        "",
+        "</details>",
+        ""
+      )
+    }
+    const stages = stageTable(report.models)
+    if (stages)
+      out.push(
+        "#### Wall-clock by stage",
+        "",
+        "Median and 95th percentile per document. Extraction and export are timed only when the run renders a format (`--format`).",
+        "",
+        stages,
+        ""
+      )
+    const length = scalingTable(report.models, "byLength")
+    if (length) out.push("#### How it scales with length", "", length, "")
+    const density = scalingTable(report.models, "byDensity")
+    if (density)
+      out.push("#### How it scales with PII density", "", density, "")
+  }
+  if (report.missing.length > 0) {
+    out.push(
+      "Not drawn yet:",
+      "",
+      ...report.missing.map((m) => `- ${m.title}: needs ${m.needs}.`),
+      ""
+    )
+  }
+  if (report.excluded.length > 0) {
+    out.push(
+      "Left out:",
+      "",
+      ...report.excluded.map((e) => `- ${e.model}: ${e.reason}.`),
+      ""
+    )
+  }
+  const notMeasured = report.models[0]?.notMeasured
+  if (notMeasured)
+    out.push(
+      "What these numbers do not measure:",
+      "",
+      ...notMeasured.map((n) => `- ${n}`),
+      ""
+    )
+  out.push(MARKERS.end)
+  return out.join("\n")
+}
+
+/** The generated section of the root README: the two charts that answer the question. */
+export function rootMarkdown(report: Report): string {
+  const out: string[] = [
+    MARKERS.start,
+    "<!-- Generated by `pnpm bench:charts`. Edits here are overwritten. -->",
+    "",
+  ]
+  const pick = ["cost-quality-frontier", "recall-heatmap", "token-savings"]
+  const charts = report.charts.filter((c) => pick.includes(c.name))
+  if (charts.length === 0) {
+    out.push(
+      "No model has been benchmarked yet. The harness is ready: see [benchmarks/README.md](benchmarks/README.md#benchmarking-models) for the one command that fills this in.",
+      ""
+    )
+  } else {
+    for (const chart of charts)
+      out.push(picture(chart, "benchmarks/charts/"), "")
+    out.push(
+      "Every chart, the numbers behind each, and what they do not measure: [benchmarks/README.md](benchmarks/README.md#results).",
+      ""
+    )
+  }
+  out.push(MARKERS.end)
+  return out.join("\n")
+}
+
+/** Replaces the generated section of a document, or says where it is missing. */
+export function replaceSection(document: string, section: string): string {
+  const start = document.indexOf(MARKERS.start)
+  const end = document.indexOf(MARKERS.end)
+  if (start === -1 || end === -1 || end < start)
+    throw new Error(
+      `the document has no ${MARKERS.start} … ${MARKERS.end} section`
+    )
+  return (
+    document.slice(0, start) +
+    section +
+    document.slice(end + MARKERS.end.length)
+  )
+}
