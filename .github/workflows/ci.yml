@@ -192,6 +192,14 @@ jobs:
       - name: Test
         run: pnpm run test
 
+      # The labelled corpus under benchmarks/corpus is synthetic, and this is
+      # what keeps it that way: every email, phone number, URL and IP address
+      # in a committed corpus file must be in a range reserved for fiction or
+      # documentation, and every label must match its text. See
+      # benchmarks/README.md.
+      - name: Corpus holds no real identifiers
+        run: pnpm run corpus:check
+
   # The real Tesseract engine, against committed fixture images, asserting where
   # its boxes land and not only what it read: OCR spans are what the image
   # canvas and the exporter both place redactions from.
