@@ -2,7 +2,7 @@
   "model": "none",
   "detector": "patterns",
   "corpus": "synthetic-v1",
-  "corpusHash": "sha256:026b939ec3809a0a2eed9e3b47fa261a372b2565d3d3a93010b0eed8b9f7c9d6",
+  "corpusHash": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f",
   "split": "test",
   "format": "pdf",
   "rendering": {
@@ -11,20 +11,20 @@
     "outsideDocument": 0,
     "substituted": 0
   },
-  "commit": "d7f5520",
-  "createdAt": "2026-09-28T04:20:10.086Z",
-  "documents": 289,
+  "commit": "83b4a96",
+  "createdAt": "2026-09-28T14:10:42.510Z",
+  "documents": 329,
   "deterministicFirst": true,
   "totals": {
     "calls": 0,
     "inputTokens": 0,
     "outputTokens": 0,
-    "durationMs": 64845,
+    "durationMs": 73077,
     "costUsd": 0
   },
   "perDocument": {
-    "medianMs": 279,
-    "p95Ms": 1458,
+    "medianMs": 280,
+    "p95Ms": 1529,
     "costUsd": 0
   },
   "degraded": {
@@ -32,100 +32,100 @@
     "reasons": {}
   },
   "quality": {
-    "labels": 4835,
-    "detections": 1130,
-    "precision": 0.9195,
-    "precisionStrict": 0.8496,
-    "recall": 0.1766,
-    "recallOverlap": 0.2122,
-    "recallStrict": 0.1739,
-    "f1": 0.2963,
-    "falsePositives": 91,
-    "negativeHits": 62,
+    "labels": 5720,
+    "detections": 1381,
+    "precision": 0.9247,
+    "precisionStrict": 0.853,
+    "recall": 0.1832,
+    "recallOverlap": 0.2206,
+    "recallStrict": 0.1806,
+    "f1": 0.3058,
+    "falsePositives": 104,
+    "negativeHits": 72,
     "byCategory": {
       "person": {
-        "labels": 2533,
+        "labels": 2960,
         "recall": 0,
-        "recallOverlap": 0.0004,
+        "recallOverlap": 0.0007,
         "recallStrict": 0,
         "detections": 0,
         "precision": null,
         "precisionStrict": null
       },
       "address": {
-        "labels": 199,
+        "labels": 240,
         "recall": 0,
-        "recallOverlap": 0.3417,
+        "recallOverlap": 0.3375,
         "recallStrict": 0,
-        "detections": 76,
-        "precision": 0.9079,
-        "precisionStrict": 0.8947
+        "detections": 90,
+        "precision": 0.9222,
+        "precisionStrict": 0.9
       },
       "phone": {
-        "labels": 272,
-        "recall": 0.7978,
-        "recallOverlap": 0.8897,
-        "recallStrict": 0.7941,
-        "detections": 354,
-        "precision": 0.8757,
-        "precisionStrict": 0.6808
+        "labels": 321,
+        "recall": 0.7913,
+        "recallOverlap": 0.9034,
+        "recallStrict": 0.7882,
+        "detections": 421,
+        "precision": 0.8836,
+        "precisionStrict": 0.6865
       },
       "email": {
-        "labels": 347,
+        "labels": 453,
         "recall": 1,
         "recallOverlap": 1,
         "recallStrict": 1,
-        "detections": 347,
+        "detections": 453,
         "precision": 1,
         "precisionStrict": 1
       },
       "government-id": {
-        "labels": 152,
-        "recall": 0.0789,
-        "recallOverlap": 0.0789,
+        "labels": 179,
+        "recall": 0.0782,
+        "recallOverlap": 0.0782,
         "recallStrict": 0,
         "detections": 0,
         "precision": null,
         "precisionStrict": null
       },
       "bank-account": {
-        "labels": 166,
-        "recall": 0.3012,
-        "recallOverlap": 0.5843,
-        "recallStrict": 0.3012,
-        "detections": 53,
+        "labels": 204,
+        "recall": 0.299,
+        "recallOverlap": 0.5931,
+        "recallStrict": 0.299,
+        "detections": 65,
         "precision": 1,
-        "precisionStrict": 0.9434
+        "precisionStrict": 0.9385
       },
       "financial": {
-        "labels": 333,
-        "recall": 0.0781,
-        "recallOverlap": 0.0841,
-        "recallStrict": 0.0781,
-        "detections": 34,
-        "precision": 0.9118,
-        "precisionStrict": 0.7647
+        "labels": 378,
+        "recall": 0.0767,
+        "recallOverlap": 0.082,
+        "recallStrict": 0.0767,
+        "detections": 40,
+        "precision": 0.925,
+        "precisionStrict": 0.725
       },
       "date-of-birth": {
-        "labels": 182,
-        "recall": 0.456,
-        "recallOverlap": 0.456,
-        "recallStrict": 0.456,
-        "detections": 83,
+        "labels": 203,
+        "recall": 0.4433,
+        "recallOverlap": 0.4433,
+        "recallStrict": 0.4433,
+        "detections": 90,
         "precision": 1,
         "precisionStrict": 1
       },
       "customer-id": {
-        "labels": 173,
-        "recall": 0.3526,
-        "recallOverlap": 0.4971,
-        "recallStrict": 0.3526,
-        "detections": 122,
-        "precision": 0.6967,
-        "precisionStrict": 0.6885
+        "labels": 216,
+        "recall": 0.3241,
+        "recallOverlap": 0.4537,
+        "recallStrict": 0.3241,
+        "detections": 142,
+        "precision": 0.6831,
+        "precisionStrict": 0.669
       },
       "confidential": {
-        "labels": 156,
+        "labels": 180,
         "recall": 0,
         "recallOverlap": 0,
         "recallStrict": 0,
@@ -134,25 +134,25 @@
         "precisionStrict": null
       },
       "api-key": {
-        "labels": 114,
-        "recall": 0.3246,
-        "recallOverlap": 0.3246,
-        "recallStrict": 0.3246,
-        "detections": 37,
+        "labels": 138,
+        "recall": 0.3406,
+        "recallOverlap": 0.3406,
+        "recallStrict": 0.3406,
+        "detections": 47,
         "precision": 1,
         "precisionStrict": 1
       },
       "url": {
-        "labels": 105,
-        "recall": 0.2,
-        "recallOverlap": 0.2381,
-        "recallStrict": 0.2,
-        "detections": 24,
+        "labels": 130,
+        "recall": 0.2308,
+        "recallOverlap": 0.2692,
+        "recallStrict": 0.2308,
+        "detections": 33,
         "precision": 1,
         "precisionStrict": 1
       },
       "other": {
-        "labels": 103,
+        "labels": 118,
         "recall": 0,
         "recallOverlap": 0,
         "recallStrict": 0,
@@ -162,23 +162,23 @@
       }
     },
     "weightedCost": {
-      "total": 22167,
-      "perDocument": 76.7,
+      "total": 26010,
+      "perDocument": 79.06,
       "missed": {
-        "person": 2533,
-        "address": 199,
-        "government-id": 140,
-        "financial": 307,
-        "bank-account": 116,
-        "customer-id": 112,
-        "url": 84,
-        "phone": 55,
-        "confidential": 156,
-        "date-of-birth": 99,
-        "api-key": 77,
-        "other": 103
+        "person": 2960,
+        "address": 240,
+        "government-id": 165,
+        "financial": 349,
+        "bank-account": 143,
+        "customer-id": 146,
+        "url": 100,
+        "phone": 67,
+        "confidential": 180,
+        "date-of-birth": 113,
+        "api-key": 91,
+        "other": 118
       },
-      "falsePositives": 91,
+      "falsePositives": 104,
       "weights": {
         "missed": {
           "government-id": 10,
@@ -201,82 +201,82 @@
   },
   "byDocType": {
     "bank statement": {
-      "documents": 23,
-      "precision": 0.8302,
-      "recall": 0.0973,
-      "f1": 0.1742,
+      "documents": 30,
+      "precision": 0.8551,
+      "recall": 0.1086,
+      "f1": 0.1927,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "contract": {
-      "documents": 30,
-      "precision": 0.9833,
-      "recall": 0.173,
-      "f1": 0.2942,
+      "documents": 33,
+      "precision": 0.9864,
+      "recall": 0.1806,
+      "f1": 0.3053,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "CV": {
-      "documents": 34,
-      "precision": 0.9919,
-      "recall": 0.1743,
-      "f1": 0.2965,
+      "documents": 42,
+      "precision": 0.9944,
+      "recall": 0.1951,
+      "f1": 0.3262,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "email thread": {
-      "documents": 24,
-      "precision": 0.9714,
-      "recall": 0.3298,
-      "f1": 0.4924,
+      "documents": 35,
+      "precision": 0.9668,
+      "recall": 0.279,
+      "f1": 0.433,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "HR note": {
-      "documents": 38,
-      "precision": 0.913,
-      "recall": 0.1,
-      "f1": 0.1803,
+      "documents": 39,
+      "precision": 0.9155,
+      "recall": 0.1007,
+      "f1": 0.1814,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "incident report": {
-      "documents": 30,
-      "precision": 0.9508,
-      "recall": 0.1462,
-      "f1": 0.2534,
+      "documents": 31,
+      "precision": 0.9516,
+      "recall": 0.1466,
+      "f1": 0.2541,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "invoice": {
-      "documents": 24,
-      "precision": 0.7576,
-      "recall": 0.2584,
-      "f1": 0.3854,
+      "documents": 29,
+      "precision": 0.7533,
+      "recall": 0.2435,
+      "f1": 0.368,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "medical referral": {
-      "documents": 32,
-      "precision": 0.9371,
-      "recall": 0.2403,
-      "f1": 0.3825,
+      "documents": 33,
+      "precision": 0.9408,
+      "recall": 0.2391,
+      "f1": 0.3813,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "meeting minutes": {
-      "documents": 31,
-      "precision": 0.9735,
-      "recall": 0.1462,
-      "f1": 0.2542,
+      "documents": 33,
+      "precision": 0.9752,
+      "recall": 0.1471,
+      "f1": 0.2556,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "support chat": {
-      "documents": 23,
-      "precision": 0.9375,
-      "recall": 0.1213,
-      "f1": 0.2148,
+      "documents": 24,
+      "precision": 0.9423,
+      "recall": 0.1285,
+      "f1": 0.2262,
       "inputTokens": 0,
       "outputTokens": 0
     }
@@ -513,6 +513,28 @@
       [
         3639,
         3647,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0024": [
+      [
+        193,
+        208,
+        "phone"
+      ],
+      [
+        433,
+        447,
+        "phone"
+      ],
+      [
+        134,
+        159,
+        "address"
+      ],
+      [
+        225,
+        237,
         "bank-account"
       ]
     ],
@@ -1134,6 +1156,33 @@
         "date-of-birth"
       ]
     ],
+    "syn-v1-0066": [
+      [
+        902,
+        934,
+        "api-key"
+      ],
+      [
+        962,
+        980,
+        "email"
+      ],
+      [
+        138,
+        162,
+        "address"
+      ],
+      [
+        199,
+        209,
+        "customer-id"
+      ],
+      [
+        1001,
+        1069,
+        "url"
+      ]
+    ],
     "syn-v1-0067": [
       [
         747,
@@ -1310,6 +1359,18 @@
         19224,
         19232,
         "customer-id"
+      ]
+    ],
+    "syn-v1-0085": [
+      [
+        20,
+        44,
+        "email"
+      ],
+      [
+        1083,
+        1115,
+        "api-key"
       ]
     ],
     "syn-v1-0086": [
@@ -1591,6 +1652,88 @@
         "email"
       ]
     ],
+    "syn-v1-0108": [
+      [
+        23,
+        41,
+        "email"
+      ],
+      [
+        62,
+        85,
+        "email"
+      ],
+      [
+        105,
+        129,
+        "email"
+      ],
+      [
+        902,
+        921,
+        "financial"
+      ],
+      [
+        2152,
+        2167,
+        "phone"
+      ],
+      [
+        2290,
+        2308,
+        "email"
+      ],
+      [
+        3666,
+        3681,
+        "phone"
+      ],
+      [
+        3779,
+        3797,
+        "email"
+      ],
+      [
+        3866,
+        3889,
+        "email"
+      ],
+      [
+        4770,
+        4796,
+        "email"
+      ],
+      [
+        5111,
+        5130,
+        "financial"
+      ],
+      [
+        6715,
+        6739,
+        "email"
+      ],
+      [
+        6760,
+        6783,
+        "email"
+      ],
+      [
+        8337,
+        8364,
+        "email"
+      ],
+      [
+        8448,
+        8463,
+        "phone"
+      ],
+      [
+        1772,
+        1845,
+        "url"
+      ]
+    ],
     "syn-v1-0110": [
       [
         4486,
@@ -1666,6 +1809,18 @@
       ]
     ],
     "syn-v1-0116": [],
+    "syn-v1-0117": [
+      [
+        20,
+        46,
+        "email"
+      ],
+      [
+        422,
+        454,
+        "email"
+      ]
+    ],
     "syn-v1-0118": [],
     "syn-v1-0122": [
       [
@@ -1712,6 +1867,89 @@
       [
         745,
         753,
+        "customer-id"
+      ]
+    ],
+    "syn-v1-0127": [
+      [
+        421,
+        437,
+        "phone"
+      ],
+      [
+        663,
+        731,
+        "url"
+      ]
+    ],
+    "syn-v1-0129": [
+      [
+        487,
+        499,
+        "phone"
+      ],
+      [
+        509,
+        546,
+        "email"
+      ],
+      [
+        1066,
+        1081,
+        "phone"
+      ],
+      [
+        1090,
+        1113,
+        "email"
+      ],
+      [
+        1171,
+        1193,
+        "email"
+      ],
+      [
+        1244,
+        1256,
+        "phone"
+      ],
+      [
+        980,
+        997,
+        "date-of-birth"
+      ]
+    ],
+    "syn-v1-0133": [
+      [
+        251,
+        259,
+        "customer-id"
+      ],
+      [
+        2439,
+        2447,
+        "customer-id"
+      ],
+      [
+        2636,
+        2644,
+        "customer-id"
+      ]
+    ],
+    "syn-v1-0134": [
+      [
+        247,
+        274,
+        "email"
+      ],
+      [
+        168,
+        187,
+        "address"
+      ],
+      [
+        3909,
+        3919,
         "customer-id"
       ]
     ],
@@ -1823,6 +2061,35 @@
         "address"
       ]
     ],
+    "syn-v1-0148": [
+      [
+        139,
+        146,
+        "customer-id"
+      ],
+      [
+        267,
+        275,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0149": [
+      [
+        87,
+        101,
+        "phone"
+      ],
+      [
+        32,
+        50,
+        "address"
+      ],
+      [
+        942,
+        953,
+        "bank-account"
+      ]
+    ],
     "syn-v1-0150": [
       [
         1625,
@@ -1837,6 +2104,23 @@
       [
         1261,
         1283,
+        "address"
+      ]
+    ],
+    "syn-v1-0151": [
+      [
+        359,
+        374,
+        "phone"
+      ],
+      [
+        6221,
+        6253,
+        "api-key"
+      ],
+      [
+        308,
+        328,
         "address"
       ]
     ],
@@ -1969,6 +2253,50 @@
         "api-key"
       ]
     ],
+    "syn-v1-0168": [
+      [
+        187,
+        197,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0170": [
+      [
+        355,
+        375,
+        "email"
+      ],
+      [
+        3001,
+        3015,
+        "phone"
+      ],
+      [
+        6407,
+        6420,
+        "phone"
+      ],
+      [
+        6428,
+        6447,
+        "email"
+      ],
+      [
+        152,
+        161,
+        "customer-id"
+      ],
+      [
+        718,
+        727,
+        "customer-id"
+      ],
+      [
+        3055,
+        3063,
+        "bank-account"
+      ]
+    ],
     "syn-v1-0171": [
       [
         1535,
@@ -1980,6 +2308,38 @@
       [
         189,
         216,
+        "email"
+      ]
+    ],
+    "syn-v1-0175": [
+      [
+        17,
+        48,
+        "email"
+      ],
+      [
+        54,
+        78,
+        "email"
+      ],
+      [
+        443,
+        456,
+        "phone"
+      ],
+      [
+        831,
+        861,
+        "email"
+      ],
+      [
+        867,
+        898,
+        "email"
+      ],
+      [
+        903,
+        926,
         "email"
       ]
     ],
@@ -2340,6 +2700,7 @@
         "customer-id"
       ]
     ],
+    "syn-v1-0209": [],
     "syn-v1-0211": [
       [
         4101,
@@ -2438,6 +2799,33 @@
         424,
         433,
         "customer-id"
+      ]
+    ],
+    "syn-v1-0220": [
+      [
+        5062,
+        5094,
+        "api-key"
+      ],
+      [
+        6573,
+        6587,
+        "phone"
+      ],
+      [
+        6865,
+        6906,
+        "email"
+      ],
+      [
+        1662,
+        1683,
+        "address"
+      ],
+      [
+        3109,
+        3121,
+        "bank-account"
       ]
     ],
     "syn-v1-0221": [
@@ -2650,6 +3038,23 @@
         "email"
       ]
     ],
+    "syn-v1-0240": [
+      [
+        23,
+        55,
+        "email"
+      ],
+      [
+        81,
+        113,
+        "email"
+      ],
+      [
+        149,
+        157,
+        "customer-id"
+      ]
+    ],
     "syn-v1-0241": [
       [
         214,
@@ -2676,6 +3081,48 @@
       [
         2036,
         2059,
+        "email"
+      ]
+    ],
+    "syn-v1-0246": [
+      [
+        2005,
+        2017,
+        "phone"
+      ],
+      [
+        2026,
+        2054,
+        "email"
+      ],
+      [
+        2229,
+        2241,
+        "phone"
+      ],
+      [
+        2250,
+        2278,
+        "email"
+      ],
+      [
+        22649,
+        22668,
+        "financial"
+      ],
+      [
+        22841,
+        22857,
+        "financial"
+      ],
+      [
+        31004,
+        31016,
+        "phone"
+      ],
+      [
+        31025,
+        31053,
         "email"
       ]
     ],
@@ -2738,6 +3185,40 @@
         "address"
       ]
     ],
+    "syn-v1-0259": [
+      [
+        131,
+        141,
+        "customer-id"
+      ]
+    ],
+    "syn-v1-0260": [
+      [
+        18,
+        35,
+        "email"
+      ],
+      [
+        54,
+        79,
+        "email"
+      ],
+      [
+        492,
+        517,
+        "email"
+      ],
+      [
+        535,
+        552,
+        "email"
+      ],
+      [
+        340,
+        357,
+        "address"
+      ]
+    ],
     "syn-v1-0262": [
       [
         877,
@@ -2747,6 +3228,23 @@
       [
         1829,
         1836,
+        "customer-id"
+      ]
+    ],
+    "syn-v1-0263": [
+      [
+        111,
+        121,
+        "phone"
+      ],
+      [
+        471,
+        490,
+        "email"
+      ],
+      [
+        165,
+        173,
         "customer-id"
       ]
     ],
@@ -3262,6 +3760,55 @@
         "api-key"
       ]
     ],
+    "syn-v1-0303": [
+      [
+        4664,
+        4696,
+        "api-key"
+      ],
+      [
+        5239,
+        5252,
+        "phone"
+      ],
+      [
+        5261,
+        5290,
+        "email"
+      ]
+    ],
+    "syn-v1-0306": [
+      [
+        19,
+        42,
+        "email"
+      ],
+      [
+        3495,
+        3516,
+        "email"
+      ],
+      [
+        5774,
+        5783,
+        "customer-id"
+      ],
+      [
+        22815,
+        22824,
+        "customer-id"
+      ],
+      [
+        25353,
+        25362,
+        "customer-id"
+      ],
+      [
+        27454,
+        27463,
+        "customer-id"
+      ]
+    ],
     "syn-v1-0307": [
       [
         8628,
@@ -3312,6 +3859,65 @@
         10877,
         10909,
         "api-key"
+      ]
+    ],
+    "syn-v1-0309": [
+      [
+        436,
+        459,
+        "email"
+      ],
+      [
+        582,
+        598,
+        "financial"
+      ],
+      [
+        714,
+        746,
+        "api-key"
+      ],
+      [
+        845,
+        923,
+        "url"
+      ]
+    ],
+    "syn-v1-0310": [
+      [
+        127,
+        140,
+        "phone"
+      ],
+      [
+        149,
+        175,
+        "email"
+      ],
+      [
+        65,
+        84,
+        "address"
+      ],
+      [
+        109,
+        119,
+        "date-of-birth"
+      ],
+      [
+        695,
+        773,
+        "url"
+      ],
+      [
+        1035,
+        1043,
+        "bank-account"
+      ],
+      [
+        1062,
+        1079,
+        "address"
       ]
     ],
     "syn-v1-0313": [
@@ -3366,6 +3972,43 @@
         508,
         527,
         "financial"
+      ]
+    ],
+    "syn-v1-0315": [
+      [
+        1589,
+        1601,
+        "phone"
+      ],
+      [
+        1617,
+        1643,
+        "email"
+      ],
+      [
+        1765,
+        1777,
+        "phone"
+      ],
+      [
+        1803,
+        1829,
+        "email"
+      ],
+      [
+        1994,
+        2026,
+        "api-key"
+      ],
+      [
+        9689,
+        9713,
+        "email"
+      ],
+      [
+        9997,
+        10013,
+        "phone"
       ]
     ],
     "syn-v1-0316": [
@@ -3624,6 +4267,48 @@
         "customer-id"
       ]
     ],
+    "syn-v1-0335": [
+      [
+        244,
+        255,
+        "phone"
+      ],
+      [
+        265,
+        291,
+        "email"
+      ],
+      [
+        785,
+        797,
+        "phone"
+      ],
+      [
+        798,
+        812,
+        "phone"
+      ],
+      [
+        1032,
+        1064,
+        "api-key"
+      ],
+      [
+        1369,
+        1381,
+        "phone"
+      ],
+      [
+        1390,
+        1424,
+        "email"
+      ],
+      [
+        1083,
+        1161,
+        "url"
+      ]
+    ],
     "syn-v1-0336": [
       [
         164,
@@ -3840,6 +4525,48 @@
         "url"
       ]
     ],
+    "syn-v1-0366": [
+      [
+        17,
+        49,
+        "email"
+      ],
+      [
+        70,
+        89,
+        "email"
+      ],
+      [
+        554,
+        568,
+        "phone"
+      ],
+      [
+        243,
+        265,
+        "address"
+      ],
+      [
+        311,
+        323,
+        "date-of-birth"
+      ],
+      [
+        347,
+        355,
+        "customer-id"
+      ],
+      [
+        477,
+        487,
+        "bank-account"
+      ],
+      [
+        631,
+        705,
+        "url"
+      ]
+    ],
     "syn-v1-0367": [],
     "syn-v1-0368": [
       [
@@ -3901,6 +4628,83 @@
         247,
         259,
         "date-of-birth"
+      ]
+    ],
+    "syn-v1-0369": [
+      [
+        129,
+        142,
+        "phone"
+      ],
+      [
+        150,
+        176,
+        "email"
+      ],
+      [
+        3809,
+        3841,
+        "api-key"
+      ],
+      [
+        10013,
+        10026,
+        "phone"
+      ],
+      [
+        10036,
+        10060,
+        "email"
+      ],
+      [
+        10152,
+        10165,
+        "phone"
+      ],
+      [
+        10175,
+        10209,
+        "email"
+      ],
+      [
+        10279,
+        10301,
+        "email"
+      ],
+      [
+        10380,
+        10395,
+        "phone"
+      ],
+      [
+        10472,
+        10487,
+        "phone"
+      ],
+      [
+        10497,
+        10518,
+        "email"
+      ],
+      [
+        11313,
+        11327,
+        "phone"
+      ],
+      [
+        188,
+        275,
+        "url"
+      ],
+      [
+        366,
+        375,
+        "customer-id"
+      ],
+      [
+        11367,
+        11375,
+        "bank-account"
       ]
     ],
     "syn-v1-0371": [
@@ -4013,6 +4817,18 @@
     ],
     "syn-v1-0378": [],
     "syn-v1-0386": [],
+    "syn-v1-0387": [
+      [
+        1100,
+        1115,
+        "phone"
+      ],
+      [
+        1123,
+        1141,
+        "email"
+      ]
+    ],
     "syn-v1-0389": [
       [
         237,
@@ -4137,6 +4953,88 @@
         17963,
         17971,
         "bank-account"
+      ]
+    ],
+    "syn-v1-0405": [
+      [
+        2590,
+        2605,
+        "phone"
+      ],
+      [
+        2638,
+        2662,
+        "email"
+      ],
+      [
+        3290,
+        3304,
+        "phone"
+      ],
+      [
+        4296,
+        4311,
+        "phone"
+      ],
+      [
+        6773,
+        6787,
+        "phone"
+      ],
+      [
+        7102,
+        7117,
+        "phone"
+      ],
+      [
+        8636,
+        8667,
+        "email"
+      ],
+      [
+        9956,
+        9968,
+        "phone"
+      ],
+      [
+        11183,
+        11211,
+        "email"
+      ],
+      [
+        11318,
+        11333,
+        "phone"
+      ],
+      [
+        12144,
+        12158,
+        "phone"
+      ],
+      [
+        12160,
+        12178,
+        "email"
+      ],
+      [
+        649,
+        672,
+        "address"
+      ],
+      [
+        3327,
+        3338,
+        "bank-account"
+      ],
+      [
+        6694,
+        6711,
+        "date-of-birth"
+      ],
+      [
+        6956,
+        6967,
+        "date-of-birth"
       ]
     ],
     "syn-v1-0406": [
@@ -4598,6 +5496,28 @@
         "customer-id"
       ]
     ],
+    "syn-v1-0450": [
+      [
+        48,
+        60,
+        "phone"
+      ],
+      [
+        77,
+        101,
+        "email"
+      ],
+      [
+        630,
+        642,
+        "phone"
+      ],
+      [
+        120,
+        136,
+        "address"
+      ]
+    ],
     "syn-v1-0452": [
       [
         508,
@@ -4680,6 +5600,100 @@
         8179,
         8256,
         "url"
+      ]
+    ],
+    "syn-v1-0459": [
+      [
+        20,
+        44,
+        "email"
+      ],
+      [
+        63,
+        94,
+        "email"
+      ],
+      [
+        673,
+        687,
+        "phone"
+      ],
+      [
+        903,
+        934,
+        "email"
+      ],
+      [
+        954,
+        978,
+        "email"
+      ],
+      [
+        2070,
+        2094,
+        "email"
+      ],
+      [
+        2113,
+        2144,
+        "email"
+      ],
+      [
+        3127,
+        3158,
+        "email"
+      ],
+      [
+        3178,
+        3202,
+        "email"
+      ],
+      [
+        4106,
+        4130,
+        "email"
+      ],
+      [
+        4149,
+        4180,
+        "email"
+      ],
+      [
+        5266,
+        5297,
+        "email"
+      ],
+      [
+        5317,
+        5341,
+        "email"
+      ],
+      [
+        6425,
+        6449,
+        "email"
+      ],
+      [
+        6468,
+        6499,
+        "email"
+      ]
+    ],
+    "syn-v1-0461": [
+      [
+        8517,
+        8529,
+        "phone"
+      ],
+      [
+        8551,
+        8565,
+        "phone"
+      ],
+      [
+        8583,
+        8620,
+        "email"
       ]
     ],
     "syn-v1-0462": [
@@ -5231,6 +6245,83 @@
         357,
         394,
         "email"
+      ]
+    ],
+    "syn-v1-0494": [
+      [
+        19,
+        42,
+        "email"
+      ],
+      [
+        60,
+        85,
+        "email"
+      ],
+      [
+        1237,
+        1255,
+        "email"
+      ],
+      [
+        1272,
+        1295,
+        "email"
+      ],
+      [
+        2791,
+        2814,
+        "email"
+      ],
+      [
+        2827,
+        2862,
+        "email"
+      ],
+      [
+        3777,
+        3793,
+        "phone"
+      ],
+      [
+        4488,
+        4515,
+        "email"
+      ],
+      [
+        4534,
+        4557,
+        "email"
+      ],
+      [
+        6371,
+        6394,
+        "email"
+      ],
+      [
+        6412,
+        6442,
+        "email"
+      ],
+      [
+        6866,
+        6880,
+        "phone"
+      ],
+      [
+        7938,
+        7958,
+        "email"
+      ],
+      [
+        7975,
+        7998,
+        "email"
+      ],
+      [
+        7014,
+        7024,
+        "customer-id"
       ]
     ],
     "syn-v1-0497": [],
@@ -5795,6 +6886,53 @@
         "phone"
       ]
     ],
+    "syn-v1-0537": [
+      [
+        58,
+        71,
+        "phone"
+      ],
+      [
+        90,
+        122,
+        "email"
+      ],
+      [
+        329,
+        341,
+        "phone"
+      ],
+      [
+        439,
+        452,
+        "phone"
+      ],
+      [
+        4341,
+        4354,
+        "phone"
+      ],
+      [
+        5973,
+        6005,
+        "api-key"
+      ],
+      [
+        8967,
+        8980,
+        "phone"
+      ],
+      [
+        9010,
+        9023,
+        "phone"
+      ],
+      [
+        391,
+        406,
+        "address"
+      ]
+    ],
     "syn-v1-0538": [
       [
         117,
@@ -6197,6 +7335,73 @@
         "customer-id"
       ]
     ],
+    "syn-v1-0564": [
+      [
+        157,
+        167,
+        "phone"
+      ],
+      [
+        366,
+        386,
+        "email"
+      ],
+      [
+        1631,
+        1650,
+        "financial"
+      ],
+      [
+        2061,
+        2071,
+        "phone"
+      ],
+      [
+        4040,
+        4050,
+        "phone"
+      ],
+      [
+        4246,
+        4266,
+        "email"
+      ],
+      [
+        4669,
+        4691,
+        "email"
+      ],
+      [
+        211,
+        219,
+        "bank-account"
+      ],
+      [
+        270,
+        292,
+        "address"
+      ],
+      [
+        1479,
+        1489,
+        "bank-account"
+      ],
+      [
+        1763,
+        1776,
+        "date-of-birth"
+      ],
+      [
+        3055,
+        3128,
+        "url"
+      ],
+      [
+        5190,
+        5197,
+        "customer-id"
+      ]
+    ],
     "syn-v1-0566": [
       [
         6641,
@@ -6212,6 +7417,123 @@
         6755,
         6767,
         "bank-account"
+      ]
+    ],
+    "syn-v1-0568": [
+      [
+        99,
+        118,
+        "email"
+      ],
+      [
+        147,
+        178,
+        "email"
+      ],
+      [
+        969,
+        991,
+        "email"
+      ],
+      [
+        1014,
+        1033,
+        "email"
+      ],
+      [
+        1600,
+        1612,
+        "phone"
+      ],
+      [
+        1674,
+        1685,
+        "phone"
+      ],
+      [
+        1877,
+        1896,
+        "email"
+      ],
+      [
+        1916,
+        1938,
+        "email"
+      ],
+      [
+        2408,
+        2420,
+        "phone"
+      ],
+      [
+        2421,
+        2435,
+        "phone"
+      ],
+      [
+        2815,
+        2837,
+        "email"
+      ],
+      [
+        2860,
+        2879,
+        "email"
+      ],
+      [
+        3825,
+        3844,
+        "email"
+      ],
+      [
+        3864,
+        3886,
+        "email"
+      ],
+      [
+        4161,
+        4173,
+        "phone"
+      ],
+      [
+        4174,
+        4188,
+        "phone"
+      ],
+      [
+        4672,
+        4684,
+        "phone"
+      ],
+      [
+        4897,
+        4920,
+        "email"
+      ],
+      [
+        4940,
+        4962,
+        "email"
+      ],
+      [
+        4980,
+        5008,
+        "email"
+      ],
+      [
+        6026,
+        6048,
+        "email"
+      ],
+      [
+        6071,
+        6090,
+        "email"
+      ],
+      [
+        6731,
+        6750,
+        "email"
       ]
     ],
     "syn-v1-0569": [
@@ -6327,6 +7649,18 @@
         588,
         596,
         "bank-account"
+      ]
+    ],
+    "syn-v1-0580": [
+      [
+        5,
+        13,
+        "customer-id"
+      ],
+      [
+        61,
+        71,
+        "date-of-birth"
       ]
     ],
     "syn-v1-0581": [],

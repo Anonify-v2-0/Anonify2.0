@@ -221,8 +221,8 @@ the numbers are read.
 
 ## The archive
 
-The documents are committed as one archive, `corpus/synthetic-v1.tar.gz`: 1.6
-MB for the first 470 documents, where the loose files were 6.8 MB and 470
+The documents are committed as one archive, `corpus/synthetic-v1.tar.gz`: 2.0
+MB for the 534 documents, where the loose files would be 6.9 MB and 534
 objects in every clone. `corpus/synthetic-v1/manifest.json` stays beside it in
 plain text, so what the corpus holds and the hash of every file in it can
 still be read and diffed on GitHub. The directory `corpus/synthetic-v1/` is the
@@ -433,23 +433,23 @@ document type, the number of documents where the model pass was cut short
 (`degraded`), what the run does not measure, and every detection as offsets and
 a category (never the text), so it can be rescored and compared later.
 
-The deterministic baseline on the test split of the first 470 documents is
-19.8% covered recall at 93.8% precision. It finds no names, which is the
+The deterministic baseline on the test split of the 534 documents is
+20.1% covered recall at 94.1% precision. It finds no names, which is the
 model's job, and none of the SSNs, because `plausibleSsn` rejects the reserved
 987 block (see above). Through each format, over the documents that list it:
 
 | Format | Documents | Recall (covered) | Precision | Labelled text extracted |
 | ------ | --------- | ---------------- | --------- | ----------------------- |
-| txt    | 319       | 18.4%            | 92.3%     | 100%                    |
-| pdf    | 289       | 17.7%            | 92.0%     | 100%                    |
-| docx   | 219       | 17.7%            | 91.7%     | 100%                    |
-| eml    | 24        | 34.6%            | 97.2%     | 100%                    |
-| csv    | 29 of 30  | 41.6%            | 99.1%     | 99.8%                   |
-| xlsx   | 34 of 53  | 36.9%            | 97.3%     | 99.8%                   |
+| txt    | 363       | 19.0%            | 92.9%     | 100%                    |
+| pdf    | 329       | 18.3%            | 92.5%     | 100%                    |
+| docx   | 240       | 18.1%            | 92.0%     | 100%                    |
+| eml    | 35        | 28.8%            | 96.8%     | 100%                    |
+| csv    | 31 of 32  | 41.0%            | 99.1%     | 99.8%                   |
+| xlsx   | 32 of 62  | 38.4%            | 97.0%     | 99.8%                   |
 
 Each format's documents are a different set, so compare a format with `text`
 over the same `--ids`, not down this table. The CSV that fails holds a control
-character, and the app refuses it as not text, as it should. The 19 XLSX files
+character, and the app refuses it as not text, as it should. The 30 XLSX files
 that fail are a bug in the app, not in the renderer: `loadWorkbook`
 (`lib/documents/xlsx/extract.ts`) copies the file with `Buffer.from`, which puts
 a copy under 4 KB in Node's shared buffer pool, and then slices the pool's

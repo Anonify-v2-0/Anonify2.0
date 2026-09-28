@@ -2,7 +2,7 @@
   "model": "none",
   "detector": "patterns",
   "corpus": "synthetic-v1",
-  "corpusHash": "sha256:026b939ec3809a0a2eed9e3b47fa261a372b2565d3d3a93010b0eed8b9f7c9d6",
+  "corpusHash": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f",
   "split": "test",
   "format": "xlsx",
   "rendering": {
@@ -24,6 +24,14 @@
         "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
       },
       {
+        "id": "syn-v1-0044",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0066",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
         "id": "syn-v1-0078",
         "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
       },
@@ -32,11 +40,31 @@
         "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
       },
       {
+        "id": "syn-v1-0148",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0152",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
         "id": "syn-v1-0161",
         "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
       },
       {
-        "id": "syn-v1-0166",
+        "id": "syn-v1-0168",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0173",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0192",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0209",
         "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
       },
       {
@@ -48,11 +76,27 @@
         "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
       },
       {
+        "id": "syn-v1-0259",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0264",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0277",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
         "id": "syn-v1-0287",
         "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
       },
       {
         "id": "syn-v1-0316",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0362",
         "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
       },
       {
@@ -84,24 +128,24 @@
         "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
       }
     ],
-    "labelRecovery": 0.9979,
+    "labelRecovery": 0.9978,
     "outsideDocument": 0,
     "substituted": 1
   },
-  "commit": "d7f5520",
-  "createdAt": "2026-09-28T04:20:21.831Z",
-  "documents": 34,
+  "commit": "83b4a96",
+  "createdAt": "2026-09-28T14:10:58.217Z",
+  "documents": 32,
   "deterministicFirst": true,
   "totals": {
     "calls": 0,
     "inputTokens": 0,
     "outputTokens": 0,
-    "durationMs": 838,
+    "durationMs": 5857,
     "costUsd": 0
   },
   "perDocument": {
-    "medianMs": 12,
-    "p95Ms": 38,
+    "medianMs": 15,
+    "p95Ms": 44,
     "costUsd": 0
   },
   "degraded": {
@@ -109,99 +153,54 @@
     "reasons": {}
   },
   "quality": {
-    "labels": 1178,
-    "detections": 331,
-    "precision": 0.9728,
-    "precisionStrict": 0.9637,
-    "recall": 0.3693,
-    "recallOverlap": 0.3829,
-    "recallStrict": 0.2649,
-    "f1": 0.5354,
-    "falsePositives": 9,
-    "negativeHits": 3,
+    "labels": 1142,
+    "detections": 328,
+    "precision": 0.9695,
+    "precisionStrict": 0.9604,
+    "recall": 0.3835,
+    "recallOverlap": 0.3975,
+    "recallStrict": 0.2697,
+    "f1": 0.5496,
+    "falsePositives": 10,
+    "negativeHits": 4,
     "byCategory": {
       "person": {
-        "labels": 427,
-        "recall": 0.2061,
-        "recallOverlap": 0.2061,
+        "labels": 403,
+        "recall": 0.2308,
+        "recallOverlap": 0.2308,
         "recallStrict": 0,
         "detections": 0,
         "precision": null,
         "precisionStrict": null
       },
       "address": {
-        "labels": 95,
-        "recall": 0.4947,
-        "recallOverlap": 0.6211,
-        "recallStrict": 0.4211,
-        "detections": 51,
-        "precision": 0.9804,
-        "precisionStrict": 0.9804
+        "labels": 91,
+        "recall": 0.5275,
+        "recallOverlap": 0.6593,
+        "recallStrict": 0.4505,
+        "detections": 52,
+        "precision": 0.9808,
+        "precisionStrict": 0.9808
       },
       "phone": {
-        "labels": 101,
-        "recall": 0.9901,
-        "recallOverlap": 0.9901,
-        "recallStrict": 0.9901,
-        "detections": 104,
-        "precision": 0.9808,
-        "precisionStrict": 0.9615
-      },
-      "email": {
-        "labels": 118,
+        "labels": 96,
         "recall": 1,
         "recallOverlap": 1,
         "recallStrict": 1,
-        "detections": 118,
+        "detections": 100,
+        "precision": 0.97,
+        "precisionStrict": 0.96
+      },
+      "email": {
+        "labels": 115,
+        "recall": 1,
+        "recallOverlap": 1,
+        "recallStrict": 1,
+        "detections": 115,
         "precision": 1,
         "precisionStrict": 1
       },
       "government-id": {
-        "labels": 17,
-        "recall": 0.0588,
-        "recallOverlap": 0.0588,
-        "recallStrict": 0,
-        "detections": 0,
-        "precision": null,
-        "precisionStrict": null
-      },
-      "bank-account": {
-        "labels": 39,
-        "recall": 0.7179,
-        "recallOverlap": 0.7179,
-        "recallStrict": 0.5897,
-        "detections": 20,
-        "precision": 1,
-        "precisionStrict": 1
-      },
-      "financial": {
-        "labels": 123,
-        "recall": 0.0325,
-        "recallOverlap": 0.065,
-        "recallStrict": 0.0244,
-        "detections": 4,
-        "precision": 1,
-        "precisionStrict": 0.75
-      },
-      "date-of-birth": {
-        "labels": 59,
-        "recall": 0.2203,
-        "recallOverlap": 0.2203,
-        "recallStrict": 0.1186,
-        "detections": 7,
-        "precision": 1,
-        "precisionStrict": 1
-      },
-      "customer-id": {
-        "labels": 100,
-        "recall": 0.14,
-        "recallOverlap": 0.14,
-        "recallStrict": 0.07,
-        "detections": 13,
-        "precision": 0.5385,
-        "precisionStrict": 0.5385
-      },
-      "confidential": {
         "labels": 14,
         "recall": 0.0714,
         "recallOverlap": 0.0714,
@@ -210,28 +209,73 @@
         "precision": null,
         "precisionStrict": null
       },
+      "bank-account": {
+        "labels": 40,
+        "recall": 0.725,
+        "recallOverlap": 0.725,
+        "recallStrict": 0.6,
+        "detections": 21,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "financial": {
+        "labels": 123,
+        "recall": 0.0325,
+        "recallOverlap": 0.065,
+        "recallStrict": 0.0244,
+        "detections": 5,
+        "precision": 1,
+        "precisionStrict": 0.6
+      },
+      "date-of-birth": {
+        "labels": 61,
+        "recall": 0.2131,
+        "recallOverlap": 0.2131,
+        "recallStrict": 0.1148,
+        "detections": 7,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "customer-id": {
+        "labels": 101,
+        "recall": 0.1386,
+        "recallOverlap": 0.1386,
+        "recallStrict": 0.0594,
+        "detections": 12,
+        "precision": 0.5,
+        "precisionStrict": 0.5
+      },
+      "confidential": {
+        "labels": 12,
+        "recall": 0.1667,
+        "recallOverlap": 0.1667,
+        "recallStrict": 0,
+        "detections": 0,
+        "precision": null,
+        "precisionStrict": null
+      },
       "api-key": {
-        "labels": 26,
-        "recall": 0.3846,
-        "recallOverlap": 0.3846,
-        "recallStrict": 0.3846,
-        "detections": 10,
+        "labels": 27,
+        "recall": 0.4444,
+        "recallOverlap": 0.4444,
+        "recallStrict": 0.4444,
+        "detections": 12,
         "precision": 1,
         "precisionStrict": 1
       },
       "url": {
-        "labels": 25,
-        "recall": 0.36,
-        "recallOverlap": 0.36,
-        "recallStrict": 0.16,
+        "labels": 27,
+        "recall": 0.3704,
+        "recallOverlap": 0.3704,
+        "recallStrict": 0.1481,
         "detections": 4,
         "precision": 1,
         "precisionStrict": 1
       },
       "other": {
-        "labels": 34,
-        "recall": 0.0588,
-        "recallOverlap": 0.0588,
+        "labels": 32,
+        "recall": 0.0313,
+        "recallOverlap": 0.0313,
         "recallStrict": 0,
         "detections": 0,
         "precision": null,
@@ -239,23 +283,22 @@
       }
     },
     "weightedCost": {
-      "total": 4351,
-      "perDocument": 127.97,
+      "total": 4146,
+      "perDocument": 129.56,
       "missed": {
-        "person": 339,
-        "address": 48,
-        "api-key": 16,
-        "other": 32,
-        "customer-id": 86,
-        "url": 16,
-        "date-of-birth": 46,
+        "person": 310,
+        "address": 43,
+        "api-key": 15,
+        "other": 31,
+        "customer-id": 87,
+        "url": 17,
         "financial": 119,
-        "government-id": 16,
+        "date-of-birth": 48,
         "bank-account": 11,
-        "confidential": 13,
-        "phone": 1
+        "government-id": 13,
+        "confidential": 10
       },
-      "falsePositives": 9,
+      "falsePositives": 10,
       "weights": {
         "missed": {
           "government-id": 10,
@@ -279,17 +322,17 @@
   "byDocType": {
     "bank statement": {
       "documents": 13,
-      "precision": 0.8182,
-      "recall": 0.1203,
-      "f1": 0.2098,
+      "precision": 0.8108,
+      "recall": 0.1618,
+      "f1": 0.2698,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "tabular export": {
-      "documents": 21,
-      "precision": 0.9899,
-      "recall": 0.4333,
-      "f1": 0.6028,
+      "documents": 19,
+      "precision": 0.9897,
+      "recall": 0.4428,
+      "f1": 0.6119,
       "inputTokens": 0,
       "outputTokens": 0
     }
@@ -383,6 +426,28 @@
         "bank-account"
       ]
     ],
+    "syn-v1-0024": [
+      [
+        186,
+        208,
+        "phone"
+      ],
+      [
+        407,
+        447,
+        "phone"
+      ],
+      [
+        117,
+        185,
+        "address"
+      ],
+      [
+        209,
+        237,
+        "bank-account"
+      ]
+    ],
     "syn-v1-0033": [
       [
         200,
@@ -426,43 +491,6 @@
       ]
     ],
     "syn-v1-0039": [],
-    "syn-v1-0044": [
-      [
-        144,
-        156,
-        "phone"
-      ],
-      [
-        181,
-        204,
-        "email"
-      ],
-      [
-        292,
-        324,
-        "api-key"
-      ],
-      [
-        454,
-        468,
-        "phone"
-      ],
-      [
-        481,
-        508,
-        "phone"
-      ],
-      [
-        509,
-        531,
-        "email"
-      ],
-      [
-        533,
-        570,
-        "address"
-      ]
-    ],
     "syn-v1-0046": [
       [
         205,
@@ -748,15 +776,36 @@
         "address"
       ]
     ],
-    "syn-v1-0173": [
+    "syn-v1-0151": [
       [
-        178,
-        216,
-        "email"
+        352,
+        374,
+        "phone"
+      ],
+      [
+        5925,
+        6430,
+        "api-key"
+      ],
+      [
+        291,
+        351,
+        "address"
+      ]
+    ],
+    "syn-v1-0166": [
+      [
+        125,
+        182,
+        "financial"
+      ],
+      [
+        678,
+        1097,
+        "api-key"
       ]
     ],
     "syn-v1-0177": [],
-    "syn-v1-0192": [],
     "syn-v1-0193": [
       [
         209,
@@ -1058,58 +1107,36 @@
         "address"
       ]
     ],
-    "syn-v1-0264": [
+    "syn-v1-0258": [
       [
-        282,
-        310,
-        "phone"
+        135,
+        165,
+        "email"
       ],
       [
-        531,
-        636,
+        179,
+        211,
         "api-key"
       ],
       [
-        217,
-        239,
-        "customer-id"
+        292,
+        316,
+        "email"
       ],
       [
-        241,
-        258,
+        317,
+        339,
         "bank-account"
-      ]
-    ],
-    "syn-v1-0277": [
+      ],
       [
-        173,
-        208,
+        340,
+        372,
+        "api-key"
+      ],
+      [
+        458,
+        480,
         "email"
-      ],
-      [
-        211,
-        223,
-        "phone"
-      ],
-      [
-        611,
-        634,
-        "email"
-      ],
-      [
-        637,
-        654,
-        "phone"
-      ],
-      [
-        666,
-        784,
-        "email"
-      ],
-      [
-        666,
-        784,
-        "phone"
       ]
     ],
     "syn-v1-0280": [
@@ -1546,7 +1573,6 @@
         "email"
       ]
     ],
-    "syn-v1-0362": [],
     "syn-v1-0374": [
       [
         204,
