@@ -4,6 +4,7 @@
  *   pnpm corpus:score                         # deterministic detectors only; no key, no cost
  *   pnpm corpus:score --detector pipeline     # the full pipeline, with AI_MODEL from .env
  *   pnpm corpus:score --split dev --limit 20  # a quick look while iterating
+ *   pnpm corpus:score --format pdf            # through PDF rendering and extraction
  *   pnpm corpus:score --compare a.json b.json # agreement between two runs
  *
  * Each run writes benchmarks/results/<corpus>-<split>-<detector>.json: the
@@ -14,8 +15,12 @@
  * compared. Detections are stored as offsets and a category, never as text.
  *
  * The documents go through `analyzeDocument`, the function an upload goes
- * through, as one plain-text page each. "patterns" runs it with the model
- * switched off, which is exactly what an install without a key does.
+ * through. "patterns" runs it with the model switched off, which is exactly
+ * what an install without a key does. By default each document is one
+ * plain-text page. With --format, it is rendered to that format
+ * (corpus/lib/render.ts), read back by the extractor an upload of it goes
+ * through, and the detections are carried back to the labels by aligning the
+ * extracted text with the original (lib/extraction.ts).
  */
 
 import { execFileSync } from "node:child_process"
@@ -26,8 +31,15 @@ import { parseArgs } from "node:util"
 import { syncBeforeRun } from "./corpus/lib/archive"
 import { int } from "./corpus/lib/args"
 import { listDocumentFiles } from "./corpus/lib/manifest"
+import {
+  isRenderFormat,
+  RENDER_FORMATS,
+  renderDocument,
+  type RenderFormat,
+} from "./corpus/lib/render"
 import { palette, progressBar, type Palette } from "./corpus/lib/tui"
 import type { LabelledDocument } from "./corpus/lib/types"
+import { extract, SourceMap } from "./lib/extraction"
 import {
   agreement,
   aggregate,
@@ -48,6 +60,9 @@ const USAGE = `Usage: pnpm corpus:score [options]
                         analysis, with the provider and AI_MODEL in .env
   --corpus <dir>        corpus directory (default benchmarks/corpus/synthetic-v1)
   --split <name>        test (default), dev or all
+  --format <name>       text (default): each document as one plain-text page;
+                        or ${RENDER_FORMATS.join(", ")}: rendered to that format and
+                        read back by its extractor, for the documents that list it
   --ids <a,b,...>       only these documents
   --limit <n>           only the first n documents
   --concurrency <n>     documents analysed at once (default 2)
@@ -57,12 +72,20 @@ const USAGE = `Usage: pnpm corpus:score [options]
 `
 
 const NOT_MEASURED = [
-  "Extraction and rendering: each document is analysed as one plain-text page, so PDF, DOCX, EML, spreadsheet and OCR handling are not exercised (render.ts is not built yet).",
   "Faces, handwriting, scanned noise and non-Latin scripts, which the corpus does not contain.",
   "Real-world prevalence: categories are over-represented on purpose, so precision here is not precision on real documents.",
   "Token savings from the deterministic pass: every run is deterministic-first; there is no model-only mode to compare against.",
   "Anything a person accepts or rejects in review: every proposal counts as a redaction.",
 ]
+
+function notMeasured(format: string): string[] {
+  return [
+    format === "text"
+      ? "Extraction: each document is analysed as one plain-text page, so no file format's extraction is exercised; see --format."
+      : `Other formats: this run renders to ${format} only, cleanly and without OCR; scanned pages have their own fixtures.`,
+    ...NOT_MEASURED,
+  ]
+}
 
 type Stored = Array<[number, number, string]>
 
@@ -72,6 +95,19 @@ type Results = {
   corpus: string
   corpusHash: string | null
   split: string
+  /** "text", or the format the documents were rendered to and read back from. */
+  format: string
+  /** For a rendered run, what extraction did to the documents. */
+  rendering: {
+    /** Documents the app could not extract, left out of every number. */
+    failed: Array<{ id: string; error: string }>
+    /** Share of labelled characters extraction gave back. */
+    labelRecovery: number | null
+    /** Detections over text the original does not have, such as an email header. */
+    outsideDocument: number
+    /** Characters the format could not carry, rendered as "?". */
+    substituted: number
+  } | null
   commit: string | null
   createdAt: string
   documents: number
@@ -203,13 +239,27 @@ async function captureUsage(): Promise<Map<string, Usage>> {
   return usage
 }
 
+type Detection = {
+  detections: Detected[]
+  degraded: string | null
+  /** For a rendered run: detections that map to no text of the original. */
+  outside?: number
+  /** For a rendered run: labelled characters recovered, and out of how many. */
+  recovered?: [number, number]
+  substituted?: number
+}
+
 type Detector = {
   name: string
   model: string
-  detect(document: LabelledDocument): Promise<{
-    detections: Detected[]
-    degraded: string | null
-  }>
+  detect(document: LabelledDocument, format: string): Promise<Detection>
+}
+
+function labelCharacters(document: LabelledDocument): number {
+  let count = 0
+  for (const span of document.spans)
+    count += span.value.replace(/\s/g, "").length
+  return count
 }
 
 async function createDetector(name: string): Promise<Detector> {
@@ -238,7 +288,35 @@ async function createDetector(name: string): Promise<Detector> {
   return {
     name,
     model: name === "patterns" ? "none" : resolveModel(),
-    async detect(document) {
+    async detect(document, format) {
+      if (format !== "text") {
+        const rendered = await renderDocument(document, format as RenderFormat)
+        const model = await extract(
+          document.id,
+          rendered.format,
+          rendered.bytes
+        )
+        const map = new SourceMap(document.text, model)
+        const result = await analyzeDocument(document.id, model)
+        const mapped = result.detections.map((d) => map.detection(d))
+        const columns = result.sensitiveColumns.flatMap((column) =>
+          map.column(column.worksheet, column.column, column.category)
+        )
+        const total = labelCharacters(document)
+        return {
+          detections: [
+            ...mapped.filter((d): d is Detected => d !== null),
+            ...columns,
+          ],
+          degraded: result.degraded?.reason ?? null,
+          outside: mapped.filter((d) => d === null).length,
+          recovered: [
+            Math.round(map.recovered(document.text, document.spans) * total),
+            total,
+          ],
+          substituted: rendered.substituted,
+        }
+      }
       const result = await analyzeDocument(document.id, {
         documentId: document.id,
         kind: "txt",
@@ -354,14 +432,24 @@ async function run(values: {
   limit?: string
   concurrency: string
   out?: string
+  format: string
 }) {
   const c = palette()
   if (!["test", "dev", "all"].includes(values.split))
     throw new Error(
       `--split must be test, dev or all, not ${JSON.stringify(values.split)}`
     )
+  const format = values.format
+  if (format !== "text" && !isRenderFormat(format))
+    throw new Error(
+      `--format must be text or one of ${RENDER_FORMATS.join(", ")}, not ${JSON.stringify(format)}`
+    )
   const root = path.resolve(values.corpus)
   let documents = await loadCorpus(root, values.split)
+  // A document is rendered only to the formats its type is written for: an
+  // invoice as a PDF, a tabular export as CSV, not the other way round.
+  if (format !== "text")
+    documents = documents.filter((document) => document.render.includes(format))
   if (values.ids) {
     const wanted = new Set(values.ids.split(",").map((id) => id.trim()))
     documents = documents.filter((document) => wanted.has(document.id))
@@ -373,12 +461,16 @@ async function run(values: {
   const usage = await captureUsage()
   const detector = await createDetector(values.detector)
   console.log(
-    `${c.bold("Scoring")} ${detector.name} ${c.dim(detector.model === "none" ? "(no model)" : `(${detector.model})`)} on ${documents.length} ${values.split} documents of ${path.basename(root)}`
+    `${c.bold("Scoring")} ${detector.name} ${c.dim(detector.model === "none" ? "(no model)" : `(${detector.model})`)} on ${documents.length} ${values.split} documents of ${path.basename(root)}${format === "text" ? "" : `, as ${format}`}`
   )
 
   const detections: Record<string, Detected[]> = {}
   const durations: number[] = []
   const degraded: Record<string, number> = {}
+  const failed: Array<{ id: string; error: string }> = []
+  const recovered = [0, 0]
+  let outside = 0
+  let substituted = 0
   const startedAt = Date.now()
   const live = process.stdout.isTTY && !process.env.CI
   let next = 0
@@ -394,9 +486,27 @@ async function run(values: {
     while (next < documents.length) {
       const document = documents[next++]
       const began = Date.now()
-      const result = await detector.detect(document)
+      let result: Detection
+      try {
+        result = await detector.detect(document, format)
+      } catch (error) {
+        // The app refused the file: that is a finding, not a crash.
+        failed.push({
+          id: document.id,
+          error: (error as Error).message.split("\n")[0].slice(0, 200),
+        })
+        done++
+        progress()
+        continue
+      }
       durations.push(Date.now() - began)
       detections[document.id] = result.detections
+      outside += result.outside ?? 0
+      substituted += result.substituted ?? 0
+      if (result.recovered) {
+        recovered[0] += result.recovered[0]
+        recovered[1] += result.recovered[1]
+      }
       if (result.degraded)
         degraded[result.degraded] = (degraded[result.degraded] ?? 0) + 1
       done++
@@ -410,7 +520,8 @@ async function run(values: {
   if (live) process.stdout.write("\r\x1b[K")
   const durationMs = Date.now() - startedAt
 
-  const scores = documents.map((document) =>
+  const scored = documents.filter((document) => detections[document.id])
+  const scores = scored.map((document) =>
     scoreDocument(document, detections[document.id])
   )
   const quality = aggregate(scores)
@@ -435,9 +546,21 @@ async function run(values: {
     corpus: path.basename(root),
     corpusHash: await corpusHash(root),
     split: values.split,
+    format,
+    rendering:
+      format === "text"
+        ? null
+        : {
+            failed,
+            labelRecovery: recovered[1]
+              ? round(recovered[0] / recovered[1])
+              : null,
+            outsideDocument: outside,
+            substituted,
+          },
     commit: gitCommit(),
     createdAt: new Date().toISOString(),
-    documents: documents.length,
+    documents: scored.length,
     deterministicFirst: true,
     totals: {
       ...totals,
@@ -448,9 +571,9 @@ async function run(values: {
       medianMs: percentile(durations, 0.5),
       p95Ms: percentile(durations, 0.95),
       costUsd:
-        costUsd === null || documents.length === 0
+        costUsd === null || scored.length === 0
           ? null
-          : round(costUsd / documents.length, 6),
+          : round(costUsd / scored.length, 6),
     },
     degraded: {
       documents: Object.values(degraded).reduce((a, b) => a + b, 0),
@@ -458,12 +581,9 @@ async function run(values: {
     },
     quality,
     byDocType: byDocType(scores, usage),
-    notMeasured: NOT_MEASURED,
+    notMeasured: notMeasured(format),
     detections: Object.fromEntries(
-      documents.map((document) => [
-        document.id,
-        toStored(detections[document.id]),
-      ])
+      scored.map((document) => [document.id, toStored(detections[document.id])])
     ),
   }
 
@@ -471,6 +591,19 @@ async function run(values: {
   console.log(
     `  ${c.bold("time")} ${(durationMs / 1000).toFixed(1)}s ${c.dim(`(median ${results.perDocument.medianMs} ms, p95 ${results.perDocument.p95Ms} ms a document)`)}${totals.calls ? `  ${c.bold("tokens")} ${totals.inputTokens} in, ${totals.outputTokens} out over ${totals.calls} calls${costUsd === null ? c.dim(" (no rates configured for a cost)") : `, $${costUsd.toFixed(4)}`}` : ""}`
   )
+  if (results.rendering) {
+    const r = results.rendering
+    console.log(
+      `  ${c.bold(format)} ${c.dim(`labelled text recovered by extraction ${percent(r.labelRecovery).trim()}; ${r.outsideDocument} detection(s) outside the document; ${r.substituted} character(s) not renderable`)}`
+    )
+    if (r.failed.length > 0) {
+      console.log(
+        c.yellow(
+          `  The app could not extract ${r.failed.length} of ${documents.length} ${format} file(s), left out of every number above: ${r.failed[0].error}${r.failed.length > 1 ? ` (${r.failed[0].id} and ${r.failed.length - 1} more; see rendering.failed)` : ` (${r.failed[0].id})`}`
+        )
+      )
+    }
+  }
   if (results.degraded.documents > 0) {
     console.log(
       c.yellow(
@@ -489,7 +622,10 @@ async function run(values: {
   await writeResults(
     values.out
       ? path.resolve(values.out)
-      : path.join(RESULTS, `${results.corpus}-${values.split}-${slug}.json`),
+      : path.join(
+          RESULTS,
+          `${results.corpus}-${values.split}-${slug}${format === "text" ? "" : `-${format}`}.json`
+        ),
     results
   )
 }
@@ -569,6 +705,7 @@ async function main() {
         default: path.join(HERE, "corpus", "synthetic-v1"),
       },
       split: { type: "string", default: "test" },
+      format: { type: "string", default: "text" },
       ids: { type: "string" },
       limit: { type: "string" },
       concurrency: { type: "string", default: "2" },

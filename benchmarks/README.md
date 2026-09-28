@@ -14,14 +14,14 @@ wherever one exists. Where none does, as for IBANs and most national IDs, they
 are random and can coincide with a real one; see
 [_Where no reserved range exists_](#reserved-ranges).
 
-|                                                                                                   | Status                       |
-| ------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `corpus/generate.ts`: spec sampler, prompt, placeholder filler, markup stripper, rejection checks | done                         |
-| `corpus/validate.ts`: cross-family validator, disagreements queued for a person                   | done                         |
-| `corpus/check.ts`: CI check that committed files hold only reserved values                        | done, runs in the `Test` job |
-| `corpus/synthetic-v1.tar.gz`: the 600 documents, with `manifest.json` beside it                   | 470 of 600, not yet reviewed |
-| `corpus/render.ts`: txt / eml / pdf / docx / csv / xlsx                                           | not started                  |
-| `score.ts`: per-category precision and recall, weighted cost, agreement                           | done; charts for #59 not yet |
+|                                                                                                   | Status                                        |
+| ------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `corpus/generate.ts`: spec sampler, prompt, placeholder filler, markup stripper, rejection checks | done                                          |
+| `corpus/validate.ts`: cross-family validator, disagreements queued for a person                   | done                                          |
+| `corpus/check.ts`: CI check that committed files hold only reserved values                        | done, runs in the `Test` job                  |
+| `corpus/synthetic-v1.tar.gz`: the 600 documents, with `manifest.json` beside it                   | 470 of 600, not yet reviewed                  |
+| `corpus/render.ts`: txt / eml / pdf / docx / csv / xlsx                                           | done; `corpus:score --format` reads them back |
+| `score.ts`: per-category precision and recall, weighted cost, agreement                           | done; charts for #59 not yet                  |
 
 ## Generating
 
@@ -394,13 +394,15 @@ if the two differ.
 pnpm corpus:score                            # deterministic detectors, test split
 pnpm corpus:score --detector pipeline        # the whole pipeline, with the provider in .env
 pnpm corpus:score --split dev --limit 20     # a quick look while iterating
+pnpm corpus:score --format pdf               # through PDF rendering and the PDF extractor
 pnpm corpus:score --rescore <results.json>   # today's scoring rules, stored detections
 pnpm corpus:score --compare <a.json> <b.json>  # agreement between two runs
 ```
 
 Each document goes through `analyzeDocument`, the function an upload goes
-through, as one plain-text page. `patterns` runs it with the model switched
-off, which is exactly what an install without a key does. `pipeline` uses the
+through. By default it is one plain-text page; with `--format` it is rendered
+and read back first (see [Rendering](#rendering)). `patterns` runs it with the
+model switched off, which is exactly what an install without a key does. `pipeline` uses the
 provider and `AI_MODEL` in `.env`. The run's tokens are counted from the
 pipeline's own usage records, which are not written to the instance's
 database, and the daily spend cap does not apply. A cost is reported when the
@@ -424,8 +426,8 @@ A detection is matched to a label by character overlap, as #57 specifies:
   covered it, as observed agreement and Cohen's kappa, and the Jaccard overlap
   of the characters each redacted.
 
-Results go to `benchmarks/results/<corpus>-<split>-<detector>.json` in the
-shape CONTRIBUTING §4 asks for. Each file holds quality per category and per
+Results go to `benchmarks/results/<corpus>-<split>-<detector>[-<format>].json`
+in the shape CONTRIBUTING §4 asks for. Each file holds quality per category and per
 document type, the number of documents where the model pass was cut short
 (`degraded`), what the run does not measure, and every detection as offsets and
 a category (never the text), so it can be rescored and compared later.
@@ -433,11 +435,87 @@ a category (never the text), so it can be rescored and compared later.
 The deterministic baseline on the test split of the first 470 documents is
 19.8% covered recall at 93.8% precision. It finds no names, which is the
 model's job, and none of the SSNs, because `plausibleSsn` rejects the reserved
-987 block (see above).
+987 block (see above). Through each format, over the documents that list it:
+
+| Format | Documents | Recall (covered) | Precision | Labelled text extracted |
+| ------ | --------- | ---------------- | --------- | ----------------------- |
+| txt    | 319       | 18.4%            | 92.3%     | 100%                    |
+| pdf    | 289       | 17.7%            | 92.0%     | 100%                    |
+| docx   | 219       | 17.7%            | 91.7%     | 100%                    |
+| eml    | 24        | 34.6%            | 97.2%     | 100%                    |
+| csv    | 29 of 30  | 41.6%            | 99.1%     | 99.8%                   |
+| xlsx   | 34 of 53  | 36.9%            | 97.3%     | 99.8%                   |
+
+Each format's documents are a different set, so compare a format with `text`
+over the same `--ids`, not down this table. The CSV that fails holds a control
+character, and the app refuses it as not text, as it should. The 19 XLSX files
+that fail are a bug in the app, not in the renderer: `loadWorkbook`
+(`lib/documents/xlsx/extract.ts`) copies the file with `Buffer.from`, which puts
+a copy under 4 KB in Node's shared buffer pool, and then slices the pool's
+`ArrayBuffer` at the original's offset. A small workbook is misread as a
+corrupt zip or not, depending on where the pool is, so which files fail varies
+from run to run.
 
 The charts #59 asks for are not drawn yet. The results files hold what they
 need, except tokens without the deterministic pass: every run is
 deterministic-first.
+
+## Rendering
+
+```sh
+pnpm corpus:render                    # every document, to every format it lists
+pnpm corpus:render --format pdf       # only PDFs
+pnpm corpus:render --ids syn-v1-0042 --out /tmp/look
+```
+
+What is committed is the text and its labels. The files a person would upload
+are made from them when needed, and never committed, so a rendering bug is
+fixed here without regenerating anything. Each document's `render` field lists
+the formats its type is written for: an invoice as PDF, DOCX and TXT, an email
+thread as EML, a tabular export as CSV and XLSX. `corpus:render` writes them to
+`corpus/.cache/<corpus>/render/` for looking at. `corpus:score --format` renders
+on the fly and does not need them.
+
+| Format | Written as                                                                                        |
+| ------ | ------------------------------------------------------------------------------------------------- |
+| txt    | the text, UTF-8                                                                                   |
+| eml    | one text/plain message, base64; headers that name no one, with the id as its subject              |
+| pdf    | A4, 10 pt DejaVu Sans, lines wrapped at spaces and long words broken where they must be           |
+| docx   | a paragraph per line, tabs kept, in the smallest package Word opens                               |
+| csv    | a tabular export as written; anything else a row per line                                         |
+| xlsx   | the same rows as CSV, every cell a string, so a card number or a leading zero survives as written |
+
+Rendering is deterministic: the same document gives the same bytes on any
+machine. Nothing carries a date or a random identifier, zip entries carry a
+fixed timestamp, and DOCX and XLSX are written by hand rather than through a
+library that stamps the current time into them. The PDF font is DejaVu Sans
+(the `dejavu-fonts-ttf` dev dependency) because the PDF standard fonts carry
+only Latin-1, and the corpus writes rupees, ballot boxes and check marks.
+DejaVu has a glyph for every character in it. A character a format cannot
+carry, such as a control character in XML, becomes "?" and is counted.
+
+A row is split into cells where a line lines columns up: at tabs, at " | ", or
+at runs of two or more spaces. That is a guess about a bank statement written
+as prose; a tabular export is parsed as the CSV it is.
+
+**Reading it back.** The scorer runs each rendered file through the extractor
+the app uses for that format, then aligns the extracted text with the original
+(`lib/extraction.ts`), so every detection can be carried back to label
+offsets. Extraction reflows lines, adds an email's headers, and drops a CSV's
+commas and quotes, so the alignment ignores whitespace, anchors on runs of
+twelve characters that occur exactly once on each side, and fills the gaps
+between anchors from both ends. A detection over text the original does not
+have, such as an address in the EML headers the renderer wrote, maps to
+nothing and is counted as `outsideDocument`, not as a false positive. A cell or
+a column the model flags covers its whole cell, or every filled cell below the
+header, as the review screen applies it. `rendering.labelRecovery` is the share
+of labelled characters the extractor gave back: 100% for TXT, EML, PDF and
+DOCX, and 99.8% for CSV and XLSX, where a few one-character cells between
+dropped delimiters go unmatched.
+
+Not measured: scanned or photographed pages (OCR is off, since every rendered
+page carries text, and OCR has its own fixtures), multi-column layouts,
+headers and footers, and anything a real PDF writer does differently.
 
 ## What the corpus does not cover
 

@@ -32,6 +32,7 @@
     "corpus:generate": "tsx benchmarks/corpus/generate.ts",
     "corpus:validate": "tsx benchmarks/corpus/validate.ts",
     "corpus:check": "tsx benchmarks/corpus/check.ts",
+    "corpus:render": "tsx benchmarks/corpus/render.ts",
     "corpus:pack": "tsx benchmarks/corpus/archive.ts pack",
     "corpus:unpack": "tsx benchmarks/corpus/archive.ts unpack",
     "corpus:status": "tsx benchmarks/corpus/archive.ts status",
@@ -101,11 +102,13 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "^1.0.0",
+    "dejavu-fonts-ttf": "^2.37.3",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
     "prettier": "^3.8.3",
