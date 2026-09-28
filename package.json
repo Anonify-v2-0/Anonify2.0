@@ -32,6 +32,10 @@
     "corpus:generate": "tsx benchmarks/corpus/generate.ts",
     "corpus:validate": "tsx benchmarks/corpus/validate.ts",
     "corpus:check": "tsx benchmarks/corpus/check.ts",
+    "corpus:pack": "tsx benchmarks/corpus/archive.ts pack",
+    "corpus:unpack": "tsx benchmarks/corpus/archive.ts unpack",
+    "corpus:status": "tsx benchmarks/corpus/archive.ts status",
+    "corpus:score": "tsx --env-file-if-exists=.env benchmarks/score.ts",
     "workflow:bootstrap": "node node_modules/@workflow/world-postgres/bin/setup.js"
   },
   "dependencies": {

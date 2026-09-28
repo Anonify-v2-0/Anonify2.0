@@ -19,9 +19,9 @@ are random and can coincide with a real one; see
 | `corpus/generate.ts`: spec sampler, prompt, placeholder filler, markup stripper, rejection checks | done                         |
 | `corpus/validate.ts`: cross-family validator, disagreements queued for a person                   | done                         |
 | `corpus/check.ts`: CI check that committed files hold only reserved values                        | done, runs in the `Test` job |
-| `corpus/synthetic-v1/`: the 600 documents and `manifest.json`                                     | not generated yet            |
+| `corpus/synthetic-v1.tar.gz`: the 600 documents, with `manifest.json` beside it                   | 470 of 600, not yet reviewed |
 | `corpus/render.ts`: txt / eml / pdf / docx / csv / xlsx                                           | not started                  |
-| `score.ts`: per-category precision and recall, weighted cost, agreement                           | not started                  |
+| `score.ts`: per-category precision and recall, weighted cost, agreement                           | done; charts for #59 not yet |
 
 ## Generating
 
@@ -218,9 +218,53 @@ the reserved 987 block. That is arguably a detector bug, since the reserved
 block is exactly what appears in sample documents, but it needs deciding before
 the numbers are read.
 
+## The archive
+
+The documents are committed as one archive, `corpus/synthetic-v1.tar.gz`: 1.6
+MB for the first 470 documents, where the loose files were 6.8 MB and 470
+objects in every clone. `corpus/synthetic-v1/manifest.json` stays beside it in
+plain text, so what the corpus holds and the hash of every file in it can
+still be read and diffed on GitHub. The directory `corpus/synthetic-v1/` is the
+working copy, and git ignores everything in it but the manifest.
+
+You do not need to unpack it yourself. `corpus:generate`, `corpus:validate`
+and `corpus:score` bring the working copy up to date with the archive before
+they read it, and `generate` and `validate` pack it again after writing to
+it. Commit the archive together with `manifest.json`.
+
+```sh
+pnpm corpus:unpack          # archive → working copy
+pnpm corpus:status          # what differs between the two
+pnpm corpus:pack            # working copy → archive, after a change by hand
+pnpm corpus:unpack --force  # discard local changes and take the archive
+```
+
+It is a plain tarball, so `tar -xzf benchmarks/corpus/synthetic-v1.tar.gz -C
+benchmarks/corpus` works as well.
+
+Bringing the working copy up to date merges rather than overwrites. A file
+only the archive changed is updated, one only you changed is kept, and one
+both changed is kept as yours and named, so pulling someone else's corpus work
+never loses yours. A document you deleted stays deleted, which is how you
+regenerate one. An empty working copy, as after a fresh clone or a branch
+switch, is unpacked whole. `corpus:check` fails while the working copy and the
+archive differ, so a hand edit that was never packed cannot be committed by
+accident.
+
+Two costs of the archive:
+
+- Every change to the corpus is a new 1–2 MB blob in history, where loose
+  files would store only the documents that changed. Pack after a batch of
+  work, not after each document.
+- GitHub's secret scanning does not look inside the archive, and it had
+  flagged the generator's Stripe-shaped test keys (`sk_test_…`) as live
+  secrets. `corpus:check`, which reads the archive file by file in CI, is the
+  guard on what the corpus holds.
+
 ## The label format
 
-One file per document, `corpus/synthetic-v1/<split>/<id>.json`:
+One file per document, `<split>/<id>.json` in the archive and
+`corpus/synthetic-v1/<split>/<id>.json` once unpacked:
 
 ```jsonc
 {
@@ -340,7 +384,60 @@ pnpm corpus:check
 This runs in CI. It fails if any committed corpus file, or any free text in a
 review file, contains an email address, phone number, URL or IP address outside
 the reserved ranges; if a label does not match its text; or if a file does not
-match its hash in `manifest.json`.
+match its hash in `manifest.json`. It reads the committed archive file by file,
+so nothing has to be unpacked first. Where a working copy exists too, it fails
+if the two differ.
+
+## Scoring
+
+```sh
+pnpm corpus:score                            # deterministic detectors, test split
+pnpm corpus:score --detector pipeline        # the whole pipeline, with the provider in .env
+pnpm corpus:score --split dev --limit 20     # a quick look while iterating
+pnpm corpus:score --rescore <results.json>   # today's scoring rules, stored detections
+pnpm corpus:score --compare <a.json> <b.json>  # agreement between two runs
+```
+
+Each document goes through `analyzeDocument`, the function an upload goes
+through, as one plain-text page. `patterns` runs it with the model switched
+off, which is exactly what an install without a key does. `pipeline` uses the
+provider and `AI_MODEL` in `.env`. The run's tokens are counted from the
+pipeline's own usage records, which are not written to the instance's
+database, and the daily spend cap does not apply. A cost is reported when the
+model has prices configured.
+
+A detection is matched to a label by character overlap, as #57 specifies:
+
+- **Recall (covered)**, the primary number: every character of the value is
+  under a redaction, whitespace inside it aside. A value partly covered is a
+  leak and counts as missed.
+- **Overlap**: any redaction touches the value.
+- **Strict**: the value is covered by redactions of its own category, so the
+  gap to covered recall is "found it, called it the wrong thing".
+- **Precision**: the share of redactions that touch a labelled value. One that
+  touches none is a false positive, and so is one over a hard negative.
+- **Weighted cost**: a missed `government-id`, `bank-account`, `financial` or
+  `api-key` costs 10; a missed `person`, `address`, `date-of-birth`, `email`,
+  `phone` or `customer-id` costs 5; any other miss costs 2, and a false
+  positive 1 (`MISS_WEIGHTS` in `lib/scoring.ts`).
+- **Agreement** between two runs: for each labelled value, whether both
+  covered it, as observed agreement and Cohen's kappa, and the Jaccard overlap
+  of the characters each redacted.
+
+Results go to `benchmarks/results/<corpus>-<split>-<detector>.json` in the
+shape CONTRIBUTING §4 asks for. Each file holds quality per category and per
+document type, the number of documents where the model pass was cut short
+(`degraded`), what the run does not measure, and every detection as offsets and
+a category (never the text), so it can be rescored and compared later.
+
+The deterministic baseline on the test split of the first 470 documents is
+19.8% covered recall at 93.8% precision. It finds no names, which is the
+model's job, and none of the SSNs, because `plausibleSsn` rejects the reserved
+987 block (see above).
+
+The charts #59 asks for are not drawn yet. The results files hold what they
+need, except tokens without the deterministic pass: every run is
+deterministic-first.
 
 ## What the corpus does not cover
 

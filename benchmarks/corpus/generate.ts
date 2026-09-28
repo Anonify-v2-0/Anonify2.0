@@ -20,16 +20,20 @@
  *
  * A retry is told why the previous draft was rejected, and the longest
  * documents are started first so the run does not end waiting on one.
+ *
+ * The corpus is committed as synthetic-v1.tar.gz (see lib/archive.ts): it is
+ * unpacked before anything is read and packed again after anything is written.
  */
 
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { parseArgs } from "node:util"
 
+import { packAfterRun, syncBeforeRun } from "./lib/archive"
 import { int } from "./lib/args"
 import { createBackend, DEFAULT_MODELS, type Backend } from "./lib/backends"
 import { buildDocument } from "./lib/build"
-import { buildManifest } from "./lib/manifest"
+import { buildManifest, type Manifest } from "./lib/manifest"
 import { denyTokens, operatorStrings } from "./lib/operator"
 import {
   PROMPT_VERSION,
@@ -391,9 +395,13 @@ async function writeManifest(out: string) {
   console.log(
     `\n${c.bold("manifest.json")}  ${manifest.documents.total} documents · ${manifest.spans.total} spans · ${c.dim(manifest.corpus)}`
   )
-  if (manifest.documents.total === 0) return
+  if (manifest.documents.total > 0) printTargets(manifest)
+  await packAfterRun(out)
+}
 
-  // How far each category is from what #59 needs in the test split.
+/** How far each category is from what #59 needs in the test split. */
+function printTargets(manifest: Manifest) {
+  const c = palette()
   console.log(c.dim("\n  test split against its targets"))
   for (const [category, target] of Object.entries(manifest.targets)) {
     const fraction = target.test / target.target
@@ -420,6 +428,7 @@ async function main() {
       throw new Error(`no such document: ${unknown.join(", ")}`)
   }
 
+  if (!options.dryRun) await syncBeforeRun(options.out)
   if (options.manifestOnly) return writeManifest(options.out)
 
   options.denyTokens = denyTokens(await operatorStrings(options.deny))

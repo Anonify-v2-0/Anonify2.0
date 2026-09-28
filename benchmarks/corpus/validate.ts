@@ -21,6 +21,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { parseArgs } from "node:util"
 
+import { packAfterRun, syncBeforeRun } from "./lib/archive"
 import { int } from "./lib/args"
 import { createBackend, DEFAULT_MODELS } from "./lib/backends"
 import { listDocumentFiles } from "./lib/manifest"
@@ -118,6 +119,7 @@ async function main() {
   const thinkingTokens = int("thinking", values.thinking)
 
   const root = path.resolve(values.corpus)
+  await syncBeforeRun(root)
   const reviewDir = path.join(root, "review")
   const cacheDir = path.join(HERE, ".cache", path.basename(root), "reviews")
   const backend = createBackend({
@@ -306,6 +308,7 @@ async function main() {
   console.log(
     `\n${agreed} agreed, ${flagged} flagged for a person (review/<id>.json), ${failed} failed.`
   )
+  await packAfterRun(root)
   if (fatal) {
     console.error(`\nStopped: ${fatal}`)
     process.exitCode = 1
