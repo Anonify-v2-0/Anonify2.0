@@ -63,6 +63,34 @@ held to the current checks, and the rebuild names any that fail and exits
 non-zero. `--force` leaves reviewed documents alone too: delete the file to
 regenerate one.
 
+A rerun does not call the model again for a document that has already used
+its `--attempts`: its cached responses are checked again, and fail again. To
+retry the documents that gave up, raise it (`--attempts 5`). The new attempts
+are told why the last cached one was rejected.
+
+**Speed.** The first full run, with Codex and GPT 6 Luna at the reasoning
+effort set in `~/.codex/config.toml` (`high`), took about 90 seconds a call
+and seven hours for 1,106 calls: 470 documents written, 130 given up after
+three attempts. Three things now cut that:
+
+- `--effort` sets Codex's reasoning effort for the corpus alone, and defaults
+  to `low`. `--effort config` uses your config file instead.
+- A retry's prompt ends with the reasons its previous draft was rejected,
+  instead of drawing again blind. Most rejections in that run were an
+  unmarked repeat of a name or ID, or a required category left out, which a
+  model fixes when told. The reasons are recorded in the cached response as
+  `feedback`. A reason that names the operator is replaced by a generic one.
+- The longest documents are started first, so a run does not end with every
+  worker idle but one.
+
+`--concurrency` (default 4) is the other lever, up to whatever rate your CLI's
+plan allows.
+
+In a terminal, the run shows a progress bar, what each worker is writing and
+for how long, an estimate of the time left, and a running count of why drafts
+are rejected. Piped or in CI it prints one plain line per event instead.
+`NO_COLOR` turns colour off.
+
 **Cost.** In trials with Claude Code and Haiku 4.5, a short or medium document
 cost $0.007–0.016 a call and a long one $0.03–0.05. Between a third and a half
 of calls were rejected and retried. For 600 documents that comes to roughly

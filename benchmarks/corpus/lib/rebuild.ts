@@ -22,6 +22,8 @@ export type CachedResponse = {
   promptVersion: string
   seed: number
   text: string
+  /** Why the previous draft was rejected, when the prompt said so. */
+  feedback?: string[]
   costUsd?: number
   usage?: Record<string, unknown>
   createdAt: string

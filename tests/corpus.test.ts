@@ -26,6 +26,7 @@ import {
   stripMarkup,
 } from "@/benchmarks/corpus/lib/markup"
 import { denyTokens, findDenied } from "@/benchmarks/corpus/lib/operator"
+import { retryNote } from "@/benchmarks/corpus/lib/prompt"
 import { createRng } from "@/benchmarks/corpus/lib/random"
 import { documentPath, rebuild } from "@/benchmarks/corpus/lib/rebuild"
 import {
@@ -36,6 +37,7 @@ import {
   type Disagreement,
   type ReviewPass,
 } from "@/benchmarks/corpus/lib/review"
+import { fit, palette, reasonKind, visible } from "@/benchmarks/corpus/lib/tui"
 import {
   isReservedEmail,
   isReservedPhone,
@@ -1371,5 +1373,57 @@ describe("corpus command lookup on Windows", () => {
     expect(
       readNodeWrapper("/bin/tool.cmd", '"%~dp0\\..\\lib\\tool.mjs" %*')?.script
     ).toBe(path.join("/bin", "..", "lib", "tool.mjs"))
+  })
+})
+
+describe("corpus retry note", () => {
+  it("tells a retry why the previous draft was rejected, once each", () => {
+    const note = retryNote([
+      'unmarked repeat of "Priya" at 402',
+      'unmarked repeat of "Priya" at 402',
+      'required category "phone" is missing',
+    ])
+    expect(note).toContain('- unmarked repeat of "Priya" at 402')
+    expect(note).toContain('- required category "phone" is missing')
+    expect(note.match(/Priya/g)).toHaveLength(1)
+  })
+
+  it("sends back no part of the operator's identity", () => {
+    const note = retryNote(["mentions the operator's identity (na**l)"])
+    expect(note).not.toContain("na**l")
+    expect(note).toContain("invent different names")
+  })
+})
+
+describe("corpus terminal display", () => {
+  it("cuts a coloured line to width without breaking its escape codes", () => {
+    const line = `[32m${"x".repeat(30)}[39m`
+    const cut = fit(line, 10)
+    expect(visible(cut)).toBe(10)
+    expect(cut.endsWith("[0m")).toBe(true)
+    expect(fit("plain text that is long", 10)).toBe("plain tex…")
+  })
+
+  it("prints no colour when NO_COLOR is set", () => {
+    const saved = process.env.NO_COLOR
+    process.env.NO_COLOR = "1"
+    try {
+      expect(palette().green("ok")).toBe("ok")
+    } finally {
+      if (saved === undefined) delete process.env.NO_COLOR
+      else process.env.NO_COLOR = saved
+    }
+  })
+
+  it("counts rejections by kind", () => {
+    expect(reasonKind('unmarked repeat of "Priya" at 402')).toBe(
+      "unmarked repeat"
+    )
+    expect(reasonKind('required category "phone" is missing')).toBe(
+      "missing category"
+    )
+    expect(reasonKind('phone outside the reserved ranges: "0048"')).toBe(
+      "unreserved value"
+    )
   })
 })

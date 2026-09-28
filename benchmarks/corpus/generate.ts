@@ -17,6 +17,9 @@
  * every model response is cached under benchmarks/corpus/.cache before it is
  * checked, so an interrupted run loses at most the calls in flight and a fix
  * to the checks can be applied with --rebuild without paying for a token.
+ *
+ * A retry is told why the previous draft was rejected, and the longest
+ * documents are started first so the run does not end waiting on one.
  */
 
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
@@ -31,6 +34,7 @@ import { denyTokens, operatorStrings } from "./lib/operator"
 import {
   PROMPT_VERSION,
   RESPONSE_SCHEMA,
+  retryNote,
   SYSTEM_PROMPT,
   userPrompt,
 } from "./lib/prompt"
@@ -44,6 +48,15 @@ import {
   type CachedResponse,
 } from "./lib/rebuild"
 import { CORPUS_SIZE, sampleSpecs } from "./lib/spec"
+import {
+  box,
+  Dashboard,
+  duration,
+  pad,
+  palette,
+  progressBar,
+  type Palette,
+} from "./lib/tui"
 import type { DocumentSpec } from "./lib/types"
 
 const HERE = import.meta.dirname
@@ -65,6 +78,8 @@ const USAGE = `Usage: pnpm corpus:generate [options]
   --concurrency <n>     requests in flight (default 4)
   --attempts <n>        tries per document before giving up (default 3)
   --thinking <tokens>   Claude's extended-thinking budget (default 0: off)
+  --effort <level>      Codex's reasoning effort: minimal, low (default),
+                        medium, high, or config for ~/.codex/config.toml's
   --timeout <seconds>   per request (default 900)
   --force               regenerate documents that already exist, except those
                         reviewed by a person
@@ -91,6 +106,7 @@ type Options = {
   attempts: number
   timeoutMs: number
   thinkingTokens: number
+  effort: string
   force: boolean
   rebuild: boolean
   dryRun: boolean
@@ -115,6 +131,7 @@ function parseOptions(argv: string[]): Options {
       attempts: { type: "string", default: "3" },
       timeout: { type: "string", default: "900" },
       thinking: { type: "string", default: "0" },
+      effort: { type: "string", default: "low" },
       force: { type: "boolean", default: false },
       rebuild: { type: "boolean", default: false },
       "dry-run": { type: "boolean", default: false },
@@ -145,11 +162,21 @@ function parseOptions(argv: string[]): Options {
     attempts: Math.max(1, int("attempts", values.attempts)),
     timeoutMs: int("timeout", values.timeout) * 1000,
     thinkingTokens: int("thinking", values.thinking),
+    effort: effortLevel(values.effort),
     force: values.force,
     rebuild: values.rebuild,
     dryRun: values["dry-run"],
     manifestOnly: values.manifest,
   }
+}
+
+function effortLevel(value: string): string {
+  if (!/^[a-z]+$/.test(value)) {
+    throw new Error(
+      `--effort must be a level such as low or high, or config, not ${JSON.stringify(value)}`
+    )
+  }
+  return value
 }
 
 // --- paths and cache --------------------------------------------------------
@@ -186,15 +213,23 @@ type Outcome =
   | { status: "rejected"; costUsd: number; reasons: string[] }
   | { status: "error"; costUsd: number; message: string }
 
+/** What generateOne tells the display as it goes. */
+type Progress = {
+  attempt(attempt: number, cached: boolean): void
+  rejected(attempt: number, reasons: string[]): void
+}
+
 async function generateOne(
   spec: DocumentSpec,
   backend: Backend,
   options: Options,
-  signal: AbortSignal
+  signal: AbortSignal,
+  progress: Progress
 ): Promise<Outcome> {
-  const user = userPrompt(spec)
   let costUsd = 0
   let lastReasons: string[] = []
+  // Why the checks rejected the previous draft; a failed call is not a draft.
+  let feedback: string[] = []
 
   for (let attempt = 1; attempt <= options.attempts; attempt++) {
     if (signal.aborted) break
@@ -210,11 +245,12 @@ async function generateOne(
       cached = null
     }
 
+    progress.attempt(attempt, cached !== null)
     if (!cached) {
       try {
         const completion = await backend.complete({
           system: SYSTEM_PROMPT,
-          user,
+          user: userPrompt(spec) + (feedback.length ? retryNote(feedback) : ""),
           schema: RESPONSE_SCHEMA,
           signal,
         })
@@ -226,6 +262,7 @@ async function generateOne(
           promptVersion: PROMPT_VERSION,
           seed: options.seed,
           text: completion.text,
+          ...(feedback.length ? { feedback } : {}),
           costUsd: completion.costUsd,
           usage: completion.usage,
           createdAt: new Date().toISOString(),
@@ -246,6 +283,7 @@ async function generateOne(
         }
         await logReject(options.out, { id: spec.id, attempt, error: message })
         lastReasons = [message]
+        progress.rejected(attempt, lastReasons)
         continue
       }
     }
@@ -263,6 +301,8 @@ async function generateOne(
       }
     }
     lastReasons = result.reasons
+    feedback = result.reasons
+    progress.rejected(attempt, lastReasons)
     await logReject(options.out, {
       id: spec.id,
       attempt,
@@ -276,6 +316,40 @@ async function generateOne(
 
 function describe(spec: DocumentSpec): string {
   return `${spec.id}  ${spec.split.padEnd(4)} ${spec.locale}  ${spec.length.padEnd(6)} ${spec.density.padEnd(6)} ${spec.docType}`
+}
+
+/** The same, in colour, without the id. */
+function detail(spec: DocumentSpec, c: Palette): string {
+  const density = {
+    none: c.gray,
+    low: c.green,
+    medium: c.yellow,
+    high: c.red,
+  }[spec.density]
+  return [
+    c.dim(spec.split.padEnd(4)),
+    c.cyan(spec.locale),
+    spec.length.padEnd(6),
+    density(spec.density.padEnd(6)),
+    c.magenta(pad(spec.docType, 16)),
+  ].join(" ")
+}
+
+function ordinal(attempt: number): string {
+  return attempt === 1
+    ? "first try"
+    : attempt === 2
+      ? "second try"
+      : attempt === 3
+        ? "third try"
+        : `try ${attempt}`
+}
+
+/** `unmarked repeat of "Priya" at 402 (+2 more)`, cut to fit on a line. */
+function firstReason(reasons: string[]): string {
+  const [first = "", ...rest] = reasons
+  const head = first.length > 90 ? `${first.slice(0, 89)}…` : first
+  return rest.length ? `${head} (+${rest.length} more)` : head
 }
 
 function printDistribution(specs: DocumentSpec[]) {
@@ -313,15 +387,19 @@ async function writeManifest(out: string) {
     path.join(out, "manifest.json"),
     `${JSON.stringify(manifest, null, 2)}\n`
   )
-  const short = Object.entries(manifest.targets).filter(
-    ([, target]) => !target.met
-  )
+  const c = palette()
   console.log(
-    `\nmanifest.json: ${manifest.documents.total} documents, ${manifest.spans.total} spans, ${manifest.corpus}`
+    `\n${c.bold("manifest.json")}  ${manifest.documents.total} documents · ${manifest.spans.total} spans · ${c.dim(manifest.corpus)}`
   )
-  if (manifest.documents.total > 0 && short.length > 0) {
+  if (manifest.documents.total === 0) return
+
+  // How far each category is from what #59 needs in the test split.
+  console.log(c.dim("\n  test split against its targets"))
+  for (const [category, target] of Object.entries(manifest.targets)) {
+    const fraction = target.test / target.target
+    const count = `${target.test}/${target.target}`.padStart(9)
     console.log(
-      `Below target in the test split: ${short.map(([category, t]) => `${category} ${t.test}/${t.target}`).join(", ")}`
+      `  ${category.padEnd(14)} ${progressBar(fraction, 24, null, c)} ${target.met ? c.green(`${count} ✓`) : c.yellow(`${count}  ${Math.round(fraction * 100)}%`)}`
     )
   }
 }
@@ -387,8 +465,10 @@ async function main() {
     extraArgs: options.backendArgs,
     timeoutMs: options.timeoutMs,
     thinkingTokens: options.thinkingTokens,
+    effort: options.effort,
   })
 
+  const c = palette()
   const pending: DocumentSpec[] = []
   for (const spec of specs) {
     const file = documentPath(options.out, spec)
@@ -396,73 +476,145 @@ async function main() {
       if (!options.force) continue
       if (isReviewed(await readJson(file))) {
         console.log(
-          `· ${spec.id}  reviewed by a person; --force leaves it (delete the file to regenerate it)`
+          `${c.gray("·")} ${spec.id}  reviewed by a person; --force leaves it (delete the file to regenerate it)`
         )
         continue
       }
     }
     pending.push(spec)
   }
-  const queue = pending.slice(0, options.limit)
+  // Longest first: a long document started last is what a run ends waiting on.
+  const longestFirst = { long: 0, medium: 1, short: 2 }
+  const queue = pending
+    .slice(0, options.limit)
+    .sort((a, b) => longestFirst[a.length] - longestFirst[b.length])
+
+  const effort =
+    backend.name === "codex"
+      ? options.effort === "config"
+        ? ", effort from config"
+        : `, effort ${options.effort}`
+      : backend.name === "claude" && options.thinkingTokens
+        ? `, thinking ${options.thinkingTokens}`
+        : ""
+  const dot = c.gray("·")
   console.log(
-    `Rejecting any document that mentions the operator: ${options.denyTokens.length} identifying strings from your CLI accounts, git, the OS and --deny.`
+    box(
+      [
+        `${c.bold(path.basename(options.out))}  ${dot}  ${backend.name} ${c.cyan(backend.model)}${c.dim(effort)}  ${dot}  prompt v${PROMPT_VERSION}  ${dot}  seed ${options.seed}`,
+        `${c.green(String(specs.length - pending.length))} of ${specs.length} on disk  ${dot}  ${c.bold(String(queue.length))} to write  ${dot}  ${options.concurrency} at a time, up to ${options.attempts} attempts each`,
+        c.dim(
+          `Rejecting any document that mentions the operator: ${options.denyTokens.length} identifying strings from your CLI accounts, git, the OS and --deny.`
+        ),
+      ],
+      c,
+      "Anonify corpus generator"
+    )
   )
-  console.log(
-    `${specs.length - pending.length} of ${specs.length} documents already exist; generating ${queue.length} with ${backend.name} (${backend.model}), prompt v${PROMPT_VERSION}, seed ${options.seed}.\n`
-  )
+
+  const dashboard = new Dashboard({
+    total: queue.length,
+    concurrency: Math.min(options.concurrency, queue.length),
+    attempts: options.attempts,
+  })
 
   const controller = new AbortController()
   process.once("SIGINT", () => {
-    console.log(
-      "\nInterrupted: finishing nothing new. Cached responses are kept; run again to resume."
+    dashboard.log(
+      c.yellow(
+        "Interrupted: stopping the calls in flight. Cached responses are kept; run again to resume."
+      )
     )
+    dashboard.setNote("stopping… (ctrl+c again to quit at once)")
     controller.abort()
   })
 
-  let written = 0
-  let failed = 0
-  let cost = 0
   let fatal: string | null = null
   let next = 0
+  if (queue.length > 0) dashboard.start()
 
-  const worker = async () => {
+  const worker = async (slot: number) => {
     while (next < queue.length && !controller.signal.aborted && !fatal) {
       const spec = queue[next++]
+      dashboard.begin(slot, spec.id, detail(spec, c))
       const outcome = await generateOne(
         spec,
         backend,
         options,
-        controller.signal
-      )
-      cost += outcome.costUsd
-      if (outcome.status === "written") {
-        written++
-        console.log(
-          `✓ ${describe(spec)}  ${outcome.spans} spans, attempt ${outcome.attempt}`
-        )
-      } else if (outcome.status === "rejected") {
-        failed++
-        if (!controller.signal.aborted) {
-          console.log(
-            `✗ ${describe(spec)}  rejected ${options.attempts}×: ${outcome.reasons.slice(0, 3).join("; ")}`
-          )
+        controller.signal,
+        {
+          attempt: (attempt, cached) =>
+            dashboard.attempt(slot, attempt, cached),
+          rejected: (attempt, reasons) => {
+            const final = attempt >= options.attempts
+            dashboard.rejected(reasons, final)
+            if (!final && !controller.signal.aborted)
+              dashboard.log(
+                `${c.yellow("↻")} ${c.dim(spec.id)}  ${c.dim(`attempt ${attempt} rejected:`)} ${c.yellow(firstReason(reasons))}`
+              )
+          },
         }
-      } else {
+      )
+      dashboard.cost += outcome.costUsd
+      const took = duration(dashboard.elapsed(slot))
+      if (outcome.status === "written") {
+        dashboard.log(
+          `${c.green("✓")} ${c.bold(spec.id)}  ${detail(spec, c)}  ${c.green(`${outcome.spans} spans`)} ${dot} ${outcome.attempt === 1 ? c.dim(ordinal(1)) : c.yellow(ordinal(outcome.attempt))} ${dot} ${c.gray(took)}`
+        )
+        dashboard.finish(slot, "written", outcome.attempt)
+      } else if (outcome.status === "rejected" && !controller.signal.aborted) {
+        dashboard.log(
+          `${c.red("✗")} ${c.bold(spec.id)}  ${detail(spec, c)}  ${c.red(`gave up after ${options.attempts}:`)} ${c.dim(firstReason(outcome.reasons))}`
+        )
+        dashboard.finish(slot, "rejected")
+      } else if (outcome.status === "error") {
         fatal = outcome.message
         controller.abort()
       }
     }
   }
   await Promise.all(
-    Array.from({ length: Math.min(options.concurrency, queue.length) }, worker)
+    Array.from(
+      { length: Math.min(options.concurrency, queue.length) },
+      (_, slot) => worker(slot)
+    )
   )
+  dashboard.stop()
 
+  const rejects = path.relative(
+    process.cwd(),
+    path.join(cacheDir(options.out), "rejects.jsonl")
+  )
+  const reasons = dashboard.topReasons(5)
+  const perDocument = dashboard.done
+    ? `, one document every ${duration(dashboard.elapsedMs / dashboard.done)}`
+    : ""
   console.log(
-    `\n${written} written, ${failed} rejected after ${options.attempts} attempts${cost ? `, $${cost.toFixed(2)} reported by the CLI` : ""}. Rejection reasons: ${path.relative(process.cwd(), path.join(cacheDir(options.out), "rejects.jsonl"))}`
+    `\n${box(
+      [
+        `${c.green(`✓ ${dashboard.written} written`)}   ${dashboard.failed ? c.red(`✗ ${dashboard.failed} gave up`) : c.dim("✗ 0 gave up")}   ${c.dim(`${queue.length - dashboard.done} not reached`)}`,
+        `${dashboard.calls} model calls in ${duration(dashboard.elapsedMs)}${perDocument}${dashboard.cost ? `, $${dashboard.cost.toFixed(2)} reported by the CLI` : ""}`,
+        ...(reasons.length
+          ? [
+              `${c.dim("rejected for")} ${reasons.map(([kind, count]) => `${c.yellow(kind)} ${count}`).join(c.gray(" · "))}`,
+            ]
+          : []),
+        c.dim(`every reason: ${rejects}`),
+        ...(dashboard.failed || queue.length === 0
+          ? [
+              c.dim(
+                `a document that gave up is retried by a rerun with more attempts: --attempts ${options.attempts + 2}`
+              ),
+            ]
+          : []),
+      ],
+      c,
+      "Run finished"
+    )}`
   )
   await writeManifest(options.out)
   if (fatal) {
-    console.error(`\nStopped: ${fatal}`)
+    console.error(`\n${c.red("Stopped:")} ${fatal}`)
     process.exitCode = 1
   }
 }

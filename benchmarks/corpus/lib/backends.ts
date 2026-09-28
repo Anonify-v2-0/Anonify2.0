@@ -47,6 +47,14 @@ export type BackendOptions = {
    * and on this task thinking is ~90% of the output tokens.
    */
   thinkingTokens: number
+  /**
+   * Codex's reasoning effort, passed as `-c model_reasoning_effort=…`. Left
+   * out, or "config", uses whatever ~/.codex/config.toml says. Explicit for the same
+   * reason as `thinkingTokens`: an operator who sets "high" for their own
+   * coding work would otherwise pay for it on every corpus call, which in
+   * the first full run was about 90 seconds each.
+   */
+  effort?: string
 }
 
 export const DEFAULT_MODELS: Record<string, string> = {
@@ -238,6 +246,9 @@ function codexBackend(options: BackendOptions): Backend {
           outputFile,
           "--cd",
           cwd,
+          ...(!options.effort || options.effort === "config"
+            ? []
+            : ["-c", `model_reasoning_effort=${options.effort}`]),
           ...options.extraArgs,
           "-",
         ]

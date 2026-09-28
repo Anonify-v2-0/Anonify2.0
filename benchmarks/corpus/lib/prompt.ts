@@ -136,3 +136,36 @@ export const RESPONSE_SCHEMA = {
     negatives: { type: "array", items: { type: "string" } },
   },
 } as const
+
+/**
+ * Appended to the prompt of a retry: why the previous draft of this document
+ * was rejected. Without it a retry is a fresh draw that tends to repeat the
+ * same slip, and in the first full run most rejections were one of a few
+ * (an unmarked repeat of a name, a required category left out).
+ *
+ * It is not part of PROMPT_VERSION: the prompt it follows is unchanged, and a
+ * cached response records the note it was written against as `feedback`.
+ * A reason naming the operator is replaced with a generic one, so no part of
+ * their identity is sent back to the model.
+ */
+export function retryNote(reasons: string[]): string {
+  const lines = [
+    ...new Set(
+      reasons.map((reason) =>
+        reason.startsWith("mentions the operator")
+          ? "it uses a real person's name; invent different names"
+          : reason.length > 240
+            ? `${reason.slice(0, 240)}…`
+            : reason
+      )
+    ),
+  ].slice(0, 10)
+  return `
+
+Your previous draft of this document was rejected by the checks:
+${lines.map((line) => `- ${line}`).join("\n")}
+
+Write it again from the start, following every rule above, and make sure none
+of these happens again. Offsets ("at 402") are character positions in the
+previous draft's body with the markup removed.`
+}
