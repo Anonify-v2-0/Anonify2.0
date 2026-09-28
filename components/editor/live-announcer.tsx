@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 
 import { useAppSelector } from "@/store/hooks"
+import { describeSearch } from "@/store/searchSlice"
 import { selectCounts } from "@/store/selectors"
 import type { ProcessingStatus } from "@/types/processing"
 
@@ -47,12 +48,24 @@ function describe(counts: Counts, status: ProcessingStatus): string {
 export function LiveAnnouncer() {
   const counts = useAppSelector(selectCounts)
   const status = useAppSelector((state) => state.processing.status)
+  const search = useAppSelector((state) => state.search)
 
   const message = useMemo(() => describe(counts, status), [counts, status])
 
+  // Search gets a region of its own, so moving between hits does not replace
+  // the review's position with "3 of 12 matches" and then back again. Same
+  // principle as above: the whole position, not the last step — "7 of 132
+  // matches" says where the reviewer is and how far there is to go.
+  const searchMessage = search.open ? describeSearch(search) : ""
+
   return (
-    <p role="status" aria-live="polite" className="sr-only">
-      {message}
-    </p>
+    <>
+      <p role="status" aria-live="polite" className="sr-only">
+        {message}
+      </p>
+      <p role="status" aria-live="polite" className="sr-only">
+        {searchMessage}
+      </p>
+    </>
   )
 }

@@ -206,6 +206,7 @@ const QUOTA_UNITS: Record<UsageKind, string> = {
   emailKilobytes: "KiB of decoded email text",
   pptxSlides: "slides",
   uploads: "files uploaded",
+  assistantTokens: "model tokens Hush spends, in and out",
 }
 
 const EML_UNITS: Record<keyof EmlLimits, string> = {

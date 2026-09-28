@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { BatchDownloadButton } from "@/components/batch/batch-download-button"
 import { StatusPill } from "@/components/processing/status-pill"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { useRetryDocument } from "@/hooks/use-retry-document"
 import { toastFailure } from "@/lib/api/errors"
 import type { BatchOverview } from "@/lib/documents/batches"
@@ -112,6 +113,34 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
         await reload()
       } catch {
         toast.error("That rule could not be removed.")
+      } finally {
+        setRemoving(null)
+      }
+    },
+    [batch.id, reload]
+  )
+
+  /**
+   * Switches a decision off or on across the batch. Off takes its redactions
+   * back and keeps it listed; on re-applies it everywhere, in one go or not
+   * at all.
+   */
+  const toggleRule = useCallback(
+    async (ruleId: string, enabled: boolean) => {
+      setRemoving(ruleId)
+      try {
+        const response = await fetch(`/api/batches/${batch.id}/rules`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ruleId, enabled }),
+        })
+        if (!response.ok) {
+          await toastFailure(toast, response, "That rule could not be changed.")
+          return
+        }
+        await reload()
+      } catch {
+        toast.error("That rule could not be changed.")
       } finally {
         setRemoving(null)
       }
@@ -234,14 +263,32 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
               >
                 <Globe className="size-4 shrink-0 text-text-muted" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-white">{rule.pattern}</p>
+                  <p
+                    className={cn(
+                      "truncate text-sm text-white",
+                      rule.kind === "regex" && "font-mono"
+                    )}
+                  >
+                    {rule.kind === "regex" ? `/${rule.pattern}/` : rule.pattern}
+                  </p>
                   <p className="text-[11px] text-text-muted">
-                    {rule.category} · applied in {rule.documents}{" "}
-                    {rule.documents === 1 ? "document" : "documents"} ·{" "}
-                    {rule.redactions}{" "}
-                    {rule.redactions === 1 ? "redaction" : "redactions"}
+                    {rule.category} ·{" "}
+                    {rule.enabled
+                      ? `applied in ${rule.documents} ${
+                          rule.documents === 1 ? "document" : "documents"
+                        } · ${rule.redactions} ${
+                          rule.redactions === 1 ? "redaction" : "redactions"
+                        }`
+                      : "switched off: redacts nothing"}
                   </p>
                 </div>
+                <Switch
+                  size="sm"
+                  checked={rule.enabled}
+                  disabled={removing === rule.id}
+                  onCheckedChange={(checked) => toggleRule(rule.id, checked)}
+                  aria-label={`${rule.enabled ? "Switch off" : "Switch on"} the rule for ${rule.pattern}`}
+                />
                 <Button
                   size="icon-sm"
                   variant="ghost"

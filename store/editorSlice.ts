@@ -17,6 +17,15 @@ const emptySelection: GridSelection = {
   columns: [],
 }
 
+/**
+ * A place something asked the canvas to show — a location chip in Hush, say:
+ * it is scrolled into view and marked for a moment. `nonce` makes asking for
+ * the same place twice show it twice.
+ */
+export type EditorFocus =
+  | { kind: "text"; page: number; start: number; end: number; nonce: number }
+  | { kind: "cell"; sheet: string; row: number; column: number; nonce: number }
+
 type EditorState = {
   currentPage: number
   zoom: number
@@ -25,6 +34,7 @@ type EditorState = {
   fitMode: "width" | "page" | "custom"
   inspectorOpen: boolean
   selection: GridSelection
+  focus: EditorFocus | null
 }
 
 const initialState: EditorState = {
@@ -35,6 +45,7 @@ const initialState: EditorState = {
   fitMode: "width",
   inspectorOpen: true,
   selection: emptySelection,
+  focus: null,
 }
 
 export const MIN_ZOOM = 0.25
@@ -137,6 +148,26 @@ const editorSlice = createSlice({
     selectionCleared(state) {
       state.selection = { ...emptySelection, sheet: state.activeSheet }
     },
+    /** Takes the canvas to a place and marks it; see `EditorFocus`. */
+    focusRequested(
+      state,
+      action: PayloadAction<
+        | { kind: "text"; page: number; start: number; end: number }
+        | { kind: "cell"; sheet: string; row: number; column: number }
+      >
+    ) {
+      const nonce = (state.focus?.nonce ?? 0) + 1
+      state.focus = { ...action.payload, nonce }
+      if (action.payload.kind === "text") {
+        state.currentPage = Math.max(1, action.payload.page)
+      } else if (state.activeSheet !== action.payload.sheet) {
+        state.activeSheet = action.payload.sheet
+        state.selection = { ...emptySelection, sheet: action.payload.sheet }
+      }
+    },
+    focusCleared(state, action: PayloadAction<number>) {
+      if (state.focus?.nonce === action.payload) state.focus = null
+    },
     inspectorToggled(state, action: PayloadAction<boolean | undefined>) {
       state.inspectorOpen = action.payload ?? !state.inspectorOpen
     },
@@ -158,6 +189,8 @@ export const {
   columnSelected,
   selectionCleared,
   inspectorToggled,
+  focusRequested,
+  focusCleared,
   editorReset,
 } = editorSlice.actions
 

@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 
 import { boxesForRedaction, padBox } from "@/lib/redaction/geometry"
 import { cn } from "@/lib/utils"
@@ -82,6 +89,8 @@ export type ImageCanvasProps = {
   onCreateRegion?: (box: BoundingBox) => void
   /** Redacts one OCR word by its offsets, the way selecting text does. */
   onRedactWord?: (span: { start: number; end: number; text: string }) => void
+  /** Drawn in image units above everything else: search hits. */
+  overlay?: ReactNode
 }
 
 export function ImageCanvas({
@@ -94,6 +103,7 @@ export function ImageCanvas({
   onSelect,
   onCreateRegion,
   onRedactWord,
+  overlay,
 }: ImageCanvasProps) {
   const surfaceRef = useRef<HTMLDivElement>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -265,6 +275,8 @@ export function ImageCanvas({
               )
             })
           )}
+
+          {overlay}
 
           {draftBox ? (
             <div

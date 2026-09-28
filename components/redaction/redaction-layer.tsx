@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { boxesForRedaction } from "@/lib/redaction/geometry"
+import { characterAtX, wordAt } from "@/lib/redaction/words"
 import { cn } from "@/lib/utils"
 import type { BoundingBox, NormalizedPage } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
@@ -139,9 +140,33 @@ export function RedactionLayer({
             aria-hidden
             title={span.text}
             onPointerDown={(event) => event.stopPropagation()}
-            onClick={() =>
-              onRedactSpan({ start: span.start, end: span.end, text: span.text })
-            }
+            onClick={(event) => {
+              // The value under the pointer, not the run: a PDF run is often a
+              // whole line, and redacting it to remove one name on it removed
+              // the line. See `wordAt`.
+              const target = event.currentTarget.getBoundingClientRect()
+              const box = span.boundingBox
+              const x = box ? ((event.clientX - target.left) / target.width) * box.width : 0
+              const character =
+                span.offsets && span.offsets.length === span.text.length + 1
+                  ? characterAtX(span.offsets, x)
+                  : span.geometry === "word" || !box
+                    ? -1
+                    : Math.min(
+                        span.text.length - 1,
+                        Math.floor((x / box.width) * span.text.length)
+                      )
+              const word =
+                character >= 0 ? wordAt(page.text, span.start + character) : null
+              // A word from OCR is already the unit; so is a run whose
+              // characters cannot be placed.
+              const range = word ?? { start: span.start, end: span.end }
+              onRedactSpan({
+                start: range.start,
+                end: range.end,
+                text: page.text.slice(range.start, range.end),
+              })
+            }}
             className="absolute cursor-pointer bg-transparent transition-colors hover:bg-primary/20"
             style={{
               left: span.boundingBox.x,

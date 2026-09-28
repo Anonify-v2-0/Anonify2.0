@@ -36,6 +36,7 @@ erDiagram
     Document ||--o{ Document : "Attachments — parentDocumentId"
     Document ||--o{ Redaction : "suggested / accepted / rejected"
     Document ||--o{ GlobalRule : "applied everywhere"
+    OwnerRule ||--o{ GlobalRule : "copies — unenforced ownerRuleId"
     Document ||--o{ ProcessingEvent : "run history"
     Document ||--o{ ExportArtifact : "generated outputs"
     Document ||--o{ AiUsage : "tokens — unenforced documentId"
@@ -202,9 +203,13 @@ was made.
 | `id` | `String` `@id` | Row id. |
 | `batchId` | `String` | Owning batch. |
 | `createdAt` | `DateTime` `@default(now())` | When the reviewer decided. |
-| `pattern` | `String` | The value as the reviewer saw it. |
-| `normalizedPattern` | `String` | Normalized form used for matching across documents. |
+| `pattern` | `String` | The value or RegEx as the reviewer wrote it. |
+| `normalizedPattern` | `String` | A literal folded to lower case and single spaces; a RegEx exactly as written, since folding `\D` to `\d` would change it. |
+| `kind` | `String` `@default("literal")` | `literal` or `regex`; see `lib/redaction/patterns.ts`. Every rule before RegEx rules is a literal. |
+| `matchCase` | `Boolean` `@default(false)` | Match only the case written. |
+| `wholeWord` | `Boolean` `@default(false)` | Only matches that neither start nor end inside a word (Unicode-aware). |
 | `category` | `String` | Redaction category the decision assigns. |
+| `enabled` | `Boolean` `@default(true)` | Switched off, the decision stays listed but reaches nothing: its copies lose their redactions, and documents that finish later skip it. |
 | `originDocumentId` | `String?` | Where the reviewer made the decision, so the interface can say so. |
 | `batch` | `Batch` | Relation via `batchId`, `onDelete: Cascade`. |
 
@@ -218,29 +223,87 @@ says "this name is a colleague in all of these files", and every document in the
 batch — including ones still being processed — gets a `GlobalRule` row copied
 from it. The batch never couples the documents' runs: one failing leaves the
 others alone, and a document that finishes after the decision was made still
-picks it up. The `enabled` flag lives on the per-document copy, so a reviewer
-can turn a rule off for one file without affecting the others.
+picks it up. The decision is switched off or on as a whole, on `BatchRule`.
+
+Every write that materializes a decision is planned first — each document is
+searched within the pattern budget — and then written in one transaction. A
+pattern that runs out of budget in the fifth file leaves the first four
+untouched, rather than redacted under a rule that claims to be everywhere.
 
 ---
 
 ## 6. `GlobalRule`
 
 A rule applied to one document. Either created directly for that document, or
-materialized from a `BatchRule` (in which case `batchRuleId` is set).
+materialized from a `BatchRule` (`batchRuleId` set) or an `OwnerRule`
+(`ownerRuleId` set). Every redaction a rule makes carries this row's id in
+`Redaction.ruleId`, which is how removing a rule removes what it did.
 
 | Column | Type | Purpose / notes |
 | --- | --- | --- |
 | `id` | `String` `@id` | Row id. |
 | `documentId` | `String` | Document this rule applies to. |
 | `createdAt` | `DateTime` `@default(now())` | Row creation. |
-| `pattern` | `String` | The value as the reviewer saw it. |
-| `normalizedPattern` | `String` | Normalized form used for matching. |
+| `pattern` | `String` | The value or RegEx as the reviewer wrote it. |
+| `normalizedPattern` | `String` | As on `BatchRule`. |
+| `kind` | `String` `@default("literal")` | `literal` or `regex`. |
+| `matchCase` | `Boolean` `@default(false)` | As on `BatchRule`. |
+| `wholeWord` | `Boolean` `@default(false)` | As on `BatchRule`. |
 | `category` | `String` | Redaction category. |
-| `enabled` | `Boolean` `@default(true)` | Off means the rule is retained but does not produce redactions. This is the per-document switch. |
+| `enabled` | `Boolean` `@default(true)` | Off means the rule is retained but has no redactions. |
 | `batchRuleId` | `String?` | Set when this rule is one document's copy of a batch-wide decision. |
+| `ownerRuleId` | `String?` | Set when this rule is one document's copy of an owner's global rule. |
 | `document` | `Document` | Relation via `documentId`, `onDelete: Cascade`. |
 
-Index: `@@index([documentId])`.
+Indexes: `@@index([documentId])`, `@@index([batchRuleId])`,
+`@@index([ownerRuleId])`. A carry skips a decision whose copy already exists,
+which is what makes a retried processing step unable to apply it twice.
+
+---
+
+## 6a. `OwnerRule`
+
+A global rule: "redact this in everything I upload". It belongs to the
+anonymous owner (`userFingerprint`, the session cookie's hash), and it is
+applied at the end of processing to every document that owner uploads
+afterwards, beside the batch carry.
+
+It is the only rule not deleted with a document, so its pattern is document
+content kept longer than any document is. Two things follow:
+
+- **The pattern is sealed**, with the master key, and never stored in the clear.
+  A document's copy of it (`GlobalRule`) is plaintext like every other rule,
+  and dies with its document.
+- **It expires when idle.** `expiresAt` is 30 days after `lastUsedAt`, the life
+  of the session cookie that owns it. Applying, editing or switching the rule
+  on moves it forward. The cleanup sweep deletes expired rows
+  (`pruneOwnerRules`). JSON export and import are how anybody keeps a rule set
+  longer than that.
+- **It ends with the browser session.** The session cookie rolls: the requests
+  that use a rule — an upload, which the rule is carried into, a create, an
+  edit, an import, a Hush turn — renew it for another 30 days before the rule
+  is touched. A carry, which runs during processing, counts from the upload
+  rather than from when it ran. So `expiresAt` is never later than the cookie's
+  expiry, and a reviewer who keeps working keeps both. Clearing cookies, a
+  private window or another browser is a new session that cannot reach these
+  rules; reviewers should export them before then.
+
+| Column | Type | Purpose / notes |
+| --- | --- | --- |
+| `id` | `String` `@id` | Row id (`orl_…`). |
+| `userFingerprint` | `String` | Owner. |
+| `createdAt`, `updatedAt` | `DateTime` | |
+| `lastUsedAt` | `DateTime` | Last applied, edited or switched on. |
+| `expiresAt` | `DateTime` | 30 days after the last use: `lastUsedAt`, or for a carry the upload it was carried into. Never moved earlier. |
+| `kind` | `String` | `literal` or `regex`. |
+| `sealedPattern` | `String` | The pattern, sealed with the master key, base64. |
+| `matchCase`, `wholeWord` | `Boolean` | As on `BatchRule`. |
+| `category` | `String` | Redaction category. |
+| `enabled` | `Boolean` | Off: copies keep their rows but lose their redactions, and new uploads skip it. |
+| `originDocumentId` | `String?` | Where the reviewer made the decision. |
+
+Indexes: `@@index([userFingerprint])`, `@@index([expiresAt])`. At most 200 per
+owner.
 
 ---
 
@@ -402,6 +465,7 @@ Per-fingerprint daily quota accounting. Enforced server-side only.
 | `emailKilobytes` | `Int` `@default(0)` | Kibibytes of decoded text pulled out of a message: headers, every text part, every nested message. An email is not a page. |
 | `pptxSlides` | `Int` `@default(0)` | Slides in a deck. Notes, layouts and masters are processed with the slide they belong to. |
 | `uploads` | `Int` `@default(0)` | Documents uploaded. Pre-checked at reservation. |
+| `assistantTokens` | `Int` `@default(0)` | Model tokens, input and output, spent by Hush for this identity. Charged after each step; checked before a run and between its steps. |
 
 Constraint: `@@unique([fingerprint, date])` — one row per fingerprint per day,
 so an increment is an upsert rather than an insert-or-accumulate.

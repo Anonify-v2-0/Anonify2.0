@@ -65,7 +65,7 @@ true`, with a `Retry-After` header. Verification or storage failures surface as
 | `409` | The action conflicts with the resource's current state (expired-adjacent, not ready, already running, not in a batch, etc.). |
 | `410` | The document has expired. |
 | `413` | The uploaded file exceeds `MAX_UPLOAD_BYTES` (local upload only). |
-| `422` | Understood, and refused for what is in it: a file that cannot be restored with that vault, or a mailbox withheld from a batch download. |
+| `422` | A search or rule pattern ran out of its budget (too many matches, or too long spent matching). Nothing was applied. |
 | `429` | Rate limit or quota refused; carries `retryAfterSeconds`. |
 | `500` | Verification failure, storage failure, or an unexpected server error. |
 | `503` | A required environment variable or the database is unavailable. |
@@ -331,42 +331,173 @@ Deletes a redaction outright — for one the user created by mistake.
 - **Response `200`:** `{ "deleted": 1 }`
 - **Errors:** `400` no redaction specified; `404`/`410` access.
 
-### `POST /api/documents/:id/rules`
+### `POST /api/documents/:id/search`
 
-A global redaction rule: "redact every occurrence of John Smith". Searched
-against the normalized document server-side — no second model trip, no chance
-of a different answer for the same string. Every occurrence found is written
-as an **accepted** redaction.
-
-With `scope: "batch"` the decision is recorded on the batch and applied to
-every document in it. `scope: "batch"` is refused (not silently downgraded) for
-a document that is not in a batch.
+Searches the whole document on the server, over the normalized model, a page
+at a time — the review screen's find. POST rather than GET because the pattern
+is usually the very value being looked for, and a query string is what access
+logs keep. See `lib/redaction/search.ts`.
 
 - **Auth:** session
+- **Rate limit:** `search` without `page` (a whole-document scan, once per
+  query as the reviewer types); `read` with `page`
+- **Body:**
+  ```json
+  {
+    "spec": { "kind": "literal" | "regex", "pattern": "EMP-\\d{5}",
+              "matchCase": false, "wholeWord": false },
+    "page": 3
+  }
+  ```
+  `pattern` is 1–500 characters; see [Pattern rules](#pattern-rules). `page`
+  is optional.
+- **Response `200` without `page`** — where every hit is: `{ total, pages:
+  [{ page, count }], cells: [{ worksheet, row, column }], cellsTruncated }`. A
+  spreadsheet cell counts once however often it matches, because a cell is
+  redacted whole, so `total` is exactly what "Redact all" would write.
+- **Response `200` with `page`** — `{ page, hits: [{ start, end }] }`, offsets
+  into that page's text.
+- **Errors:** `400` invalid body, or a pattern the compiler refuses (the
+  message says why; `code` names it); `409` not ready; `422` more than 50,000
+  matches or the time budget spent; `429` search rate limit.
+
+### `GET /api/documents/:id/rules`
+
+Every rule that reaches this document, at every scope: its own rules, its
+batch's decisions, and the owner's global rules.
+
+- **Auth:** session
+- **Rate limit:** `read`
+- **Response `200`:** `{ "rules": RuleView[] }` (`types/rules.ts`): `id`,
+  `scope`, `kind`, `pattern`, `matchCase`, `wholeWord`, `category`, `enabled`,
+  `here` (redactions in this document), `total` and `documents` (its reach),
+  `copyId` (the `ruleId` this document's redactions carry), and for a global
+  rule `expiresAt`.
+
+### `POST /api/documents/:id/rules/preview`
+
+What a rule would do, before it does it: the count and the first 20 matches in
+context. Runs under the compiler and budget the rule itself runs under, so a
+preview that succeeds is a rule that will. Writes nothing.
+
+- **Auth:** session
+- **Rate limit:** `search`; `processing` for `scope: "batch"`, which scans every
+  document in the batch
+- **Body:** `{ "spec": PatternSpec, "scope": "document" | "batch" | "global" }`
+- **Response `200`:** `{ here: { count, samples: [{ page?, worksheet?, row?,
+  column?, before, match, after }] } }`; for `scope: "batch"` also `batch: {
+  documents: [{ id, name, status, count | null, note? }], total }`.
+- **Errors:** `400` refused pattern; `409` not ready; `422` over budget — in a
+  batch preview the message names the document that would fail; `429` rate
+  limit.
+
+### `POST /api/documents/:id/rules`
+
+Creates a rule: "redact every occurrence of John Smith", or every match of
+`EMP-\d{5}`. Searched against the normalized document server-side — no second
+model trip, no chance of a different answer for the same pattern. Every match
+is written as an **accepted** redaction carrying the rule's id.
+
+Every document a rule reaches is searched within budget before anything is
+written, and the rule and its redactions are then written in one transaction:
+a rule is never partly applied. `scope: "batch"` records the decision on the
+batch and applies it to every document in it; it is refused (not silently
+downgraded) for a document that is not in a batch. `scope: "global"` records it
+for the owner — applied here now, and to every document they upload
+afterwards (see `OwnerRule` in [data-model.md](./data-model.md)).
+
+- **Auth:** session, renewed (a global rule lasts as long as it does)
 - **Rate limit:** `processing`
 - **Path params:** `id`
 - **Body:**
   ```json
-  { "pattern": "John Smith", "category": "person", "scope": "document" | "batch" }
+  { "pattern": "EMP-\\d{5}", "kind": "regex", "matchCase": true,
+    "wholeWord": true, "category": "customer-id",
+    "scope": "document" | "batch" | "global" }
   ```
-  `pattern` (2–200), `category` (1–60), `scope` defaults to `document`.
-- **Response `201`:**
-  - document scope: `{ "rule": { id, pattern, category, enabled }, "scope",
-    "redactions": [...] }`
-  - batch scope: the same plus a `batch` object `{ id, documents, redactions }`
-    totalling the rule's reach across the batch.
-- **Errors:** `400` invalid rule; `404`/`410` access; `409` document not ready
-  (no normalized model), **or** `scope: "batch"` on a document not in a batch.
+  The body from before RegEx rules — `{ pattern, category, scope }` — still
+  means a case-insensitive literal. A literal is 2–500 characters, a RegEx
+  1–500; `category` 1–60.
+- **Response `201`:** `{ "rule": { id, pattern, kind, category, enabled },
+  "scope", "redactions": [...] }`; for `batch` also `batch: { id, documents,
+  redactions }` totalling the rule's reach.
+- **Errors:** `400` invalid body or refused pattern; `404`/`410` access; `409`
+  not ready, `scope: "batch"` outside a batch, or more than 200 global rules;
+  `422` over budget (nothing was written); `429` rate limit.
+
+### `PATCH /api/documents/:id/rules`
+
+Switches a rule off or on, or rewrites it, at whatever scope it lives, and
+everywhere it reached. Off removes its redactions and keeps it listed; on, or
+an edit, re-plans it and replaces its redactions in one transaction.
+
+- **Auth:** session, renewed
+- **Rate limit:** `processing`
+- **Body:** `{ "id", "scope", "enabled"?, "spec"?, "category"? }`
+- **Response `200`:** `{ "updated": true }`
+- **Errors:** `400`; `404` no such rule in scope; `409`; `422`; `429`.
 
 ### `DELETE /api/documents/:id/rules`
 
-Removes a rule and every redaction it created on this document.
+Removes a rule and every redaction it created, everywhere it reached.
 
 - **Auth:** session
+- **Rate limit:** `processing`
 - **Path params:** `id`
-- **Query params:** `ruleId` (required)
-- **Response `200`:** `{ "deleted": <count of redactions removed> }`
-- **Errors:** `400` no rule specified; `404`/`410` access.
+- **Query params:** `ruleId` (required); `scope` — `document` (default),
+  `batch` or `global`. With `document`, `ruleId` must be this document's own
+  rule: its copy of a batch or global rule (`copyId`) is `404`, and is removed
+  at the rule's own scope.
+- **Response `200`:** `{ "deleted": <redactions removed> }`, plus `documents`
+  for a batch or global rule.
+- **Errors:** `400` no rule specified; `404` no such rule in scope; `404`/`410`
+  access; `429` rate limit.
+
+### `POST /api/documents/:id/assistant`
+
+One turn of a conversation with Hush, the review assistant, streamed as an AI
+SDK UI message stream (`useChat` reads it). The server runs an agent loop with
+tools over this document (see [editor.md §16](./editor.md#16-hush-the-review-assistant)):
+
+- **Reads** run once `readConsent` is true. The first read without it becomes
+  an approval request.
+- **Changes** (`create_rule`, `update_rule`, `redact_occurrences`,
+  `set_suggestion_status`) always stop as approval requests. The client
+  continues the run by sending the conversation back with the reviewer's
+  answer.
+- Approvals are HMAC-signed when issued and verified when replayed. A forged or
+  altered approval is refused before any tool runs.
+
+The loop is bound by the daily spend cap and by the caller's daily
+`assistantTokens` allowance (`ANONIFY_QUOTA_ASSISTANT_TOKENS`). Each model step
+is recorded in `AiUsage` (`task: "assistant"`) and its tokens are charged to the
+allowance. Both are checked before the run and again before every step after
+the first, so a run stops where either runs out. A run is at most 12 steps.
+
+- **Auth:** session, renewed (an approved tool can create or edit a global rule)
+- **Rate limit:** `processing`
+- **Body:**
+  ```json
+  {
+    "messages": [ /* UIMessage[] — the conversation, at most 80 */ ],
+    "readConsent": false,
+    "view": {
+      "currentPage": 3,
+      "selected": { "id", "text", "category", "status", "source", "page", "reason" }
+    }
+  }
+  ```
+  At most 1.5 MB, counted as the body arrives: a chunked request with no
+  `content-length` is cut off at the limit rather than buffered.
+- **Response `200`:** a UI message stream (`text/event-stream`). Tool calls
+  appear as typed tool parts (`tool-find_occurrences`, `tool-create_rule`, …)
+  and pass through `approval-requested` when they need the reviewer.
+  `approval.requestReason` is `read-consent` or `change`.
+- **Errors:** `400` invalid body; `409` not ready; `413` conversation too long;
+  `429` with `code: "allowance"` when the caller's allowance is spent; `503`
+  with `code` `not-configured`, `unsupported` or `budget`. An error inside the
+  stream is sent as a fixed sentence, never the provider's message; a run
+  stopped between steps by the cap or the allowance ends with that sentence.
 
 ### `POST /api/documents/:id/process`
 
@@ -633,6 +764,30 @@ verified on its own.
   report's note on it as `error`. Its messages may well be exported; the
   report says which check failed.
 
+### `POST /api/batches/:id/search`
+
+Searches every document in the batch, answering with a count per document —
+what the search bar's "this batch" list shows. A document still processing is
+listed with `count: null` and a `note`, never as `0`.
+
+- **Auth:** session
+- **Rate limit:** `processing`
+- **Body:** `{ "spec": PatternSpec }`
+- **Response `200`:** `{ "documents": [{ id, name, status, count | null, note? }] }`
+- **Errors:** `400` refused pattern; `404` batch not found / foreign; `429`
+  rate limit.
+
+### `PATCH /api/batches/:id/rules`
+
+Switches a batch decision off or on, or rewrites it, in every document it
+reaches — `PATCH /api/documents/:id/rules` with `scope: "batch"`, for the
+batch page.
+
+- **Auth:** session
+- **Rate limit:** `processing`
+- **Body:** `{ "ruleId", "enabled"?, "spec"?, "category"? }`
+- **Response `200`:** `{ documents, redactions }` it now reaches.
+
 ### `DELETE /api/batches/:id/rules`
 
 Withdraws a decision from the whole batch. Removes the rule and every
@@ -734,6 +889,70 @@ for something that will never speak is worse than saying so.
   carry filenames, states and counts — never a category or pattern.
 - **Errors:** `404` batch not found / foreign; `409` no export to watch, **or**
   that export is no longer running.
+
+---
+
+## Rules
+
+### Pattern rules
+
+A pattern is `{ kind, pattern, matchCase, wholeWord }`
+(`lib/redaction/patterns.ts`), and search, rules and Hush all compile it the
+same way. A `regex` is compiled by RE2JS: matching is linear in the text
+whatever the pattern, and backreferences and lookaround are refused when it
+is compiled. `^` and `$` match at line breaks. "Whole word" is Unicode-aware,
+not RE2's ASCII `\b`.
+
+A pattern is at most 500 characters and may not match the empty string. In one
+document it may spend at most 5 seconds matching and make at most 10,000
+matches. A rule over budget fails whole with `422`. A batch or global rule that
+goes over budget while it is carried into a document at the end of processing
+fails that document with `rule-too-broad` (see
+[failure-codes.md](./failure-codes.md)).
+
+### `GET /api/rules`
+
+The caller's global rules, with their patterns unsealed for their owner.
+
+- **Auth:** session (with none, `{ "rules": [] }`)
+- **Rate limit:** `read`
+- **Response `200`:** `{ "rules": [{ id, kind, pattern, matchCase, wholeWord,
+  category, enabled, createdAt, expiresAt, originDocumentId, documents,
+  redactions }] }`
+
+### `GET /api/rules/export`
+
+The caller's global rules as a downloadable JSON file: `{ "format":
+"anonify.rules", "version": 1, "rules": [{ kind, pattern, matchCase,
+wholeWord, category, enabled }] }`. Patterns and options only — no counts,
+document ids or dates, because the file travels to other people and instances.
+
+- **Auth:** session
+- **Rate limit:** `export`
+
+### `POST /api/rules/import`
+
+Adds a rule file's rules to the caller's global rules. Each pattern is compiled
+here, and one this instance refuses is reported rather than stored. Duplicates
+are skipped. Imported rules reach future uploads only.
+
+- **Auth:** session (issued if absent)
+- **Rate limit:** `processing`
+- **Body:** a rule file, as exported.
+- **Response `200`:** `{ imported, duplicates, invalid: [{ index, problem }] }`
+- **Errors:** `400` not a rule file; `409` would exceed 200 global rules.
+
+### `GET /api/assistant`
+
+Whether Hush can answer on this instance, and through what: `{ available:
+true, model, provider }` or `{ available: false, reason: "not-configured" |
+"unsupported" | "budget", provider? }`. `provider` is `{ id, label, kind,
+model }`, where `kind` is `cloud`, `local`, `subscription` or `gateway`. The
+panel's header badges are drawn from it.
+Search, shortcuts and hand-written rules never ask, because none of them needs
+a model.
+
+- **Rate limit:** `read`
 
 ---
 

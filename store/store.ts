@@ -4,6 +4,8 @@ import documentReducer from "./documentSlice"
 import editorReducer from "./editorSlice"
 import processingReducer from "./processingSlice"
 import redactionReducer from "./redactionSlice"
+import rulesReducer from "./rulesSlice"
+import searchReducer from "./searchSlice"
 import uiReducer from "./uiSlice"
 
 export const rootReducer = {
@@ -11,6 +13,8 @@ export const rootReducer = {
   redactions: redactionReducer,
   editor: editorReducer,
   processing: processingReducer,
+  search: searchReducer,
+  rules: rulesReducer,
   ui: uiReducer,
 }
 

@@ -283,7 +283,7 @@ and read back on every subsequent request:
 
 ```ts
 sessionId = randomBytes(24).toString("hex")   // 48 hex chars, ≥ 32 required
-cookieStore.set(SESSION_COOKIE, sessionId, {
+cookieStore.set(SESSION_COOKIE, sessionId, {   // writeSession()
   httpOnly: true,
   sameSite: "lax",
   secure: process.env.NODE_ENV === "production",
@@ -297,7 +297,7 @@ cookieStore.set(SESSION_COOKIE, sessionId, {
 | `httpOnly` | `true` | The cookie is never readable by client-side JavaScript. It is an identity token, not something the page needs to inspect, and `httpOnly` keeps it out of any XSS that reaches `document.cookie`. |
 | `sameSite` | `"lax"` | The cookie is sent on same-site requests and top-level navigations from other sites, but not on cross-site subrequests (images, `fetch` from another origin). `lax` rather than `strict` so a link from another site still lands authenticated; `strict` would break that for no real gain here, since the cookie carries no privilege beyond owning documents on this instance. |
 | `secure` | `true` in production | The cookie only travels over HTTPS in production. In development (`NODE_ENV !== "production"`) it is allowed over plain HTTP so a local clone without TLS still works. |
-| `maxAge` | `30 days` (`SESSION_MAX_AGE = 60 * 60 * 24 * 30`, `fingerprint.ts:18`) | The session lasts a month of inactivity. Ownership flows through `deriveOwnerKey(sessionId)` (`fingerprint.ts:47`), so a stable session id is what keeps a document reachable; a rolling 30-day window is long enough to come back to a document and short enough that an abandoned browser does not own documents forever. |
+| `maxAge` | `30 days` (`SESSION_MAX_AGE = 60 * 60 * 24 * 30`, `fingerprint.ts:18`) | The session lasts a month after it was last renewed. Ownership flows through `deriveOwnerKey(sessionId)` (`fingerprint.ts:47`), so a stable session id is what keeps a document reachable; a rolling 30-day window is long enough to come back to a document and short enough that an abandoned browser does not own documents forever. The window rolls on the requests that use what the session owns beyond a document's own lifetime — uploads (`getIdentity`), and creating or editing a global rule, directly or through Hush (`renewIdentity`) — so a global rule, kept for 30 days after its last use, never outlives the cookie that reaches it (see [data-model.md §6a](./data-model.md#6a-ownerrule)). Renewing keeps the same id; it retains nothing server-side, since documents keep their own expiry. |
 | `path` | `"/"` | The cookie is scoped to the whole origin, so every route — upload, workspace, download — reads the same identity. |
 
 `peekIdentity` (`fingerprint.ts:109`) is the read-only variant for contexts
@@ -312,3 +312,55 @@ server-side and never sent to the browser, which is why clearing the cookie
 resets ownership and quota but does not reset the rate-limit bucket keyed by
 network (`deriveNetworkKey`, `fingerprint.ts:57`). See
 [architecture.md §3](./architecture.md#3-identity-without-accounts).
+
+---
+
+## 7. Reviewer patterns — `lib/redaction/patterns.ts`
+
+Search and rules run a pattern the reviewer typed against every page of every
+document in scope, on the server. A RegEx that backtracks catastrophically,
+such as `(a+)+$` against a long line of `a`s, would be a denial of service
+with a text box in front of it. The defences, in order:
+
+| Defence | Where | Why |
+| --- | --- | --- |
+| Linear-time engine | RE2JS (`compileRegex`) | Matching is linear in the text whatever the pattern. Backreferences and lookaround, which need backtracking, do not compile at all. This is the defence; the rest are belt and braces. |
+| Length limit | `PATTERN_MAX_LENGTH = 500` | Bounds compile cost and keeps a pattern something a person can review. |
+| No empty matches | `compileRegex` | A pattern that can match nothing matches between every pair of characters. |
+| Time budget | `RULE_BUDGET_MS = 5000` per document | Measured on the matching alone, so slow storage cannot trip it. |
+| Match cap | `RULE_MATCH_LIMIT = 10,000` per document | `\w+` is safe to run and would still redact every word. |
+
+A rule that goes over budget **fails whole**. Every document is planned
+before anything is written, and the rule is then written in one transaction.
+The same compiler runs in the browser to validate as the reviewer types, so
+the browser and the server cannot disagree about what is allowed.
+
+Patterns travel in **request bodies, never query strings**. A search term is
+usually the exact value being redacted, and URLs are what access logs, proxies
+and browser history keep.
+
+A **global rule** outlives every document, so its pattern is sealed with the
+master key (`sealWithMasterKey`) and expires 30 days after it was last used.
+See `OwnerRule` in [data-model.md](./data-model.md).
+
+---
+
+## 8. Hush's human in the loop — `lib/assistant/agent.ts`
+
+Hush is an agent with tools that can change the review. It uses the same
+provider as analysis, and a document is untrusted input to it. The worst a
+hostile paragraph should be able to do is get a bad change *proposed*.
+
+| Defence | Where | Why |
+| --- | --- | --- |
+| Every change needs approval | `toolApproval` → `user-approval` for each write tool | Nothing a model decides reaches the review without a person pressing Approve on a card that shows what it will do. |
+| Approvals are signed | `experimental_toolApprovalSecret`, derived from `FINGERPRINT_SECRET` | The conversation is client-held. Without a signature, a client could send an approval the server never issued. The signature binds tool, call id and input, so an input edited after approval is refused. |
+| Reading is asked once | `toolApproval` → `user-approval` for every tool in `READ_TOOLS` until `readConsent` | Anything taken from the document goes to the provider only after the reviewer allows it, and every read is listed. That includes the file name and sheet names, so `get_document_overview` is a read too. |
+| The prompt holds nothing from the document before that | `instructions()` in agent.ts, and the panel's request | The instructions go out with the first request, before any card. Until `readConsent` they say "a document" rather than its name, and describe the selection by category, status and page only: not its value, and not its reason, which quotes the value. The panel does not send either until consent. |
+| Writes re-validate | `redact_occurrences`, rule tools | A reference must still hold the exact text approved. A rule must compile and fit its budget. The model's input is a proposal, not a fact. |
+| Output cannot fetch | `components/assistant/hush-markdown.tsx` | A reply can quote the document. Links render as text, images as alt text, URLs are dropped, and raw HTML is not rendered, so no tracking pixel can phone home by way of a model that repeated it. |
+| Tool results are data | the agent's instructions | The model is told that text from tools is document content and never an instruction. The approval step is what makes this safe when it is ignored. |
+| Bounded | 12 steps, 80 messages, 1.5 MB counted as it arrives, spend cap, per-visitor `assistantTokens` allowance | A runaway loop costs a bounded amount. The cap and the allowance are checked before every step, not just the first, so a run stops where either runs out. The allowance is what keeps one visitor from spending the whole instance's cap and stopping analysis for everybody else. |
+
+Errors inside the stream are a fixed sentence, never the provider's message,
+which can quote the prompt. Only the failure's name is logged.

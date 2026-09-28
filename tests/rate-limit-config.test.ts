@@ -40,6 +40,14 @@ describe("deployment profiles", () => {
     }
   })
 
+  it("gives whole-document searches a smaller allowance than status polls", () => {
+    // A search or a rule preview scans every page; a poll reads one row.
+    for (const profile of ["demo", "self-hosted"] as const) {
+      const limits = defaultsFor(profile)
+      expect(limits.search.limit).toBeLessThan(limits.read.limit)
+    }
+  })
+
   it("hands out copies, so a caller cannot edit the defaults", () => {
     const first = defaultsFor("demo")
     first.upload.limit = 9999
@@ -123,7 +131,7 @@ describe("the stored override format", () => {
   it("accepts an override for a single limit", () => {
     // `z.record` with enum keys demands every key, so a partial value failed to
     // parse and was swallowed: the CLI reported saving a limit that was never in
-    // force. Setting one limit must not mean restating the other three.
+    // force. Setting one limit must not mean restating the others.
     const parsed = limitsSchema.safeParse({
       upload: { limit: 42, windowSeconds: 90 },
     })

@@ -21,7 +21,7 @@ const PAGE_MARGIN = 72
 
 type Piece =
   | { kind: "span"; span: TextSpan }
-  | { kind: "gap"; text: string; key: string }
+  | { kind: "gap"; text: string; key: string; offset: number }
 
 /** Walks the page's text stream, alternating spans and the gaps between them. */
 function piecesOf(page: NormalizedPage): Piece[] {
@@ -35,6 +35,7 @@ function piecesOf(page: NormalizedPage): Piece[] {
         kind: "gap",
         text: page.text.slice(cursor, span.start),
         key: `gap-${cursor}`,
+        offset: cursor,
       })
     }
     pieces.push({ kind: "span", span })
@@ -46,6 +47,7 @@ function piecesOf(page: NormalizedPage): Piece[] {
       kind: "gap",
       text: page.text.slice(cursor),
       key: `gap-${cursor}`,
+      offset: cursor,
     })
   }
 
@@ -86,12 +88,20 @@ export function TextViewer({
         }}
       >
         {piecesOf(page).map((piece) => {
+          // Offsets on both, so a search hit that runs across a line break
+          // is painted on both sides of it.
           if (piece.kind === "gap") {
-            return <span key={piece.key}>{piece.text}</span>
+            return (
+              <span key={piece.key} data-offset={piece.offset}>
+                {piece.text}
+              </span>
+            )
           }
 
           const content = (
-            <span data-span-id={piece.span.id}>{piece.span.text}</span>
+            <span data-span-id={piece.span.id} data-offset={piece.span.start}>
+              {piece.span.text}
+            </span>
           )
           return (
             <span key={piece.span.id}>

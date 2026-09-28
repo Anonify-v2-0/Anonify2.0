@@ -57,6 +57,8 @@ import { DETECTION_SAMPLE_BYTES } from "@/lib/documents/sample"
 import { OcrConfigurationError } from "@/lib/ocr"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
 import { categoryAllowed, presetById } from "@/lib/redaction/presets"
+import { carryOwnerRules } from "@/lib/redaction/owner-rules"
+import { PatternBudgetError, PatternError } from "@/lib/redaction/patterns"
 import { carryBatchRules } from "@/lib/redaction/rules"
 import { chargeDocumentUsage, quotaMessage } from "@/lib/security/usage"
 import {
@@ -1131,7 +1133,26 @@ async function carryDecisions(
   documentId: string
 ): Promise<{ rulesApplied: number; redactions: number }> {
   "use step"
-  return carryBatchRules(documentId).catch(paced)
+  try {
+    // Batch decisions first, then the owner's global rules: the order they
+    // were taken in scope, narrowest to widest, so the reasons shown against
+    // the redactions read the way the reviewer made them.
+    const batch = await carryBatchRules(documentId)
+    const owner = await carryOwnerRules(documentId)
+    return {
+      rulesApplied: batch.rulesApplied + owner.rulesApplied,
+      redactions: batch.redactions + owner.redactions,
+    }
+  } catch (error) {
+    // A pattern that ran out of budget will run out of it again: the text and
+    // the pattern are both fixed. Retrying would only delay saying so. The
+    // document still opens — it failed after extraction — and the message
+    // tells the reviewer which decision to narrow.
+    if (error instanceof PatternBudgetError || error instanceof PatternError) {
+      throw new FatalError(error.message)
+    }
+    return paced(error)
+  }
 }
 
 async function publishStatus(

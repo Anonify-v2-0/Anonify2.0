@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto"
 
-import { generateText, Output } from "ai"
+import { generateText, isStepCount, Output, streamText, tool } from "ai"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
@@ -432,6 +432,120 @@ describe("the Codex transport", () => {
       text: { format: { type: "json_schema" } },
     })
     expect(JSON.stringify(first.body.input)).not.toContain("Answer in JSON.")
+  })
+})
+
+/** A backend turn that thinks, then calls a tool, as the real stream sends it. */
+function codexToolCall(): Response {
+  const reasoning = {
+    id: "rs_fixture",
+    type: "reasoning",
+    summary: [],
+    encrypted_content: "sealed-thoughts",
+  }
+  const call = {
+    id: "fc_fixture",
+    type: "function_call",
+    status: "completed",
+    call_id: "call_fixture",
+    name: "lookup",
+    arguments: '{"q":"EMP"}',
+  }
+  const response = (status: string) => ({
+    id: "resp_tool",
+    object: "response",
+    created_at: 1,
+    status,
+    model: "gpt-fixture",
+    output: [],
+    usage:
+      status === "completed"
+        ? { input_tokens: 5, output_tokens: 5, total_tokens: 10 }
+        : null,
+  })
+  const events = [
+    { type: "response.created", response: response("in_progress") },
+    { type: "response.output_item.added", output_index: 0, item: { ...reasoning } },
+    { type: "response.output_item.done", output_index: 0, item: reasoning },
+    {
+      type: "response.output_item.added",
+      output_index: 1,
+      item: { ...call, status: "in_progress", arguments: "" },
+    },
+    {
+      type: "response.function_call_arguments.delta",
+      item_id: call.id,
+      output_index: 1,
+      delta: call.arguments,
+    },
+    { type: "response.output_item.done", output_index: 1, item: call },
+    { type: "response.completed", response: response("completed") },
+  ]
+  return new Response(
+    events.map((event) => `event: ${event.type}
+data: ${JSON.stringify(event)}
+
+`).join(""),
+    { status: 200 }
+  )
+}
+
+describe("streaming through the Codex transport", () => {
+  beforeEach(async () => {
+    await saveLogin({
+      access: "access-live",
+      refresh: "refresh-live",
+      expiresAt: Date.now() + 3_600_000,
+      accountId: "acct_fixture",
+    })
+  })
+
+  // Hush streams. The transport used to collect every answer into one JSON
+  // object, which is right for a single structured call and wrong for a
+  // stream: the reader found no events and every reply came back empty.
+  it("hands a streaming call the backend's events, so its text arrives", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () =>
+      codexStream("gpt-fixture", "Hello from the plan.")
+    )
+    const model = await subscriptionModel("gpt-fixture", fetcher)
+    const result = streamText({ model, maxRetries: 0, prompt: "Say hello" })
+    expect(await result.text).toBe("Hello from the plan.")
+  })
+
+  // The backend stores nothing, so the second step of a tool loop must send
+  // the first step's items whole. Referring to them by id — what the SDK does
+  // unless told — failed every tool loop with "Item … not found".
+  it("sends a tool loop's earlier items whole, never by reference", async () => {
+    const bodies: Record<string, unknown>[] = []
+    let calls = 0
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      calls += 1
+      return calls === 1 ? codexToolCall() : codexStream("gpt-fixture", "Found it.")
+    })
+    const model = await subscriptionModel("gpt-fixture", fetcher)
+    const result = streamText({
+      model,
+      maxRetries: 0,
+      prompt: "Look up EMP",
+      tools: {
+        lookup: tool({
+          inputSchema: z.object({ q: z.string() }),
+          execute: async () => "EMP-00123 on page 1",
+        }),
+      },
+      stopWhen: isStepCount(3),
+    })
+
+    expect(await result.text).toBe("Found it.")
+    expect(bodies).toHaveLength(2)
+    const second = JSON.stringify(bodies[1])
+    expect(second).not.toContain("item_reference")
+    expect(second).toContain("sealed-thoughts")
+    expect(bodies[0]).toMatchObject({
+      store: false,
+      include: expect.arrayContaining(["reasoning.encrypted_content"]),
+    })
   })
 })
 

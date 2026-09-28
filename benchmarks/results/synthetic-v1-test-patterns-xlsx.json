@@ -1,0 +1,2051 @@
+{
+  "model": "none",
+  "detector": "patterns",
+  "corpus": "synthetic-v1",
+  "corpusHash": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f",
+  "split": "test",
+  "format": "xlsx",
+  "rendering": {
+    "failed": [
+      {
+        "id": "syn-v1-0001",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0002",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0004",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0034",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0044",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0066",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0078",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0120",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0148",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0152",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0161",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0168",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0173",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0192",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0209",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0223",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0247",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0259",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0264",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0277",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0287",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0316",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0362",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0383",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0425",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0436",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0439",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0444",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0514",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      },
+      {
+        "id": "syn-v1-0582",
+        "error": "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+      }
+    ],
+    "labelRecovery": 0.9978,
+    "outsideDocument": 0,
+    "substituted": 1
+  },
+  "commit": "83b4a96",
+  "createdAt": "2026-09-28T14:10:58.217Z",
+  "documents": 32,
+  "deterministicFirst": true,
+  "totals": {
+    "calls": 0,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "durationMs": 5857,
+    "costUsd": 0
+  },
+  "perDocument": {
+    "medianMs": 15,
+    "p95Ms": 44,
+    "costUsd": 0
+  },
+  "degraded": {
+    "documents": 0,
+    "reasons": {}
+  },
+  "quality": {
+    "labels": 1142,
+    "detections": 328,
+    "precision": 0.9695,
+    "precisionStrict": 0.9604,
+    "recall": 0.3835,
+    "recallOverlap": 0.3975,
+    "recallStrict": 0.2697,
+    "f1": 0.5496,
+    "falsePositives": 10,
+    "negativeHits": 4,
+    "byCategory": {
+      "person": {
+        "labels": 403,
+        "recall": 0.2308,
+        "recallOverlap": 0.2308,
+        "recallStrict": 0,
+        "detections": 0,
+        "precision": null,
+        "precisionStrict": null
+      },
+      "address": {
+        "labels": 91,
+        "recall": 0.5275,
+        "recallOverlap": 0.6593,
+        "recallStrict": 0.4505,
+        "detections": 52,
+        "precision": 0.9808,
+        "precisionStrict": 0.9808
+      },
+      "phone": {
+        "labels": 96,
+        "recall": 1,
+        "recallOverlap": 1,
+        "recallStrict": 1,
+        "detections": 100,
+        "precision": 0.97,
+        "precisionStrict": 0.96
+      },
+      "email": {
+        "labels": 115,
+        "recall": 1,
+        "recallOverlap": 1,
+        "recallStrict": 1,
+        "detections": 115,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "government-id": {
+        "labels": 14,
+        "recall": 0.0714,
+        "recallOverlap": 0.0714,
+        "recallStrict": 0,
+        "detections": 0,
+        "precision": null,
+        "precisionStrict": null
+      },
+      "bank-account": {
+        "labels": 40,
+        "recall": 0.725,
+        "recallOverlap": 0.725,
+        "recallStrict": 0.6,
+        "detections": 21,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "financial": {
+        "labels": 123,
+        "recall": 0.0325,
+        "recallOverlap": 0.065,
+        "recallStrict": 0.0244,
+        "detections": 5,
+        "precision": 1,
+        "precisionStrict": 0.6
+      },
+      "date-of-birth": {
+        "labels": 61,
+        "recall": 0.2131,
+        "recallOverlap": 0.2131,
+        "recallStrict": 0.1148,
+        "detections": 7,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "customer-id": {
+        "labels": 101,
+        "recall": 0.1386,
+        "recallOverlap": 0.1386,
+        "recallStrict": 0.0594,
+        "detections": 12,
+        "precision": 0.5,
+        "precisionStrict": 0.5
+      },
+      "confidential": {
+        "labels": 12,
+        "recall": 0.1667,
+        "recallOverlap": 0.1667,
+        "recallStrict": 0,
+        "detections": 0,
+        "precision": null,
+        "precisionStrict": null
+      },
+      "api-key": {
+        "labels": 27,
+        "recall": 0.4444,
+        "recallOverlap": 0.4444,
+        "recallStrict": 0.4444,
+        "detections": 12,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "url": {
+        "labels": 27,
+        "recall": 0.3704,
+        "recallOverlap": 0.3704,
+        "recallStrict": 0.1481,
+        "detections": 4,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "other": {
+        "labels": 32,
+        "recall": 0.0313,
+        "recallOverlap": 0.0313,
+        "recallStrict": 0,
+        "detections": 0,
+        "precision": null,
+        "precisionStrict": null
+      }
+    },
+    "weightedCost": {
+      "total": 4146,
+      "perDocument": 129.56,
+      "missed": {
+        "person": 310,
+        "address": 43,
+        "api-key": 15,
+        "other": 31,
+        "customer-id": 87,
+        "url": 17,
+        "financial": 119,
+        "date-of-birth": 48,
+        "bank-account": 11,
+        "government-id": 13,
+        "confidential": 10
+      },
+      "falsePositives": 10,
+      "weights": {
+        "missed": {
+          "government-id": 10,
+          "bank-account": 10,
+          "financial": 10,
+          "api-key": 10,
+          "person": 5,
+          "address": 5,
+          "date-of-birth": 5,
+          "email": 5,
+          "phone": 5,
+          "customer-id": 5,
+          "confidential": 2,
+          "url": 2,
+          "other": 2
+        },
+        "falsePositive": 1
+      }
+    }
+  },
+  "byDocType": {
+    "bank statement": {
+      "documents": 13,
+      "precision": 0.8108,
+      "recall": 0.1618,
+      "f1": 0.2698,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "tabular export": {
+      "documents": 19,
+      "precision": 0.9897,
+      "recall": 0.4428,
+      "f1": 0.6119,
+      "inputTokens": 0,
+      "outputTokens": 0
+    }
+  },
+  "notMeasured": [
+    "Other formats: this run renders to xlsx only, cleanly and without OCR; scanned pages have their own fixtures.",
+    "Faces, handwriting, scanned noise and non-Latin scripts, which the corpus does not contain.",
+    "Real-world prevalence: categories are over-represented on purpose, so precision here is not precision on real documents.",
+    "Token savings from the deterministic pass: every run is deterministic-first; there is no model-only mode to compare against.",
+    "Anything a person accepts or rejects in review: every proposal counts as a redaction."
+  ],
+  "detections": {
+    "syn-v1-0011": [
+      [
+        175,
+        328,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0017": [
+      [
+        3077,
+        3116,
+        "phone"
+      ]
+    ],
+    "syn-v1-0022": [
+      [
+        174,
+        1533,
+        "phone"
+      ],
+      [
+        1637,
+        3087,
+        "api-key"
+      ],
+      [
+        4408,
+        5878,
+        "phone"
+      ],
+      [
+        17202,
+        18407,
+        "phone"
+      ],
+      [
+        24981,
+        26167,
+        "phone"
+      ],
+      [
+        27587,
+        28856,
+        "phone"
+      ],
+      [
+        174,
+        1533,
+        "bank-account"
+      ],
+      [
+        4408,
+        5878,
+        "customer-id"
+      ],
+      [
+        7445,
+        8737,
+        "address"
+      ],
+      [
+        10343,
+        11586,
+        "bank-account"
+      ],
+      [
+        24981,
+        26167,
+        "address"
+      ],
+      [
+        17202,
+        18407,
+        "bank-account"
+      ],
+      [
+        33905,
+        34905,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0024": [
+      [
+        186,
+        208,
+        "phone"
+      ],
+      [
+        407,
+        447,
+        "phone"
+      ],
+      [
+        117,
+        185,
+        "address"
+      ],
+      [
+        209,
+        237,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0033": [
+      [
+        200,
+        375,
+        "phone"
+      ],
+      [
+        568,
+        832,
+        "email"
+      ],
+      [
+        3160,
+        3529,
+        "email"
+      ],
+      [
+        4845,
+        5199,
+        "phone"
+      ],
+      [
+        7079,
+        7404,
+        "email"
+      ],
+      [
+        8119,
+        8474,
+        "phone"
+      ],
+      [
+        2066,
+        2364,
+        "date-of-birth"
+      ],
+      [
+        2936,
+        3038,
+        "customer-id"
+      ]
+    ],
+    "syn-v1-0039": [],
+    "syn-v1-0046": [
+      [
+        205,
+        228,
+        "phone"
+      ],
+      [
+        229,
+        270,
+        "bank-account"
+      ],
+      [
+        271,
+        303,
+        "financial"
+      ],
+      [
+        682,
+        777,
+        "url"
+      ]
+    ],
+    "syn-v1-0083": [
+      [
+        128,
+        143,
+        "phone"
+      ],
+      [
+        699,
+        713,
+        "phone"
+      ],
+      [
+        1271,
+        1286,
+        "phone"
+      ],
+      [
+        1776,
+        1790,
+        "phone"
+      ],
+      [
+        2278,
+        2293,
+        "phone"
+      ],
+      [
+        2820,
+        2834,
+        "phone"
+      ],
+      [
+        3344,
+        3359,
+        "phone"
+      ],
+      [
+        3906,
+        3920,
+        "phone"
+      ],
+      [
+        4471,
+        4486,
+        "phone"
+      ],
+      [
+        5019,
+        5033,
+        "phone"
+      ],
+      [
+        5572,
+        5587,
+        "phone"
+      ],
+      [
+        6113,
+        6127,
+        "phone"
+      ],
+      [
+        6642,
+        6657,
+        "phone"
+      ],
+      [
+        7213,
+        7227,
+        "phone"
+      ],
+      [
+        7752,
+        7767,
+        "phone"
+      ],
+      [
+        8307,
+        8319,
+        "phone"
+      ],
+      [
+        8830,
+        8845,
+        "phone"
+      ],
+      [
+        146,
+        188,
+        "address"
+      ],
+      [
+        5083,
+        5529,
+        "customer-id"
+      ]
+    ],
+    "syn-v1-0100": [
+      [
+        951,
+        983,
+        "phone"
+      ],
+      [
+        3259,
+        3299,
+        "phone"
+      ],
+      [
+        18545,
+        19016,
+        "phone"
+      ],
+      [
+        253,
+        277,
+        "bank-account"
+      ],
+      [
+        3102,
+        3160,
+        "customer-id"
+      ],
+      [
+        4680,
+        4743,
+        "customer-id"
+      ],
+      [
+        14806,
+        14864,
+        "customer-id"
+      ],
+      [
+        18338,
+        18543,
+        "customer-id"
+      ]
+    ],
+    "syn-v1-0104": [
+      [
+        243,
+        256,
+        "phone"
+      ]
+    ],
+    "syn-v1-0128": [
+      [
+        236,
+        248,
+        "phone"
+      ],
+      [
+        249,
+        282,
+        "email"
+      ],
+      [
+        376,
+        408,
+        "api-key"
+      ],
+      [
+        540,
+        554,
+        "phone"
+      ],
+      [
+        555,
+        574,
+        "email"
+      ],
+      [
+        638,
+        665,
+        "financial"
+      ],
+      [
+        828,
+        840,
+        "phone"
+      ],
+      [
+        841,
+        863,
+        "email"
+      ],
+      [
+        1167,
+        1182,
+        "phone"
+      ],
+      [
+        1183,
+        1214,
+        "email"
+      ],
+      [
+        1458,
+        1473,
+        "phone"
+      ],
+      [
+        1474,
+        1492,
+        "email"
+      ],
+      [
+        1713,
+        1728,
+        "phone"
+      ],
+      [
+        1729,
+        1751,
+        "email"
+      ],
+      [
+        1841,
+        1873,
+        "api-key"
+      ],
+      [
+        283,
+        302,
+        "address"
+      ],
+      [
+        575,
+        595,
+        "address"
+      ],
+      [
+        864,
+        884,
+        "address"
+      ],
+      [
+        1027,
+        1104,
+        "url"
+      ],
+      [
+        1215,
+        1237,
+        "address"
+      ],
+      [
+        1323,
+        1396,
+        "url"
+      ],
+      [
+        1493,
+        1515,
+        "address"
+      ],
+      [
+        1752,
+        1770,
+        "address"
+      ]
+    ],
+    "syn-v1-0151": [
+      [
+        352,
+        374,
+        "phone"
+      ],
+      [
+        5925,
+        6430,
+        "api-key"
+      ],
+      [
+        291,
+        351,
+        "address"
+      ]
+    ],
+    "syn-v1-0166": [
+      [
+        125,
+        182,
+        "financial"
+      ],
+      [
+        678,
+        1097,
+        "api-key"
+      ]
+    ],
+    "syn-v1-0177": [],
+    "syn-v1-0193": [
+      [
+        209,
+        224,
+        "phone"
+      ],
+      [
+        225,
+        250,
+        "email"
+      ],
+      [
+        509,
+        526,
+        "phone"
+      ],
+      [
+        527,
+        548,
+        "email"
+      ]
+    ],
+    "syn-v1-0204": [
+      [
+        105,
+        163,
+        "address"
+      ],
+      [
+        164,
+        184,
+        "bank-account"
+      ],
+      [
+        189,
+        211,
+        "customer-id"
+      ]
+    ],
+    "syn-v1-0251": [
+      [
+        277,
+        289,
+        "phone"
+      ],
+      [
+        290,
+        307,
+        "email"
+      ],
+      [
+        666,
+        681,
+        "phone"
+      ],
+      [
+        682,
+        719,
+        "email"
+      ],
+      [
+        1071,
+        1083,
+        "phone"
+      ],
+      [
+        1084,
+        1106,
+        "email"
+      ],
+      [
+        1355,
+        1387,
+        "api-key"
+      ],
+      [
+        1505,
+        1519,
+        "phone"
+      ],
+      [
+        1520,
+        1547,
+        "email"
+      ],
+      [
+        1876,
+        1888,
+        "phone"
+      ],
+      [
+        1889,
+        1906,
+        "email"
+      ],
+      [
+        2243,
+        2258,
+        "phone"
+      ],
+      [
+        2259,
+        2296,
+        "email"
+      ],
+      [
+        2660,
+        2672,
+        "phone"
+      ],
+      [
+        2673,
+        2690,
+        "email"
+      ],
+      [
+        3041,
+        3056,
+        "phone"
+      ],
+      [
+        3057,
+        3094,
+        "email"
+      ],
+      [
+        3461,
+        3475,
+        "phone"
+      ],
+      [
+        3476,
+        3503,
+        "email"
+      ],
+      [
+        3880,
+        3892,
+        "phone"
+      ],
+      [
+        3893,
+        3910,
+        "email"
+      ],
+      [
+        4280,
+        4295,
+        "phone"
+      ],
+      [
+        4296,
+        4333,
+        "email"
+      ],
+      [
+        4687,
+        4701,
+        "phone"
+      ],
+      [
+        4702,
+        4729,
+        "email"
+      ],
+      [
+        5067,
+        5079,
+        "phone"
+      ],
+      [
+        5080,
+        5097,
+        "email"
+      ],
+      [
+        5446,
+        5461,
+        "phone"
+      ],
+      [
+        5462,
+        5499,
+        "email"
+      ],
+      [
+        5886,
+        5898,
+        "phone"
+      ],
+      [
+        5899,
+        5921,
+        "email"
+      ],
+      [
+        6161,
+        6193,
+        "api-key"
+      ],
+      [
+        6317,
+        6329,
+        "phone"
+      ],
+      [
+        6330,
+        6347,
+        "email"
+      ],
+      [
+        6703,
+        6718,
+        "phone"
+      ],
+      [
+        6719,
+        6756,
+        "email"
+      ],
+      [
+        7128,
+        7140,
+        "phone"
+      ],
+      [
+        7141,
+        7158,
+        "email"
+      ],
+      [
+        7484,
+        7499,
+        "phone"
+      ],
+      [
+        7500,
+        7537,
+        "email"
+      ],
+      [
+        622,
+        664,
+        "address"
+      ],
+      [
+        1021,
+        1069,
+        "address"
+      ],
+      [
+        1463,
+        1503,
+        "address"
+      ],
+      [
+        2199,
+        2241,
+        "address"
+      ],
+      [
+        2997,
+        3039,
+        "address"
+      ],
+      [
+        3419,
+        3459,
+        "address"
+      ],
+      [
+        4236,
+        4278,
+        "address"
+      ],
+      [
+        4645,
+        4685,
+        "address"
+      ],
+      [
+        5402,
+        5444,
+        "address"
+      ],
+      [
+        5836,
+        5884,
+        "address"
+      ],
+      [
+        6659,
+        6701,
+        "address"
+      ],
+      [
+        7440,
+        7482,
+        "address"
+      ]
+    ],
+    "syn-v1-0258": [
+      [
+        135,
+        165,
+        "email"
+      ],
+      [
+        179,
+        211,
+        "api-key"
+      ],
+      [
+        292,
+        316,
+        "email"
+      ],
+      [
+        317,
+        339,
+        "bank-account"
+      ],
+      [
+        340,
+        372,
+        "api-key"
+      ],
+      [
+        458,
+        480,
+        "email"
+      ]
+    ],
+    "syn-v1-0280": [
+      [
+        111,
+        487,
+        "phone"
+      ],
+      [
+        111,
+        487,
+        "email"
+      ],
+      [
+        554,
+        919,
+        "email"
+      ],
+      [
+        1421,
+        1801,
+        "email"
+      ],
+      [
+        2332,
+        2661,
+        "email"
+      ],
+      [
+        3214,
+        3567,
+        "phone"
+      ],
+      [
+        4006,
+        4344,
+        "phone"
+      ],
+      [
+        4412,
+        4754,
+        "email"
+      ],
+      [
+        5647,
+        5969,
+        "phone"
+      ],
+      [
+        6055,
+        6379,
+        "email"
+      ],
+      [
+        7385,
+        7712,
+        "email"
+      ],
+      [
+        7785,
+        8138,
+        "phone"
+      ],
+      [
+        8211,
+        8590,
+        "email"
+      ],
+      [
+        8670,
+        9012,
+        "email"
+      ],
+      [
+        9933,
+        10318,
+        "email"
+      ],
+      [
+        9933,
+        10318,
+        "phone"
+      ],
+      [
+        11249,
+        11609,
+        "phone"
+      ],
+      [
+        12097,
+        12447,
+        "email"
+      ],
+      [
+        13357,
+        13703,
+        "phone"
+      ],
+      [
+        13779,
+        14184,
+        "email"
+      ],
+      [
+        14263,
+        14592,
+        "email"
+      ],
+      [
+        14263,
+        14592,
+        "phone"
+      ],
+      [
+        15538,
+        15870,
+        "email"
+      ],
+      [
+        15943,
+        16283,
+        "email"
+      ],
+      [
+        16761,
+        17085,
+        "email"
+      ],
+      [
+        16761,
+        17085,
+        "phone"
+      ],
+      [
+        17938,
+        18238,
+        "email"
+      ],
+      [
+        18701,
+        19005,
+        "email"
+      ],
+      [
+        19527,
+        19859,
+        "phone"
+      ],
+      [
+        19935,
+        20257,
+        "email"
+      ],
+      [
+        20732,
+        21095,
+        "email"
+      ],
+      [
+        21507,
+        21805,
+        "phone"
+      ],
+      [
+        21885,
+        22199,
+        "email"
+      ],
+      [
+        22271,
+        22582,
+        "email"
+      ],
+      [
+        22655,
+        22948,
+        "phone"
+      ],
+      [
+        23409,
+        23714,
+        "phone"
+      ],
+      [
+        23409,
+        23714,
+        "email"
+      ],
+      [
+        24179,
+        24534,
+        "email"
+      ],
+      [
+        25052,
+        25379,
+        "email"
+      ],
+      [
+        25827,
+        26103,
+        "email"
+      ],
+      [
+        26182,
+        26525,
+        "email"
+      ],
+      [
+        26997,
+        27316,
+        "email"
+      ],
+      [
+        27395,
+        27706,
+        "phone"
+      ],
+      [
+        28180,
+        28499,
+        "email"
+      ],
+      [
+        28983,
+        29288,
+        "email"
+      ],
+      [
+        29368,
+        29671,
+        "email"
+      ],
+      [
+        30110,
+        30384,
+        "email"
+      ],
+      [
+        30797,
+        31094,
+        "phone"
+      ],
+      [
+        31174,
+        31485,
+        "email"
+      ],
+      [
+        32649,
+        32927,
+        "phone"
+      ],
+      [
+        33007,
+        33258,
+        "email"
+      ],
+      [
+        33741,
+        33994,
+        "email"
+      ],
+      [
+        34423,
+        34730,
+        "email"
+      ],
+      [
+        35175,
+        35512,
+        "email"
+      ],
+      [
+        35175,
+        35512,
+        "phone"
+      ],
+      [
+        35596,
+        35862,
+        "email"
+      ],
+      [
+        35941,
+        36262,
+        "email"
+      ],
+      [
+        36741,
+        37001,
+        "email"
+      ],
+      [
+        38179,
+        38433,
+        "email"
+      ],
+      [
+        38506,
+        38740,
+        "email"
+      ],
+      [
+        38823,
+        39121,
+        "email"
+      ],
+      [
+        1421,
+        1801,
+        "address"
+      ],
+      [
+        4832,
+        5134,
+        "address"
+      ],
+      [
+        5647,
+        5969,
+        "address"
+      ],
+      [
+        9527,
+        9859,
+        "address"
+      ],
+      [
+        10810,
+        11173,
+        "url"
+      ],
+      [
+        12517,
+        12889,
+        "address"
+      ],
+      [
+        12960,
+        13277,
+        "date-of-birth"
+      ],
+      [
+        13357,
+        13703,
+        "address"
+      ],
+      [
+        17938,
+        18238,
+        "address"
+      ],
+      [
+        18701,
+        19005,
+        "address"
+      ],
+      [
+        19527,
+        19859,
+        "address"
+      ],
+      [
+        21169,
+        21433,
+        "date-of-birth"
+      ],
+      [
+        21507,
+        21805,
+        "address"
+      ],
+      [
+        23793,
+        24097,
+        "address"
+      ],
+      [
+        24607,
+        24971,
+        "address"
+      ],
+      [
+        25052,
+        25379,
+        "address"
+      ],
+      [
+        27789,
+        28101,
+        "address"
+      ],
+      [
+        28582,
+        28904,
+        "address"
+      ],
+      [
+        31941,
+        32214,
+        "address"
+      ],
+      [
+        34084,
+        34345,
+        "date-of-birth"
+      ],
+      [
+        35596,
+        35862,
+        "address"
+      ],
+      [
+        36741,
+        37001,
+        "address"
+      ],
+      [
+        37855,
+        38102,
+        "address"
+      ]
+    ],
+    "syn-v1-0336": [
+      [
+        156,
+        189,
+        "phone"
+      ],
+      [
+        251,
+        281,
+        "email"
+      ]
+    ],
+    "syn-v1-0374": [
+      [
+        204,
+        230,
+        "customer-id"
+      ]
+    ],
+    "syn-v1-0379": [
+      [
+        201,
+        316,
+        "email"
+      ],
+      [
+        201,
+        316,
+        "phone"
+      ],
+      [
+        318,
+        357,
+        "bank-account"
+      ],
+      [
+        963,
+        1206,
+        "api-key"
+      ],
+      [
+        4255,
+        4370,
+        "email"
+      ],
+      [
+        4255,
+        4370,
+        "phone"
+      ],
+      [
+        4372,
+        4411,
+        "bank-account"
+      ],
+      [
+        4964,
+        5447,
+        "email"
+      ],
+      [
+        5559,
+        5654,
+        "email"
+      ],
+      [
+        5559,
+        5654,
+        "phone"
+      ],
+      [
+        6799,
+        7158,
+        "email"
+      ],
+      [
+        6799,
+        7158,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0412": [
+      [
+        143,
+        164,
+        "email"
+      ],
+      [
+        165,
+        178,
+        "phone"
+      ],
+      [
+        419,
+        451,
+        "email"
+      ],
+      [
+        452,
+        465,
+        "phone"
+      ],
+      [
+        671,
+        688,
+        "email"
+      ],
+      [
+        689,
+        702,
+        "phone"
+      ],
+      [
+        985,
+        1009,
+        "email"
+      ],
+      [
+        1010,
+        1023,
+        "phone"
+      ],
+      [
+        704,
+        733,
+        "address"
+      ]
+    ],
+    "syn-v1-0438": [
+      [
+        202,
+        235,
+        "customer-id"
+      ],
+      [
+        236,
+        258,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0445": [
+      [
+        218,
+        230,
+        "phone"
+      ],
+      [
+        231,
+        254,
+        "email"
+      ],
+      [
+        276,
+        298,
+        "bank-account"
+      ],
+      [
+        519,
+        551,
+        "api-key"
+      ],
+      [
+        659,
+        672,
+        "phone"
+      ],
+      [
+        673,
+        691,
+        "email"
+      ],
+      [
+        822,
+        838,
+        "phone"
+      ],
+      [
+        839,
+        859,
+        "email"
+      ],
+      [
+        629,
+        643,
+        "address"
+      ]
+    ],
+    "syn-v1-0451": [
+      [
+        121,
+        139,
+        "email"
+      ],
+      [
+        140,
+        155,
+        "phone"
+      ],
+      [
+        316,
+        339,
+        "email"
+      ],
+      [
+        340,
+        352,
+        "phone"
+      ]
+    ],
+    "syn-v1-0469": [
+      [
+        138,
+        210,
+        "address"
+      ],
+      [
+        211,
+        236,
+        "customer-id"
+      ],
+      [
+        237,
+        263,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0473": [
+      [
+        149,
+        178,
+        "email"
+      ],
+      [
+        367,
+        396,
+        "email"
+      ]
+    ],
+    "syn-v1-0488": [
+      [
+        218,
+        269,
+        "phone"
+      ],
+      [
+        218,
+        269,
+        "email"
+      ],
+      [
+        320,
+        422,
+        "api-key"
+      ],
+      [
+        505,
+        541,
+        "phone"
+      ],
+      [
+        505,
+        541,
+        "email"
+      ],
+      [
+        751,
+        788,
+        "phone"
+      ],
+      [
+        751,
+        788,
+        "email"
+      ],
+      [
+        789,
+        828,
+        "bank-account"
+      ],
+      [
+        1071,
+        1116,
+        "phone"
+      ],
+      [
+        1071,
+        1116,
+        "email"
+      ],
+      [
+        1117,
+        1174,
+        "financial"
+      ],
+      [
+        178,
+        199,
+        "address"
+      ],
+      [
+        270,
+        319,
+        "date-of-birth"
+      ],
+      [
+        270,
+        319,
+        "bank-account"
+      ],
+      [
+        467,
+        486,
+        "address"
+      ],
+      [
+        542,
+        584,
+        "date-of-birth"
+      ],
+      [
+        717,
+        734,
+        "address"
+      ],
+      [
+        1034,
+        1052,
+        "address"
+      ],
+      [
+        1117,
+        1174,
+        "date-of-birth"
+      ],
+      [
+        1117,
+        1174,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0567": [
+      [
+        154,
+        168,
+        "phone"
+      ],
+      [
+        169,
+        191,
+        "email"
+      ],
+      [
+        1248,
+        1260,
+        "phone"
+      ],
+      [
+        1261,
+        1283,
+        "email"
+      ],
+      [
+        4429,
+        4451,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0572": [
+      [
+        283,
+        311,
+        "financial"
+      ],
+      [
+        250,
+        282,
+        "customer-id"
+      ],
+      [
+        1316,
+        1748,
+        "bank-account"
+      ]
+    ],
+    "syn-v1-0592": [
+      [
+        99,
+        120,
+        "email"
+      ],
+      [
+        906,
+        930,
+        "email"
+      ],
+      [
+        1876,
+        1899,
+        "email"
+      ],
+      [
+        2878,
+        2899,
+        "email"
+      ],
+      [
+        3902,
+        3926,
+        "email"
+      ],
+      [
+        3954,
+        4825,
+        "phone"
+      ],
+      [
+        4890,
+        4911,
+        "email"
+      ],
+      [
+        5959,
+        5985,
+        "email"
+      ],
+      [
+        6958,
+        6979,
+        "email"
+      ],
+      [
+        8024,
+        8048,
+        "email"
+      ],
+      [
+        8078,
+        8970,
+        "email"
+      ],
+      [
+        9046,
+        9069,
+        "email"
+      ],
+      [
+        10068,
+        10095,
+        "email"
+      ],
+      [
+        10129,
+        11026,
+        "phone"
+      ],
+      [
+        11106,
+        11129,
+        "email"
+      ],
+      [
+        12142,
+        12171,
+        "email"
+      ],
+      [
+        13168,
+        13197,
+        "email"
+      ],
+      [
+        14177,
+        14206,
+        "email"
+      ],
+      [
+        147,
+        838,
+        "address"
+      ],
+      [
+        7011,
+        7953,
+        "address"
+      ]
+    ]
+  }
+}

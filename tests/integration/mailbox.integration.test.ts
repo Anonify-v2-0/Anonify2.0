@@ -386,7 +386,7 @@ describe.skipIf(!hasDatabase)("expanding a mailbox against Postgres", () => {
 
     const rule = await createBatchRule({
       batchId: batchId as string,
-      pattern: EML.person,
+      spec: { kind: "literal", pattern: EML.person, matchCase: false, wholeWord: false },
       category: "person",
       originDocumentId: children[0].id,
     })

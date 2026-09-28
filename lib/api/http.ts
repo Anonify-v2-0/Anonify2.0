@@ -19,6 +19,48 @@ export async function readJson(request: Request): Promise<unknown | undefined> {
   }
 }
 
+/**
+ * Reads a JSON body no larger than `maxBytes`, counting what actually arrives.
+ *
+ * A declared `content-length` is checked first, which refuses an honest large
+ * request without reading any of it. It is not the bound, though: a chunked
+ * request declares nothing, and `request.json()` buffers whatever it is sent.
+ * So the body is read here, and reading stops as soon as it passes the limit.
+ *
+ * Too large is the only thing told apart. A body that is absent, cut off or
+ * not JSON is `value: undefined`, the way `readJson` reports it.
+ */
+export async function readJsonWithin(
+  request: Request,
+  maxBytes: number
+): Promise<{ tooLarge: true } | { tooLarge: false; value: unknown }> {
+  const declared = Number(request.headers.get("content-length") ?? 0)
+  if (declared > maxBytes) return { tooLarge: true }
+  if (!request.body) return { tooLarge: false, value: undefined }
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      received += value.byteLength
+      if (received > maxBytes) {
+        await reader.cancel().catch(() => undefined)
+        return { tooLarge: true }
+      }
+      chunks.push(value)
+    }
+    return {
+      tooLarge: false,
+      value: JSON.parse(new TextDecoder().decode(Buffer.concat(chunks))),
+    }
+  } catch {
+    return { tooLarge: false, value: undefined }
+  }
+}
+
 export async function readFormData(
   request: Request
 ): Promise<FormData | undefined> {

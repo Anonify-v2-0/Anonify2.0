@@ -55,3 +55,13 @@ next-env.d.ts
 *.traineddata
 
 .vscode
+
+# corpus generator: cached model responses and the rejection log
+/benchmarks/corpus/.cache/
+# a corpus is committed as <corpus>.tar.gz; its directory is the working
+# copy the scripts unpack it to, apart from the manifest, which stays readable
+/benchmarks/corpus/synthetic-*/*
+!/benchmarks/corpus/synthetic-*/manifest.json
+
+# bench:models: finished documents of a phase still running, so a rerun resumes
+/benchmarks/results/.checkpoints/

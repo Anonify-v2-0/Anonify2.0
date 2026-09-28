@@ -24,6 +24,7 @@ export const RATE_LIMIT_NAMES = [
   "processing",
   "export",
   "read",
+  "search",
 ] as const
 
 export type RateLimitName = (typeof RATE_LIMIT_NAMES)[number]
@@ -67,6 +68,13 @@ export { activeProfile, PROFILES, type Profile }
  * processes, and a batch of documents polls concurrently; at 240 a reviewer
  * with several files open was being rate-limited by the interface itself.
  *
+ * `search` is its own bucket, at 60. A search or a rule preview decrypts and
+ * scans every page of the document, under a matching budget of seconds, and
+ * both run as the reviewer types; charged to `read`, sized for status polls,
+ * that was 300 whole-document scans a minute. Sixty is still a query a second
+ * with a full minute's burst in hand, which is more than typing produces. A
+ * scan across a batch is charged to `processing`, like the batch search.
+ *
  * Windows stay at 60 seconds throughout. The bucket refills continuously, so a
  * window is a rate rather than a boundary to burst across.
  */
@@ -75,6 +83,7 @@ const DEMO_DEFAULTS: RateLimits = {
   processing: { limit: 30, windowSeconds: 60 },
   export: { limit: 15, windowSeconds: 60 },
   read: { limit: 300, windowSeconds: 60 },
+  search: { limit: 60, windowSeconds: 60 },
 }
 
 /** Your own machine: generous, because the only caller is you. */
@@ -83,6 +92,7 @@ const SELF_HOSTED_DEFAULTS: RateLimits = {
   processing: { limit: 300, windowSeconds: 60 },
   export: { limit: 120, windowSeconds: 60 },
   read: { limit: 2000, windowSeconds: 60 },
+  search: { limit: 600, windowSeconds: 60 },
 }
 
 export function defaultsFor(profile: Profile): RateLimits {
@@ -100,7 +110,7 @@ const limitSchema = z.object({
 
 /**
  * Overrides are partial by design — setting `upload` alone must not require
- * restating the other three.
+ * restating the others.
  *
  * `z.record` with enum keys demands every key be present, so a partial value
  * fails to parse. That failure used to be swallowed, and the effect was a limit

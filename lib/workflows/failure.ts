@@ -40,6 +40,7 @@ export const FAILURE_CODES = [
   "too-complex",
   "empty-container",
   "quota",
+  "rule-too-broad",
   "internal-state",
   "configuration",
   "storage",
@@ -115,6 +116,14 @@ const FAILURES: Record<FailureCode, Omit<DocumentFailure, "code">> = {
       "This document needs more of today's allowance than is left. The allowance resets at midnight UTC — upload it again after that.",
     retryable: false,
   },
+  // Retryable, unlike most verdicts, because the thing that decides it is a
+  // rule the reviewer can change: narrow it or switch it off, and the same
+  // pipeline produces a different result.
+  "rule-too-broad": {
+    message:
+      "A batch or global rule matched too much of this document to apply safely, so none of it was applied here. The text is still here to review. Narrow the rule or switch it off in the rules panel, then retry.",
+    retryable: true,
+  },
   "internal-state": {
     message:
       "Processing stopped partway through and cannot resume from where it stopped. Upload the document again.",
@@ -167,6 +176,10 @@ const MATCHERS: { code: FailureCode; pattern: RegExp }[] = [
   { code: "empty-container", pattern: /no messages found in this mailbox/i },
   { code: "missing-upload", pattern: /no upload to ingest|document no longer exists/i },
   { code: "quota", pattern: /daily demo limit reached/i },
+  {
+    code: "rule-too-broad",
+    pattern: /so nothing was applied\. make it more specific|cannot be matched safely|not a valid pattern|can match an empty string/i,
+  },
   { code: "internal-state", pattern: /has not been (ingested|normalized)/i },
   {
     code: "configuration",
