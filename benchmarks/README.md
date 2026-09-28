@@ -498,6 +498,13 @@ OPENAI_API_KEY=...
 AI_MODEL_PRICES={"anthropic/claude-haiku-4.5":{"inputPerMillion":1,"outputPerMillion":5},"openai:gpt-5-mini":{"inputPerMillion":0.25,"outputPerMillion":2}}
 ```
 
+The app calls a model only once it is verified, and the verification in
+`.env` (`AI_MODEL_CAPABILITIES`) covers one provider and model. So before each
+model's first phase, a model it does not cover is verified the way
+`pnpm ai verify` does it, with two small synthetic calls, for that run only:
+`.env` is not written. A model that fails is skipped with the reason, rather
+than analysed on the patterns alone.
+
 The prices above are an example, not a quote. `--models` takes the same list
 on the command line and wins over the variable. The provider is everything before the first colon, so
 `ollama:llama3.1:8b` works, and an entry with no colon is a gateway model.

@@ -127,7 +127,12 @@ async function main() {
   const rewritten = await Promise.all(
     documents.map(async (d) => {
       const before = await readFile(d.file, "utf8")
-      return { ...d, before, after: replaceSection(before, d.section) }
+      // Written in the document's own line endings, so a checkout with CRLF
+      // (git on Windows) is not "out of date" for being on Windows.
+      const section = before.includes("\r\n")
+        ? d.section.replace(/\r?\n/g, "\r\n")
+        : d.section
+      return { ...d, before, after: replaceSection(before, section) }
     })
   )
   for (const d of rewritten)
