@@ -399,6 +399,55 @@ async function printTable(directory: string, c: Palette) {
   )
 }
 
+/**
+ * Makes sure the app will actually call this model.
+ *
+ * The app sends a model structured-output calls only once it has been
+ * verified, and the verification in `.env` (AI_MODEL_CAPABILITIES) is bound
+ * to one provider and model. Every other model in BENCH_MODELS would be
+ * "unsupported": each document analysed on the patterns alone, at no cost,
+ * looking like a model that found nothing. So a model the declaration does
+ * not cover is probed here, with `pnpm ai verify`'s two synthetic calls, and
+ * the result applies to this run only; `.env` is not written.
+ */
+async function ensureVerified(
+  entry: ModelEntry,
+  c: Palette,
+  dryRun: boolean
+): Promise<boolean> {
+  const { capabilityDeclaration, configuredCapabilities } =
+    await import("@/lib/ai/providers/config")
+  if (configuredCapabilities().structuredOutput) return true
+  if (dryRun) {
+    console.log(
+      c.dim(
+        "  not verified in .env: a real run verifies it first (two small calls)"
+      )
+    )
+    return true
+  }
+  const { probeModel } = await import("@/lib/ai/providers/probe")
+  const result = await probeModel(process.env)
+  if (!result.structuredOutput) {
+    console.log(
+      c.red(
+        `  ${entry.provider}:${entry.model} failed verification (${result.reason ?? result.failure}): ${result.detail ?? "no structured output"}. Skipped.`
+      )
+    )
+    return false
+  }
+  process.env.AI_MODEL_CAPABILITIES = capabilityDeclaration(process.env, {
+    structuredOutput: true,
+    vision: result.vision,
+  })
+  console.log(
+    c.dim(
+      "  verified for this run: structured output works (not written to .env)"
+    )
+  )
+  return true
+}
+
 // --- main -------------------------------------------------------------------
 
 function sample(documents: LabelledDocument[], n: number): LabelledDocument[] {
@@ -539,6 +588,10 @@ async function main() {
           `  ${entry.provider} is not configured: set its key in .env (pnpm setup writes it). Skipped.`
         )
       )
+      process.exitCode = 1
+      continue
+    }
+    if (!(await ensureVerified(entry, c, values["dry-run"]))) {
       process.exitCode = 1
       continue
     }
