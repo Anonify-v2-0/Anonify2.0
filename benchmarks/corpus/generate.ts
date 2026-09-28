@@ -220,7 +220,59 @@ type Outcome =
 /** What generateOne tells the display as it goes. */
 type Progress = {
   attempt(attempt: number, cached: boolean): void
-  rejected(attempt: number, reasons: string[]): void
+  rejected(attempt: number, reasons: string[], cached: boolean): void
+}
+
+/**
+ * The response cached for this attempt, if it was made by the same backend,
+ * model, prompt and seed; anything else is a different experiment.
+ */
+async function cachedResponse(
+  spec: DocumentSpec,
+  attempt: number,
+  backend: Backend,
+  options: Options
+): Promise<CachedResponse | null> {
+  const cached = await readJson<CachedResponse>(
+    responsePath(options.out, spec.id, attempt)
+  )
+  return cached &&
+    cached.promptVersion === PROMPT_VERSION &&
+    cached.backend === backend.name &&
+    cached.model === backend.model &&
+    cached.seed === options.seed
+    ? cached
+    : null
+}
+
+/**
+ * A document whose every allowed attempt is already cached needs no model:
+ * its drafts are checked again, in case the checks changed since, and the
+ * first that passes is written. Null when none does, or when an attempt is
+ * still to be made. Done before the run so a rerun does not replay hundreds
+ * of old rejections as if they were work.
+ */
+async function fromCacheAlone(
+  spec: DocumentSpec,
+  backend: Backend,
+  options: Options
+): Promise<"written" | "exhausted" | null> {
+  const drafts: CachedResponse[] = []
+  for (let attempt = 1; attempt <= options.attempts; attempt++) {
+    const cached = await cachedResponse(spec, attempt, backend, options)
+    if (!cached) return null
+    drafts.push(cached)
+  }
+  for (const cached of drafts) {
+    const result = buildDocument(spec, cached.text, generatorInfo(cached), {
+      deny: options.denyTokens,
+    })
+    if (result.ok) {
+      await writeDocument(options.out, spec, result.document)
+      return "written"
+    }
+  }
+  return "exhausted"
 }
 
 async function generateOne(
@@ -238,18 +290,10 @@ async function generateOne(
   for (let attempt = 1; attempt <= options.attempts; attempt++) {
     if (signal.aborted) break
     const cacheFile = responsePath(options.out, spec.id, attempt)
-    let cached = await readJson<CachedResponse>(cacheFile)
-    if (
-      cached &&
-      (cached.promptVersion !== PROMPT_VERSION ||
-        cached.backend !== backend.name ||
-        cached.model !== backend.model ||
-        cached.seed !== options.seed)
-    ) {
-      cached = null
-    }
+    let cached = await cachedResponse(spec, attempt, backend, options)
+    const fromCache = cached !== null
 
-    progress.attempt(attempt, cached !== null)
+    progress.attempt(attempt, fromCache)
     if (!cached) {
       try {
         const completion = await backend.complete({
@@ -287,7 +331,7 @@ async function generateOne(
         }
         await logReject(options.out, { id: spec.id, attempt, error: message })
         lastReasons = [message]
-        progress.rejected(attempt, lastReasons)
+        progress.rejected(attempt, lastReasons, false)
         continue
       }
     }
@@ -306,7 +350,7 @@ async function generateOne(
     }
     lastReasons = result.reasons
     feedback = result.reasons
-    progress.rejected(attempt, lastReasons)
+    progress.rejected(attempt, lastReasons, fromCache)
     await logReject(options.out, {
       id: spec.id,
       attempt,
@@ -492,9 +536,18 @@ async function main() {
     }
     pending.push(spec)
   }
+  const fresh: DocumentSpec[] = []
+  let exhausted = 0
+  let recovered = 0
+  for (const spec of pending) {
+    const settled = await fromCacheAlone(spec, backend, options)
+    if (settled === "exhausted") exhausted++
+    else if (settled === "written") recovered++
+    else fresh.push(spec)
+  }
   // Longest first: a long document started last is what a run ends waiting on.
   const longestFirst = { long: 0, medium: 1, short: 2 }
-  const queue = pending
+  const queue = fresh
     .slice(0, options.limit)
     .sort((a, b) => longestFirst[a.length] - longestFirst[b.length])
 
@@ -512,6 +565,20 @@ async function main() {
       [
         `${c.bold(path.basename(options.out))}  ${dot}  ${backend.name} ${c.cyan(backend.model)}${c.dim(effort)}  ${dot}  prompt v${PROMPT_VERSION}  ${dot}  seed ${options.seed}`,
         `${c.green(String(specs.length - pending.length))} of ${specs.length} on disk  ${dot}  ${c.bold(String(queue.length))} to write  ${dot}  ${options.concurrency} at a time, up to ${options.attempts} attempts each`,
+        ...(exhausted
+          ? [
+              c.yellow(
+                `${exhausted} already used all ${options.attempts} attempts in an earlier run and are skipped; --attempts ${options.attempts + 2} gives each two more drafts.`
+              ),
+            ]
+          : []),
+        ...(recovered
+          ? [
+              c.green(
+                `${recovered} written from drafts cached earlier that pass the checks as they are now.`
+              ),
+            ]
+          : []),
         c.dim(
           `Rejecting any document that mentions the operator: ${options.denyTokens.length} identifying strings from your CLI accounts, git, the OS and --deny.`
         ),
@@ -554,12 +621,12 @@ async function main() {
         {
           attempt: (attempt, cached) =>
             dashboard.attempt(slot, attempt, cached),
-          rejected: (attempt, reasons) => {
+          rejected: (attempt, reasons, cached) => {
             const final = attempt >= options.attempts
-            dashboard.rejected(reasons, final)
+            dashboard.rejected(reasons, final || cached)
             if (!final && !controller.signal.aborted)
               dashboard.log(
-                `${c.yellow("↻")} ${c.dim(spec.id)}  ${c.dim(`attempt ${attempt} rejected:`)} ${c.yellow(firstReason(reasons))}`
+                `${c.yellow("↻")} ${c.dim(spec.id)}  ${c.dim(`attempt ${attempt}${cached ? " (cached draft)" : ""} rejected:`)} ${c.yellow(firstReason(reasons))}`
               )
           },
         }
