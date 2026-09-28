@@ -14,6 +14,18 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.9.2] - 2026-09-28
+
+### Added
+
+- `pnpm bench:models` benchmarks the models set in `.env` (or a
+  `BENCH_MODELS` list) on the labelled corpus: recall per category, tokens and
+  cost per document, throughput as concurrency rises, and the tokens the
+  deterministic pass saves against the same model with it switched off.
+  `pnpm bench:charts` draws the results as light and dark charts in the README.
+  A model benchmarked later is added beside the earlier ones without changing
+  their results (#59)
+
 ## [1.9.1] - 2026-09-28
 
 ### Added
