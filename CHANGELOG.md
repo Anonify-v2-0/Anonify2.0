@@ -14,6 +14,15 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.9.3] - 2026-09-28
+
+### Fixed
+
+- `pnpm bench:models` verifies each model it benchmarks before its first
+  phase, the way `pnpm ai verify` does, for that run only. A model other than
+  the one verified in `.env` was previously treated as unsupported, and every
+  document was scored on the pattern detectors alone (#59)
+
 ## [1.9.2] - 2026-09-28
 
 ### Added
