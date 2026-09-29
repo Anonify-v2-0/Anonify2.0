@@ -14,6 +14,40 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.10.0] - 2026-09-29
+
+### Added
+
+- Batch downloads ask what to deliver. **Original format** (the default) gives
+  back what was uploaded: a mailbox as `inbox-redacted.mbox`, rebuilt from its
+  messages' verified exports with separator lines written fresh rather than
+  copied, and verified again as a whole before it is sent; a message carrying its
+  redacted attachments; a file as itself. **Processed files** is every
+  document's own output in folders that mirror where it came from, named by
+  message number and part path, never by subject or filename. **Both** is the two
+  together. A message left out of a rebuilt mailbox is named in the batch report,
+  as is the check a mailbox failed when its own verification withholds it, and an
+  expanded mailbox in the workspace offers the rebuilt mailbox directly (#143)
+
+### Changed
+
+- The batch archive is no longer flat: files sit in folders by upload, message
+  number and part path, with reports under `reports/`, and
+  `GET /api/batches/:id/download` now takes `output=original|processed|both`,
+  defaulting to `original` — a single upload comes back as that one file rather
+  than a zip (#143)
+
+### Fixed
+
+- A batch holding more than fifty documents — any mailbox of more than fifty
+  messages — was exported, downloaded and listed as only its first fifty, and
+  from the fifty-first document on the workspace lost its place in the batch: no
+  position, no previous or next, and the fiftieth offered no next. Every document
+  in a batch is now included, and the workspace can step through all of them.
+  Downloading or restoring a file whose upload name is outside Latin-1 —
+  `收件箱.mbox`, `Отчёт.pdf`, an emoji — no longer fails, and the file saves
+  under its real name (#143)
+
 ## [1.9.3] - 2026-09-28
 
 ### Fixed
