@@ -39,8 +39,17 @@ model Document {
   /// Set once the client upload has been ingested and re-sealed by the
   /// pipeline. Null while the browser is still uploading.
   sourceBlobKey    String?
-  /// Plaintext client-upload landing spot, deleted as soon as ingest re-seals it.
+  /// Client-upload landing spot, deleted as soon as ingest re-seals it. The
+  /// object is ciphertext when `uploadFormat` is set, and plaintext otherwise.
   uploadBlobKey    String?
+  /// The single-use key the browser sealed its upload with, wrapped under the
+  /// master key (base64). Minted at reservation, returned to the browser once,
+  /// nulled at ingest. Never the document's data key. See
+  /// lib/storage/upload-encryption.ts.
+  uploadEncryptionKey String?
+  /// Which envelope the upload was sealed in: `v1`, or null for a plaintext
+  /// upload. Ingest dispatches on this, never on the bytes.
+  uploadFormat     String?
   processedBlobKey String?
   /// Durable run that is processing (or last processed) this document.
   workflowRunId    String?

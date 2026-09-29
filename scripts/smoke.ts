@@ -31,7 +31,17 @@
  * smoke test.
  */
 
+import { readFile } from "node:fs/promises"
+import path from "node:path"
+
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
+
+import {
+  decodeUploadKey,
+  sealFileForUpload,
+  type UploadEncryption,
+} from "@/lib/storage/chunked-web"
+import { createS3Driver } from "@/lib/storage/drivers"
 
 const SENSITIVE = {
   person: "John Smith",
@@ -1063,6 +1073,73 @@ function step(message: string): void {
   console.log(`  ${message}`)
 }
 
+/**
+ * The upload as it landed, read straight from storage.
+ *
+ * From the host: the filesystem driver's directory when the app runs here,
+ * or the S3 service at its host address (the Compose defaults, like
+ * `pnpm smoke:storage`). Null when neither can be reached from where this
+ * runs — an app on another machine, say.
+ */
+async function readLanded(handle: string): Promise<Buffer | null> {
+  try {
+    if (handle.startsWith("local:")) {
+      return await readFile(
+        path.join(process.cwd(), ".anonify-storage", handle.slice("local:".length))
+      )
+    }
+    if (handle.startsWith("s3:")) {
+      const driver = createS3Driver({
+        bucket: process.env.S3_BUCKET ?? "anonify",
+        region: process.env.S3_REGION ?? "us-east-1",
+        endpoint: process.env.S3_ENDPOINT ?? "http://127.0.0.1:9000",
+        accessKeyId: process.env.S3_ACCESS_KEY_ID ?? "anonify",
+        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? "anonify-dev-secret",
+        forcePathStyle: true,
+      })
+      return await driver.get(handle)
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+/**
+ * The adversarial half of the upload: the object in storage, before ingest,
+ * is the sealed envelope and none of the file. Every fixture carries the
+ * same synthetic values, so finding any of them in the raw bytes is a
+ * plaintext upload however the format encodes the rest.
+ */
+async function assertLandedSealed(
+  handle: string,
+  plaintext: Uint8Array,
+  sealedSize: number
+): Promise<void> {
+  const landed = await readLanded(handle)
+  if (!landed) {
+    step("landed upload not reachable from here; at-rest check skipped")
+    return
+  }
+  if (landed.byteLength !== sealedSize) {
+    throw new Error(
+      `Landed upload is ${landed.byteLength} bytes; the sealed file was ${sealedSize}`
+    )
+  }
+  if (!landed.subarray(0, 4).equals(Buffer.from("ANFY"))) {
+    throw new Error("Landed upload does not begin with the sealed header")
+  }
+  if (landed.includes(Buffer.from(plaintext.subarray(0, 16)))) {
+    throw new Error("Landed upload contains the file's own first bytes")
+  }
+  for (const value of Object.values(SENSITIVE)) {
+    if (landed.includes(Buffer.from(value))) {
+      throw new Error(`Landed upload contains "${value}" in the clear`)
+    }
+  }
+  step("landed upload is ciphertext: no fixture value in it")
+}
+
 // --- the run ----------------------------------------------------------------
 
 async function runCase(smokeCase: SmokeCase): Promise<void> {
@@ -1077,6 +1154,7 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
     id: string
     pathname: string
     uploadMode: string
+    uploadEncryption: UploadEncryption | null
   }>(
     await call("/api/documents", {
       method: "POST",
@@ -1086,11 +1164,17 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
         size: bytes.byteLength,
         contentType: smokeCase.contentType,
         ttlSeconds: 3600,
+        // Sealed the way the browser seals it. The mailbox case below keeps
+        // the plaintext path, so both stay covered.
+        uploadEncryption: "v1",
       }),
     }),
     "reserve"
   )
   step(`reserved ${reserved.id} (upload mode: ${reserved.uploadMode})`)
+  if (!reserved.uploadEncryption) {
+    throw new Error("The reservation asked for an upload key and got none")
+  }
 
   // 2. Upload. On a self-hosted install this goes through the app to an
   //    S3-compatible service or the local filesystem; on Vercel the browser
@@ -1103,18 +1187,51 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
     )
   }
 
-  const form = new FormData()
-  form.set("documentId", reserved.id)
-  form.set(
-    "file",
-    new File([new Uint8Array(bytes)], filename, { type: smokeCase.contentType })
-  )
+  const sealed = await sealFileForUpload({
+    file: new Blob([new Uint8Array(bytes)]),
+    key: decodeUploadKey(reserved.uploadEncryption.key),
+    logicalKey: reserved.pathname,
+    chunkShift: reserved.uploadEncryption.chunkShift,
+  })
 
-  const uploaded = await json<{ url: string; size: number }>(
-    await call("/api/upload/local", { method: "POST", body: form }),
-    "upload"
-  )
-  step(`uploaded ${uploaded.size} bytes`)
+  let handle: string
+  if (reserved.uploadMode === "s3-presigned") {
+    const signed = await json<{
+      url: string
+      headers: Record<string, string>
+      handle: string
+    }>(
+      await call("/api/upload/presign", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ documentId: reserved.id, size: sealed.size }),
+      }),
+      "presign"
+    )
+    const put = await fetch(signed.url, {
+      method: "PUT",
+      headers: signed.headers,
+      body: sealed,
+    })
+    if (!put.ok) throw new Error(`Presigned PUT returned HTTP ${put.status}`)
+    handle = signed.handle
+    step(`sealed and PUT ${sealed.size} bytes straight to storage`)
+  } else {
+    const form = new FormData()
+    form.set("documentId", reserved.id)
+    form.set("file", new File([sealed], filename, { type: sealed.type }))
+
+    const uploaded = await json<{ url: string; size: number }>(
+      await call("/api/upload/local", { method: "POST", body: form }),
+      "upload"
+    )
+    handle = uploaded.url
+    step(`sealed and uploaded ${uploaded.size} bytes`)
+  }
+
+  // What is at rest before ingest has run is the thing this is about, so it
+  // is read directly from storage and not through the app.
+  await assertLandedSealed(handle, bytes, sealed.size)
 
   // 3. Hand it to the durable pipeline: ingest, extraction, normalization,
   //    detection all run in the workflow from here.
@@ -1122,7 +1239,7 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
     await call(`/api/documents/${reserved.id}/process`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ blobUrl: uploaded.url }),
+      body: JSON.stringify({ blobUrl: handle }),
     }),
     "process"
   )

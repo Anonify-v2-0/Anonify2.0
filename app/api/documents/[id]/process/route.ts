@@ -11,6 +11,7 @@ import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
+import { isUploadHandleFor } from "@/lib/storage/blob"
 import { admitQueued } from "@/lib/documents/admission"
 import { startProcessing } from "@/lib/workflows/start-processing"
 
@@ -62,10 +63,16 @@ export async function POST(
 
     const record = await prisma.document.findUnique({
       where: { id: document.id },
-      select: { workflowRunId: true, status: true },
+      select: {
+        workflowRunId: true,
+        status: true,
+        originalName: true,
+        uploadBlobKey: true,
+      },
     })
 
-    if (record?.workflowRunId) {
+    if (!record) return errorResponse("Document not found", 404)
+    if (record.workflowRunId) {
       return jsonResponse({ runId: record.workflowRunId, resumed: true })
     }
 
@@ -74,13 +81,23 @@ export async function POST(
       return errorResponse("Invalid process request", 400)
     }
 
+    // A handle the server recorded when the bytes landed — the local route,
+    // or Vercel's completion webhook — wins over the one the client names.
+    // Either way it must be this document's own upload path: ingest reads
+    // the handle and then deletes it, so an unchecked one would let a caller
+    // point their document at somebody else's object and have it removed.
+    const handle = record.uploadBlobKey ?? parsed.data.blobUrl
+    if (!isUploadHandleFor(handle, document.id, record.originalName)) {
+      return errorResponse("That upload does not belong to this document", 400)
+    }
+
     // Queued, not started. Whether it starts now is a question about how much
     // of this owner's work is already in flight, and lib/documents/admission.ts
     // is the one place that answers it — a route that started its own run
     // would be the twentieth concurrent extraction this exists to prevent.
     await prisma.document.update({
       where: { id: document.id },
-      data: { uploadBlobKey: parsed.data.blobUrl, status: "queued" },
+      data: { uploadBlobKey: handle, status: "queued" },
     })
 
     await admitQueued(document.userFingerprint, startProcessing)

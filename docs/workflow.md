@@ -123,7 +123,7 @@ docs did not:
 
 ```mermaid
 flowchart TD
-    Q["publishStatus: queued"] --> ING["ingestUpload<br/>fetch, sniff, checksum, seal, delete the plaintext"]
+    Q["publishStatus: queued"] --> ING["ingestUpload<br/>fetch, open, sniff, checksum, re-seal, delete the upload and its key"]
     ING --> ATT{"a message with<br/>attachments?"}
     ATT -- yes --> CH["expandAttachments<br/>each attachment becomes a document with its own run"]
     ATT -- no --> EX
@@ -142,20 +142,33 @@ so a replay resumes at the first one that has not completed.
 
 ### `ingestUpload` — take ownership of the bytes
 
-The browser uploaded straight to Blob storage, so this is the first moment the
-server sees the file.
+The browser uploaded straight to storage, so this is the first moment the
+server sees the file. The body lives in `lib/documents/ingest.ts` (`runIngest`);
+the step adds retry pacing.
 
-1. Fetch the plaintext upload.
-2. Reject empty or oversized files.
+1. Fetch the upload. When the row records `uploadFormat`, the browser sealed
+   it, and it is opened with the single-use upload key as it streams (see
+   [storage.md](./storage.md#sealed-uploads)). Nothing below this line knows
+   it was sealed. A row without `uploadFormat` is a plaintext upload, read as
+   it is.
+2. Reject empty or oversized files. The ceiling is on the plaintext, so a
+   sealed upload's stored size is first converted.
 3. **Sniff the content.** The declared MIME type and the filename are hints; the
    magic bytes decide. A `.pdf` that is actually a zip is rejected rather than
    guessed at.
 4. SHA-256 the bytes.
 5. Seal under a fresh per-document data key; store as `source.bin`.
-6. Delete the plaintext upload.
+6. Delete the upload and null the wrapped upload key.
+
+A sealed upload that does not open fails with `upload-unreadable`, and nothing
+is stored as `source.bin`. That covers a failed tag, a truncated or reordered
+envelope, the wrong key, path or chunk size, and plaintext where ciphertext was
+promised. It is a verdict, not weather, so it is not retried.
 
 The step is idempotent: on replay it sees `sourceBlobKey` already set and returns
-early rather than re-encrypting under a second key and orphaning the first.
+early rather than re-encrypting under a second key and orphaning the first. If
+the previous attempt died between recording the source and deleting the
+upload, the replay finishes that cleanup.
 
 ### `expandAttachments` — a message with attachments becomes a batch
 
@@ -434,7 +447,7 @@ opt-in `scheduler` service in `docker-compose.yml`. Either way:
 1. Mark documents past `expiresAt` as expired, so the workspace stops serving
    them mid-window.
 2. For each expired document, delete every artifact it owns — source, the
-   plaintext upload if ingest never got to it, the normalized model, every export
+   upload (and its key) if ingest never got to it, the normalized model, every export
    — then the row.
 3. Prune empty batches and stale rate-limit windows.
 

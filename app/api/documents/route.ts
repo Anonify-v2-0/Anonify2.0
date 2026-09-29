@@ -14,6 +14,7 @@ import { isPresetId } from "@/lib/redaction/presets"
 import { getIdentity, peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { clientUploadMode } from "@/lib/storage/blob"
+import { UPLOAD_FORMATS } from "@/lib/storage/upload-encryption"
 import { DEFAULT_TTL_SECONDS } from "@/types/document"
 
 export const runtime = "nodejs"
@@ -46,6 +47,11 @@ const createSchema = z.object({
   size: z.number().int().positive().max(MAX_UPLOAD_BYTES),
   contentType: z.string().max(200).optional(),
   preset: z.string().max(60).optional(),
+  /**
+   * The client will seal its upload in this envelope and wants an upload key
+   * for it. See lib/storage/upload-encryption.ts.
+   */
+  uploadEncryption: z.enum(UPLOAD_FORMATS).optional(),
   ttlSeconds: z
     .number()
     .int()
@@ -74,7 +80,8 @@ export async function POST(request: Request) {
       return errorResponse("Invalid upload request", 400)
     }
 
-    const { filename, size, contentType, ttlSeconds, preset } = parsed.data
+    const { filename, size, contentType, ttlSeconds, preset, uploadEncryption } =
+      parsed.data
 
     // An unknown preset is refused rather than ignored: silently falling back
     // to "everything" would be the safe direction, but a client that thinks it
@@ -89,6 +96,7 @@ export async function POST(request: Request) {
       contentType,
       ttlSeconds,
       preset,
+      uploadEncryption,
       ownerKey: identity.ownerKey,
       quotaKey: identity.quotaKey,
     })
@@ -106,6 +114,9 @@ export async function POST(request: Request) {
         // The server knows which storage backend is configured; the browser
         // should not have to be told separately through a public env var.
         uploadMode: clientUploadMode(),
+        // The raw upload key, here and nowhere else. The row holds only its
+        // wrapped form, and ingest destroys even that.
+        uploadEncryption: reserved.uploadEncryption,
       },
       201
     )

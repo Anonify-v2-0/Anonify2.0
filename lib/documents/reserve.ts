@@ -4,6 +4,13 @@ import { kindForExtension } from "@/lib/documents/formats"
 import { newDocumentId } from "@/lib/documents/ids"
 import { checkQuota, quotaMessage, recordUsage } from "@/lib/security/usage"
 import { uploadKey } from "@/lib/storage/blob"
+import {
+  mintUploadKey,
+  PLAINTEXT_UPLOAD_REFUSED,
+  uploadEncryptionPolicy,
+  type MintedUploadKey,
+  type UploadFormat,
+} from "@/lib/storage/upload-encryption"
 
 /**
  * Staking the claim before the browser uploads.
@@ -23,11 +30,16 @@ export type ReservedDocument = {
   pathname: string
   expiresAt: Date
   quota: { used: number; limit: number }
+  /**
+   * The upload key and how to seal with it, when the client asked to seal.
+   * Returned once: the row keeps only the wrapped form.
+   */
+  uploadEncryption: MintedUploadKey["response"] | null
 }
 
 export type ReserveRefusal = {
-  reason: "unsupported-type" | "quota"
-  status: 415 | 429
+  reason: "unsupported-type" | "quota" | "plaintext-upload"
+  status: 400 | 415 | 429
   message: string
   quota?: { used: number; limit: number }
 }
@@ -46,6 +58,11 @@ export async function reserveDocument(input: {
   batchId?: string
   /** Named detector set; absent means everything is looked for. */
   preset?: string
+  /**
+   * The envelope the client will seal its upload in. Absent means it will
+   * send plaintext, which only an install that still allows it accepts.
+   */
+  uploadEncryption?: UploadFormat
 }): Promise<ReserveResult> {
   const kind = kindForExtension(extensionOf(input.filename))
   if (!kind) {
@@ -54,6 +71,17 @@ export async function reserveDocument(input: {
       reason: "unsupported-type",
       status: 415,
       message: "Unsupported file type",
+    }
+  }
+
+  // Before the quota is charged: a client that cannot upload here should not
+  // pay an upload to find out.
+  if (!input.uploadEncryption && uploadEncryptionPolicy() === "required") {
+    return {
+      ok: false,
+      reason: "plaintext-upload",
+      status: 400,
+      message: PLAINTEXT_UPLOAD_REFUSED,
     }
   }
 
@@ -83,6 +111,7 @@ export async function reserveDocument(input: {
 
   const documentId = newDocumentId()
   const expiresAt = new Date(Date.now() + input.ttlSeconds * 1000)
+  const minted = input.uploadEncryption ? mintUploadKey() : null
 
   await prisma.document.create({
     data: {
@@ -99,6 +128,8 @@ export async function reserveDocument(input: {
       batchId: input.batchId ?? null,
       ttlSeconds: input.ttlSeconds,
       expiresAt,
+      uploadEncryptionKey: minted?.wrappedKey ?? null,
+      uploadFormat: minted?.response.format ?? null,
     },
   })
 
@@ -114,5 +145,6 @@ export async function reserveDocument(input: {
     pathname: uploadKey(documentId, input.filename),
     expiresAt,
     quota: { used: quota.used + 1, limit: quota.limit },
+    uploadEncryption: minted?.response ?? null,
   }
 }

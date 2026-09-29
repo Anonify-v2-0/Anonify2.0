@@ -36,6 +36,7 @@ export const FAILURE_CODES = [
   "empty-file",
   "too-large",
   "corrupt-source",
+  "upload-unreadable",
   "missing-upload",
   "too-complex",
   "empty-container",
@@ -84,6 +85,15 @@ const FAILURES: Record<FailureCode, Omit<DocumentFailure, "code">> = {
   "corrupt-source": {
     message:
       "The stored copy of this file no longer matches the checksum taken when it was uploaded, so it was not read. Upload it again.",
+    retryable: false,
+  },
+  // Its own code rather than corrupt-source: that one is about the stored
+  // source drifting from its checksum, and this is the upload failing to open
+  // before there was a source at all. Either way the same bytes fail the same
+  // way, so it is not retryable.
+  "upload-unreadable": {
+    message:
+      "The encrypted upload of this file could not be opened, so it was not read. It was probably damaged or cut short on the way in. Upload it again.",
     retryable: false,
   },
   "missing-upload": {
@@ -170,6 +180,7 @@ const MATCHERS: { code: FailureCode; pattern: RegExp }[] = [
   { code: "empty-file", pattern: /file is empty/i },
   { code: "too-large", pattern: /file is too large/i },
   { code: "corrupt-source", pattern: /checksum mismatch/i },
+  { code: "upload-unreadable", pattern: /uploaded file could not be decrypted/i },
   // Both the parser's limits and expansion's, which are worded alike on
   // purpose: to the person holding the message they are one refusal.
   { code: "too-complex", pattern: /exceeds the \w+ (expansion )?limit of/i },

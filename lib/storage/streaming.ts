@@ -23,6 +23,14 @@ import {
  * is the per-owner gate in lib/documents/admission.ts — and this answers "how
  * many chunks per document" by dividing the budget by it, rather than being a
  * second, independent limiter that could disagree with the first.
+ *
+ * Ingest of an upload the browser sealed runs one stage more than any other
+ * read: a `ChunkOpener` in front of the sniff and the sealer, holding the
+ * chunk it is authenticating and the one behind it. Those are upload chunks,
+ * which are a fixed 1 MiB whatever this file configures, and ingest refuses an
+ * upload that declares any other size (lib/storage/upload-encryption.ts), so
+ * the opener adds at most two of them — 2 MiB per ingesting document, fixed,
+ * and not something an upload can inflate by claiming a larger chunk.
  */
 
 export type StreamingLimits = {

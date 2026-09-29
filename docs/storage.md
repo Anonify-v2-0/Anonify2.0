@@ -114,10 +114,22 @@ path-style addressing, while AWS does not. Setting
 one document's share of the streaming budget holds (§8). `pnpm smoke:storage`
 exercises both against RustFS.
 
+`S3_PRESIGNED_UPLOADS=true` (and optionally `S3_PUBLIC_ENDPOINT`) lets
+browsers upload straight to the bucket with a presigned PUT; see §6, *Direct
+uploads to S3*. The presigning client turns the SDK's default request checksum
+off (`requestChecksumCalculation: "WHEN_REQUIRED"`). Otherwise the SDK signs a
+CRC32 of the empty body the URL was made from, and the browser's real PUT
+fails it.
+
 ### `vercelBlobDriver` — `lib/storage/drivers.ts:188`
 
 `put` calls `@vercel/blob` `put` with `addRandomSuffix: true`, so the returned
-URL is unique; that URL **is** the key — there is no `blob:` prefix, and
+URL is unique. Browser uploads get a random suffix too, from the token route;
+the path check there runs on the requested pathname, before the suffix is
+added. Objects stay `public`, because this driver reads everything by plain
+URL: moving to private access would change every read, and it needs a store
+created as private. With sealed uploads, what a public URL exposes is
+ciphertext. The returned URL **is** the key — there is no `blob:` prefix, and
 `driverForKey` returns the Blob driver for any key that is not `local:` or
 `s3:`. `get` is a `fetch` with `cache: "no-store"`; `delete`, `exists` and
 `size` use the Blob `del` / `head` helpers. `getRange` sends a `Range` header
@@ -176,7 +188,7 @@ artifact a document owns by prefix:
 
 | Path | Built by | What it is |
 | --- | --- | --- |
-| `documents/:id/upload/<filename>` | `uploadKey` (`blob.ts:61`) | the plaintext browser upload, before ingest re-seals it |
+| `documents/:id/upload/<filename>` | `uploadKey` | the browser upload before ingest re-seals it: sealed under the upload key when `uploadFormat` is set (§7, *Sealed uploads*), plaintext otherwise. On Vercel Blob the stored URL carries a random suffix after the name |
 | `documents/:id/source.bin` | `sourceKey` (`blob.ts:66`) | the sealed original |
 | `documents/:id/normalized.json.bin` | `normalizedKey` | the sealed normalized model |
 | `documents/:id/redacted.<artifactId>.<ext>.bin` | `artifactKey` / `processedKey` | a sealed redacted export |
@@ -194,11 +206,42 @@ are, so it goes last; a blob already gone counts as deleted, which is what
 makes the sweep idempotent. The explicit "delete now" goes through the same
 function so there is one list of what a document owns.
 
-`clientUploadMode()` (`blob.ts:52`) returns `"vercel-blob"` or `"server-route"`
-by asking the configured driver. The upload panel reads it to decide whether
-to request a scoped Blob token and upload straight to Vercel, or to POST the
-bytes to our own route. See the upload path in [architecture.md](./architecture.md)
-§2.
+`clientUploadMode()` returns `"vercel-blob"`, `"s3-presigned"` or
+`"server-route"` by asking the configured driver. The upload panel reads it to
+decide whether to request a scoped Blob token and upload straight to Vercel,
+request a presigned PUT and upload straight to the bucket, or POST the bytes to
+our own route. See the upload path in [architecture.md](./architecture.md) §2.
+
+Whichever path is used, the handle `/process` is given has to be this
+document's own upload: `isUploadHandleFor` accepts `local:` or `s3:` followed
+by exactly `uploadKey(id, name)`, or an `https` URL on
+`*.blob.vercel-storage.com` whose path is under `documents/:id/upload/`. A
+handle the server recorded itself wins over the one the client names. The
+local route records the handle when it writes, and Vercel's completion webhook
+records it in production. Ingest reads that handle and then deletes it, so an
+unchecked one would let a caller point their document at another object and
+have it removed.
+
+### Direct uploads to S3
+
+With `S3_PRESIGNED_UPLOADS=true` the S3 driver's `clientUpload` is
+`s3-presigned`. `POST /api/upload/presign` then returns a PUT URL for the
+document's upload path that is valid for 15 minutes. The URL is issued only
+for a sealed upload, and its signature covers `Content-Length`, so the bucket
+refuses any other number of bytes. The server checks that number against the
+plaintext ceiling before signing. The server never handles the upload, not
+even as ciphertext.
+
+This path is opt-in because it needs two things only an operator can provide:
+
+- **an endpoint browsers can reach.** Set `S3_PUBLIC_ENDPOINT` when it
+  differs from `S3_ENDPOINT`: inside Docker Compose the app reaches RustFS at
+  `http://rustfs:9000`, and a browser reaches it at `http://localhost:9000`.
+- **CORS on the bucket** allowing `PUT` from the app's origin with the
+  `content-type` header.
+
+A page that cannot seal (see *Sealed uploads*) falls back to
+`/api/upload/local`, which stays available either way.
 
 ---
 
@@ -269,6 +312,60 @@ chunk i
   existing object unreadable.
 - No plaintext leaves a chunk before its tag verifies. A tampered chunk fails
   the stream at that chunk; a truncated object fails it at the end.
+
+### Sealed uploads
+
+`lib/storage/upload-encryption.ts` (server), `lib/storage/chunked-web.ts`
+(browser)
+
+The upload is sealed in the browser in the same v1 envelope, under a key of
+its own, so nothing lands in storage in the clear. The key's life:
+
+1. **Reservation** (`POST /api/documents`, `POST /api/batches` with
+   `"uploadEncryption": "v1"`) mints 32 random bytes. The row keeps them
+   wrapped under the master key in `Document.uploadEncryptionKey` and
+   records `uploadFormat: "v1"`. The raw key goes back in the response once,
+   with the chunk shift to seal with.
+2. **The browser** imports the key into WebCrypto as non-extractable, seals
+   the file a `File.slice()` at a time, zeroes the decoded key bytes, and
+   sends only the ciphertext. The logical key in the AAD is the reserved
+   `pathname`, which is `uploadKey(id, name)`.
+3. **Ingest** wraps the stored stream in a `ChunkOpener` bound to that
+   logical key, taken from the row and never from the handle. Everything
+   after it (sniff, hash, `putSealedStream(sourceKey, …)` under a fresh data
+   key) is unchanged. Then it deletes the upload and nulls
+   `uploadEncryptionKey`. A replay that finds the source already recorded
+   finishes that cleanup if a crash interrupted it.
+4. **An upload that does not open** is refused with `upload-unreadable`,
+   which is not retryable, and nothing is stored as the source. That covers a
+   failed tag, truncation, reordered chunks, a different key or path, a
+   different chunk size, or plaintext sent where ciphertext was promised.
+   The upload stays for the expiry sweep; it is ciphertext under a key that
+   dies with the row.
+
+It is a separate key rather than the document's data key because the data key
+never leaves the server and is still minted at ingest, so `encryptionFormat`,
+`documentSeal` and every object after ingest are untouched. The owner's
+browser already holds the plaintext, so a key that protects only its own
+transient upload discloses nothing new.
+
+**The chunk size is fixed at 1 MiB** (`UPLOAD_CHUNK_SHIFT = 20`), whatever
+`ANONIFY_ENCRYPTION_CHUNK_SIZE` says, and ingest refuses an upload that
+declares any other size. A client therefore cannot make the opener buffer the
+format's 16 MiB maximum, and every ceiling is exact: the ceiling is on the
+plaintext everywhere, and a sealed upload of exactly `MAX_UPLOAD_BYTES` is
+`sealedSizeOf(MAX_UPLOAD_BYTES, 1 MiB)` bytes on every path (the token's
+`maximumSizeInBytes`, `/api/upload/local`, the presigned length, and ingest's
+pre-check).
+
+**Plaintext uploads.** A row with no `uploadFormat` is read as plaintext,
+exactly as before. That covers documents reserved before this existed, API
+clients that do not ask for a key, and pages that cannot seal. WebCrypto's
+`subtle` exists only in a secure context (HTTPS or localhost), so the panel
+asks for a key only when it can use one.
+`ANONIFY_UPLOAD_ENCRYPTION=required` refuses reservations that do not ask for
+a key. Leave it at `optional` (the default) until every client that talks to
+the install seals, and until the install is served over HTTPS.
 
 ### The original envelope (`v0`)
 

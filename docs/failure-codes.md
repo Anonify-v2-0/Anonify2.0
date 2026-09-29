@@ -24,7 +24,7 @@ pulling the server in behind it.
 
 ---
 
-## The 16 codes
+## The 17 codes
 
 Every code carries a short message written for a person and a `retryable`
 flag. The message is fixed per code — it is never derived from the thrown
@@ -37,6 +37,7 @@ error's text.
 | `empty-file` | The uploaded file has zero bytes, so there was nothing to analyze. | No |
 | `too-large` | The file is larger than this instance's upload limit (`MAX_UPLOAD_BYTES`). | No |
 | `corrupt-source` | The stored copy of the file no longer matches the checksum taken when it was uploaded, so it was not read. The user is asked to upload it again. | No |
+| `upload-unreadable` | The browser sealed the upload, and ingest could not open it: a failed tag, a truncated or reordered envelope, the wrong key, path or chunk size, or plaintext sent where ciphertext was promised. Nothing was stored as the source, and the user is asked to upload again. It is a separate code from `corrupt-source`, which is about a stored source drifting from its checksum; this upload failed before there was a source. See [storage.md](./storage.md#sealed-uploads). | No |
 | `missing-upload` | The uploaded file is no longer available — the blob was removed before ingest, or the document row is gone. | No |
 | `too-complex` | The file is more than this instance will read or expand: too many messages or parts, too deeply nested, or too much content behind them. Refused whole, because a partly processed file would look complete and would not be. An administrator can raise the limits; see `.env.example`. | No |
 | `empty-container` | A mailbox with no messages that could be read out of it. Distinct from `empty-file`, which has no bytes at all: this one has bytes and nothing in them, and telling somebody their 30 MiB archive is empty would send them looking for the wrong problem. | No |
@@ -66,6 +67,7 @@ const MATCHERS: { code: FailureCode; pattern: RegExp }[] = [
   { code: "empty-file",        pattern: /file is empty/i },
   { code: "too-large",         pattern: /file is too large/i },
   { code: "corrupt-source",    pattern: /checksum mismatch/i },
+  { code: "upload-unreadable", pattern: /uploaded file could not be decrypted/i },
   { code: "too-complex",       pattern: /exceeds the \w+ (expansion )?limit of/i },
   { code: "empty-container",   pattern: /no messages found in this mailbox/i },
   { code: "missing-upload",    pattern: /no upload to ingest|document no longer exists/i },

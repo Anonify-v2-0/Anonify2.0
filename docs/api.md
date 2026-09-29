@@ -99,24 +99,34 @@ token route will later sign is fixed.
     "size": 1234567,
     "contentType": "application/pdf",
     "preset": "pii",
-    "ttlSeconds": 3600
+    "ttlSeconds": 3600,
+    "uploadEncryption": "v1"
   }
   ```
   `filename` (1–200), `size` (positive, ≤ `MAX_UPLOAD_BYTES`), `contentType`
   (optional, ≤ 200), `preset` (optional, must be a known preset id), `ttlSeconds`
-  (must be in `ALLOWED_TTL_SECONDS`, defaults to `DEFAULT_TTL_SECONDS`).
+  (must be in `ALLOWED_TTL_SECONDS`, defaults to `DEFAULT_TTL_SECONDS`),
+  `uploadEncryption` (optional: `"v1"` asks for an upload key and promises a
+  sealed upload; absent means the upload will be plaintext).
 - **Response `201`:**
   ```json
   {
     "id": "doc_...",
-    "pathname": "uploads/doc_.../report.pdf",
+    "pathname": "documents/doc_.../upload/report.pdf",
     "expiresAt": "2026-09-05T12:00:00.000Z",
     "quota": { ... },
-    "uploadMode": "vercel-blob" | "local" | "s3"
+    "uploadMode": "vercel-blob" | "s3-presigned" | "server-route",
+    "uploadEncryption": { "format": "v1", "key": "<base64>", "chunkShift": 20 } | null
   }
   ```
-- **Errors:** `400` invalid body / unknown preset; `429` upload allowance
-  reached; `409`/`503` from `reserveDocument` or config.
+  `uploadEncryption` is present when it was asked for. `key` is the raw
+  single-use upload key, and this is the only response that carries it. Seal
+  the file in the v1 chunked envelope with that key, `pathname` as the logical
+  key, and `2^chunkShift`-byte chunks (`lib/storage/chunked-web.ts` does it),
+  and upload the ciphertext. See [storage.md](./storage.md#sealed-uploads).
+- **Errors:** `400` invalid body / unknown preset / plaintext upload refused
+  (`ANONIFY_UPLOAD_ENCRYPTION=required` and no `uploadEncryption`); `429`
+  upload allowance reached; `409`/`503` from `reserveDocument` or config.
 
 ### `GET /api/documents/:id`
 
@@ -153,7 +163,7 @@ clock and are extended with it.
 
 ### `DELETE /api/documents/:id`
 
-Deletes a document and every artifact it owns — source, plaintext upload if
+Deletes a document and every artifact it owns — source, the upload if
 ingest never reached it, normalized model, every export — then the row. Goes
 through `purgeDocument`, the same list the cleanup sweep uses. The row is
 deleted last and only if storage cleared.
@@ -512,11 +522,13 @@ than starting a second one.
 - **Body:** `{ "blobUrl": "https://..." | "local:..." | "s3:..." }` — an
   absolute URL (Vercel Blob) or a `driver:path` key (S3, local). If a run
   already exists for this document the body is ignored and the existing run is
-  returned.
+  returned. The handle must be this document's own upload path; a handle the
+  server already recorded when the bytes landed takes precedence over this one.
 - **Response `202`:** `{ "runId": "run_...", "resumed": false }` — or
   `{ "runId", "resumed": true }` (200) when a run was already in flight.
-- **Errors:** `400` invalid process request / unrecognised storage handle;
-  `429` processing rate limit; `404`/`410` access.
+- **Errors:** `400` invalid process request / unrecognised storage handle /
+  the upload does not belong to this document; `429` processing rate limit;
+  `404`/`410` access.
 
 ### `GET /api/documents/:id/stream`
 
@@ -653,29 +665,32 @@ refusal is returned as `429`.
       { "filename": "a.pdf", "size": 1234, "contentType": "application/pdf" }
     ],
     "preset": "pii",
-    "ttlSeconds": 3600
+    "ttlSeconds": 3600,
+    "uploadEncryption": "v1"
   }
   ```
   `files` is 1–`MAX_BATCH_FILES` entries (`filename` 1–200, `size` positive ≤
   `MAX_UPLOAD_BYTES`, optional `contentType`). `preset` must be a known id.
-  `ttlSeconds` must be in `ALLOWED_TTL_SECONDS`.
+  `ttlSeconds` must be in `ALLOWED_TTL_SECONDS`. `uploadEncryption` is as for
+  a single document and applies to every file; each still gets its own key.
 - **Response `201`:**
   ```json
   {
     "batchId": "batch_...",
     "accepted": [
       { "index": 0, "id": "doc_...", "filename": "a.pdf",
-        "pathname": "uploads/...", "expiresAt": "..." }
+        "pathname": "documents/doc_.../upload/a.pdf", "expiresAt": "...",
+        "uploadEncryption": { "format": "v1", "key": "<base64>", "chunkShift": 20 } }
     ],
     "refused": [
       { "index": 1, "filename": "b.pdf", "reason": "...", "retryAfterSeconds": 60 }
     ],
-    "uploadMode": "vercel-blob" | "local" | "s3"
+    "uploadMode": "vercel-blob" | "s3-presigned" | "server-route"
   }
   ```
   `index` is what the browser matches its `File` objects on (names can repeat).
-- **Errors:** `400` invalid batch request / unknown preset; `429` no file
-  could be started (carries `refused`).
+- **Errors:** `400` invalid batch request / unknown preset / plaintext upload
+  refused; `429` no file could be started (carries `refused`).
 
 ### `GET /api/batches/:id`
 
@@ -958,16 +973,23 @@ a model.
 
 ## Upload
 
-Two upload paths exist, selected by `uploadMode` in the reserve response.
-Downstream — ingest, extraction, export — cannot tell the difference.
+Three upload paths exist, selected by `uploadMode` in the reserve response:
+`vercel-blob` (a scoped token, straight to Blob), `s3-presigned` (a presigned
+PUT, straight to the bucket), and `server-route` (through
+`/api/upload/local`). Each path carries whatever the client sends, which is
+ciphertext when it asked for an upload key at reservation. Downstream (ingest,
+extraction, export) cannot tell the paths apart. Every size ceiling is on the
+plaintext, so a sealed upload may be larger than `MAX_UPLOAD_BYTES` by exactly
+its header and tags.
 
 ### `POST /api/upload/token`
 
 Issues short-lived client upload tokens for Vercel Blob. The browser never
 gets a general-purpose write token: each is scoped to a single path that
 belongs to a document the caller already reserved and still owns, with the
-size ceiling and a short expiry baked in. Only reachable when Vercel Blob is
-configured.
+size ceiling and a short expiry baked in. The stored URL gets a random suffix,
+so it cannot be worked out from the document id and filename. Only reachable
+when Vercel Blob is configured.
 
 - **Auth:** session
 - **Body:** the `@vercel/blob` `HandleUploadBody`, with a `clientPayload` of
@@ -987,11 +1009,44 @@ application's own `MAX_UPLOAD_BYTES` rather than a serverless body limit.
 
 - **Auth:** session
 - **Rate limit:** `upload`
-- **Body:** `multipart/form-data` with fields `documentId` and `file`.
-- **Response `201`:** `{ "url": "<storage key>", "size": 12345 }`
+- **Body:** `multipart/form-data` with fields `documentId` and `file`. For a
+  document reserved with `uploadEncryption`, `file` is the sealed envelope and
+  is stored exactly as it arrived.
+- **Response `201`:** `{ "url": "<storage key>", "size": 12345 }`. The route
+  also records the key on the document, so the expiry sweep finds the upload
+  even if `/process` is never called.
 - **Errors:** `400` expected multipart / missing document reference / no
-  file / empty file; `404` document not found / foreign; `409` document has
-  already been uploaded; `413` file too large; `429` upload rate limit.
+  file / empty file / not a sealed file (a size no sealer produces); `404`
+  document not found / foreign; `409` document has already been uploaded;
+  `413` file too large (its plaintext, for a sealed upload); `429` upload rate
+  limit.
+
+### `POST /api/upload/presign`
+
+A presigned PUT straight into the S3 bucket, for an install with
+`S3_PRESIGNED_UPLOADS=true`. It is issued only for a document reserved with
+`uploadEncryption`, and the signature covers the object's exact length.
+
+- **Auth:** session
+- **Rate limit:** `upload`
+- **Body:** `{ "documentId": "doc_...", "size": 1234 }`, where `size` is the
+  sealed object's length in bytes.
+- **Response `200`:**
+  ```json
+  {
+    "url": "https://...",
+    "method": "PUT",
+    "headers": { "content-type": "application/octet-stream" },
+    "handle": "s3:documents/doc_.../upload/report.pdf",
+    "expiresAt": "..."
+  }
+  ```
+  PUT the sealed bytes to `url` with `headers`, then pass `handle` to
+  `/process`.
+- **Errors:** `400` invalid body / the document was reserved for a plaintext
+  upload / not a sealed size / empty; `404` document not found / foreign;
+  `409` already uploaded, or this deployment does not presign uploads; `413`
+  plaintext over `MAX_UPLOAD_BYTES`; `429` upload rate limit.
 
 ---
 

@@ -13,7 +13,6 @@ import { analyzeDocument, analyzeImageRegions } from "@/lib/ai/analyze"
 import { skipIsFailure, type StructuredSkip } from "@/lib/ai/gateway"
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
-import { MAX_UPLOAD_BYTES } from "@/lib/config"
 import { admitAfter } from "@/lib/documents/admission"
 import {
   DelimitedExtractionStream,
@@ -39,12 +38,12 @@ import { extractXlsx } from "@/lib/documents/xlsx/extract"
 import { XlsxExtractionStream } from "@/lib/documents/xlsx/stream"
 import { openPackageFromArchive } from "@/lib/documents/ooxml/package"
 import { openZip, ZipFallback } from "@/lib/documents/ooxml/zip"
-import { detectDocumentType, extensionMatchesKind } from "@/lib/documents/detect"
 import { ExpansionLimitError } from "@/lib/documents/eml/attachments"
 import { EmlLimitError } from "@/lib/documents/eml/limits"
 import { MboxLimitError } from "@/lib/documents/mbox/limits"
 import { MboxParseError } from "@/lib/documents/mbox/parse"
 import { expandContainer } from "@/lib/documents/expand"
+import { runIngest } from "@/lib/documents/ingest"
 import { newEventId } from "@/lib/documents/ids"
 import type { NormalizedIndex } from "@/lib/documents/normalized-json"
 import {
@@ -53,7 +52,6 @@ import {
   saveNormalized,
   saveNormalizedStream,
 } from "@/lib/documents/normalized-store"
-import { DETECTION_SAMPLE_BYTES } from "@/lib/documents/sample"
 import { OcrConfigurationError } from "@/lib/ocr"
 import { detectionToRedaction, toDatabaseRow } from "@/lib/redaction/model"
 import { categoryAllowed, presetById } from "@/lib/redaction/presets"
@@ -61,24 +59,16 @@ import { carryOwnerRules } from "@/lib/redaction/owner-rules"
 import { PatternBudgetError, PatternError } from "@/lib/redaction/patterns"
 import { carryBatchRules } from "@/lib/redaction/rules"
 import { chargeDocumentUsage, quotaMessage } from "@/lib/security/usage"
-import {
-  deleteObject,
-  getObjectStream,
-  objectSize,
-  sourceKey,
-} from "@/lib/storage/blob"
+import { sourceKey } from "@/lib/storage/blob"
 import { checksumMatches, sha256 } from "@/lib/storage/integrity"
 import {
   documentSeal,
   getSealed,
   getSealedStream,
-  newDocumentSeal,
   openSealedObject,
-  putSealedStream,
   type DocumentSeal,
 } from "@/lib/storage/sealed"
 import { cachedRangeSource } from "@/lib/storage/range-source"
-import { readHead } from "@/lib/storage/streams"
 import { streamingLimits } from "@/lib/storage/streaming"
 import {
   encodeStreamEvent,
@@ -188,10 +178,17 @@ async function setStatus(
 /**
  * Ingest.
  *
- * The browser uploads straight to Blob storage, so the first thing the pipeline
- * does is take ownership of those bytes: sniff what they actually are, checksum
- * them, seal them under a fresh per-document key, and delete the plaintext
- * upload. That window is the only time the file exists unencrypted at rest.
+ * The browser uploads straight to storage, so the first thing the pipeline
+ * does is take ownership of those bytes: open them, sniff what they actually
+ * are, checksum them, seal them under a fresh per-document key, and delete the
+ * upload along with the key it was sealed under.
+ *
+ * An upload the browser sealed (`uploadFormat` is set) is opened with its
+ * single-use upload key as it is read, and nothing after that line knows it
+ * was ever sealed; see lib/storage/upload-encryption.ts. One that does not
+ * open is refused for good — the same bytes fail the same way — and nothing
+ * is stored as the source. A row without `uploadFormat` is a plaintext
+ * upload from a client that did not seal, and is read exactly as before.
  *
  * All of it happens as the upload streams past. Sniffing reads the head of the
  * file and nothing else, so the head is read, judged, and then sent on into
@@ -204,128 +201,10 @@ async function ingestUpload(documentId: string): Promise<{ kind: DocumentKind }>
   return runIngest(documentId).catch(paced)
 }
 
-// Storage reads, a write back and the plaintext delete all live in here, so a
+// Storage reads, a write back and the upload delete all live in here, so a
 // failure is usually weather rather than a verdict. The verdicts throw
 // FatalError, which `paced` lets through untouched.
 ingestUpload.maxRetries = 4
-
-async function runIngest(documentId: string): Promise<{ kind: DocumentKind }> {
-  const document = await prisma.document.findUnique({
-    where: { id: documentId },
-    select: {
-      id: true,
-      originalName: true,
-      uploadBlobKey: true,
-      sourceBlobKey: true,
-      kind: true,
-    },
-  })
-
-  if (!document) throw new FatalError("Document no longer exists")
-
-  // Already ingested: the step is replaying after a retry.
-  if (document.sourceBlobKey) {
-    return { kind: document.kind as DocumentKind }
-  }
-  if (!document.uploadBlobKey) {
-    throw new FatalError("No upload to ingest")
-  }
-
-  // Refused on the stored size before a byte is read. The count taken while
-  // streaming below is the authority; this is the cheap early answer.
-  const declared = await objectSize(document.uploadBlobKey)
-  if (declared === 0) throw new FatalError("Uploaded file is empty")
-  if (declared > MAX_UPLOAD_BYTES) {
-    throw new FatalError("Uploaded file is too large")
-  }
-
-  const kind = await sealUpload(
-    documentId,
-    document.uploadBlobKey,
-    document.originalName
-  )
-
-  await deleteObject(document.uploadBlobKey)
-  await prisma.document.update({
-    where: { id: documentId },
-    data: { uploadBlobKey: null },
-  })
-
-  return { kind }
-}
-
-/**
- * Streams the plaintext upload through the sniff, the hash and the sealer, and
- * records the sealed copy. The upload itself is left for the caller to delete,
- * once this has let go of it.
- */
-async function sealUpload(
-  documentId: string,
-  uploadBlobKey: string,
-  originalName: string
-): Promise<DocumentKind> {
-  const upload = await getObjectStream(uploadBlobKey)
-  try {
-    const { head, rest } = await readHead(upload, DETECTION_SAMPLE_BYTES)
-
-    // The filename is passed as a hint, not as an authority: it can only choose
-    // between text formats whose bytes already decode as text.
-    const detected = detectDocumentType(head, originalName)
-    if (!detected) throw new FatalError("Unsupported file type")
-    if (!extensionMatchesKind(originalName, detected.kind)) {
-      throw new FatalError("File contents do not match its extension")
-    }
-
-    const hash = createHash("sha256")
-    let size = 0
-    let refusal: FatalError | null = null
-
-    async function* plaintext(): AsyncGenerator<Buffer> {
-      size += head.byteLength
-      hash.update(head)
-      yield head
-
-      for await (const piece of rest) {
-        size += piece.byteLength
-        if (size > MAX_UPLOAD_BYTES) {
-          // The object grew between the size check and the read. Refused as
-          // the size check would have refused it, and the half-sealed object
-          // is abandoned with the stream rather than stored.
-          refusal = new FatalError("Uploaded file is too large")
-          throw refusal
-        }
-        hash.update(piece)
-        yield piece
-      }
-    }
-
-    const seal = newDocumentSeal()
-    let stored
-    try {
-      stored = await putSealedStream(sourceKey(documentId), plaintext(), seal)
-    } catch (error) {
-      throw refusal ?? error
-    }
-    if (size === 0) throw new FatalError("Uploaded file is empty")
-
-    await prisma.document.update({
-      where: { id: documentId },
-      data: {
-        sourceBlobKey: stored.key,
-        encryptionKey: seal.wrappedKey,
-        encryptionFormat: seal.format,
-        checksum: hash.digest("hex"),
-        size,
-        kind: detected.kind,
-        mimeType: detected.mimeType,
-      },
-    })
-
-    return detected.kind
-  } finally {
-    upload.destroy()
-  }
-}
 
 /**
  * Expansion: a container becomes a batch.

@@ -107,7 +107,9 @@ An uploaded source document. The stored source bytes are AES-256-GCM encrypted;
 | `error` | `String?` | User-facing failure sentence from `lib/workflows/failure.ts`. Never a raw thrown message. |
 | `errorCode` | `String?` | Stable failure code. Retry decisions read this rather than re-parsing the sentence. |
 | `sourceBlobKey` | `String?` | Sealed source bytes. Set once ingest has re-sealed the upload. |
-| `uploadBlobKey` | `String?` | Plaintext client-upload landing spot; deleted as soon as ingest re-seals it. |
+| `uploadBlobKey` | `String?` | Client-upload landing spot; deleted as soon as ingest re-seals it. Ciphertext when `uploadFormat` is set, plaintext otherwise. Recorded by the server when it can (the local route, Vercel's webhook), and always checked to be this document's own upload path. |
+| `uploadEncryptionKey` | `String?` | The single-use key the browser sealed its upload with, wrapped under the master key (base64). Minted at reservation, returned to the browser once, nulled at ingest. Never the document's data key. See [storage.md](./storage.md#sealed-uploads). |
+| `uploadFormat` | `String?` | `v1` when the browser sealed the upload, null for a plaintext upload. Ingest dispatches on this, never on the bytes. |
 | `processedBlobKey` | `String?` | Sealed export artifact produced on demand. |
 | `workflowRunId` | `String?` | Durable run currently processing (or last processing) this document. |
 | `encryptionKey` | `String?` | Wrapped per-document data key (base64); unwrapped server-side only. |
