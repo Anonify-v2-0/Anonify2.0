@@ -14,6 +14,32 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.11.0] - 2026-09-29
+
+### Added
+
+- `S3_PRESIGNED_UPLOADS=true` lets browsers upload straight to an S3 bucket with a
+  presigned PUT, signed for the exact length of the encrypted file, instead of
+  through `/api/upload/local`. It needs a CORS rule on the bucket and, when
+  browsers reach the bucket at a different address than the app does,
+  `S3_PUBLIC_ENDPOINT`. `ANONIFY_UPLOAD_ENCRYPTION=required` refuses uploads that
+  were not encrypted in the browser (#156)
+
+### Security
+
+- Uploads are encrypted in the browser before they leave the page, under a
+  single-use key minted for that one file, so an uploaded file no longer sits in
+  storage in the clear while it waits to be processed. On Vercel Blob that was a
+  public object. Processing opens the upload, re-seals it under the document's
+  own key and destroys the upload key. A damaged upload fails with a new
+  `upload-unreadable` code and asks for a re-upload. `/api/documents/:id/process`
+  now refuses a storage handle that is not the document's own upload. Browser
+  uploads to Vercel Blob get a random suffix in their URL. Two nullable columns
+  are added to `Document`, so run `pnpm db:migrate:deploy`. Clients that do not
+  ask for a key, such as API scripts and pages served over plain HTTP (where the
+  browser has no WebCrypto), still upload plaintext unless
+  `ANONIFY_UPLOAD_ENCRYPTION=required` is set (#156)
+
 ## [1.10.0] - 2026-09-29
 
 ### Added
