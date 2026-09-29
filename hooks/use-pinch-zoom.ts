@@ -81,10 +81,16 @@ export function usePinchZoom(
       const surface = surfaceOf(container)
       if (!surface) return
       const [a, b] = [event.touches[0], event.touches[1]]
-      const midpoint = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }
+      const midpoint = {
+        x: (a.clientX + b.clientX) / 2,
+        y: (a.clientY + b.clientY) / 2,
+      }
       const rect = surface.getBoundingClientRect()
       pinch = {
-        startDistance: Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)),
+        startDistance: Math.max(
+          1,
+          Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+        ),
         startZoom: zoomRef.current,
         anchor: {
           x: (midpoint.x - rect.left) / zoomRef.current,
@@ -105,9 +111,14 @@ export function usePinchZoom(
       event.preventDefault()
       const [a, b] = [event.touches[0], event.touches[1]]
       const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
-      const target = clampZoom(pinch.startZoom * (distance / pinch.startDistance))
+      const target = clampZoom(
+        pinch.startZoom * (distance / pinch.startDistance)
+      )
       pinch.scale = target / pinch.startZoom
-      pinch.midpoint = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }
+      pinch.midpoint = {
+        x: (a.clientX + b.clientX) / 2,
+        y: (a.clientY + b.clientY) / 2,
+      }
       // Scaled around where the pinch began, and carried along with the
       // fingers as they move together.
       const shift = {
@@ -137,7 +148,10 @@ export function usePinchZoom(
         x: (midpoint.x - rect.left) / zoomRef.current,
         y: (midpoint.y - rect.top) / zoomRef.current,
       }
-      commit(Math.exp(-event.deltaY / 200), midpoint, anchor)
+      // A trackpad pinch sends many small deltas; a mouse wheel notch with
+      // Ctrl held sends about 100, which is a quarter or so more zoom.
+      const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY
+      commit(Math.exp(-delta / 400), midpoint, anchor)
     }
 
     // iOS Safari zooms the page on its own gesture events regardless of

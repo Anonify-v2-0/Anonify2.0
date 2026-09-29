@@ -184,6 +184,19 @@
     select {
       font-size: max(16px, 1em);
     }
+
+    /*
+      Every control in a panel (the sheets, the inspector, results and Hush
+      rails) is at least 44 px on a touch screen, without each pill and tab
+      restating it. Scoped to panels: the page's own hit areas are sized by
+      the document, and the spreadsheet grid by its rows.
+    */
+    [data-touch-targets] :is(button, a[href], [role="tab"], select, summary) {
+      min-height: 44px;
+    }
+    [data-touch-targets] :is(button, a[href]) {
+      min-width: 44px;
+    }
   }
 }
 

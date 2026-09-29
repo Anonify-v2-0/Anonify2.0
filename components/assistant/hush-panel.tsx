@@ -418,6 +418,7 @@ export function HushPanel({
         initialSnap="full"
         snap={sheetSnap}
         onSnapChange={setSheetSnap}
+        aboveBar
         className="lg:hidden"
       >
         {body}
@@ -432,6 +433,7 @@ export function HushPanel({
       role="dialog"
       aria-modal="false"
       aria-labelledby="hush-title"
+      data-touch-targets
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.stopPropagation()

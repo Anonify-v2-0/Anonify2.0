@@ -91,7 +91,7 @@ export function ZoomControl() {
         // The track's middle is 100%; a tick marks it.
         style={{ ["--zoom-fill" as string]: `${(position / STEPS) * 100}%` }}
         className={cn(
-          "hidden h-4 w-28 cursor-pointer appearance-none bg-transparent sm:block",
+          "hidden h-4 w-28 cursor-pointer appearance-none bg-transparent sm:block pointer-coarse:h-11",
           "[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-full",
           "[&::-webkit-slider-runnable-track]:bg-[linear-gradient(to_right,var(--color-primary)_var(--zoom-fill),rgba(255,255,255,0.14)_var(--zoom-fill))]",
           "[&::-webkit-slider-thumb]:-mt-[5px] [&::-webkit-slider-thumb]:size-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-primary [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow",
@@ -118,7 +118,7 @@ export function ZoomControl() {
         <button
           type="button"
           onClick={() => dispatch(zoomChanged(1))}
-          className="w-11 rounded px-1 text-center text-xs text-text-muted tabular-nums transition-colors hover:bg-white/5 hover:text-white"
+          className="w-11 rounded px-1 text-center text-xs text-text-muted tabular-nums transition-colors hover:bg-white/5 hover:text-white pointer-coarse:h-11"
         >
           {percent}%<span className="sr-only">, reset to 100%</span>
         </button>

@@ -36,7 +36,12 @@ import {
   zoomStepped,
 } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
-import { searchClosed, searchOpened } from "@/store/searchSlice"
+import {
+  batchSearchToggled,
+  resultsToggled,
+  searchClosed,
+  searchOpened,
+} from "@/store/searchSlice"
 import { selectCanRedo, selectCanUndo, selectCounts } from "@/store/selectors"
 import {
   assistantToggled,
@@ -81,6 +86,17 @@ export function MobileActionBar({
 
   const drawing = tool === "redact"
 
+  /**
+   * One panel at a time on a phone: the sheets rest in the same place, and a
+   * second one opened over the first hid it without closing it.
+   */
+  const closePanels = () => {
+    dispatch(mobileSheetToggled(false))
+    dispatch(assistantToggled(null))
+    dispatch(resultsToggled(false))
+    dispatch(batchSearchToggled(false))
+  }
+
   return (
     <>
       <nav
@@ -98,7 +114,10 @@ export function MobileActionBar({
         <BarButton
           label="Search"
           pressed={searchOpen}
-          onClick={() => dispatch(searchOpen ? searchClosed() : searchOpened())}
+          onClick={() => {
+            if (!searchOpen) closePanels()
+            dispatch(searchOpen ? searchClosed() : searchOpened())
+          }}
         >
           <Search className="size-5" />
         </BarButton>
@@ -107,6 +126,7 @@ export function MobileActionBar({
           pressed={reviewOpen}
           haspopup
           onClick={() => {
+            if (!reviewOpen) closePanels()
             dispatch(inspectorTabChanged("redactions"))
             dispatch(mobileSheetToggled(!reviewOpen))
           }}
@@ -123,7 +143,10 @@ export function MobileActionBar({
           label="Hush"
           pressed={hushOpen}
           haspopup
-          onClick={() => dispatch(assistantToggled())}
+          onClick={() => {
+            if (!hushOpen) closePanels()
+            dispatch(assistantToggled())
+          }}
           dot={learned > 0}
           description={
             learned > 0
@@ -202,11 +225,14 @@ function BarButton({
           </span>
         ) : null}
         {dot ? (
-          <span aria-hidden className="absolute top-0 right-2 size-2 rounded-full bg-primary" />
+          <span
+            aria-hidden
+            className="absolute top-0 right-2 size-2 rounded-full bg-primary"
+          />
         ) : null}
       </span>
       {label}
-      {description ?? hint ? (
+      {(description ?? hint) ? (
         <span className="sr-only">, {description ?? hint}</span>
       ) : null}
     </button>
@@ -246,40 +272,6 @@ function MoreSheet({
       className="roomy:hidden"
     >
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4">
-        <Group title="Zoom">
-          <Action
-            label="Zoom out"
-            disabled={zoom <= MIN_ZOOM}
-            onClick={() => dispatch(zoomStepped(-0.1))}
-          >
-            <ZoomOut className="size-4" />
-          </Action>
-          <Action label={`${Math.round(zoom * 100)}%, actual size`} onClick={() => dispatch(zoomChanged(1))}>
-            <Scale className="size-4" />
-          </Action>
-          <Action
-            label="Zoom in"
-            disabled={zoom >= MAX_ZOOM}
-            onClick={() => dispatch(zoomStepped(0.1))}
-          >
-            <ZoomIn className="size-4" />
-          </Action>
-          <Action
-            label="Fit width"
-            pressed={fitMode === "width"}
-            onClick={() => dispatch(fitModeChanged("width"))}
-          >
-            <MoveHorizontal className="size-4" />
-          </Action>
-          <Action
-            label="Fit page"
-            pressed={fitMode === "page"}
-            onClick={() => dispatch(fitModeChanged("page"))}
-          >
-            <Maximize2 className="size-4" />
-          </Action>
-        </Group>
-
         <Group title="History">
           <Action label="Undo" disabled={!canUndo} onClick={onUndo}>
             <Undo2 className="size-4" />
@@ -330,12 +322,51 @@ function MoreSheet({
           </Link>
         </Group>
 
+        <Group title="Zoom">
+          <Action
+            label="Zoom out"
+            disabled={zoom <= MIN_ZOOM}
+            onClick={() => dispatch(zoomStepped(-0.1))}
+          >
+            <ZoomOut className="size-4" />
+          </Action>
+          <Action
+            label={`${Math.round(zoom * 100)}%, actual size`}
+            onClick={() => dispatch(zoomChanged(1))}
+          >
+            <Scale className="size-4" />
+          </Action>
+          <Action
+            label="Zoom in"
+            disabled={zoom >= MAX_ZOOM}
+            onClick={() => dispatch(zoomStepped(0.1))}
+          >
+            <ZoomIn className="size-4" />
+          </Action>
+          <Action
+            label="Fit width"
+            pressed={fitMode === "width"}
+            onClick={() => dispatch(fitModeChanged("width"))}
+          >
+            <MoveHorizontal className="size-4" />
+          </Action>
+          <Action
+            label="Fit page"
+            pressed={fitMode === "page"}
+            onClick={() => dispatch(fitModeChanged("page"))}
+          >
+            <Maximize2 className="size-4" />
+          </Action>
+        </Group>
+
         <Group title="Keep this document">
           <RetentionControl
             documentId={summary.id}
             createdAt={summary.createdAt}
             expiresAt={summary.expiresAt}
-            onExtended={(expiresAt) => dispatch(documentLoaded({ ...summary, expiresAt }))}
+            onExtended={(expiresAt) =>
+              dispatch(documentLoaded({ ...summary, expiresAt }))
+            }
             className="min-h-11 border border-border"
           />
         </Group>

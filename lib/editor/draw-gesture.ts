@@ -101,7 +101,10 @@ export function drawReducer(
       if (state.kind !== "drafting" || state.pointerId !== event.pointerId) {
         return { state, commit: null }
       }
-      return { state: { ...state, x: event.point.x, y: event.point.y }, commit: null }
+      return {
+        state: { ...state, x: event.point.x, y: event.point.y },
+        commit: null,
+      }
     case "up": {
       if (state.kind !== "drafting" || state.pointerId !== event.pointerId) {
         return { state, commit: null }

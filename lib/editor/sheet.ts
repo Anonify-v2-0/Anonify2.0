@@ -42,20 +42,30 @@ export function settleSheet({
 }): SheetSettle {
   if (heights.length === 0) return { close: true }
 
-  // A flick moves one step in its direction, whatever the distance: that is
-  // what a swipe means on every phone.
+  // A flick carries on in its direction: to the next snap point beyond where
+  // the finger let go, at least one step from where it started, and off the
+  // screen when there is nothing below. A long fast swipe down from half
+  // height closes the sheet rather than stopping at peek.
   if (velocity > FLICK_VELOCITY) {
-    return from <= 0 ? { close: true } : { close: false, snap: from - 1 }
+    const below = heights.findLastIndex(
+      (candidate, index) => index < from && candidate < height
+    )
+    return below < 0 ? { close: true } : { close: false, snap: below }
   }
   if (velocity < -FLICK_VELOCITY) {
-    return { close: false, snap: Math.min(heights.length - 1, from + 1) }
+    const above = heights.findIndex(
+      (candidate, index) => index > from && candidate > height
+    )
+    return { close: false, snap: above < 0 ? heights.length - 1 : above }
   }
 
   if (height < heights[0] * DISMISS_SHARE) return { close: true }
 
   let nearest = 0
   for (let index = 1; index < heights.length; index += 1) {
-    if (Math.abs(heights[index] - height) < Math.abs(heights[nearest] - height)) {
+    if (
+      Math.abs(heights[index] - height) < Math.abs(heights[nearest] - height)
+    ) {
       nearest = index
     }
   }

@@ -54,7 +54,10 @@ export function useRegionEditor({
   bounds: { width: number; height: number }
   commit: ((id: string, box: BoundingBox) => void) | undefined
 }) {
-  const [preview, setPreview] = useState<{ id: string; box: BoundingBox } | null>(null)
+  const [preview, setPreview] = useState<{
+    id: string
+    box: BoundingBox
+  } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const latest = useRef(preview)
   useEffect(() => {
@@ -75,13 +78,17 @@ export function useRegionEditor({
     (redaction: Redaction, key: string, shift: boolean): boolean => {
       const original = redaction.boundingBox
       if (!original || !commit) return false
-      const base = latest.current?.id === redaction.id ? latest.current.box : original
+      const base =
+        latest.current?.id === redaction.id ? latest.current.box : original
       const next = nudgeBox(base, key, shift, 1, bounds)
       if (!next) return false
       setPreview({ id: redaction.id, box: next })
       latest.current = { id: redaction.id, box: next }
       clearTimeout(timer.current)
-      timer.current = setTimeout(() => finish(redaction.id, next, original), 500)
+      timer.current = setTimeout(
+        () => finish(redaction.id, next, original),
+        500
+      )
       return true
     },
     [bounds, commit, finish]
@@ -158,7 +165,12 @@ export function RegionHandles({
   const move = (event: ReactPointerEvent<HTMLElement>) => {
     const current = drag.current
     if (!current || current.pointerId !== event.pointerId) return
-    if (Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > 3) {
+    if (
+      Math.hypot(
+        event.clientX - current.startX,
+        event.clientY - current.startY
+      ) > 3
+    ) {
       current.moved = true
     }
     if (current.moved) onPreview(next(event))
@@ -198,7 +210,12 @@ export function RegionHandles({
         {...common}
         onPointerDown={(event) => begin("move", event)}
         className="absolute cursor-move touch-none"
-        style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
+        style={{
+          left: box.x,
+          top: box.y,
+          width: box.width,
+          height: box.height,
+        }}
       />
       {HANDLES.map((handle) => (
         <div
@@ -208,11 +225,17 @@ export function RegionHandles({
           onPointerDown={(event) => begin(handle, event)}
           className={cn(
             "hit-expand absolute touch-none rounded-full border border-primary bg-white shadow",
-            handle === "nw" || handle === "se" ? "cursor-nwse-resize" : "cursor-nesw-resize"
+            handle === "nw" || handle === "se"
+              ? "cursor-nwse-resize"
+              : "cursor-nesw-resize"
           )}
           style={{
-            left: (handle.endsWith("w") ? box.x : box.x + box.width) - handleSize / 2,
-            top: (handle.startsWith("n") ? box.y : box.y + box.height) - handleSize / 2,
+            left:
+              (handle.endsWith("w") ? box.x : box.x + box.width) -
+              handleSize / 2,
+            top:
+              (handle.startsWith("n") ? box.y : box.y + box.height) -
+              handleSize / 2,
             width: handleSize,
             height: handleSize,
             borderWidth: 1.5 / zoom,
@@ -243,9 +266,13 @@ export function RedactionPopover({
   onClose: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
+  const [position, setPosition] = useState<{
+    left: number
+    top: number
+  } | null>(null)
   const accepted = redaction.status === "accepted"
-  const what = redaction.text || (redaction.type === "face" ? "Face" : redaction.category)
+  const what =
+    redaction.text || (redaction.type === "face" ? "Face" : redaction.category)
 
   useLayoutEffect(() => {
     const menu = ref.current
@@ -255,7 +282,9 @@ export function RedactionPopover({
     const height = menu.offsetHeight
     const below = target.bottom + 8
     const top =
-      below + height < window.innerHeight - 8 ? below : Math.max(8, target.top - height - 8)
+      below + height < window.innerHeight - 8
+        ? below
+        : Math.max(8, target.top - height - 8)
     const left = Math.min(
       Math.max(8, target.left + target.width / 2 - width / 2),
       window.innerWidth - width - 8
@@ -312,29 +341,52 @@ export function RedactionPopover({
       </p>
       <div className="flex flex-wrap gap-1">
         {accepted ? (
-          <button type="button" onClick={act(() => actions.reject(redaction.id))} className={cn(item, "text-white hover:bg-white/6")}>
+          <button
+            type="button"
+            onClick={act(() => actions.reject(redaction.id))}
+            className={cn(item, "text-white hover:bg-white/6")}
+          >
             <Undo2 className="size-4" />
             Unredact
           </button>
         ) : (
           <>
-            <button type="button" onClick={act(() => actions.accept(redaction.id))} className={cn(item, "bg-red-soft font-medium text-primary hover:bg-primary/20")}>
+            <button
+              type="button"
+              onClick={act(() => actions.accept(redaction.id))}
+              className={cn(
+                item,
+                "bg-red-soft font-medium text-primary hover:bg-primary/20"
+              )}
+            >
               <Check className="size-4" />
               Accept
             </button>
-            <button type="button" onClick={act(() => actions.reject(redaction.id))} className={cn(item, "text-white hover:bg-white/6")}>
+            <button
+              type="button"
+              onClick={act(() => actions.reject(redaction.id))}
+              className={cn(item, "text-white hover:bg-white/6")}
+            >
               <X className="size-4" />
               Ignore
             </button>
           </>
         )}
         {redaction.source === "user" ? (
-          <button type="button" onClick={act(() => actions.remove(redaction.id))} className={cn(item, "text-white hover:bg-white/6")}>
+          <button
+            type="button"
+            onClick={act(() => actions.remove(redaction.id))}
+            className={cn(item, "text-white hover:bg-white/6")}
+          >
             <Trash2 className="size-4" />
             Delete
           </button>
         ) : null}
-        <button type="button" onClick={act(() => actions.inspect(redaction.id))} className={cn(item, "text-text-secondary hover:bg-white/6")}>
+        <button
+          type="button"
+          onClick={act(() => actions.inspect(redaction.id))}
+          className={cn(item, "text-text-secondary hover:bg-white/6")}
+        >
           <Info className="size-4" />
           Details
         </button>
@@ -348,7 +400,13 @@ export function RedactionPopover({
  * A moment's outline around what a tap just redacted. On a touch screen
  * there is no hover to show what a tap will take, so it shows what it took.
  */
-export function TapFlash({ boxes, onDone }: { boxes: BoundingBox[]; onDone: () => void }) {
+export function TapFlash({
+  boxes,
+  onDone,
+}: {
+  boxes: BoundingBox[]
+  onDone: () => void
+}) {
   return (
     <>
       {boxes.map((box, index) => (
@@ -357,7 +415,12 @@ export function TapFlash({ boxes, onDone }: { boxes: BoundingBox[]; onDone: () =
           aria-hidden
           onAnimationEnd={index === 0 ? onDone : undefined}
           className="tap-flash pointer-events-none absolute rounded-[2px] bg-primary/35 ring-2 ring-primary"
-          style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
+          style={{
+            left: box.x,
+            top: box.y,
+            width: box.width,
+            height: box.height,
+          }}
         />
       ))}
     </>

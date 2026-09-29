@@ -136,7 +136,10 @@ export function RedactionInspector({
   documentId: string
 }) {
   return (
-    <aside className="hidden w-[320px] shrink-0 flex-col border-l border-border bg-surface-2 xl:flex">
+    <aside
+      data-touch-targets
+      className="hidden w-[320px] shrink-0 flex-col border-l border-border bg-surface-2 xl:flex"
+    >
       <InspectorTabs actions={actions} documentId={documentId} idPrefix="rail" />
     </aside>
   )

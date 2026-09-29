@@ -54,6 +54,12 @@ type SheetProps = {
   snap?: SheetSnap
   onSnapChange?: (snap: SheetSnap) => void
   modal?: boolean
+  /**
+   * On a phone, rest on top of the bottom action bar rather than over it, so
+   * the bar still switches between Review, Search and Hush while a non-modal
+   * sheet is open.
+   */
+  aboveBar?: boolean
   className?: string
   children: ReactNode
 }
@@ -63,7 +69,13 @@ const FOCUSABLE =
 
 function focusables(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-    (element) => !element.closest("[inert]") && element.offsetParent !== null
+    (element) =>
+      !element.closest("[inert]") &&
+      element.offsetParent !== null &&
+      // Checked on the element too: some buttons are disabled by property
+      // without the attribute, and focusing one silently does nothing.
+      !(element as HTMLButtonElement).disabled &&
+      element.getAttribute("aria-disabled") !== "true"
   )
 }
 
@@ -77,13 +89,15 @@ export function Sheet({
   snap: controlledSnap,
   onSnapChange,
   modal = false,
+  aboveBar = false,
   className,
   children,
 }: SheetProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const returnFocus = useRef<HTMLElement | null>(null)
   const [ownSnap, setOwnSnap] = useState<SheetSnap>(initialSnap ?? snaps[0])
-  const snap = controlledSnap && snaps.includes(controlledSnap) ? controlledSnap : ownSnap
+  const snap =
+    controlledSnap && snaps.includes(controlledSnap) ? controlledSnap : ownSnap
   const snapIndex = Math.max(0, snaps.indexOf(snap))
   const titleId = useId()
 
@@ -179,6 +193,7 @@ export function Sheet({
         inert={!open}
         tabIndex={-1}
         data-state={open ? "open" : "closed"}
+        data-touch-targets
         data-snap={snap}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -206,13 +221,20 @@ export function Sheet({
           }
         }}
         style={{
-          height: `calc(${SNAP_FRACTIONS[snap] * 100}svh - ${offset}px)`,
+          height: `calc(${SNAP_FRACTIONS[snap] * 100}svh - var(--sheet-bottom, 0px) - ${offset}px)`,
         }}
         className={cn(
-          "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[14px] border-t border-border bg-surface-2 pb-[env(safe-area-inset-bottom)] shadow-panel outline-none",
+          "fixed inset-x-0 bottom-(--sheet-bottom,0px) z-50 flex flex-col rounded-t-[14px] border-t border-border bg-surface-2 pb-[env(safe-area-inset-bottom)] shadow-panel outline-none",
+          // The action bar is 3.5rem plus the home indicator's inset.
+          aboveBar &&
+            "compact:z-30 compact:pb-0 compact:[--sheet-bottom:calc(3.5rem+env(safe-area-inset-bottom))]",
           "pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]",
-          dragging ? "" : "motion-safe:transition-[transform,height] motion-safe:duration-200 motion-safe:ease-out",
-          open ? "translate-y-0" : "pointer-events-none translate-y-full",
+          dragging
+            ? ""
+            : "motion-safe:transition-[transform,height] motion-safe:duration-200 motion-safe:ease-out",
+          open
+            ? "translate-y-0"
+            : "pointer-events-none translate-y-[calc(100%+var(--sheet-bottom,0px))]",
           className
         )}
       >
@@ -220,7 +242,12 @@ export function Sheet({
           className="flex shrink-0 touch-none flex-col"
           onPointerDown={(event) => {
             // Buttons in the header act; everywhere else in it drags.
-            if ((event.target as HTMLElement).closest("button:not([data-sheet-handle])")) return
+            if (
+              (event.target as HTMLElement).closest(
+                "button:not([data-sheet-handle])"
+              )
+            )
+              return
             if (event.button !== 0) return
             event.currentTarget.setPointerCapture(event.pointerId)
             drag.current = {
@@ -241,7 +268,11 @@ export function Sheet({
             current.lastTime = event.timeStamp
             // Upwards past the tallest snap point is resisted, not followed.
             const moved = event.clientY - current.startY
-            setOffset(moved < 0 ? Math.max(moved, -(viewport - heights[heights.length - 1])) : moved)
+            setOffset(
+              moved < 0
+                ? Math.max(moved, -(viewport - heights[heights.length - 1]))
+                : moved
+            )
           }}
           onPointerUp={(event) => {
             const current = drag.current
@@ -276,7 +307,11 @@ export function Sheet({
               if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
               event.preventDefault()
               event.stopPropagation()
-              const result = stepSheet(snaps.length, snapIndex, event.key === "ArrowUp" ? "up" : "down")
+              const result = stepSheet(
+                snaps.length,
+                snapIndex,
+                event.key === "ArrowUp" ? "up" : "down"
+              )
               if (result.close) close()
               else changeSnap(snaps[result.snap])
             }}
@@ -284,13 +319,16 @@ export function Sheet({
               if (event.timeStamp < suppressClickUntil.current) return
               changeSnap(snaps[(snapIndex + 1) % snaps.length])
             }}
-            className="flex h-6 w-full items-center justify-center rounded-t-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            className="flex h-6 w-full items-center justify-center rounded-t-[14px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset pointer-coarse:h-11"
           >
             <span aria-hidden className="h-1 w-10 rounded-full bg-white/25" />
           </button>
           {header ?? (
             <div className="flex min-h-11 items-center gap-2 border-b border-border px-4 pb-1">
-              <h2 id={titleId} className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
+              <h2
+                id={titleId}
+                className="min-w-0 flex-1 truncate text-sm font-semibold text-white"
+              >
                 {title}
               </h2>
               <button
@@ -309,7 +347,9 @@ export function Sheet({
             </span>
           ) : null}
         </div>
-        <div className="flex min-h-0 flex-1 flex-col">{open ? children : null}</div>
+        <div className="flex min-h-0 flex-1 flex-col">
+          {open ? children : null}
+        </div>
       </div>
     </>
   )

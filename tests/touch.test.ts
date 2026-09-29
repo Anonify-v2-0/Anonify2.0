@@ -37,7 +37,12 @@ function run(events: DrawEvent[], from: DrawState = IDLE) {
   return { state, commits }
 }
 
-const touchDown = (tool: "select" | "redact", x = 10, y = 10, pointerId = 1): DrawEvent => ({
+const touchDown = (
+  tool: "select" | "redact",
+  x = 10,
+  y = 10,
+  pointerId = 1
+): DrawEvent => ({
   type: "down",
   pointerId,
   pointerType: "touch",
@@ -139,13 +144,33 @@ describe("moving and resizing a region", () => {
   const page = { width: 100, height: 100 }
 
   it("moves, but not off the page", () => {
-    expect(adjustBox(box, "move", 5, -3, page)).toEqual({ x: 15, y: 7, width: 20, height: 20 })
-    expect(adjustBox(box, "move", -50, 500, page)).toEqual({ x: 0, y: 80, width: 20, height: 20 })
+    expect(adjustBox(box, "move", 5, -3, page)).toEqual({
+      x: 15,
+      y: 7,
+      width: 20,
+      height: 20,
+    })
+    expect(adjustBox(box, "move", -50, 500, page)).toEqual({
+      x: 0,
+      y: 80,
+      width: 20,
+      height: 20,
+    })
   })
 
   it("resizes from a corner, keeping the opposite corner where it was", () => {
-    expect(adjustBox(box, "se", 10, 5, page)).toEqual({ x: 10, y: 10, width: 30, height: 25 })
-    expect(adjustBox(box, "nw", -5, -5, page)).toEqual({ x: 5, y: 5, width: 25, height: 25 })
+    expect(adjustBox(box, "se", 10, 5, page)).toEqual({
+      x: 10,
+      y: 10,
+      width: 30,
+      height: 25,
+    })
+    expect(adjustBox(box, "nw", -5, -5, page)).toEqual({
+      x: 5,
+      y: 5,
+      width: 25,
+      height: 25,
+    })
   })
 
   it("never shrinks a region below a deliberate box, or turns it inside out", () => {
@@ -156,8 +181,14 @@ describe("moving and resizing a region", () => {
   })
 
   it("nudges from the keyboard, and resizes with Shift", () => {
-    expect(nudgeBox(box, "ArrowRight", false, 1, page)).toEqual({ ...box, x: 11 })
-    expect(nudgeBox(box, "ArrowDown", true, 1, page)).toEqual({ ...box, height: 21 })
+    expect(nudgeBox(box, "ArrowRight", false, 1, page)).toEqual({
+      ...box,
+      x: 11,
+    })
+    expect(nudgeBox(box, "ArrowDown", true, 1, page)).toEqual({
+      ...box,
+      height: 21,
+    })
     expect(nudgeBox(box, "Enter", false, 1, page)).toBeNull()
   })
 })
@@ -183,30 +214,54 @@ describe("where a sheet comes to rest", () => {
   const heights = [240, 440, 740]
 
   it("settles on the nearest snap point", () => {
-    expect(settleSheet({ heights, from: 1, height: 700, velocity: 0 })).toEqual({
-      close: false,
-      snap: 2,
-    })
-    expect(settleSheet({ heights, from: 2, height: 300, velocity: 0 })).toEqual({
-      close: false,
-      snap: 0,
-    })
+    expect(settleSheet({ heights, from: 1, height: 700, velocity: 0 })).toEqual(
+      {
+        close: false,
+        snap: 2,
+      }
+    )
+    expect(settleSheet({ heights, from: 2, height: 300, velocity: 0 })).toEqual(
+      {
+        close: false,
+        snap: 0,
+      }
+    )
   })
 
   it("closes when dragged well below the lowest point", () => {
-    expect(settleSheet({ heights, from: 0, height: 100, velocity: 0 })).toEqual({ close: true })
+    expect(settleSheet({ heights, from: 0, height: 100, velocity: 0 })).toEqual(
+      { close: true }
+    )
+  })
+
+  it("closes on a long fast swipe down, rather than stopping at the next point", () => {
+    expect(settleSheet({ heights, from: 1, height: 120, velocity: 2 })).toEqual(
+      { close: true }
+    )
+    expect(settleSheet({ heights, from: 2, height: 300, velocity: 2 })).toEqual(
+      {
+        close: false,
+        snap: 0,
+      }
+    )
   })
 
   it("moves one step on a flick, and a flick down from the bottom closes", () => {
-    expect(settleSheet({ heights, from: 1, height: 430, velocity: 1 })).toEqual({
-      close: false,
-      snap: 0,
-    })
-    expect(settleSheet({ heights, from: 1, height: 450, velocity: -1 })).toEqual({
+    expect(settleSheet({ heights, from: 1, height: 430, velocity: 1 })).toEqual(
+      {
+        close: false,
+        snap: 0,
+      }
+    )
+    expect(
+      settleSheet({ heights, from: 1, height: 450, velocity: -1 })
+    ).toEqual({
       close: false,
       snap: 2,
     })
-    expect(settleSheet({ heights, from: 0, height: 230, velocity: 1 })).toEqual({ close: true })
+    expect(settleSheet({ heights, from: 0, height: 230, velocity: 1 })).toEqual(
+      { close: true }
+    )
   })
 
   it("steps from the keyboard the same way", () => {
@@ -220,27 +275,38 @@ describe("saving a moved region", () => {
   const box = { x: 1, y: 2, width: 3, height: 4 }
 
   it("accepts one region and its new box", () => {
-    expect(redactionPatchSchema.safeParse({ ids: ["r"], boundingBox: box }).success).toBe(true)
+    expect(
+      redactionPatchSchema.safeParse({ ids: ["r"], boundingBox: box }).success
+    ).toBe(true)
   })
 
   it("refuses a move that also tries to accept", () => {
     expect(
-      redactionPatchSchema.safeParse({ ids: ["r"], boundingBox: box, status: "accepted" }).success
+      redactionPatchSchema.safeParse({
+        ids: ["r"],
+        boundingBox: box,
+        status: "accepted",
+      }).success
     ).toBe(false)
   })
 
   it("refuses moving several regions to one box, or off the page", () => {
-    expect(redactionPatchSchema.safeParse({ ids: ["a", "b"], boundingBox: box }).success).toBe(
-      false
-    )
     expect(
-      redactionPatchSchema.safeParse({ ids: ["r"], boundingBox: { ...box, x: -1 } }).success
+      redactionPatchSchema.safeParse({ ids: ["a", "b"], boundingBox: box })
+        .success
+    ).toBe(false)
+    expect(
+      redactionPatchSchema.safeParse({
+        ids: ["r"],
+        boundingBox: { ...box, x: -1 },
+      }).success
     ).toBe(false)
   })
 
   it("still takes a plain accept", () => {
-    expect(redactionPatchSchema.safeParse({ ids: ["a", "b"], status: "accepted" }).success).toBe(
-      true
-    )
+    expect(
+      redactionPatchSchema.safeParse({ ids: ["a", "b"], status: "accepted" })
+        .success
+    ).toBe(true)
   })
 })

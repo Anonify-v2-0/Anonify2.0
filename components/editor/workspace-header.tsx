@@ -99,7 +99,7 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
         size={26}
         className="justify-center sm:hidden pointer-coarse:min-h-11 pointer-coarse:min-w-11"
       />
-      <Brand size={26} className="hidden sm:flex" />
+      <Brand size={26} className="hidden sm:flex pointer-coarse:min-h-11" />
 
       <Link
         href="/documents"
@@ -120,7 +120,7 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
         target="_blank"
         rel="noreferrer"
         title="View source on GitHub"
-        className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-text-muted transition-colors hover:border-border-strong hover:text-white lg:flex"
+        className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-text-muted transition-colors hover:border-border-strong hover:text-white lg:flex pointer-coarse:min-h-11"
       >
         <Code className="size-3.5" />
         Source

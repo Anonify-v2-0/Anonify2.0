@@ -483,6 +483,7 @@ function ResultsPlacement({ show, inBatch }: { show: boolean; inBatch: boolean }
       title="Search results"
       snaps={["peek", "half", "full"]}
       initialSnap="half"
+        aboveBar
     >
       <ResultsPanel inBatch={inBatch} variant="sheet" />
     </Sheet>
@@ -627,6 +628,7 @@ function Wrapper({
   return (
     <aside
       aria-label="Search results"
+      data-touch-targets
       className="flex w-[320px] shrink-0 flex-col border-l border-border bg-surface-2"
     >
       {children}

@@ -43,7 +43,7 @@ export function MobileInspector({
           size="sm"
           aria-haspopup="dialog"
           onClick={() => dispatch(mobileSheetToggled(true))}
-          className="fixed right-4 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 rounded-full shadow-panel compact:hidden xl:hidden"
+          className="fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 rounded-full bg-surface-2 shadow-panel compact:hidden xl:hidden dark:bg-surface-2 dark:hover:bg-surface-3"
         >
           <ListFilter className="size-4" />
           {counts.suggested > 0
@@ -58,6 +58,7 @@ export function MobileInspector({
         title="Review"
         snaps={["peek", "half", "full"]}
         initialSnap="half"
+        aboveBar
         className="xl:hidden"
       >
         <InspectorTabs actions={actions} documentId={documentId} idPrefix="sheet" />
