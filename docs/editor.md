@@ -22,7 +22,8 @@ Providers                         ThemeProvider (forced dark), StoreProvider,
 
 Workspace                         the orchestrator
  ├── WorkspaceHeader              filename, batch nav, retention, export
- ├── PageNavigator                thumbnail rail (PDF pages)
+ ├── PageNavigator                thumbnail rail (from `lg`)
+ ├── PageStepper                  ‹ 3 / 12 › over the canvas (below `lg`)
  ├── DocumentCanvas               format-dispatching surface
  │    ├── PdfViewer               rendered PDF page
  │    │    ├── RedactionLayer     boxes, spans, drag regions
@@ -36,8 +37,10 @@ Workspace                         the orchestrator
  ├── SearchBar                    find across the document (§14)
  ├── RedactionInspector           tabs: Redactions | Rules (§15)
  │    └── RulesPanel              every rule in scope; toggle, edit, remove
- ├── MobileInspector              same tabs, as a bottom sheet
+ ├── MobileInspector              same tabs, as a bottom sheet (§18)
+ ├── PagesSheet                   every page as a grid (below `lg`)
  ├── EditorToolbar                tools, search, Hush, shortcuts, zoom, undo
+ ├── MobileActionBar              the phone's toolbar, and its More sheet
  ├── ExportDialog                 style, metadata, report, download
  ├── RuleDialog                   pattern, scope, live preview (§15)
  ├── HushPanel                    the review assistant (§16)
@@ -596,9 +599,13 @@ component styled with Tailwind tokens:
 
 ```
 alert  badge  button  card  checkbox  dialog  dropdown-menu  input  label
-popover  progress  scroll-area  select  separator  sonner  switch  tabs
-tooltip
+popover  progress  scroll-area  select  separator  sheet  sonner  switch
+tabs  tooltip
 ```
+
+`sheet` is the project's own, not shadcn's: the one bottom sheet every panel
+becomes on a phone (§18). `button` grows every size to 44 px on a coarse
+pointer, and `dialog` is a bottom sheet below `sm`.
 
 These are the building blocks every other component composes. The project does
 not re-export or wrap them further — `Button`, `Dialog`, `Select`, etc. are
@@ -870,3 +877,112 @@ Two rules hold for every binding, and `tests/shortcuts.test.ts` holds them:
 - nothing fires while the reviewer is typing in a field, and
 - nothing destructive is bound to a bare key. Accept and reject act on the
   current selection only, and undo is one keystroke away.
+
+---
+
+## 18. Small screens and touch
+
+The review has to be finishable on a phone: open, navigate, review, search and
+Redact all, rules, Hush, export, download, without a keyboard and without
+zooming the browser. This section is how that is built. The issues are #158,
+#157 (layout) and #45 (touch input).
+
+### Deciding what the device is
+
+`lib/editor/layout.ts` holds the media queries, and `app/globals.css` holds the
+same ones as two Tailwind variants, so CSS can decide before hydration and
+scripts (`hooks/use-media-query.ts`) can decide after it. Change one, change
+both.
+
+| Question | Decided by | Why |
+| --- | --- | --- |
+| Layout | width | a narrow window is narrow, whatever points at it |
+| Input affordances | `(pointer: coarse)` | a finger needs 44 px; a cursor does not |
+| `compact` (phone layout) | below 768 px, or a coarse pointer below 1024 px | a touch tablet in portrait is a big phone |
+| `roomy` | everything else | a tablet with a trackpad in landscape is a desktop |
+
+### The phone layout
+
+| Area | Wide | Compact |
+| --- | --- | --- |
+| Toolbar | `EditorToolbar` along the bottom | `MobileActionBar`: Redact · Search · Review · Hush · More, labelled, 44 px |
+| Pages | the rail, from `lg` | `PageStepper` over the canvas; its count opens `PagesSheet` |
+| Search actions | in the strip | a second row: options, Redact this, Redact all |
+| Search results | a column beside the page, from `md` | a sheet |
+| Inspector | the right rail, from `xl` | a sheet, from the Review button |
+| Hush | the right rail, from `lg` | a sheet; opens full, drops to half when a reply moves the page |
+| Zoom, undo, rules, export, retention, shortcuts | toolbar and header | the More sheet |
+| Dialogs | centred | bottom sheets below `sm`, with a swipe-down handle |
+
+On a phone one panel is open at a time: the bar closes the others when it opens
+one. Non-modal sheets (Review, results, Hush) rest on top of the bar, so it
+still switches between them. Toasts rise above the bar and the stepper.
+
+The canvas pads 12 px rather than 32 below `sm`, and fit-to-width reads the
+padding from the element, so a phone gets the page at the width of the screen.
+
+### The sheet
+
+`components/ui/sheet.tsx`, with the snapping rules in `lib/editor/sheet.ts`
+(tested in `tests/touch.test.ts`). Every sheet has:
+
+- a drag handle, with snap points (peek, half, full) and swipe down to close.
+  A flick carries on past where the finger let go, so a long fast swipe from
+  half height closes rather than stopping at peek.
+- the handle is a button: Arrow Up and Down move between snap points, and Esc
+  closes.
+- focus moves in on open, is trapped while open, and goes back to the opener
+  on close.
+- closed, it is `inert` as well as `aria-hidden`.
+- it is a labelled dialog, so opening one is announced.
+
+### 44 px
+
+On a coarse pointer, `Button` grows every size to 44 px, and inside any panel
+marked `data-touch-targets` (every sheet and the rails) every button, link and
+tab is at least 44 px. Fields are at least 16 px text there too, because iOS
+zooms the page into a smaller one on focus and does not zoom back.
+
+The page's own targets are the exception, because a redaction's painted box is
+a promise about the export and is never drawn bigger than what will be
+removed. Instead, a tap that lands on no word or redaction takes the nearest
+one within 22 CSS px. Words and redactions compete on distance. An invisible
+44 px hit area around each thin redaction was tried first: it overlapped the
+lines above and below, so tapping a word next to a suggestion selected the
+suggestion.
+
+### Gestures on the canvas
+
+`lib/editor/draw-gesture.ts` is the state machine both canvases feed pointer
+events through (tested with `pointerType: "touch"` events):
+
+- **One finger scrolls in the select tool, and draws in the redact tool.** A
+  mouse still draws in either, as it always has. `touch-action` follows the
+  tool: `pan-x pan-y` while selecting and `none` only while redacting, which
+  also means an image that fills a phone's screen scrolls again.
+- The surface captures the pointer that started a draft. `pointercancel` and
+  lost capture discard the draft, so a gesture the browser takes back no
+  longer leaves a box stuck on screen. A second finger abandons the draft,
+  because that is a pinch.
+- **Pinch** (`hooks/use-pinch-zoom.ts`) scales the page with a transform while
+  the fingers move, then commits once through the toolbar's `zoomChanged`, so
+  the slider and fit modes stay in step. It keeps the point under the fingers
+  under them. Ctrl + wheel, which is what a trackpad pinch sends, does the
+  same.
+- **Tap a word** to redact it. On touch, what was taken flashes for a moment,
+  because there is no hover to preview it.
+- **Tap a redaction** for a small menu (`RedactionPopover`): Accept or Ignore
+  (Unredact once accepted), Delete for a manual one, and Details, which opens
+  the inspector. Accept is always its own press, so no tap accepts anything by
+  itself.
+- **Select text** (DOCX, TXT, RTF, PPTX, EML) with a long press and the
+  phone's own handles, then press **Redact selection**. A mouse selection
+  still redacts on release. A touch one cannot, because adjusting the handles
+  is several releases and none of them means "done".
+- **Move and resize** a selected region (a drawn box or a detected face) by
+  its handles, or with the arrow keys (Shift resizes). The new box goes through
+  `redactionBoxSet`, so it can be undone, and through
+  `PATCH /api/documents/:id/redactions` with `{ ids: [id], boundingBox }`,
+  which the server accepts only for a row that already has its own geometry
+  and never together with a status. The exporter reads it through
+  `boxesForRedaction`, like every other box.

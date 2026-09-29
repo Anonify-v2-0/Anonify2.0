@@ -1,3 +1,4 @@
+import type { BoundingBox } from "@/types/document"
 import {
   DEFAULT_METHOD,
   type Redaction,
@@ -8,6 +9,7 @@ import {
 export type HistoryWrite =
   | { ids: string[]; status: RedactionStatus }
   | { ids: string[]; method: RedactionMethod }
+  | { ids: [string]; boundingBox: BoundingBox }
 
 /**
  * What the server has to be told after an undo or a redo.
@@ -29,6 +31,7 @@ export function historyWrites(
 ): HistoryWrite[] {
   const statuses = new Map<RedactionStatus, string[]>()
   const methods = new Map<RedactionMethod, string[]>()
+  const boxes: { ids: [string]; boundingBox: BoundingBox }[] = []
 
   const ids = new Set([...Object.keys(before), ...Object.keys(after)])
   for (const id of ids) {
@@ -47,10 +50,27 @@ export function historyWrites(
     if (now && nowMethod !== (was?.method ?? DEFAULT_METHOD)) {
       methods.set(nowMethod, [...(methods.get(nowMethod) ?? []), id])
     }
+
+    // A region moved or resized: the box the export will cover goes back
+    // with it. One request per region, because each has its own box.
+    const nowBox = now?.boundingBox
+    const wasBox = was?.boundingBox
+    if (
+      was &&
+      nowBox &&
+      wasBox &&
+      (nowBox.x !== wasBox.x ||
+        nowBox.y !== wasBox.y ||
+        nowBox.width !== wasBox.width ||
+        nowBox.height !== wasBox.height)
+    ) {
+      boxes.push({ ids: [id], boundingBox: nowBox })
+    }
   }
 
   return [
     ...[...statuses].map(([status, ids]) => ({ ids, status })),
     ...[...methods].map(([method, ids]) => ({ ids, method })),
+    ...boxes,
   ]
 }

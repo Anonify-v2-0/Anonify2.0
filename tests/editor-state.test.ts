@@ -4,6 +4,7 @@ import { historyWrites } from "@/store/history-sync"
 import { makeStore } from "@/store/store"
 import {
   redactionAdded,
+  redactionBoxSet,
   redactionMethodSet,
   redactionRemoved,
   redactionsReplaced,
@@ -262,5 +263,77 @@ describe("syncing a step through history", () => {
       )
     )
     expect(writes).toEqual([{ ids: ["manual"], status: "rejected" }])
+  })
+})
+
+/**
+ * Moving and resizing a drawn region (#45). The box is what the export
+ * covers, so a move is a change like any other: undoable, and synced back.
+ */
+describe("adjusting a region", () => {
+  const region = (id: string, overrides: Partial<Redaction> = {}) =>
+    redaction(id, {
+      type: "region",
+      source: "user",
+      category: "other",
+      status: "accepted",
+      text: undefined,
+      page: 1,
+      boundingBox: { x: 10, y: 20, width: 30, height: 40 },
+      ...overrides,
+    })
+
+  it("moves a region and takes the move back on undo", () => {
+    const store = makeStore()
+    store.dispatch(redactionsReplaced([region("r")]))
+    store.dispatch(
+      redactionBoxSet({ id: "r", boundingBox: { x: 15, y: 25, width: 30, height: 40 } })
+    )
+    expect(store.getState().redactions.entities.r.boundingBox).toEqual({
+      x: 15,
+      y: 25,
+      width: 30,
+      height: 40,
+    })
+
+    const before = store.getState().redactions.entities
+    store.dispatch(undone())
+    expect(store.getState().redactions.entities.r.boundingBox).toEqual({
+      x: 10,
+      y: 20,
+      width: 30,
+      height: 40,
+    })
+    expect(historyWrites(before, store.getState().redactions.entities)).toEqual([
+      { ids: ["r"], boundingBox: { x: 10, y: 20, width: 30, height: 40 } },
+    ])
+  })
+
+  it("leaves the status alone: moving a suggestion does not accept it", () => {
+    const store = makeStore()
+    store.dispatch(redactionsReplaced([region("r", { status: "suggested", source: "ai" })]))
+    store.dispatch(
+      redactionBoxSet({ id: "r", boundingBox: { x: 0, y: 0, width: 50, height: 50 } })
+    )
+    expect(store.getState().redactions.entities.r.status).toBe("suggested")
+  })
+
+  it("never gives a text redaction a rectangle of its own", () => {
+    const store = makeStore()
+    store.dispatch(redactionsReplaced([redaction("t", { start: 0, end: 4 })]))
+    store.dispatch(
+      redactionBoxSet({ id: "t", boundingBox: { x: 0, y: 0, width: 50, height: 50 } })
+    )
+    expect(store.getState().redactions.entities.t.boundingBox).toBeUndefined()
+    expect(selectCanUndo(store.getState())).toBe(false)
+  })
+
+  it("records nothing for a box that did not change", () => {
+    const store = makeStore()
+    store.dispatch(redactionsReplaced([region("r")]))
+    store.dispatch(
+      redactionBoxSet({ id: "r", boundingBox: { x: 10, y: 20, width: 30, height: 40 } })
+    )
+    expect(selectCanUndo(store.getState())).toBe(false)
   })
 })

@@ -1,11 +1,28 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 
-import { boxesForRedaction } from "@/lib/redaction/geometry"
+import {
+  RedactionPopover,
+  RegionHandles,
+  TapFlash,
+  useRegionEditor,
+  type RedactionLayerActions,
+} from "@/components/redaction/touch-overlays"
+import {
+  draftBox,
+  drawReducer,
+  IDLE,
+  surfaceTouchAction,
+  type DrawEvent,
+  type DrawState,
+} from "@/lib/editor/draw-gesture"
+import { MIN_TOUCH_TARGET } from "@/lib/editor/layout"
+import { nearestBox } from "@/lib/editor/touch-geometry"
+import { boxesForRange, boxesForRedaction } from "@/lib/redaction/geometry"
 import { characterAtX, wordAt } from "@/lib/redaction/words"
 import { cn } from "@/lib/utils"
-import type { BoundingBox, NormalizedPage } from "@/types/document"
+import type { BoundingBox, NormalizedPage, TextSpan } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
 
 /**
@@ -16,14 +33,20 @@ import type { Redaction } from "@/types/redaction"
  * rather than a decoration standing in for it. Words are clickable and a drag
  * creates a region, so anything the detectors missed is one gesture away.
  *
+ * On a touch screen (#45): one finger scrolls in the select tool and draws
+ * only in the redact tool (see draw-gesture.ts). A tap that misses takes
+ * whichever word or redaction is nearest within a finger's width, so a word
+ * redacts (and flashes what it took) and a redaction however thin is still
+ * selectable. Tapping a redaction opens a small menu of what can be done with
+ * it. A selected region can be moved and resized by its handles, or with the
+ * arrow keys (Shift resizes).
+ *
  * Accessibility: the per-word hit targets are a pointer affordance and are kept
  * out of the tab order deliberately — a page of prose would otherwise be several
  * hundred tab stops, which is worse than having none. Redactions themselves are
  * focusable and toggle from the keyboard, and the inspector list is the complete
  * keyboard path to every suggestion on the page.
  */
-
-const MIN_DRAG_PX = 6
 
 /** A label a screen reader can act on, rather than a bare category. */
 function describe(redaction: Redaction): string {
@@ -34,17 +57,6 @@ function describe(redaction: Redaction): string {
     redaction.status === "accepted" ? "redacted" : "suggested, not yet accepted"
   const value = redaction.text ? `: ${redaction.text}` : ""
   return `${redaction.category}${value}${confidence}. ${state}. Press to select.`
-}
-
-type Draft = { startX: number; startY: number; x: number; y: number }
-
-function draftToBox(draft: Draft): BoundingBox {
-  return {
-    x: Math.min(draft.startX, draft.x),
-    y: Math.min(draft.startY, draft.y),
-    width: Math.abs(draft.x - draft.startX),
-    height: Math.abs(draft.y - draft.startY),
-  }
 }
 
 // Re-exported so callers that render redactions keep importing from one place.
@@ -59,6 +71,26 @@ export type RedactionLayerProps = {
   onCreateRegion: (box: BoundingBox) => void
   onRedactSpan: (span: { start: number; end: number; text: string }) => void
   tool: "select" | "redact" | "pan"
+  actions?: RedactionLayerActions
+}
+
+/** The character range a press at `x` (page units from the span's left) means. */
+function rangeAt(page: NormalizedPage, span: TextSpan, x: number) {
+  const box = span.boundingBox
+  // The value under the pointer, not the run: a PDF run is often a whole
+  // line, and redacting it to remove one name on it removed the line. See
+  // `wordAt`.
+  const character =
+    span.offsets && span.offsets.length === span.text.length + 1
+      ? characterAtX(span.offsets, x)
+      : span.geometry === "word" || !box
+        ? -1
+        : Math.min(span.text.length - 1, Math.floor((x / box.width) * span.text.length))
+  const word = character >= 0 ? wordAt(page.text, span.start + character) : null
+  // A word from OCR is already the unit; so is a run whose characters cannot
+  // be placed.
+  const range = word ?? { start: span.start, end: span.end }
+  return { ...range, text: page.text.slice(range.start, range.end) }
 }
 
 export function RedactionLayer({
@@ -70,9 +102,23 @@ export function RedactionLayer({
   onCreateRegion,
   onRedactSpan,
   tool,
+  actions,
 }: RedactionLayerProps) {
-  const [draft, setDraft] = useState<Draft | null>(null)
+  const [draw, setDraw] = useState<DrawState>(IDLE)
+  const drawRef = useRef<DrawState>(IDLE)
   const surfaceRef = useRef<HTMLDivElement>(null)
+  /** How the last press was made: a tap on touch means more than a click. */
+  const lastPointer = useRef("mouse")
+  const [menu, setMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null)
+  /** Each redaction's first box, for anchoring its menu. */
+  const anchors = useRef(new Map<string, HTMLElement>())
+  /** Set when a drag just made a region, so its closing click does nothing more. */
+  const justDrew = useRef(false)
+  const [flash, setFlash] = useState<{ key: number; boxes: BoundingBox[] } | null>(null)
+  const regions = useRegionEditor({
+    bounds: { width: page.width, height: page.height },
+    commit: actions?.adjust,
+  })
 
   const toPageSpace = useCallback(
     (event: { clientX: number; clientY: number }) => {
@@ -86,44 +132,102 @@ export function RedactionLayer({
     [zoom]
   )
 
-  // The drag continues even when the pointer leaves the page.
-  useEffect(() => {
-    if (!draft) return
-
-    function onMove(event: PointerEvent) {
-      const point = toPageSpace(event)
-      setDraft((current) => (current ? { ...current, ...point } : current))
+  const send = (event: DrawEvent) => {
+    const { state, commit } = drawReducer(drawRef.current, event)
+    if (state === drawRef.current) return
+    drawRef.current = state
+    setDraw(state)
+    if (commit) {
+      justDrew.current = true
+      setTimeout(() => (justDrew.current = false), 0)
+      onCreateRegion(commit)
     }
+  }
 
-    function onUp() {
-      setDraft((current) => {
-        if (!current) return null
-        const box = draftToBox(current)
-        if (box.width >= MIN_DRAG_PX && box.height >= MIN_DRAG_PX) {
-          onCreateRegion(box)
-        }
-        return null
-      })
+  const redact = (range: { start: number; end: number; text: string }) => {
+    onRedactSpan(range)
+    if (lastPointer.current !== "mouse") {
+      const boxes = boxesForRange(page, range.start, range.end)
+      setFlash((previous) => ({ key: (previous?.key ?? 0) + 1, boxes }))
     }
+  }
 
-    window.addEventListener("pointermove", onMove)
-    window.addEventListener("pointerup", onUp)
-    return () => {
-      window.removeEventListener("pointermove", onMove)
-      window.removeEventListener("pointerup", onUp)
-    }
-  }, [draft, onCreateRegion, toPageSpace])
-
-  const draftBox = draft ? draftToBox(draft) : null
+  const draft = draftBox(draw)
+  // Memoized by the compiler; the popover resubscribes if it changes.
+  const closeMenu = () => setMenu(null)
+  const menuRedaction = menu ? redactions.find((candidate) => candidate.id === menu.id) : undefined
+  const selected = redactions.find((candidate) => candidate.id === selectedId)
+  const selectedBox = selected ? regions.boxOf(selected) : undefined
 
   return (
     <div
       ref={surfaceRef}
       className={cn("absolute inset-0", tool === "redact" && "cursor-crosshair")}
+      style={{
+        touchAction: surfaceTouchAction(tool),
+        // 44 CSS px in this layer's own units, for `hit-expand`.
+        ["--hit-size" as string]: `${MIN_TOUCH_TARGET / zoom}px`,
+      }}
       onPointerDown={(event) => {
-        if (event.button !== 0 || tool === "pan") return
+        lastPointer.current = event.pointerType
+        send({
+          type: "down",
+          pointerId: event.pointerId,
+          pointerType: event.pointerType,
+          button: event.button,
+          tool,
+          point: toPageSpace(event),
+        })
+        // The drag belongs to the surface that started it, wherever the
+        // pointer goes, and ends there too.
+        if (drawRef.current.kind === "drafting") {
+          event.currentTarget.setPointerCapture?.(event.pointerId)
+        }
+      }}
+      onPointerMove={(event) =>
+        drawRef.current.kind === "drafting" &&
+        send({ type: "move", pointerId: event.pointerId, point: toPageSpace(event) })
+      }
+      onPointerUp={(event) => send({ type: "up", pointerId: event.pointerId })}
+      // The browser took the gesture back (a scroll, a system gesture), or
+      // capture was lost: the draft is discarded, never left on screen.
+      onPointerCancel={(event) => send({ type: "cancel", pointerId: event.pointerId })}
+      onLostPointerCapture={(event) => send({ type: "cancel", pointerId: event.pointerId })}
+      onClick={(event) => {
+        // A click that reached the surface rather than a word: in the redact
+        // tool, one that started on a word and did not become a drag; on
+        // touch, a tap that landed between words. Either takes the nearest
+        // word, within a finger's reach for a finger and none for a mouse.
+        if (event.target !== event.currentTarget || justDrew.current) return
+        const mouse = lastPointer.current === "mouse"
+        if (tool === "pan" || (mouse && tool === "select")) return
         const point = toPageSpace(event)
-        setDraft({ startX: point.x, startY: point.y, ...point })
+        const reach = mouse ? 0 : MIN_TOUCH_TARGET / 2 / zoom
+        // Redactions and words compete on distance. A fixed 44 px hit area
+        // around each thin redaction overlapped the lines above and below
+        // it, so a tap on a neighbouring word selected the redaction instead.
+        const placed = mouse
+          ? []
+          : redactions.flatMap((redaction) => {
+              const own = regions.boxOf(redaction)
+              return (own ? [own] : boxesForRedaction(page, redaction)).map((box) => ({
+                redaction,
+                box,
+              }))
+            })
+        const words = page.spans.map((span) => span.boundingBox)
+        const index = nearestBox(point, [...placed.map((entry) => entry.box), ...words], reach)
+        if (index === null) return
+        if (index < placed.length) {
+          const { redaction } = placed[index]
+          onSelect(redaction.id)
+          const anchor = anchors.current.get(redaction.id)
+          if (anchor && actions) setMenu({ id: redaction.id, anchor })
+          return
+        }
+        const span = page.spans[index - placed.length]
+        const box = span.boundingBox!
+        redact(rangeAt(page, span, Math.min(Math.max(point.x - box.x, 0), box.width)))
       }}
     >
       {/*
@@ -139,33 +243,18 @@ export function RedactionLayer({
             tabIndex={-1}
             aria-hidden
             title={span.text}
-            onPointerDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => {
+              lastPointer.current = event.pointerType
+              // In the redact tool a press on a word may be the start of a
+              // box: text covers most of a page, and a finger has nowhere
+              // else to start one.
+              if (tool !== "redact") event.stopPropagation()
+            }}
             onClick={(event) => {
-              // The value under the pointer, not the run: a PDF run is often a
-              // whole line, and redacting it to remove one name on it removed
-              // the line. See `wordAt`.
               const target = event.currentTarget.getBoundingClientRect()
               const box = span.boundingBox
               const x = box ? ((event.clientX - target.left) / target.width) * box.width : 0
-              const character =
-                span.offsets && span.offsets.length === span.text.length + 1
-                  ? characterAtX(span.offsets, x)
-                  : span.geometry === "word" || !box
-                    ? -1
-                    : Math.min(
-                        span.text.length - 1,
-                        Math.floor((x / box.width) * span.text.length)
-                      )
-              const word =
-                character >= 0 ? wordAt(page.text, span.start + character) : null
-              // A word from OCR is already the unit; so is a run whose
-              // characters cannot be placed.
-              const range = word ?? { start: span.start, end: span.end }
-              onRedactSpan({
-                start: range.start,
-                end: range.end,
-                text: page.text.slice(range.start, range.end),
-              })
+              redact(rangeAt(page, span, x))
             }}
             className="absolute cursor-pointer bg-transparent transition-colors hover:bg-primary/20"
             style={{
@@ -178,28 +267,51 @@ export function RedactionLayer({
         ) : null
       )}
 
-      {redactions.map((redaction) =>
-        boxesForRedaction(page, redaction).map((box, index) => {
+      {redactions.map((redaction) => {
+        const own = regions.boxOf(redaction)
+        const boxes = own ? [own] : boxesForRedaction(page, redaction)
+        return boxes.map((box, index) => {
           const accepted = redaction.status === "accepted"
-          const selected = redaction.id === selectedId
+          const isSelected = redaction.id === selectedId
 
           return (
             <button
               key={`${redaction.id}-${index}`}
+              ref={(element) => {
+                if (index !== 0) return
+                if (element) anchors.current.set(redaction.id, element)
+                else anchors.current.delete(redaction.id)
+              }}
               type="button"
               aria-pressed={accepted}
               aria-label={describe(redaction)}
               title={describe(redaction)}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={() => onSelect(redaction.id)}
+              onPointerDown={(event) => {
+                lastPointer.current = event.pointerType
+                event.stopPropagation()
+              }}
+              onClick={(event) => {
+                onSelect(redaction.id)
+                if (lastPointer.current !== "mouse" && actions) {
+                  setMenu({ id: redaction.id, anchor: event.currentTarget })
+                }
+              }}
+              onKeyDown={(event) => {
+                if (!isSelected || !event.key.startsWith("Arrow")) return
+                if (regions.nudge(redaction, event.key, event.shiftKey)) {
+                  // Arrows move the region, not the page.
+                  event.preventDefault()
+                  event.stopPropagation()
+                }
+              }}
               className={cn(
                 "absolute transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                 accepted
                   ? "bg-black"
                   : "border border-dashed border-red-border bg-red-soft hover:bg-primary/25",
-                selected && !accepted && "border-primary bg-primary/30",
-                selected && accepted && "outline-2 outline-offset-1 outline-primary"
+                isSelected && !accepted && "border-primary bg-primary/30",
+                isSelected && accepted && "outline-2 outline-offset-1 outline-primary"
               )}
               style={{
                 left: box.x,
@@ -210,17 +322,47 @@ export function RedactionLayer({
             />
           )
         })
-      )}
+      })}
 
-      {draftBox ? (
+      {selected && selectedBox && actions ? (
+        <RegionHandles
+          box={selectedBox}
+          zoom={zoom}
+          bounds={{ width: page.width, height: page.height }}
+          onPreview={(box) =>
+            regions.setPreview(box ? { id: selected.id, box } : null)
+          }
+          onCommit={(box) => regions.finish(selected.id, box, selected.boundingBox!)}
+          onTap={(event) => {
+            if (event.pointerType === "mouse") return
+            const anchor = anchors.current.get(selected.id)
+            if (anchor) setMenu({ id: selected.id, anchor })
+          }}
+        />
+      ) : null}
+
+      {flash ? (
+        <TapFlash key={flash.key} boxes={flash.boxes} onDone={() => setFlash(null)} />
+      ) : null}
+
+      {draft ? (
         <div
           className="pointer-events-none absolute border border-primary bg-primary/20"
           style={{
-            left: draftBox.x,
-            top: draftBox.y,
-            width: draftBox.width,
-            height: draftBox.height,
+            left: draft.x,
+            top: draft.y,
+            width: draft.width,
+            height: draft.height,
           }}
+        />
+      ) : null}
+
+      {menu && menuRedaction && actions ? (
+        <RedactionPopover
+          redaction={menuRedaction}
+          anchor={menu.anchor}
+          actions={actions}
+          onClose={closeMenu}
         />
       ) : null}
     </div>

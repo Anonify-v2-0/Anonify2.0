@@ -39,7 +39,7 @@ function BatchNav({ batch }: { batch: NonNullable<DocumentSummary["batch"]> }) {
       <Link
         href={`/workspace/${id}`}
         aria-label={`${direction === "next" ? "Next" : "Previous"} document in this batch`}
-        className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-muted hover:text-white"
+        className="flex size-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-muted hover:text-white pointer-coarse:size-11"
       >
         {direction === "next" ? (
           <ChevronRight className="size-4" />
@@ -48,7 +48,7 @@ function BatchNav({ batch }: { batch: NonNullable<DocumentSummary["batch"]> }) {
         )}
       </Link>
     ) : (
-      <span className="flex size-7 items-center justify-center text-text-muted/40">
+      <span className="flex size-7 items-center justify-center text-text-muted/40 pointer-coarse:size-11">
         {direction === "next" ? (
           <ChevronRight className="size-4" />
         ) : (
@@ -65,7 +65,7 @@ function BatchNav({ batch }: { batch: NonNullable<DocumentSummary["batch"]> }) {
       <Link
         href={`/batches/${batch.batchId}`}
         title="Back to this batch"
-        className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs whitespace-nowrap text-text-secondary transition-colors hover:border-border-strong hover:text-white sm:px-3"
+        className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs whitespace-nowrap text-text-secondary transition-colors hover:border-border-strong hover:text-white sm:px-3 pointer-coarse:min-h-11"
       >
         <Layers className="size-3.5 text-primary" />
         <span className="hidden sm:inline">Batch</span>
@@ -90,14 +90,21 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
   const dispatch = useAppDispatch()
 
   return (
-    <header className="flex h-16 shrink-0 items-center gap-4 border-b border-border bg-surface-2 px-4 lg:h-[68px] lg:px-6">
+    // box-content: the notch's inset is added to the header's height rather
+    // than taken out of it (see viewportFit in app/layout.tsx).
+    <header className="box-content flex h-16 shrink-0 items-center gap-4 border-b border-border bg-surface-2 px-4 pt-[env(safe-area-inset-top)] compact:gap-2 compact:px-2 lg:h-[68px] lg:px-6">
       {/* The mark carries the brand once the wordmark no longer fits. */}
-      <Brand showWordmark={false} size={26} className="sm:hidden" />
-      <Brand size={26} className="hidden sm:flex" />
+      <Brand
+        showWordmark={false}
+        size={26}
+        className="justify-center sm:hidden pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+      />
+      <Brand size={26} className="hidden sm:flex pointer-coarse:min-h-11" />
 
       <Link
         href="/documents"
-        className="flex items-center gap-1.5 text-xs text-text-muted transition-colors hover:text-white"
+        aria-label="Documents"
+        className="flex items-center justify-center gap-1.5 text-xs text-text-muted transition-colors hover:text-white pointer-coarse:min-h-11 pointer-coarse:min-w-11"
       >
         <ArrowLeft className="size-4" />
         <span className="hidden md:inline">Documents</span>
@@ -113,7 +120,7 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
         target="_blank"
         rel="noreferrer"
         title="View source on GitHub"
-        className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-text-muted transition-colors hover:border-border-strong hover:text-white lg:flex"
+        className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-text-muted transition-colors hover:border-border-strong hover:text-white lg:flex pointer-coarse:min-h-11"
       >
         <Code className="size-3.5" />
         Source
@@ -142,7 +149,8 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
         onExtended={(expiresAt) =>
           dispatch(documentLoaded({ ...summary, expiresAt }))
         }
-        className="hidden lg:inline-flex"
+        // In the More sheet on a phone; here wherever the header has room.
+        className="hidden roomy:inline-flex"
       />
       <StatusPill status={summary.status} />
 
@@ -166,7 +174,7 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
       ) : null}
 
       <Button
-        className="btn-pill h-9"
+        className="btn-pill h-9 pointer-coarse:min-w-11"
         disabled={summary.status !== "ready"}
         onClick={() => dispatch(exportDialogToggled(true))}
       >

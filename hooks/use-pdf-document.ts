@@ -20,8 +20,19 @@ type Entry = {
 
 const cache = new Map<string, Entry>()
 
+/**
+ * pdf.js's legacy build, not its default one.
+ *
+ * The default build assumes the newest JavaScript: pdf.js 6 calls
+ * `Map.prototype.getOrInsertComputed`, which Chromium before 145 and the iOS
+ * and Android browsers a phone reviewer is likely to have do not ship. There
+ * it threw on the first page and the canvas sat on its spinner forever, with
+ * no page and no error. The legacy build carries its own polyfills, in the
+ * library and in the worker (see scripts/copy-pdf-worker.mjs), for a little
+ * over 10% more code. The server already renders with it.
+ */
 async function loadPdfjs() {
-  const pdfjs = await import("pdfjs-dist")
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs")
   pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs"
   return pdfjs
 }

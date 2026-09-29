@@ -7,6 +7,23 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
+  Layout by capability as well as width (see lib/editor/layout.ts, which holds
+  the same queries for scripts). `compact` is a phone, or a touch tablet in
+  portrait: the bottom action bar and sheets. `roomy` is everything else,
+  including a tablet with a trackpad in landscape.
+*/
+@custom-variant compact {
+  @media (max-width: 47.999rem), (pointer: coarse) and (max-width: 63.999rem) {
+    @slot;
+  }
+}
+@custom-variant roomy {
+  @media (min-width: 48rem) and (pointer: fine), (min-width: 48rem) and (pointer: none), (min-width: 64rem) {
+    @slot;
+  }
+}
+
+/*
   Anonify design system.
 
   RED      = action / sensitive / attention
@@ -156,6 +173,31 @@
   html {
     @apply font-sans;
     }
+  /*
+    iOS zooms the whole page into any field whose text is smaller than 16px
+    when it takes focus, and does not zoom back out. On a touch screen every
+    field is at least that, so focusing search or Hush leaves the layout alone.
+  */
+  @media (pointer: coarse) {
+    input,
+    textarea,
+    select {
+      font-size: max(16px, 1em);
+    }
+
+    /*
+      Every control in a panel (the sheets, the inspector, results and Hush
+      rails) is at least 44 px on a touch screen, without each pill and tab
+      restating it. Scoped to panels: the page's own hit areas are sized by
+      the document, and the spreadsheet grid by its rows.
+    */
+    [data-touch-targets] :is(button, a[href], [role="tab"], select, summary) {
+      min-height: 44px;
+    }
+    [data-touch-targets] :is(button, a[href]) {
+      min-width: 44px;
+    }
+  }
 }
 
 /*
@@ -175,6 +217,39 @@
   }
 }
 
+/*
+  A finger-sized hit area around something whose painted box must stay exact:
+  a redaction is a promise about the export, so it is never drawn bigger than
+  what will be removed. Only on coarse pointers, and only on an element that is
+  already positioned. `--hit-size` lets a zoomed layer ask for 44 CSS pixels in
+  its own units.
+*/
+@utility hit-expand {
+  @media (pointer: coarse) {
+    &::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: max(100%, var(--hit-size, 44px));
+      height: max(100%, var(--hit-size, 44px));
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+
+/* What a tap just took, shown for a moment: hover previews do not exist on touch. */
+@keyframes tap-flash {
+  0% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
 @layer components {
   /* Pill primary action with the red/white inversion used across the product. */
   .btn-pill {
@@ -191,8 +266,18 @@
     }
 }
 
+@layer components {
+  .tap-flash {
+    animation: tap-flash 500ms ease-out forwards;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .brand-float {
     animation: none;
+  }
+  .tap-flash {
+    animation-duration: 1ms;
+    animation-delay: 400ms;
   }
 }

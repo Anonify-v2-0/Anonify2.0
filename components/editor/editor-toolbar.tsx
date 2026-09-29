@@ -49,7 +49,10 @@ export function EditorToolbar({
   const learned = useLearnedShapes().length
 
   return (
-    <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-2 px-3">
+    // The desktop toolbar. On a phone the action bar replaces it (see
+    // mobile-action-bar.tsx); on a touch tablet in landscape it stays, with
+    // every target grown to 44 px.
+    <div className="flex min-h-12 shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-2 px-3 pb-[env(safe-area-inset-bottom)] compact:hidden">
       <div className="flex items-center gap-1">
         {TOOLS.map(({ tool: value, label, shortcut, icon: Icon }) => (
           <Tooltip key={value}>
@@ -127,7 +130,7 @@ export function EditorToolbar({
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => dispatch(shortcutsToggled(true))}
-                className="hidden sm:inline-flex"
+                className="hidden sm:inline-flex pointer-coarse:hidden"
               >
                 <Keyboard className="size-4" />
                 <span className="sr-only">Keyboard shortcuts</span>

@@ -28,6 +28,7 @@ type UiState = {
   exportDialogOpen: boolean
   shortcutsOpen: boolean
   mobileSheetOpen: boolean
+  /** The pages sheet, where the rail has no room (below `lg`). */
   pagePanelOpen: boolean
   /** The right rail's tab. */
   inspectorTab: "redactions" | "rules"
@@ -46,7 +47,7 @@ const initialState: UiState = {
   exportDialogOpen: false,
   shortcutsOpen: false,
   mobileSheetOpen: false,
-  pagePanelOpen: true,
+  pagePanelOpen: false,
   inspectorTab: "redactions",
   ruleDialog: null,
   assistant: null,

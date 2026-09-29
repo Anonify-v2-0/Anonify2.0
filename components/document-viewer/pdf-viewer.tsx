@@ -83,6 +83,7 @@ export function PdfViewer({
 
   return (
     <div
+      data-zoom-surface
       className="relative shadow-document"
       style={{ width: page.width * zoom, height: page.height * zoom }}
     >

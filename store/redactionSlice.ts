@@ -1,5 +1,6 @@
 import { createSlice, current, type PayloadAction } from "@reduxjs/toolkit"
 
+import type { BoundingBox } from "@/types/document"
 import type {
   GlobalRule,
   Redaction,
@@ -155,6 +156,26 @@ const redactionSlice = createSlice({
         state.entities[id].method = action.payload.method
       }
     },
+    /**
+     * A drawn region moved or resized. Only a redaction that already has its
+     * own geometry (a region, a face) can be given a new box: a text
+     * redaction's boxes are derived from its characters, and letting it carry
+     * a rectangle as well would be two answers to where it is.
+     */
+    redactionBoxSet(
+      state,
+      action: PayloadAction<{ id: string; boundingBox: BoundingBox }>
+    ) {
+      const target = state.entities[action.payload.id]
+      if (!target?.boundingBox) return
+      const { x, y, width, height } = action.payload.boundingBox
+      const was = target.boundingBox
+      if (was.x === x && was.y === y && was.width === width && was.height === height) {
+        return
+      }
+      remember(state)
+      state.entities[action.payload.id].boundingBox = { x, y, width, height }
+    },
     undone(state) {
       const previous = state.past.pop()
       if (!previous) return
@@ -221,6 +242,7 @@ export const {
   ruleToggled,
   ruleRemoved,
   redactionsCleared,
+  redactionBoxSet,
 } = redactionSlice.actions
 
 export default redactionSlice.reducer

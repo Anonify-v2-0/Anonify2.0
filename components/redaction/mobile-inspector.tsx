@@ -1,8 +1,9 @@
 "use client"
 
-import { ChevronDown, ListFilter } from "lucide-react"
+import { ListFilter } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Sheet } from "@/components/ui/sheet"
 import {
   InspectorTabs,
   type InspectorActions,
@@ -10,14 +11,18 @@ import {
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { selectCounts } from "@/store/selectors"
 import { mobileSheetToggled } from "@/store/uiSlice"
-import { cn } from "@/lib/utils"
 
 /**
  * The inspector on small screens.
  *
  * Rather than shrinking the three-column editor, the review list becomes a
  * bottom sheet over the canvas: the document stays the largest thing on screen,
- * and the suggestions are a thumb-reach away.
+ * and the suggestions are a thumb-reach away. At half height the page stays
+ * visible above it, so picking a suggestion shows where it is.
+ *
+ * On a phone the action bar's Review button opens it. Between the phone
+ * layout and the wide one (a narrow desktop window, say) there is no action
+ * bar, so a floating button does, sitting above the toolbar.
  */
 export function MobileInspector({
   actions,
@@ -36,8 +41,9 @@ export function MobileInspector({
         <Button
           variant="outline"
           size="sm"
+          aria-haspopup="dialog"
           onClick={() => dispatch(mobileSheetToggled(true))}
-          className="fixed right-4 bottom-16 z-30 rounded-full shadow-panel xl:hidden"
+          className="fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 rounded-full bg-surface-2 shadow-panel compact:hidden xl:hidden dark:bg-surface-2 dark:hover:bg-surface-3"
         >
           <ListFilter className="size-4" />
           {counts.suggested > 0
@@ -46,26 +52,17 @@ export function MobileInspector({
         </Button>
       ) : null}
 
-      <div
-        aria-hidden={!open}
-        className={cn(
-          "fixed inset-x-0 bottom-0 z-40 flex max-h-[70svh] flex-col rounded-t-[10px] border-t border-border bg-surface-2 shadow-panel transition-transform duration-200 xl:hidden",
-          open ? "translate-y-0" : "pointer-events-none translate-y-full"
-        )}
+      <Sheet
+        open={open}
+        onOpenChange={(next) => dispatch(mobileSheetToggled(next))}
+        title="Review"
+        snaps={["peek", "half", "full"]}
+        initialSnap="half"
+        aboveBar
+        className="xl:hidden"
       >
-        <button
-          type="button"
-          onClick={() => dispatch(mobileSheetToggled(false))}
-          className="flex items-center justify-center gap-1 py-2 text-xs text-text-muted"
-        >
-          <ChevronDown className="size-4" />
-          Hide
-        </button>
-
-        <div className="flex min-h-0 flex-1 flex-col">
-          <InspectorTabs actions={actions} documentId={documentId} idPrefix="sheet" />
-        </div>
-      </div>
+        <InspectorTabs actions={actions} documentId={documentId} idPrefix="sheet" />
+      </Sheet>
     </>
   )
 }

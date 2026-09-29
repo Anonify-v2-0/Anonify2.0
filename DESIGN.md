@@ -831,51 +831,69 @@ When accepted, the preview becomes the actual redaction appearance.
 
 # 23. Mobile Design
 
-The reference CSS has explicit mobile behavior.
-
-Implement a mobile adaptation rather than simply shrinking the desktop editor.
-
-On mobile:
+Adapt the editor to a phone rather than shrinking the desktop one. The document
+stays the strongest element on screen, and black still means exactly what the
+export will produce. As built (see docs/editor.md §18):
 
 ```text
-top navbar
-document canvas
-bottom tool bar
-bottom sheet for redaction inspector
+header            logo · back · filename · Export
+search strip      (when open) field, then a row of options and Redact this / Redact all
+canvas            the page at the width of the screen
+                  ‹ 3 / 12 ›  page stepper floating over its bottom edge
+action bar        Redact · Search · Review · Hush · More
 ```
 
-The three-column desktop editor should become:
+Everything else is a **bottom sheet**: the review list, the pages grid, the
+search results, Hush, the More menu, and every dialog. One sheet component, one
+behaviour everywhere: a drag handle, snap points (peek, half, full), swipe down
+to close, focus trapped inside and returned on close, and inert while closed.
 
-```text
-Canvas
- ↓
-bottom toolbar
- ↓
-bottom sheet
-```
-
-Page navigation can become a horizontal thumbnail strip.
-
-Use a hamburger/menu pattern where necessary.
+- **Action bar.** Icons with visible labels, never tooltips: a tooltip never
+  appears on a touch screen. The pressed item is red on a soft red pill.
+  Review carries its count as a red badge.
+- **Sheets** are `surface-2` with a 14 px top radius and a short white/25 handle.
+  Sheets that leave the page usable (Review, results, Hush) rest on top of the
+  action bar. Menus (More, Pages) cover it, over a black/50 backdrop.
+- **Hush** opens full height for typing. When a reply points at a place in the
+  document, it drops to half so the place is visible above it.
+- **Canvas chrome** is thinner: 12 px of padding rather than 32.
+- **Touch targets** are at least 44 × 44 CSS px on a coarse pointer. A
+  redaction's painted box never grows to meet that. A tap resolves to the
+  nearest word or redaction instead.
+- **Tap feedback.** What a tap redacts flashes red for half a second, because
+  there is no hover state to show what it will take. With reduced motion the
+  flash is a still outline.
+- **Tap a redaction** for a small `surface-2` menu anchored to it. Accept is
+  the red soft button and always a separate press.
+- **Safe areas.** `viewport-fit=cover`, and every fixed edge (header, action
+  bar, sheets, toasts) steps in by `env(safe-area-inset-*)`.
 
 ---
 
 # 24. Responsive Breakpoints
 
-Use Tailwind responsive breakpoints.
-
-Target:
+Use Tailwind's breakpoints for **layout**, and the pointer for **input**:
 
 ```text
-Mobile:
-< 640px
-
-Tablet:
-640–1024px
-
-Desktop:
-> 1024px
+Phone:        < 640px    (sm)   dialogs become bottom sheets
+              < 768px    (md)   search results become a sheet
+Tablet:       640–1024px (lg)   page rail and Hush rail appear at lg
+Desktop:      > 1024px          inspector rail at xl (1280px)
 ```
+
+Two custom variants combine the two (`app/globals.css`, mirrored for scripts in
+`lib/editor/layout.ts`):
+
+```text
+compact   width < 768px, or a coarse pointer and width < 1024px
+          → action bar, sheets, second search row
+roomy     everything else
+          → desktop toolbar, retention in the header
+```
+
+So a touch tablet in portrait gets the phone layout, and the same tablet in
+landscape, or with a trackpad, gets the desktop one. Use `pointer-coarse:` for
+target sizes, never a width.
 
 Do not use fixed viewport dimensions such as:
 
@@ -883,7 +901,9 @@ Do not use fixed viewport dimensions such as:
 width: 100vw;
 ```
 
-throughout the application.
+throughout the application. Heights that must fit the screen use `svh` (the
+smallest viewport, with the browser's bars shown), so nothing hides behind a
+toolbar that has not collapsed yet.
 
 Prefer:
 
@@ -893,7 +913,8 @@ min-h-screen
 max-w-screen-*
 ```
 
-and flex/grid layouts.
+and flex/grid layouts. No page scrolls horizontally, apart from the canvas and
+the spreadsheet grid.
 
 The reference CSS can inspire the visual proportions but should not be copied literally.
 

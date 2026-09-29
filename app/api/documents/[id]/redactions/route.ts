@@ -4,6 +4,7 @@ import { errorResponse, handleRouteError, jsonResponse } from "@/lib/api/http"
 import { prisma } from "@/lib/database/prisma"
 import { newRedactionId } from "@/lib/documents/ids"
 import { fromDatabaseRow, toDatabaseRow } from "@/lib/redaction/model"
+import { redactionPatchSchema } from "@/lib/redaction/patch"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
@@ -40,31 +41,6 @@ const createSchema = z.object({
   reason: z.string().max(300).optional(),
   method: z.enum(REDACTION_METHODS).optional(),
 })
-
-/**
- * Accept, reject, or change what accepting does.
- *
- * Both fields are optional and either can arrive alone: setting a method is
- * not a decision about whether to redact, and a reviewer who picks
- * "pseudonymize" on a suggestion they have not accepted yet has said something
- * meaningful about what should happen if they do.
- *
- * Nothing is validated against the category here. Whether a method is allowed
- * is decided in lib/redaction/methods.ts, and asked again at export time
- * against the redaction as it stands then — so a stored method that stops
- * being defensible resolves to a mask rather than being honoured because it
- * was legal when it was saved.
- */
-const patchSchema = z
-  .object({
-    ids: z.array(z.string().min(1)).min(1).max(2000),
-    status: z.enum(REDACTION_STATUSES).optional(),
-    method: z.enum(REDACTION_METHODS).optional(),
-  })
-  .refine(
-    (value) => value.status !== undefined || value.method !== undefined,
-    "Nothing to change"
-  )
 
 /** Lists the document's redactions, suggestions and accepted alike. */
 export async function GET(
@@ -131,9 +107,13 @@ export async function PATCH(
     const identity = await peekIdentity()
     const document = await requireDocument(id, identity?.ownerKey)
 
-    const parsed = patchSchema.safeParse(await request.json())
+    const parsed = redactionPatchSchema.safeParse(await request.json())
     if (!parsed.success) {
       return errorResponse("Invalid status change", 400)
+    }
+
+    if ("boundingBox" in parsed.data) {
+      return await moveRegion(document.id, parsed.data.ids[0], parsed.data.boundingBox)
     }
 
     const result = await prisma.redaction.updateMany({
@@ -148,6 +128,37 @@ export async function PATCH(
   } catch (error) {
     return handleRouteError(error, "redactions.update")
   }
+}
+
+/**
+ * Gives a region a new box. Only a row that already carries its own geometry
+ * (a drawn region, a detected face) can be moved: a text redaction's boxes are
+ * derived from its characters by `boxesForRedaction`, and a second, stored
+ * rectangle would be a second answer to where it is. The export reads this box
+ * through the same function the canvas drew it with.
+ */
+async function moveRegion(
+  documentId: string,
+  redactionId: string,
+  boundingBox: { x: number; y: number; width: number; height: number }
+) {
+  const row = await prisma.redaction.findFirst({
+    where: { documentId, id: redactionId },
+  })
+  if (!row) return errorResponse("Redaction not found", 404)
+
+  const current = fromDatabaseRow(row)
+  if (!current.boundingBox) {
+    return errorResponse("Only a drawn region can be moved", 400)
+  }
+
+  const { metadata } = toDatabaseRow({ ...current, boundingBox })
+  await prisma.redaction.update({
+    where: { id: row.id },
+    data: { metadata },
+  })
+
+  return jsonResponse({ updated: 1 })
 }
 
 /** Deletes a redaction outright, for one the user created by mistake. */
