@@ -14,6 +14,27 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.12.0] - 2026-09-29
+
+### Added
+
+- The review works on phones and tablets without a keyboard. A labelled bottom
+  bar (Redact, Search, Review, Hush, More) replaces the toolbar on small
+  screens. A page stepper and pages grid replace the hidden rail. Search keeps
+  Redact this and Redact all. The inspector, results, Hush and dialogs become
+  sheets you can drag, swipe away and reach with a thumb. On the page, one finger
+  scrolls unless the redact tool is on, two fingers zoom, a tap redacts the
+  nearest word or opens a menu on a redaction, a touch text selection offers
+  Redact selection, and drawn regions can be moved and resized by their handles
+  or with the arrow keys (#158)
+
+### Fixed
+
+- PDF pages render in browsers without `Map.prototype.getOrInsertComputed`
+  (Chromium before 145, and many phone browsers). pdf.js 6 needs it, and the
+  review canvas used to sit on its loading spinner forever there. The browser
+  now loads pdf.js's legacy build, which carries its own polyfills
+
 ## [1.11.0] - 2026-09-29
 
 ### Added
