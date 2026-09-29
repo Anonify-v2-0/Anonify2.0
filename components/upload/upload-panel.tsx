@@ -18,6 +18,11 @@ import {
 } from "@/components/ui/select"
 import { toastFailure } from "@/lib/api/errors"
 import {
+  decodeUploadKey,
+  sealFileForUpload,
+  type UploadEncryption,
+} from "@/lib/storage/chunked-web"
+import {
   ACCEPTED_EXTENSIONS,
   MAX_BATCH_FILES,
   MAX_UPLOAD_BYTES,
@@ -60,10 +65,15 @@ type Phase = "idle" | "reserving" | "uploading" | "starting"
 /**
  * Getting the file in.
  *
+ * First the file is sealed, here in the page, under a single-use key the
+ * reservation handed back (lib/storage/chunked-web.ts), so what travels and
+ * what lands in storage is ciphertext on every path.
+ *
  * With Vercel Blob the server signs a token scoped to one path and the browser
  * uploads straight to storage, so the file never travels through a serverless
- * function. With S3 or the local filesystem there is no equivalent the browser
- * can safely use, so the bytes go through our own route instead.
+ * function. S3 can do the same with a presigned PUT when the operator has
+ * enabled it. Otherwise — the local filesystem, or a bucket browsers cannot
+ * reach — the bytes go through our own route instead.
  *
  * The server decides which, because it is the thing that knows what is
  * configured. Both paths report real transfer progress and both end with the
@@ -75,46 +85,60 @@ type Phase = "idle" | "reserving" | "uploading" | "starting"
  * a batch is a convenience over separate uploads, not a transaction.
  */
 
-type UploadMode = "vercel-blob" | "server-route"
+type UploadMode = "vercel-blob" | "server-route" | "s3-presigned"
 
 type Reserved = {
   id: string
   pathname: string
   uploadMode: UploadMode
+  uploadEncryption?: UploadEncryption | null
 }
 
 /**
- * Posts through our own route, reporting progress.
+ * Whether this page can seal an upload at all.
+ *
+ * WebCrypto's `subtle` only exists in a secure context: HTTPS, or localhost.
+ * A self-hosted install opened over plain HTTP on a LAN address has none, and
+ * asking for an upload key there would reserve a document this page cannot
+ * then seal. So the key is asked for only when it can be used; an install
+ * that requires sealed uploads refuses the reservation instead, and says why.
+ */
+function canSealUploads(): boolean {
+  return typeof globalThis.crypto?.subtle?.encrypt === "function"
+}
+
+/** How much of the progress bar sealing gets; sending gets the rest. */
+const SEAL_SHARE = 10
+
+/**
+ * Sends a body with XMLHttpRequest, reporting progress.
  *
  * XMLHttpRequest rather than fetch: fetch still cannot report upload progress
  * in browsers, and a 25 MB upload with no feedback looks like a hang.
  */
-function uploadThroughServer(
-  documentId: string,
-  file: File,
+function sendWithProgress(input: {
+  method: "POST" | "PUT"
+  url: string
+  body: XMLHttpRequestBodyInit
+  headers?: Record<string, string>
   onProgress: (percentage: number) => void
-): Promise<{ url: string }> {
+}): Promise<string> {
   return new Promise((resolve, reject) => {
-    const body = new FormData()
-    body.append("documentId", documentId)
-    body.append("file", file)
-
     const request = new XMLHttpRequest()
-    request.open("POST", "/api/upload/local")
+    request.open(input.method, input.url)
+    for (const [name, value] of Object.entries(input.headers ?? {})) {
+      request.setRequestHeader(name, value)
+    }
 
     request.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) {
-        onProgress((event.loaded / event.total) * 100)
+        input.onProgress((event.loaded / event.total) * 100)
       }
     })
 
     request.addEventListener("load", () => {
       if (request.status >= 200 && request.status < 300) {
-        try {
-          resolve(JSON.parse(request.responseText) as { url: string })
-        } catch {
-          reject(new Error("Malformed upload response"))
-        }
+        resolve(request.responseText)
         return
       }
 
@@ -122,7 +146,8 @@ function uploadThroughServer(
       try {
         message = (JSON.parse(request.responseText) as { error?: string }).error ?? message
       } catch {
-        // Keep the generic message.
+        // Keep the generic message. A storage service answers in XML, and
+        // nothing in it is written for the person uploading.
       }
       reject(new Error(message))
     })
@@ -130,8 +155,95 @@ function uploadThroughServer(
     request.addEventListener("error", () => reject(new Error("Upload failed")))
     request.addEventListener("abort", () => reject(new Error("Upload cancelled")))
 
-    request.send(body)
+    request.send(input.body)
   })
+}
+
+/** Posts through our own route. */
+async function uploadThroughServer(
+  documentId: string,
+  body: Blob,
+  filename: string,
+  onProgress: (percentage: number) => void
+): Promise<{ url: string }> {
+  const form = new FormData()
+  form.append("documentId", documentId)
+  form.append("file", body, filename)
+
+  const response = await sendWithProgress({
+    method: "POST",
+    url: "/api/upload/local",
+    body: form,
+    onProgress,
+  })
+  try {
+    return JSON.parse(response) as { url: string }
+  } catch {
+    throw new Error("Malformed upload response")
+  }
+}
+
+/**
+ * PUTs straight into the S3 bucket with a URL the server presigned for this
+ * one object and exactly this many bytes.
+ */
+async function uploadStraightToStorage(
+  documentId: string,
+  body: Blob,
+  onProgress: (percentage: number) => void
+): Promise<{ url: string }> {
+  const presign = await fetch("/api/upload/presign", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ documentId, size: body.size }),
+  })
+  const signed = (await presign.json()) as {
+    url?: string
+    headers?: Record<string, string>
+    handle?: string
+    error?: string
+  }
+  if (!presign.ok || !signed.url || !signed.handle) {
+    throw new Error(signed.error ?? "Upload failed")
+  }
+
+  await sendWithProgress({
+    method: "PUT",
+    url: signed.url,
+    body,
+    headers: signed.headers,
+    onProgress,
+  })
+  return { url: signed.handle }
+}
+
+/**
+ * Seals the file in the page, when the reservation handed back a key for it.
+ *
+ * The raw key lives for exactly this call: it is decoded, imported into
+ * WebCrypto as non-extractable, and the decoded bytes are zeroed however
+ * sealing ends. What leaves the page afterwards is ciphertext only.
+ */
+async function sealIfAsked(input: {
+  file: File
+  pathname: string
+  encryption: UploadEncryption | null | undefined
+  onProgress: (percentage: number) => void
+}): Promise<Blob> {
+  if (!input.encryption) return input.file
+  const key = decodeUploadKey(input.encryption.key)
+  try {
+    return await sealFileForUpload({
+      file: input.file,
+      key,
+      // The path it was reserved under, which ingest binds it to.
+      logicalKey: input.pathname,
+      chunkShift: input.encryption.chunkShift,
+      onProgress: (fraction) => input.onProgress(fraction * SEAL_SHARE),
+    })
+  } finally {
+    key.fill(0)
+  }
 }
 
 type TransferResult =
@@ -139,25 +251,43 @@ type TransferResult =
   /** The failing response, when there is one worth reading a message out of. */
   | { ok: false; response?: Response; message?: string }
 
-/** Sends one reserved document's bytes and starts its run. */
+/** Seals and sends one reserved document's bytes, and starts its run. */
 async function transferFile(input: {
   documentId: string
   pathname: string
   uploadMode: UploadMode | undefined
+  encryption: UploadEncryption | null | undefined
   file: File
   onProgress: (percentage: number) => void
 }): Promise<TransferResult> {
   try {
+    const body = await sealIfAsked(input)
+    const sealed = body !== input.file
+    const onSendProgress = sealed
+      ? (percentage: number) =>
+          input.onProgress(SEAL_SHARE + (percentage * (100 - SEAL_SHARE)) / 100)
+      : input.onProgress
+
     const uploaded =
       input.uploadMode === "vercel-blob"
-        ? await upload(input.pathname, input.file, {
+        ? await upload(input.pathname, body, {
             access: "public",
             handleUploadUrl: "/api/upload/token",
             clientPayload: input.documentId,
-            multipart: input.file.size > MULTIPART_THRESHOLD,
-            onUploadProgress: ({ percentage }) => input.onProgress(percentage),
+            contentType: sealed ? "application/octet-stream" : undefined,
+            multipart: body.size > MULTIPART_THRESHOLD,
+            onUploadProgress: ({ percentage }) => onSendProgress(percentage),
           })
-        : await uploadThroughServer(input.documentId, input.file, input.onProgress)
+        : // Only ciphertext goes straight to the bucket; a page that could not
+          // seal still has our own route.
+          input.uploadMode === "s3-presigned" && sealed
+          ? await uploadStraightToStorage(input.documentId, body, onSendProgress)
+          : await uploadThroughServer(
+              input.documentId,
+              body,
+              input.file.name,
+              onSendProgress
+            )
     // The bytes are there. A small file can finish before the browser reports
     // any progress at all, and without this the bar would sit at 0% for as
     // long as starting the run takes.
@@ -244,6 +374,7 @@ export function UploadPanel() {
             contentType: file.type || undefined,
             ttlSeconds: ttl,
             preset: presetId,
+            uploadEncryption: canSealUploads() ? "v1" : undefined,
           }),
         })
 
@@ -264,6 +395,7 @@ export function UploadPanel() {
           documentId: reserved.id,
           pathname: reserved.pathname,
           uploadMode: reserved.uploadMode,
+          encryption: reserved.uploadEncryption,
           file,
           onProgress: setProgress,
         })
@@ -306,13 +438,19 @@ export function UploadPanel() {
             })),
             ttlSeconds: ttl,
             preset: presetId,
+            uploadEncryption: canSealUploads() ? "v1" : undefined,
           }),
         })
 
         const payload = (await reserve.json()) as {
           batchId?: string
           uploadMode?: UploadMode
-          accepted?: { index: number; id: string; pathname: string }[]
+          accepted?: {
+            index: number
+            id: string
+            pathname: string
+            uploadEncryption?: UploadEncryption | null
+          }[]
           refused?: { filename: string; reason: string }[]
           error?: string
         }
@@ -344,6 +482,7 @@ export function UploadPanel() {
             documentId: item.id,
             pathname: item.pathname,
             uploadMode: payload.uploadMode,
+            encryption: item.uploadEncryption,
             file,
             onProgress: setProgress,
           })

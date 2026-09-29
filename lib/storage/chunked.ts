@@ -496,15 +496,27 @@ export class ChunkOpener extends Transform {
   private header: ChunkedHeader | null = null
   private readonly queue = new ByteQueue()
   private index = 0
+  private readonly expectedShift: number | undefined
 
+  /**
+   * `options.chunkShift` pins the chunk size the object must declare. Every
+   * object this server sealed itself is opened with whatever its header says,
+   * because the configured size may have changed since. An object a *browser*
+   * sealed is different: its producer is not trusted, and a header declaring
+   * the format's largest chunk would make this hold 32 MiB before the first
+   * tag could fail. Pinning the size keeps what the opener buffers bounded by
+   * what the server chose, not by what the upload claims.
+   */
   constructor(
     key: Buffer,
     private readonly logicalKey: string,
-    highWaterMark?: number
+    highWaterMark?: number,
+    options: { chunkShift?: number } = {}
   ) {
     super({ highWaterMark })
     assertKey(key)
     this.key = Buffer.from(key)
+    this.expectedShift = options.chunkShift
   }
 
   override _transform(
@@ -517,6 +529,14 @@ export class ChunkOpener extends Transform {
       if (!this.header) {
         if (this.queue.length < HEADER_BYTES) return callback()
         this.header = parseHeader(this.queue.take(HEADER_BYTES))
+        if (
+          this.expectedShift !== undefined &&
+          this.header.chunkShift !== this.expectedShift
+        ) {
+          throw new ChunkedFormatError(
+            `Sealed object declares chunks of 2^${this.header.chunkShift}, expected 2^${this.expectedShift}`
+          )
+        }
       }
       const sealedChunk = this.header.chunkSize + TAG_BYTES
       while (this.queue.length > sealedChunk) {

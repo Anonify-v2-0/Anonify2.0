@@ -11,11 +11,19 @@ import { ALLOWED_TTL_SECONDS, MAX_UPLOAD_BYTES } from "@/lib/config"
 import { prisma } from "@/lib/database/prisma"
 import { maxBatchFiles } from "@/lib/documents/batch-config"
 import { newBatchId } from "@/lib/documents/ids"
-import { reserveDocument } from "@/lib/documents/reserve"
+import {
+  reserveDocument,
+  type ReservedDocument,
+} from "@/lib/documents/reserve"
 import { isPresetId } from "@/lib/redaction/presets"
 import { getIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { clientUploadMode } from "@/lib/storage/blob"
+import {
+  PLAINTEXT_UPLOAD_REFUSED,
+  UPLOAD_FORMATS,
+  uploadEncryptionPolicy,
+} from "@/lib/storage/upload-encryption"
 import { DEFAULT_TTL_SECONDS } from "@/types/document"
 
 export const runtime = "nodejs"
@@ -35,6 +43,8 @@ const createSchema = z.object({
     .min(1),
   /** One preset for the batch: a review pass is one question, asked once. */
   preset: z.string().max(60).optional(),
+  /** Every file is sealed the same way; each still gets its own key. */
+  uploadEncryption: z.enum(UPLOAD_FORMATS).optional(),
   ttlSeconds: z
     .number()
     .int()
@@ -65,7 +75,13 @@ export async function POST(request: Request) {
       return errorResponse("Invalid batch request", 400)
     }
 
-    const { files, ttlSeconds, preset } = parsed.data
+    const { files, ttlSeconds, preset, uploadEncryption } = parsed.data
+
+    // Refused once for the batch rather than once per file: it is a property
+    // of the client, and every file would fail it the same way.
+    if (!uploadEncryption && uploadEncryptionPolicy() === "required") {
+      return errorResponse(PLAINTEXT_UPLOAD_REFUSED, 400)
+    }
 
     const maxFiles = maxBatchFiles()
     if (files.length > maxFiles) {
@@ -93,6 +109,7 @@ export async function POST(request: Request) {
       filename: string
       pathname: string
       expiresAt: string
+      uploadEncryption: ReservedDocument["uploadEncryption"]
     }[] = []
     const refused: {
       index: number
@@ -129,6 +146,7 @@ export async function POST(request: Request) {
         quotaKey: identity.quotaKey,
         batchId,
         preset,
+        uploadEncryption,
       })
 
       if (!reserved.ok) {
@@ -142,6 +160,7 @@ export async function POST(request: Request) {
         filename: file.filename,
         pathname: reserved.pathname,
         expiresAt: reserved.expiresAt.toISOString(),
+        uploadEncryption: reserved.uploadEncryption,
       })
     }
 

@@ -61,12 +61,13 @@ sequenceDiagram
     participant W as Durable run
 
     B->>S: POST /api/documents
-    Note right of S: reserve, quota, rate limit<br/>row created with status uploading
-    S-->>B: id + pathname
+    Note right of S: reserve, quota, rate limit<br/>row created with status uploading<br/>single-use upload key minted, stored wrapped
+    S-->>B: id + pathname + upload key (once)
+    Note over B: seal the file in the page (WebCrypto, v1 envelope)
     B->>S: POST /api/upload/token
     Note right of S: validate path ownership
     S-->>B: scoped upload token
-    B->>BL: upload the file directly, never through a function
+    B->>BL: upload the ciphertext directly, never through a function
     B->>S: POST /api/documents/:id/process
     S->>W: start processDocument
     S-->>B: runId
@@ -85,11 +86,25 @@ file has neither reason nor need to pass through one. The browser uploads
 directly, which means the server never buffers the file and the progress bar
 reflects the real transfer.
 
-The cost is that the bytes land in storage before the server has seen them. The
-pipeline's first step closes that window: it fetches them, sniffs what they
-actually are, checksums, seals them under a fresh per-document key, and deletes
-the plaintext upload. That short interval is the only time the file exists
-unencrypted at rest, and it is stated plainly rather than glossed over.
+The cost is that the bytes land in storage before the server has seen them,
+and ingest only runs once the document is admitted, which in a large batch is
+minutes later. So the file is sealed **before it leaves the page**. The
+reservation mints a single-use 256-bit upload key, stores it wrapped under the
+master key, and returns it once. The browser seals the file into the same v1
+chunked envelope the server uses (`lib/storage/chunked-web.ts`), so on every
+upload path only ciphertext travels and lands.
+
+The pipeline's first step opens the upload with that key as it streams, sniffs
+what it actually is, checksums it, re-seals it under a fresh per-document data
+key that never leaves the server, and deletes both the upload and the upload
+key. The upload key protects one short-lived object and nothing else: a leaked
+one opens neither the source, the model nor an export.
+
+A client that does not ask for an upload key still uploads plaintext, which
+the pipeline reads as before, unless the install sets
+`ANONIFY_UPLOAD_ENCRYPTION=required`. Such a client is an API script, or a page
+served over plain HTTP, where WebCrypto is unavailable. See
+[storage.md](storage.md#sealed-uploads).
 
 ### Why processing is a durable workflow
 

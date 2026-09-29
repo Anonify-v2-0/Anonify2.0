@@ -152,6 +152,14 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-anonify}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-anonify-dev-secret}
       S3_FORCE_PATH_STYLE: "true"
+      # Browsers PUT straight to RustFS when "true". They reach it at the
+      # published port, not at the service name; the bucket also needs a CORS
+      # rule for the app's origin. See docs/storage.md.
+      S3_PRESIGNED_UPLOADS: ${S3_PRESIGNED_UPLOADS:-}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+
+      # "required" refuses plaintext uploads; see .env.example.
+      ANONIFY_UPLOAD_ENCRYPTION: ${ANONIFY_UPLOAD_ENCRYPTION:-}
 
       # Required, and deliberately not defaulted. ENCRYPTION_KEY is the master
       # key for every stored document; a value committed to this file would be

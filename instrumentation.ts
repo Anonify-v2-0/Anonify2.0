@@ -29,6 +29,13 @@ export async function register() {
   const { maxInFlightChunks } = await import("@/lib/storage/streaming")
   maxInFlightChunks()
 
+  // And a misspelt ANONIFY_UPLOAD_ENCRYPTION, which would otherwise surface as
+  // every upload failing at reservation.
+  const { uploadEncryptionPolicy } = await import(
+    "@/lib/storage/upload-encryption"
+  )
+  uploadEncryptionPolicy()
+
   // Unset on Vercel, where the platform's own world is selected for us. Calling
   // start() there is harmless, but skipping makes the intent explicit.
   if (!process.env.WORKFLOW_TARGET_WORLD) return

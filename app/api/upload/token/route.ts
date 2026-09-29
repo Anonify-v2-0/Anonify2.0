@@ -4,7 +4,11 @@ import { errorResponse, handleRouteError, jsonResponse } from "@/lib/api/http"
 import { MAX_UPLOAD_BYTES } from "@/lib/config"
 import { prisma } from "@/lib/database/prisma"
 import { peekIdentity } from "@/lib/security/fingerprint"
-import { uploadKey } from "@/lib/storage/blob"
+import { isUploadHandleFor, uploadKey } from "@/lib/storage/blob"
+import {
+  maxSealedUploadBytes,
+  uploadFormatOf,
+} from "@/lib/storage/upload-encryption"
 
 export const runtime = "nodejs"
 
@@ -43,6 +47,7 @@ export async function POST(request: Request) {
             status: true,
             originalName: true,
             userFingerprint: true,
+            uploadFormat: true,
           },
         })
 
@@ -74,8 +79,19 @@ export async function POST(request: Request) {
           // is scoped to one reserved document, the size ceiling is enforced
           // here, and ingest sniffs the real bytes and refuses anything whose
           // contents disagree with its name.
-          maximumSizeInBytes: MAX_UPLOAD_BYTES,
-          addRandomSuffix: false,
+          //
+          // The ceiling is on the plaintext everywhere, so a sealed upload may
+          // be larger than MAX_UPLOAD_BYTES by exactly its header and tags.
+          maximumSizeInBytes: uploadFormatOf(document.uploadFormat)
+            ? maxSealedUploadBytes()
+            : MAX_UPLOAD_BYTES,
+          // The object is public — that is how this driver reads everything —
+          // so its URL is the only thing between it and anyone who wants it.
+          // A sealed upload is ciphertext under a key nobody else has, and a
+          // random suffix means the URL cannot be worked out from the
+          // document id and filename either. The path check above still
+          // holds: it runs on the requested pathname, before the suffix.
+          addRandomSuffix: true,
           // The token outlives a slow multipart upload but not much more.
           validUntil: Date.now() + 30 * 60 * 1000,
           tokenPayload: document.id,
@@ -85,6 +101,16 @@ export async function POST(request: Request) {
         // Vercel calls this webhook in production; locally it never fires, so
         // the client's own process request is what actually advances the run.
         if (!tokenPayload) return
+        const document = await prisma.document.findUnique({
+          where: { id: tokenPayload },
+          select: { originalName: true },
+        })
+        if (
+          !document ||
+          !isUploadHandleFor(blob.url, tokenPayload, document.originalName)
+        ) {
+          return
+        }
         await prisma.document.updateMany({
           where: { id: tokenPayload, status: "uploading" },
           data: { uploadBlobKey: blob.url },

@@ -13,6 +13,11 @@ import { prisma } from "@/lib/database/prisma"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
 import { putObjectStream, uploadKey } from "@/lib/storage/blob"
+import {
+  maxSealedUploadBytes,
+  sealedUploadPlaintextBytes,
+  uploadFormatOf,
+} from "@/lib/storage/upload-encryption"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -20,11 +25,14 @@ export const maxDuration = 300
 /**
  * Browser uploads for every backend that is not Vercel Blob.
  *
- * Vercel Blob issues a scoped token and the browser uploads straight to it. S3
- * and the local filesystem have no equivalent the browser can safely use, so
- * the bytes come through here instead and are written with the same storage
- * abstraction everything else reads from. Downstream — ingest, extraction,
- * export — cannot tell the difference, which is the point.
+ * Vercel Blob issues a scoped token and the browser uploads straight to it;
+ * S3 can do the same with a presigned PUT when an operator enables it (see
+ * /api/upload/presign). Otherwise — the local filesystem, or an S3 bucket
+ * browsers cannot reach — the bytes come through here instead and are written
+ * with the same storage abstraction everything else reads from. A browser
+ * that sealed its upload sends ciphertext here like everywhere else.
+ * Downstream — ingest, extraction, export — cannot tell the difference, which
+ * is the point.
  *
  * This is a self-hosted path, so there is no serverless body limit to work
  * around; the ceiling is the application's own MAX_UPLOAD_BYTES.
@@ -50,7 +58,11 @@ export async function POST(request: Request) {
     if (!documentId) return errorResponse("Missing document reference", 400)
     if (!(file instanceof File)) return errorResponse("No file supplied", 400)
     if (file.size === 0) return errorResponse("File is empty", 400)
-    if (file.size > MAX_UPLOAD_BYTES) return errorResponse("File is too large", 413)
+    // Nothing is either format's ceiling past the larger of the two; the
+    // exact check needs the row, and this one does not.
+    if (file.size > maxSealedUploadBytes()) {
+      return errorResponse("File is too large", 413)
+    }
 
     // The same ownership check the Vercel token route makes before signing.
     const document = await prisma.document.findUnique({
@@ -60,6 +72,7 @@ export async function POST(request: Request) {
         status: true,
         originalName: true,
         userFingerprint: true,
+        uploadFormat: true,
       },
     })
 
@@ -70,11 +83,35 @@ export async function POST(request: Request) {
       return errorResponse("This document has already been uploaded", 409)
     }
 
+    // The ceiling is on the plaintext. A sealed upload is larger than its
+    // file by its header and tags, and a size no sealer produces is refused
+    // here rather than stored and failed at ingest.
+    const plaintextSize = uploadFormatOf(document.uploadFormat)
+      ? sealedUploadPlaintextBytes(file.size)
+      : file.size
+    if (plaintextSize === null) {
+      return errorResponse("Upload is not a sealed file", 400)
+    }
+    if (plaintextSize === 0) return errorResponse("File is empty", 400)
+    if (plaintextSize > MAX_UPLOAD_BYTES) {
+      return errorResponse("File is too large", 413)
+    }
+
     // Streamed into storage rather than copied into one more buffer first.
+    // Sealed or not, the bytes are stored exactly as they arrived: sealing
+    // happened in the browser, and opening is ingest's job.
     const stored = await putObjectStream(
       uploadKey(document.id, document.originalName),
       Readable.fromWeb(file.stream() as WebReadableStream<Uint8Array>)
     )
+
+    // Recorded here, by the code that wrote it, rather than taken from the
+    // client when it calls /process — and so the expiry sweep can find the
+    // upload even if that call never comes.
+    await prisma.document.updateMany({
+      where: { id: document.id, status: "uploading" },
+      data: { uploadBlobKey: stored.key },
+    })
 
     return jsonResponse({ url: stored.key, size: stored.size }, 201)
   } catch (error) {

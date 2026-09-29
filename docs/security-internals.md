@@ -364,3 +364,29 @@ hostile paragraph should be able to do is get a bad change *proposed*.
 
 Errors inside the stream are a fixed sentence, never the provider's message,
 which can quote the prompt. Only the failure's name is logged.
+
+---
+
+## 9. Sealed uploads — `lib/storage/upload-encryption.ts`, `lib/storage/chunked-web.ts`
+
+Before this, the upload was the one object Anonify stored in the clear. It
+stayed that way until ingest re-sealed it, and on Vercel Blob it was a public
+object. The browser now seals the file under a single-use upload key before
+it leaves the page. [storage.md](./storage.md#sealed-uploads) has the key's
+whole life; these are the lines that matter for security:
+
+| Mechanism | Where | Why it is there |
+| --- | --- | --- |
+| A key of its own | `mintUploadKey` | The document's data key never leaves the server. The upload key protects one transient object that the owner's browser already holds the plaintext of, so returning it discloses nothing new, and a leaked one opens nothing else. |
+| Returned once, stored wrapped | `reserveDocument` | The raw key is in the reservation response and nowhere else. The row holds it sealed under the master key, and ingest nulls even that. |
+| Non-extractable in the page | `sealFileForUpload` | Imported with `extractable: false`, and the decoded bytes are zeroed when sealing ends. |
+| Bound to the reserved path | `openUploadStream` | The AAD's logical key is `uploadKey(id, name)` from the row, never the handle. An upload sealed for another document or path does not open. |
+| Chunk size pinned | `ChunkOpener({ chunkShift })` | An upload is sealed by a client. A header declaring the format's largest chunk would otherwise make ingest buffer 32 MiB before the first tag could fail. |
+| Recorded, not sniffed | `Document.uploadFormat` | Whether to open the upload is decided by the row. A plaintext file can begin with `ANFY`. |
+| Verdict, not weather | `isUnreadableUpload` → `upload-unreadable` | A failed tag or a malformed envelope fails the same way every time, so it is not retried. A storage error on the way through is not one of these, and is retried. |
+| Handle must be this document's | `isUploadHandleFor`, `/process`, the token webhook | Ingest reads the handle and then deletes it. An unchecked handle would let a caller aim their document at somebody else's object. |
+| Exact length on a presigned PUT | `presignUpload` | `Content-Length` is in the signature, so the bucket takes exactly the number of bytes the server checked against the ceiling. |
+
+`ANONIFY_UPLOAD_ENCRYPTION=required` turns the plaintext path off at
+reservation. It is `optional` by default because a page served over plain HTTP
+(other than localhost) has no WebCrypto and cannot seal.

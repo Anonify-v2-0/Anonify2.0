@@ -3,6 +3,8 @@ import type { Readable } from "node:stream"
 import {
   driverForKey,
   selectStorageDriver,
+  type ClientUploadMode,
+  type PresignedUpload,
   type StoredObject,
 } from "@/lib/storage/drivers"
 
@@ -76,8 +78,23 @@ export async function objectExists(key: string): Promise<boolean> {
 }
 
 /** How the browser should deliver bytes, given the configured backend. */
-export function clientUploadMode(): "vercel-blob" | "server-route" {
+export function clientUploadMode(): ClientUploadMode {
   return selectStorageDriver().clientUpload
+}
+
+/**
+ * A presigned PUT for one upload, from a driver configured to hand them out.
+ * Null when the configured backend does not.
+ */
+export async function presignUpload(
+  key: string,
+  size: number
+): Promise<PresignedUpload | null> {
+  const driver = selectStorageDriver()
+  if (driver.clientUpload !== "s3-presigned" || !driver.presignUpload) {
+    return null
+  }
+  return driver.presignUpload(key, size)
 }
 
 export function storageDriverName(): string {
@@ -88,6 +105,45 @@ export function storageDriverName(): string {
 export function uploadKey(documentId: string, filename: string): string {
   const safe = filename.replace(/[^A-Za-z0-9._-]/g, "_").slice(-80)
   return `documents/${documentId}/upload/${safe}`
+}
+
+/**
+ * Whether a stored handle is this document's own upload.
+ *
+ * The browser tells `/process` where its bytes landed, and ingest then reads
+ * that handle and **deletes** it. Trusted as sent, that was a way to point a
+ * document at any object in the store — another document's source, say — and
+ * have ingest remove it. So the handle has to be the path the reservation
+ * fixed: exactly, for the drivers whose handle is the path, and by prefix for
+ * Vercel Blob, whose URL carries a random suffix the server does not choose.
+ */
+export function isUploadHandleFor(
+  handle: string,
+  documentId: string,
+  filename: string
+): boolean {
+  const path = uploadKey(documentId, filename)
+  if (handle === `local:${path}` || handle === `s3:${path}`) return true
+
+  let url: URL
+  try {
+    url = new URL(handle)
+  } catch {
+    return false
+  }
+  if (url.protocol !== "https:") return false
+  if (!url.hostname.endsWith(".blob.vercel-storage.com")) return false
+  if (url.search || url.hash) return false
+
+  let pathname: string
+  try {
+    pathname = decodeURIComponent(url.pathname)
+  } catch {
+    return false
+  }
+  const prefix = `/documents/${documentId}/upload/`
+  const name = pathname.slice(prefix.length)
+  return pathname.startsWith(prefix) && name.length > 0 && !name.includes("/")
 }
 
 export function sourceKey(documentId: string): string {

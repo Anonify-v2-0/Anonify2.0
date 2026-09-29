@@ -35,6 +35,17 @@ export const STORAGE_DRIVERS = ["vercel-blob", "s3", "local"] as const
 
 export type StorageDriverName = (typeof STORAGE_DRIVERS)[number]
 
+export type ClientUploadMode = "vercel-blob" | "server-route" | "s3-presigned"
+
+export type PresignedUpload = {
+  url: string
+  /** Headers the PUT must carry, because they are part of the signature. */
+  headers: Record<string, string>
+  /** The stored handle the object will have once the PUT succeeds. */
+  handle: string
+  expiresAt: Date
+}
+
 export type StoredObject = {
   /** Opaque handle used to read the object back. Never exposed to clients. */
   key: string
@@ -45,9 +56,16 @@ export type StorageDriver = {
   name: StorageDriverName
   /**
    * How the browser gets bytes in. Vercel Blob issues a scoped token and the
-   * browser uploads directly; everything else goes through our own route.
+   * browser uploads directly; S3 can do the same with a presigned PUT when an
+   * operator has made the bucket reachable from browsers; everything else
+   * goes through our own route.
    */
-  clientUpload: "vercel-blob" | "server-route"
+  clientUpload: ClientUploadMode
+  /**
+   * A URL the browser can PUT exactly `size` bytes to at `key`, for a driver
+   * whose `clientUpload` is `s3-presigned`.
+   */
+  presignUpload?: (key: string, size: number) => Promise<PresignedUpload>
   put: (key: string, data: Uint8Array) => Promise<StoredObject>
   get: (key: string) => Promise<Buffer>
   /**
@@ -243,7 +261,22 @@ export type S3Config = {
   secretAccessKey: string
   /** Self-hosted S3 services commonly need path-style addressing; AWS does not. */
   forcePathStyle: boolean
+  /**
+   * Browsers upload straight to the bucket with a presigned PUT instead of
+   * through /api/upload/local. Off unless asked for: it needs the bucket to
+   * allow cross-origin PUTs from the app, and an endpoint browsers can reach.
+   */
+  presignedUploads?: boolean
+  /**
+   * The endpoint as a browser reaches it, when that differs from the one the
+   * server uses — `http://rustfs:9000` inside Docker Compose is
+   * `http://localhost:9000` from the host. Only presigned upload URLs use it.
+   */
+  publicEndpoint?: string
 }
+
+/** How long a presigned upload URL may be *started* within. */
+const PRESIGNED_UPLOAD_SECONDS = 15 * 60
 
 export function s3ConfigFromEnv(): S3Config | null {
   const bucket = process.env.S3_BUCKET?.trim()
@@ -264,6 +297,9 @@ export function s3ConfigFromEnv(): S3Config | null {
     forcePathStyle: process.env.S3_FORCE_PATH_STYLE
       ? process.env.S3_FORCE_PATH_STYLE !== "false"
       : Boolean(endpoint),
+    presignedUploads:
+      process.env.S3_PRESIGNED_UPLOADS?.trim().toLowerCase() === "true",
+    publicEndpoint: process.env.S3_PUBLIC_ENDPOINT?.trim() || undefined,
   }
 }
 
@@ -288,7 +324,52 @@ export function createS3Driver(config: S3Config): StorageDriver {
 
   return {
     name: "s3",
-    clientUpload: "server-route",
+    clientUpload: config.presignedUploads ? "s3-presigned" : "server-route",
+
+    async presignUpload(key, size) {
+      const [{ PutObjectCommand, S3Client }, { getSignedUrl }] =
+        await Promise.all([
+          import("@aws-sdk/client-s3"),
+          import("@aws-sdk/s3-request-presigner"),
+        ])
+      const signer = new S3Client({
+        region: config.region,
+        endpoint: config.publicEndpoint ?? config.endpoint,
+        forcePathStyle: config.forcePathStyle,
+        credentials: {
+          accessKeyId: config.accessKeyId,
+          secretAccessKey: config.secretAccessKey,
+        },
+        // Otherwise the SDK signs a CRC32 of the body it was given — which,
+        // for a URL, is no body at all — and the browser's real PUT fails
+        // the checksum it was never going to match.
+        requestChecksumCalculation: "WHEN_REQUIRED",
+      })
+      const contentType = "application/octet-stream"
+      // The length is signed, so the URL takes exactly `size` bytes and no
+      // other number: S3 refuses a PUT whose Content-Length disagrees. That is
+      // the whole size ceiling on this path, and it is a tighter one than a
+      // maximum.
+      const url = await getSignedUrl(
+        signer,
+        new PutObjectCommand({
+          Bucket: config.bucket,
+          Key: objectPath(key),
+          ContentLength: size,
+          ContentType: contentType,
+        }),
+        {
+          expiresIn: PRESIGNED_UPLOAD_SECONDS,
+          signableHeaders: new Set(["content-length", "content-type"]),
+        }
+      )
+      return {
+        url,
+        headers: { "content-type": contentType },
+        handle: `${S3_PREFIX}${key}`,
+        expiresAt: new Date(Date.now() + PRESIGNED_UPLOAD_SECONDS * 1000),
+      }
+    },
 
     async put(key, data) {
       const { PutObjectCommand } = await import("@aws-sdk/client-s3")
