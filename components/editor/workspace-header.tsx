@@ -94,7 +94,11 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
     // than taken out of it (see viewportFit in app/layout.tsx).
     <header className="box-content flex h-16 shrink-0 items-center gap-4 border-b border-border bg-surface-2 px-4 pt-[env(safe-area-inset-top)] compact:gap-2 compact:px-2 lg:h-[68px] lg:px-6">
       {/* The mark carries the brand once the wordmark no longer fits. */}
-      <Brand showWordmark={false} size={26} className="sm:hidden" />
+      <Brand
+        showWordmark={false}
+        size={26}
+        className="justify-center sm:hidden pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+      />
       <Brand size={26} className="hidden sm:flex" />
 
       <Link
@@ -170,7 +174,7 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
       ) : null}
 
       <Button
-        className="btn-pill h-9"
+        className="btn-pill h-9 pointer-coarse:min-w-11"
         disabled={summary.status !== "ready"}
         onClick={() => dispatch(exportDialogToggled(true))}
       >

@@ -229,13 +229,25 @@ export function ImageCanvas({
           if (justDrew.current || lastPointer.current === "mouse") return
           if ((event.target as HTMLElement).closest("button")) return
           const point = toImageSpace(event)
+          const reach = MIN_TOUCH_TARGET / 2 / zoom
+          // Redactions and words compete on distance; see redaction-layer.tsx.
+          const shown = placed.flatMap(({ redaction, boxes }) =>
+            boxes.map((raw) => ({ redaction, box: regionEditor.boxOf(redaction) ?? padBox(raw) }))
+          )
           const index = nearestBox(
             point,
-            regions.map((region) => region.boundingBox),
-            MIN_TOUCH_TARGET / 2 / zoom
+            [...shown.map((entry) => entry.box), ...regions.map((region) => region.boundingBox)],
+            reach
           )
           if (index === null) return
-          const region = regions[index]
+          if (index < shown.length) {
+            const { redaction } = shown[index]
+            onSelect?.(redaction.id)
+            const anchor = anchors.current.get(redaction.id)
+            if (anchor && actions) setMenu({ id: redaction.id, anchor })
+            return
+          }
+          const region = regions[index - shown.length]
           const span = spans.get(region.id)
           if (!span) return
           redactWord({ start: span.start, end: span.end, text: span.text }, region.boundingBox)
@@ -341,7 +353,7 @@ export function ImageCanvas({
                   aria-pressed={accepted}
                   aria-label={`${accepted ? "Redacted" : "Suggested"}: ${describe(redaction)}`}
                   className={cn(
-                    "hit-expand absolute transition-colors",
+                    "absolute transition-colors",
                     accepted
                       ? "bg-black"
                       : "border border-dashed bg-red-soft hover:bg-primary/20",

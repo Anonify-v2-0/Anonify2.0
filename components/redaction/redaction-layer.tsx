@@ -33,6 +33,14 @@ import type { Redaction } from "@/types/redaction"
  * rather than a decoration standing in for it. Words are clickable and a drag
  * creates a region, so anything the detectors missed is one gesture away.
  *
+ * On a touch screen (#45): one finger scrolls in the select tool and draws
+ * only in the redact tool (see draw-gesture.ts). A tap that misses takes
+ * whichever word or redaction is nearest within a finger's width, so a word
+ * redacts (and flashes what it took) and a redaction however thin is still
+ * selectable. Tapping a redaction opens a small menu of what can be done with
+ * it. A selected region can be moved and resized by its handles, or with the
+ * arrow keys (Shift resizes).
+ *
  * Accessibility: the per-word hit targets are a pointer affordance and are kept
  * out of the tab order deliberately — a page of prose would otherwise be several
  * hundred tab stops, which is worse than having none. Redactions themselves are
@@ -194,13 +202,30 @@ export function RedactionLayer({
         const mouse = lastPointer.current === "mouse"
         if (tool === "pan" || (mouse && tool === "select")) return
         const point = toPageSpace(event)
-        const index = nearestBox(
-          point,
-          page.spans.map((span) => span.boundingBox),
-          mouse ? 0 : MIN_TOUCH_TARGET / 2 / zoom
-        )
+        const reach = mouse ? 0 : MIN_TOUCH_TARGET / 2 / zoom
+        // Redactions and words compete on distance. A fixed 44 px hit area
+        // around each thin redaction overlapped the lines above and below
+        // it, so a tap on a neighbouring word selected the redaction instead.
+        const placed = mouse
+          ? []
+          : redactions.flatMap((redaction) => {
+              const own = regions.boxOf(redaction)
+              return (own ? [own] : boxesForRedaction(page, redaction)).map((box) => ({
+                redaction,
+                box,
+              }))
+            })
+        const words = page.spans.map((span) => span.boundingBox)
+        const index = nearestBox(point, [...placed.map((entry) => entry.box), ...words], reach)
         if (index === null) return
-        const span = page.spans[index]
+        if (index < placed.length) {
+          const { redaction } = placed[index]
+          onSelect(redaction.id)
+          const anchor = anchors.current.get(redaction.id)
+          if (anchor && actions) setMenu({ id: redaction.id, anchor })
+          return
+        }
+        const span = page.spans[index - placed.length]
         const box = span.boundingBox!
         redact(rangeAt(page, span, Math.min(Math.max(point.x - box.x, 0), box.width)))
       }}
@@ -280,7 +305,7 @@ export function RedactionLayer({
                 }
               }}
               className={cn(
-                "hit-expand absolute transition-colors",
+                "absolute transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                 accepted
                   ? "bg-black"
