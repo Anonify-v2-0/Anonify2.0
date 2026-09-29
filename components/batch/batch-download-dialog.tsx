@@ -20,14 +20,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { BatchExportSetup } from "@/components/batch/batch-export-setup"
+import { BatchExportSetup, OUTPUTS } from "@/components/batch/batch-export-setup"
 import type {
   BatchExportControls,
   BatchStartOptions,
 } from "@/hooks/use-batch-export"
 import { isActiveExport } from "@/hooks/use-batch-export"
+import { filenameFromDisposition } from "@/lib/api/content-disposition"
 import type { BatchExportDocument } from "@/lib/documents/batch-exports"
 import type { SkipReason } from "@/lib/redaction/archive"
+import type { BatchOutput } from "@/lib/redaction/batch-layout"
 import { cn } from "@/lib/utils"
 
 /**
@@ -56,16 +58,52 @@ const SKIP_LABELS: Record<SkipReason, string> = {
   "export-failed": "could not be exported",
   cancelled: "not reached",
   container: "expanded into the messages above",
+  failed: "could not be processed",
+  "empty-container": "none of its messages could be included",
+}
+
+/**
+ * What a mailbox row says, which depends on what is being downloaded: the run
+ * never exports a mailbox, and the original format rebuilds one from the
+ * messages it did export.
+ */
+function skipLabel(reason: SkipReason | undefined, output: BatchOutput): string {
+  if (reason === "container" && output !== "processed") {
+    return "rebuilt from its messages"
+  }
+  return SKIP_LABELS[reason ?? "export-failed"]
 }
 
 const ARCHIVE_FILENAME = "anonify-batch-redacted.zip"
+
+/**
+ * The same link, asking for something else — another shape, one upload, or
+ * the report — under the same short-lived token.
+ */
+function withParams(
+  url: string,
+  params: Record<string, string | null | undefined>
+): string {
+  const parsed = new URL(url, "http://anonify.invalid")
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue
+    if (value === null) parsed.searchParams.delete(key)
+    else parsed.searchParams.set(key, value)
+  }
+  return `${parsed.pathname}${parsed.search}`
+}
 
 /** The archive fetch, which is separate from the run that produced it. */
 type Fetching =
   | { phase: "idle" }
   | { phase: "assembling"; received: number; total: number | null }
-  | { phase: "saved"; size: number }
-  | { phase: "failed"; message: string }
+  | { phase: "saved"; size: number; filename: string; archive: boolean }
+  /**
+   * `report` when the server refused with a report worth reading: a mailbox
+   * withheld by its own verification, whose report says which check it
+   * failed and at which message.
+   */
+  | { phase: "failed"; message: string; report?: boolean }
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -125,6 +163,7 @@ export function BatchDownloadDialog({
   batchId,
   controls,
   documentCount,
+  scope,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -132,6 +171,11 @@ export function BatchDownloadDialog({
   controls: BatchExportControls
   /** Known before a run exists, so the window can say what it is about to do. */
   documentCount?: number
+  /**
+   * One upload rather than the whole batch, in one shape — the mailbox the
+   * workspace is showing, downloaded as a mailbox whatever the last run chose.
+   */
+  scope?: { documentId: string; output: BatchOutput }
 }) {
   const { state, loading, starting, cancelling, start, cancel } = controls
   const [fetching, setFetching] = useState<Fetching>({ phase: "idle" })
@@ -145,7 +189,15 @@ export function BatchDownloadDialog({
   const fetchedRef = useRef<string | null>(null)
 
   const active = isActiveExport(state)
-  const deliverable = state?.downloadUrl ?? null
+  const deliverable = state?.downloadUrl
+    ? scope
+      ? withParams(state.downloadUrl, {
+          output: scope.output,
+          document: scope.documentId,
+        })
+      : state.downloadUrl
+    : null
+  const output: BatchOutput = scope?.output ?? state?.output ?? "original"
 
   const releaseArchive = useCallback(() => {
     if (objectUrlRef.current) {
@@ -188,6 +240,7 @@ export function BatchDownloadDialog({
             phase: "failed",
             message:
               payload.error?.trim() || "The archive could not be assembled.",
+            report: response.status === 422,
           })
           return
         }
@@ -208,18 +261,30 @@ export function BatchDownloadDialog({
           setFetching({ phase: "assembling", received, total })
         }
 
-        const blob = new Blob(chunks as BlobPart[], { type: "application/zip" })
+        const type = response.headers.get("content-type") ?? "application/zip"
+        // The name the server gave it. It knows whether this is a mailbox, a
+        // single message or a zip; the dialog does not have to guess.
+        const filename = filenameFromDisposition(
+          response.headers.get("content-disposition"),
+          ARCHIVE_FILENAME
+        )
+        const blob = new Blob(chunks as BlobPart[], { type })
         releaseArchive()
         const objectUrl = URL.createObjectURL(blob)
         objectUrlRef.current = objectUrl
         setArchiveUrl(objectUrl)
-        setFetching({ phase: "saved", size: blob.size })
+        setFetching({
+          phase: "saved",
+          size: blob.size,
+          filename,
+          archive: type === "application/zip",
+        })
 
         // Handed to the browser without a second click. The button stays for
         // the case where something swallows this one.
         const anchor = document.createElement("a")
         anchor.href = objectUrl
-        anchor.download = ARCHIVE_FILENAME
+        anchor.download = filename
         anchor.click()
       } catch {
         if (controller.signal.aborted) return
@@ -291,6 +356,7 @@ export function BatchDownloadDialog({
             batchId={batchId}
             starting={starting}
             onStart={begin}
+            fixedOutput={scope?.output}
           />
         ) : (
         <div className="space-y-3">
@@ -334,7 +400,7 @@ export function BatchDownloadDialog({
                     {document.state === "exported"
                       ? `${document.removed ?? 0} removed`
                       : document.state === "skipped"
-                        ? SKIP_LABELS[document.reason ?? "export-failed"]
+                        ? skipLabel(document.reason, output)
                         : document.state === "exporting"
                           ? "exporting"
                           : ""}
@@ -349,6 +415,30 @@ export function BatchDownloadDialog({
               This runs on the server. You can close this window — the button
               keeps the progress, and the archive will be waiting.
             </p>
+          ) : null}
+
+          {!active &&
+          deliverable &&
+          fetching.phase === "failed" &&
+          fetching.report ? (
+            <p className="text-[11px] leading-relaxed text-text-muted">
+              <a
+                className="underline decoration-border underline-offset-2 transition-colors hover:text-white"
+                href={withParams(deliverable, { part: "report" })}
+                download
+              >
+                Batch report
+              </a>{" "}
+              — what was withheld or left out, and why.
+            </p>
+          ) : null}
+
+          {!active && deliverable && fetching.phase === "saved" ? (
+            <Alternatives
+              url={deliverable}
+              output={output}
+              single={!fetching.archive}
+            />
           ) : null}
         </div>
         )}
@@ -401,7 +491,11 @@ export function BatchDownloadDialog({
                 // relabel it as a button and lose the link semantics.
                 <a
                   href={archiveUrl}
-                  download={ARCHIVE_FILENAME}
+                  download={
+                    fetching.phase === "saved"
+                      ? fetching.filename
+                      : ARCHIVE_FILENAME
+                  }
                   className={cn(buttonVariants(), "btn-pill h-10")}
                 >
                   <Download className="size-4" />
@@ -422,6 +516,60 @@ export function BatchDownloadDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * The other shapes of the same download, and its report.
+ *
+ * Every shape is assembled from the same verified artifacts, so asking for a
+ * different one after the fact costs a download rather than another run. A
+ * download that was a single file — a mailbox, a message — has nowhere to put
+ * the batch report, so it is offered here instead, because it is where the
+ * messages that were left out of a mailbox are named.
+ */
+function Alternatives({
+  url,
+  output,
+  single,
+}: {
+  url: string
+  output: BatchOutput
+  single: boolean
+}) {
+  const others = OUTPUTS.filter((entry) => entry.value !== output)
+  const link =
+    "underline decoration-border underline-offset-2 transition-colors hover:text-white"
+
+  return (
+    <p className="text-[11px] leading-relaxed text-text-muted">
+      {single ? (
+        <>
+          <a
+            className={link}
+            href={withParams(url, { part: "report" })}
+            download
+          >
+            Batch report
+          </a>
+          {" · "}
+        </>
+      ) : null}
+      Also as{" "}
+      {others.map((entry, index) => (
+        <span key={entry.value}>
+          {index > 0 ? " or " : null}
+          <a
+            className={link}
+            href={withParams(url, { output: entry.value })}
+            download
+          >
+            {entry.label.toLowerCase()}
+          </a>
+        </span>
+      ))}
+      .
+    </p>
   )
 }
 

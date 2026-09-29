@@ -362,6 +362,7 @@ describe("batch export progress", () => {
       completed: 1,
       exported: 1,
       documents: planned("a", "b", "c") as unknown as null,
+      options: null,
       cancelRequested: false,
       error: null,
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -369,6 +370,11 @@ describe("batch export progress", () => {
     }
 
     expect(toView(record).downloadUrl).toBeNull()
+    // A run started before the choice existed downloads what was uploaded.
+    expect(toView(record).output).toBe("original")
+    expect(
+      toView({ ...record, options: { output: "processed" } }).output
+    ).toBe("processed")
     expect(
       toView(record, "/api/batches/bat_1/download?token=x").downloadUrl
     ).toBe("/api/batches/bat_1/download?token=x")

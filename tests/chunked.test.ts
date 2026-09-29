@@ -19,7 +19,7 @@ import {
   sealedSizeOf,
   TAG_BYTES,
 } from "@/lib/storage/chunked"
-import { chain, collect } from "@/lib/storage/streams"
+import { chain, collect, readHead } from "@/lib/storage/streams"
 
 /**
  * The chunked envelope, tested against the attacks it exists to close.
@@ -341,5 +341,23 @@ describe("chaining a source into a transform", () => {
     source.destroy(new Error("storage went away"))
 
     await expect(collect(transform)).rejects.toThrow(/storage went away/)
+  })
+})
+
+describe("reading the head of a source", () => {
+  it("releases the source when the rest is abandoned", async () => {
+    const source = new Readable({ read() {} })
+    for (let index = 0; index < 8; index++) source.push(Buffer.alloc(16))
+    const { head, rest } = await readHead(source, 16)
+    expect(head.byteLength).toBe(16)
+
+    // Never ended, the way a storage stream is not until it is read out: only
+    // the reader letting go can close it.
+    for await (const piece of rest) {
+      expect(piece.byteLength).toBeGreaterThan(0)
+      break
+    }
+
+    expect(source.destroyed).toBe(true)
   })
 })

@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/database/prisma"
-import { listBatchDocuments, type DocumentListItem } from "@/lib/documents/listing"
+import {
+  listBatchDocumentIds,
+  listBatchDocuments,
+  type DocumentListItem,
+} from "@/lib/documents/listing"
 import { AccessError } from "@/lib/security/access-control"
 import type { BatchPlacement } from "@/types/document"
 
@@ -127,21 +131,21 @@ export async function batchPositionFor(
   if (!batchId) return null
 
   const [siblings, carried] = await Promise.all([
-    listBatchDocuments(batchId),
+    listBatchDocumentIds(batchId),
     prisma.globalRule.count({
       where: { documentId, batchRuleId: { not: null } },
     }),
   ])
 
-  const index = siblings.findIndex((document) => document.id === documentId)
+  const index = siblings.indexOf(documentId)
   if (index === -1) return null
 
   return {
     batchId,
     position: index + 1,
     total: siblings.length,
-    previousId: index > 0 ? siblings[index - 1].id : null,
-    nextId: index < siblings.length - 1 ? siblings[index + 1].id : null,
+    previousId: index > 0 ? siblings[index - 1] : null,
+    nextId: index < siblings.length - 1 ? siblings[index + 1] : null,
     carriedRules: carried,
   }
 }

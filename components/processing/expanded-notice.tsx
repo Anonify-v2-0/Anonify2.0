@@ -2,6 +2,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { Mails } from "lucide-react"
 
+import { BatchDownloadButton } from "@/components/batch/batch-download-button"
 import type { DocumentSummary } from "@/types/document"
 
 /**
@@ -17,6 +18,12 @@ import type { DocumentSummary } from "@/types/document"
  *
  * So it says what happened, how many messages came out, and points at the
  * batch where the review actually is.
+ *
+ * It is also where the mailbox comes back out. There is still nothing to
+ * export *here* — the messages are what get exported — but the thing the
+ * reviewer uploaded was a mailbox, and the download offered on it is that
+ * mailbox, rebuilt from its messages' verified exports: one file, in the
+ * format it arrived in, rather than the whole batch as a zip.
  */
 export function ExpandedNotice({ summary }: { summary: DocumentSummary }) {
   const batchId = summary.batch?.batchId ?? null
@@ -46,13 +53,24 @@ export function ExpandedNotice({ summary }: { summary: DocumentSummary }) {
         processed.
       </p>
       {batchId ? (
-        <Link
-          href={`/batches/${batchId}`}
-          className="btn-pill mt-2 inline-flex h-10 items-center gap-2 px-5 text-sm"
-        >
-          <Mails className="size-4" />
-          Open the batch
-        </Link>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+          <Link
+            href={`/batches/${batchId}`}
+            className="btn-pill inline-flex h-10 items-center gap-2 px-5 text-sm"
+          >
+            <Mails className="size-4" />
+            Open the batch
+          </Link>
+          <BatchDownloadButton
+            batchId={batchId}
+            variant="outline"
+            size="default"
+            className="h-10 rounded-full px-5"
+            label="Download redacted mailbox"
+            readyLabel="Mailbox ready"
+            scope={{ documentId: summary.id, output: "original" }}
+          />
+        </div>
       ) : (
         <Link
           href="/documents"

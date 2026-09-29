@@ -705,12 +705,15 @@ of `lib/documents/mbox/` is a splitter and a set of limits:
 | `limits.ts` | `MboxLimits` — message count, total bytes, largest message, depth |
 | `messages.ts` | what each message becomes, and what it is called |
 | `validate.ts` | conservation: every byte accounted for, every message reparses |
+| `rebuild.ts` | the other direction: the mailbox written back from its messages' verified exports, and read back by the scanner before a byte of it leaves |
 
 There is no `redact.ts` and no `extract.ts`, because **the mailbox itself is
 never reviewed.** It is `extractable: false, exportable: false` in the register
 — the only entry that is — and its whole pipeline is expansion. The messages
-are what get extracted, analyzed, reviewed and exported, and the batch archive
-at the end is the output, exactly as for a batch a person uploads directly.
+are what get extracted, analyzed, reviewed and exported. What the reviewer
+downloads at the end is, by default, the mailbox again: rebuilt from those
+exports in the original order (see [coming back out](#coming-back-out-the-mailbox-rebuilt)),
+or, if they ask, every message's own output in folders.
 
 ```mermaid
 flowchart TB
@@ -722,8 +725,8 @@ flowchart TB
     C1 --> RUN["each its own run:<br/>extract · analyze · review · export"]
     C2 --> RUN
     CN --> RUN
-    MBOX -.->|status: expanded| DONE["never extracted,<br/>never exported"]
-    RUN --> ARCHIVE["one batch archive"]
+    MBOX -.->|status: expanded| DONE["never extracted,<br/>never redacted as a file"]
+    RUN --> REBUILT["inbox-redacted.mbox<br/>rebuilt from the exports,<br/>verified as a whole"]
 ```
 
 ### Finding the seams, which is the entire difficulty
@@ -849,7 +852,89 @@ no model to open and no artifact to export because it is the batch rather than a
 file in it. That distinction is load-bearing in three places at once — the batch
 export skips it by name rather than reporting a document that "had not finished
 processing", the editor says what happened instead of rendering an editor over
-nothing, and the reviewer is told what became of the file they uploaded.
+nothing, and the reviewer is told what became of the file they uploaded — and
+offered it back, as a mailbox.
+
+### Coming back out: the mailbox, rebuilt
+
+Someone who uploads `inbox.mbox` wants `inbox-redacted.mbox` back — the thing
+they uploaded, redacted, which opens in the mail client it came from — not nine
+hundred loose `.eml` files with every attachment a second time beside the
+message it was already inside. So the batch download asks what shape to deliver
+(`lib/redaction/batch-layout.ts`):
+
+| Choice | What comes back |
+| --- | --- |
+| **Original format** (the default) | One file per thing that was uploaded, in its own format. A mailbox is rebuilt as a mailbox; a message comes back carrying its redacted enclosures, which is what its own export already is; a file uploaded on its own is its own redacted file. One upload is that file, bare; several are zipped. |
+| **Processed files** | Every document's own output, in folders that mirror where it came from: `inbox-redacted/0001/message-redacted.eml`, `inbox-redacted/0001/attachments/0.2-redacted.pdf`, `reports/…` beside them. |
+| **Both** | The two side by side under `original/` and `processed/`, in one zip. |
+
+Folders under an upload are named by **message number and MIME part path, never
+by subject or filename** — both are regularly the personal data being removed,
+and a folder name ends up on a disk and in a zip listing. The upload's own name
+is the only name in the tree, and the reviewer chose that one. The tree is
+recovered from `parentDocumentId` and `sourcePartPath` alone, a pure function of
+two columns, so the pass that decides what goes in and the pass that writes it
+cannot disagree.
+
+**Nothing is redacted here.** A rebuilt mailbox is its messages' exports, each
+the artifact that already passed verification, re-hashed against the checksum
+it recorded as it streams. `lib/documents/mbox/rebuild.ts` writes only what a
+mailbox has and a message does not:
+
+- **The `From ` separator line, which is personal data.** In the source it
+  carries the envelope sender and the time the message arrived. It is never
+  copied — the rebuild is never even handed it. The sender is always
+  `MAILER-DAEMON`, and the date is the redacted message's own `Date:` header,
+  which the reviewer has already seen survive in the file they are downloading.
+  A missing or unreadable date, or one that would put an accepted value on the
+  line, is the placeholder `Thu Jan  1 00:00:00 1970`.
+- **`>From ` quoting, reapplied as mboxrd**: one more `>` on every line matching
+  `^>*From `, which is exactly what the splitter's unquoting takes back off.
+- **The blank line that ends each message**, in the message's own line ending.
+
+**A message that is not in the mailbox is named.** One that failed, was refused
+at expansion, was never exported, or failed its own verification is left out
+and named in the batch report — `3 of 4 messages; 1 left out: message 3 (had not
+finished processing)` — and in `containers[].messages.leftOut`, by message
+number and document id. Nobody counts nine hundred messages by hand, so a
+mailbox one message short with nothing saying so is the one outcome this cannot
+have. A mailbox none of whose messages can be included is not rebuilt at all,
+and says so.
+
+**Verified after it is built, as every other export is.** The mailbox is
+written once through a reader that splits it with `MailboxScanner` — the same
+scanner that split the upload — and holds it to what went in: the same number
+of messages; each one, separator gone and quoting undone, equal byte for byte to
+the export that went in; and every separator line written by this code and
+carrying none of the values accepted anywhere in the batch outside the text
+that is always the same — `From MAILER-DAEMON `, and the placeholder. A value
+found only there (`1970`, or a bounce's `Mailer-Daemon` swept up by accepting
+every name) is a coincidence with a constant, not a leak, and does not
+withhold the mailbox; one that reaches into a message's own date does.
+Together those account for every byte of the file: a byte is either inside a
+message that is a verified export, or on a line this code wrote and then
+searched. A mailbox that fails is withheld whole and named as
+`verification-failed`, with the check it failed and the message it failed at
+in `containers[].failure`. A download that is only that mailbox is refused
+with the report's note on it rather than "nothing exported", and
+`?part=report` still serves the report.
+
+**Streamed.** Each message is read out of storage, quoted a piece at a time and
+handed on; the verifier holds one message and the scanner's 16 KiB lookahead,
+the same bound expansion works within when it reads one message out of an
+upload. Delivery writes the same bytes again and holds them to the checksum the
+verification pass computed, so what leaves is provably what was verified — the
+two-pass shape the batch archive already had.
+
+**Vaults stay beside the file, never inside it.** A tokenized or encrypted
+message's vault goes next to the mailbox as `inbox-vaults/0001-vault.json`, and
+opens that message's enclosures too. A download that carries a vault is
+therefore always a zip, even for one upload, with the batch report's warning.
+
+The workspace offers the rebuilt mailbox directly: opening an expanded mailbox
+shows **Download redacted mailbox**, which is `?output=original&document=<id>`
+on the batch download — that one upload, in its own format.
 
 ### Verified by
 
@@ -861,6 +946,16 @@ ones — which are the ones worth reviewing. So `validate.ts` asks three differe
 questions: is every byte of the file either inside a message or a separator
 line, does every message still parse under both MIME parsers, and did any
 message keep a `From ` line it should have lost.
+
+The rebuilt mailbox is held to the same arithmetic in the other direction, by
+`tests/mbox-rebuild.test.ts` and
+`tests/integration/batch-download.integration.test.ts`: a mailbox uploaded,
+expanded, reviewed and exported through the real exporter, rebuilt, and split
+again by the upload's scanner — the same count, each message byte for byte its
+export, no accepted value and no source envelope sender anywhere in the file; a
+message left out and named; a mailbox of messages with attachments, whose
+enclosures come back inside their messages; a separator that would carry a
+value, refused; a message altered after it was written, refused.
 
 ### What is not claimed
 
@@ -882,6 +977,16 @@ message keep a `From ` line it should have lost.
 - **A `.eml` file that kept its `From ` line** is a one-message mailbox by these
   tests, and is refused for the mismatch between its bytes and its extension, as
   any other mismatch is.
+- **A rebuilt mailbox is mboxrd.** A reader that assumes mboxo undoes only
+  `>From ` and will show one extra `>` on a line that was already quoted in the
+  original. Its separator dates are each message's `Date:` header rather than
+  when it arrived, which is the point.
+- **A message whose last line had no line ending gains one** in the rebuilt
+  mailbox; the format has no other way to end it. The verifier holds the
+  message to exactly that.
+- **A mailbox forwarded inside a message** is removed from that message, as any
+  enclosure that did not become a redacted document is, rather than rebuilt
+  inside it. The processed layout still has its messages, in folders.
 
 ---
 
@@ -1115,7 +1220,9 @@ finishes minutes after the request that started it and is collected as a zip
 later, so there is no response to hand anything back in. The vault is therefore
 sealed under the same per-document key as the artifact and its report
 (`vaultBlobKey` on `ExportArtifact`), shipped in the archive as
-`<name>-vault.json`, and purged by the same sweep that purges the document.
+`<name>-vault.json` beside the file it opens — `inbox-vaults/0001-vault.json`
+beside a rebuilt mailbox, since a vault never goes inside the file — and purged
+by the same sweep that purges the document.
 
 The argument for accepting that: within the retention window the **source
 document itself** is already in that bucket under that key, so anyone who could

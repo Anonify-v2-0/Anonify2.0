@@ -1,5 +1,7 @@
 import { zip, type Zippable } from "fflate"
 
+import { filenameFromDisposition } from "@/lib/api/content-disposition"
+
 /**
  * Every output of a multi-copy export, as one zip.
  *
@@ -36,10 +38,11 @@ export function withVariant(filename: string, variant: string): string {
 }
 
 /** The name the server gave a download, from its `content-disposition`. */
-export function filenameFrom(response: Response, fallback: string): string {
-  const header = response.headers.get("content-disposition") ?? ""
-  const match = /filename="?([^";]+)"?/i.exec(header)
-  return match?.[1]?.trim() || fallback
+function filenameFrom(response: Response, fallback: string): string {
+  return filenameFromDisposition(
+    response.headers.get("content-disposition"),
+    fallback
+  )
 }
 
 /**

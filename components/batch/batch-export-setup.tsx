@@ -13,6 +13,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import type { BatchStartOptions } from "@/hooks/use-batch-export"
+import {
+  DEFAULT_BATCH_OUTPUT,
+  type BatchOutput,
+} from "@/lib/redaction/batch-layout"
 import { cn } from "@/lib/utils"
 import { DEFAULT_METHOD, type RedactionMethod } from "@/types/redaction"
 
@@ -63,6 +67,37 @@ const METHODS: {
 
 const REVERSIBLE = new Set<RedactionMethod>(["tokenize", "encrypt"])
 
+/**
+ * What the download looks like.
+ *
+ * Asked here, with the method, because both are decisions about what the
+ * reviewer walks away with and neither can be made for them. The original
+ * format is the default: somebody who uploaded a mailbox wants a mailbox back,
+ * not nine hundred loose messages and every attachment a second time beside
+ * the message it was already inside.
+ */
+export const OUTPUTS: {
+  value: BatchOutput
+  label: string
+  note: string
+}[] = [
+  {
+    value: "original",
+    label: "Original format",
+    note: "One file per upload, as it was uploaded: a mailbox comes back as a mailbox and a message carries its own redacted attachments. Several uploads come zipped.",
+  },
+  {
+    value: "processed",
+    label: "Processed files (zip)",
+    note: "Every document's own output, in folders that mirror where it came from — each message in its own folder, each attachment under it. Folders are numbered, never named after a subject or a filename.",
+  },
+  {
+    value: "both",
+    label: "Both",
+    note: "The original format and the processed files side by side, in one zip.",
+  },
+]
+
 type BatchFile = { id: string; name: string; status: string }
 
 function MethodSelect({
@@ -101,13 +136,20 @@ export function BatchExportSetup({
   batchId,
   starting,
   onStart,
+  fixedOutput,
 }: {
   batchId: string
   starting: boolean
   onStart: (options: BatchStartOptions) => void
+  /**
+   * Set when the caller has already decided what is downloaded — the mailbox
+   * offered as a mailbox — so the question is not asked only to be ignored.
+   */
+  fixedOutput?: BatchOutput
 }) {
   const [files, setFiles] = useState<BatchFile[] | null>(null)
   const [method, setMethod] = useState<RedactionMethod>(DEFAULT_METHOD)
+  const [output, setOutput] = useState<BatchOutput>(DEFAULT_BATCH_OUTPUT)
   const [perFile, setPerFile] = useState<Record<string, RedactionMethod>>({})
 
   // Read here rather than passed down, so this behaves the same wherever the
@@ -166,6 +208,37 @@ export function BatchExportSetup({
         </p>
       </div>
 
+      {fixedOutput ? null : (
+        <div className="space-y-1.5">
+          <Label htmlFor="batch-output" className="text-sm font-normal">
+            What to download
+          </Label>
+          <Select
+            value={output}
+            onValueChange={(next) => setOutput(next as BatchOutput)}
+          >
+            <SelectTrigger id="batch-output" size="sm" className="w-full">
+              <SelectValue>
+                {(current) =>
+                  OUTPUTS.find((entry) => entry.value === current)?.label ??
+                  "Original format"
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {OUTPUTS.map((entry) => (
+                <SelectItem key={entry.value} value={entry.value}>
+                  {entry.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] leading-relaxed text-text-muted">
+            {OUTPUTS.find((entry) => entry.value === output)?.note}
+          </p>
+        </div>
+      )}
+
       {exportable.length > 0 ? (
         <div className="space-y-1.5">
           <p className="label-micro">Per file</p>
@@ -215,6 +288,7 @@ export function BatchExportSetup({
           onStart({
             method,
             methodByDocument: Object.keys(perFile).length > 0 ? perFile : undefined,
+            output: fixedOutput ?? output,
           })
         }
       >

@@ -5,6 +5,7 @@ import { toast } from "sonner"
 
 import { readFailure } from "@/lib/api/errors"
 import type { BatchExportView } from "@/lib/documents/batch-exports"
+import type { BatchOutput } from "@/lib/redaction/batch-layout"
 import { decodeBatchExportEvent } from "@/lib/workflows/batch-export-events"
 import type { RedactionMethod } from "@/types/redaction"
 
@@ -53,6 +54,8 @@ export function isActiveExport(state: BatchExportView | null): boolean {
 export type BatchStartOptions = {
   method?: RedactionMethod
   methodByDocument?: Record<string, RedactionMethod>
+  /** The shape of the download; see lib/redaction/batch-layout.ts. */
+  output?: BatchOutput
 }
 
 export type BatchExportControls = {

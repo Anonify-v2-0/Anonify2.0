@@ -1,6 +1,11 @@
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
 import type { SkipReason } from "@/lib/redaction/archive"
+import {
+  DEFAULT_BATCH_OUTPUT,
+  isBatchOutput,
+  type BatchOutput,
+} from "@/lib/redaction/batch-layout"
 import { DEFAULT_METHOD, type RedactionMethod } from "@/types/redaction"
 
 /**
@@ -47,6 +52,8 @@ export type BatchExportView = {
   error: string | null
   createdAt: string
   updatedAt: string
+  /** The shape the reviewer asked to download; see lib/redaction/batch-layout.ts. */
+  output: BatchOutput
   /** Present only when there is an archive to fetch, and short-lived. */
   downloadUrl: string | null
 }
@@ -73,6 +80,22 @@ export type BatchExportOptions = {
   method?: RedactionMethod
   /** Per-document override of `method`, keyed by document id. */
   methodByDocument?: Record<string, RedactionMethod>
+  /**
+   * What the download looks like: the uploads in their own formats, every
+   * document's output in folders, or both.
+   *
+   * Not a property of the run — every shape is assembled from the same
+   * verified artifacts, and the download route will build any of them from
+   * any finished run. It is kept here so the link the reviewer is handed is
+   * the one they chose, and so a second tab agrees with the first.
+   */
+  output?: BatchOutput
+}
+
+/** The shape a run's download link asks for. */
+export function batchOutputOf(options: unknown): BatchOutput {
+  const output = (options as BatchExportOptions | null)?.output
+  return isBatchOutput(output) ? output : DEFAULT_BATCH_OUTPUT
 }
 
 /**
@@ -102,6 +125,7 @@ export type BatchExportRecord = {
   completed: number
   exported: number
   documents: Prisma.JsonValue | null
+  options: Prisma.JsonValue | null
   cancelRequested: boolean
   error: string | null
   createdAt: Date
@@ -117,6 +141,7 @@ export const BATCH_EXPORT_SELECT = {
   completed: true,
   exported: true,
   documents: true,
+  options: true,
   cancelRequested: true,
   error: true,
   createdAt: true,
@@ -145,6 +170,7 @@ export function toView(
     error: record.error,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+    output: batchOutputOf(record.options),
     downloadUrl,
   }
 }

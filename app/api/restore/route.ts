@@ -1,3 +1,4 @@
+import { contentDisposition } from "@/lib/api/content-disposition"
 import {
   errorResponse,
   handleRouteError,
@@ -97,7 +98,9 @@ export async function POST(request: Request) {
       status: 200,
       headers: {
         "Content-Type": detected.mimeType,
-        "Content-Disposition": `attachment; filename="${restoredName(file.name, detected.extension)}"`,
+        "Content-Disposition": contentDisposition(
+          restoredName(file.name, detected.extension)
+        ),
         "Cache-Control": "no-store",
         "X-Restored-Values": String(outcome.restored),
         "X-Unresolved-Values": String(outcome.unresolved),

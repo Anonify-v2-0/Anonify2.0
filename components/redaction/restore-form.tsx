@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { filenameFromDisposition } from "@/lib/api/content-disposition"
 import { toastFailure } from "@/lib/api/errors"
 import { cn } from "@/lib/utils"
 
@@ -67,12 +68,13 @@ export function RestoreForm() {
       }
 
       const blob = await response.blob()
-      const disposition = response.headers.get("Content-Disposition") ?? ""
-      const named = /filename="([^"]+)"/.exec(disposition)?.[1]
 
       setResult({
         url: URL.createObjectURL(blob),
-        name: named ?? `restored-${file.name}`,
+        name: filenameFromDisposition(
+          response.headers.get("Content-Disposition"),
+          `restored-${file.name}`
+        ),
         restored: Number(response.headers.get("X-Restored-Values") ?? 0),
         unresolved: Number(response.headers.get("X-Unresolved-Values") ?? 0),
         matchesVault: response.headers.get("X-Vault-Matches") === "true",

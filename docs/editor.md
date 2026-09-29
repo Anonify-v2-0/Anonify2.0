@@ -145,7 +145,9 @@ The top bar of the editor. It carries:
   necessity.
 - `RetentionControl` (hidden below `lg`), `StatusPill`, and `BatchDownloadButton`
   — the batch archive is offered here because the reviewer finishes the last
-  document in the workspace, not on the batch page.
+  document in the workspace, not on the batch page. An expanded mailbox shows
+  `ExpandedNotice` instead of an editor, which offers the mailbox itself back:
+  a `BatchDownloadButton` scoped to that one upload in its original format.
 - The **Export** button, which dispatches `exportDialogToggled(true)`.
 
 ---
@@ -500,6 +502,13 @@ thing keeping it alive — closing it does not stop anything. The dialog shows:
   reached."
 - Stop (while active), Try again (after failure), Export again / Save again
   (after success).
+- Before a run starts, `BatchExportSetup` asks two things: what happens to the
+  values in each file, and **what to download** — the original format (a
+  mailbox back as a mailbox, a message carrying its enclosures), the processed
+  files in folders that mirror where each came from, or both. Once saved, the
+  other shapes are offered as links under the same token, and a download that
+  was a single file offers the batch report beside it, since that is where
+  messages left out of a rebuilt mailbox are named.
 
 The archive fetch is a separate wait from the run that produced it — assembling
 tens of megabytes from verified artifacts takes time, and a bare link would
