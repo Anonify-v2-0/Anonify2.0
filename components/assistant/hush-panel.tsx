@@ -27,6 +27,7 @@ import {
   type HushToolUIPart,
 } from "@/components/assistant/hush-tool-part"
 import { Button } from "@/components/ui/button"
+import { Sheet } from "@/components/ui/sheet"
 import {
   learnedRuleRequest,
   suggestedScope,
@@ -35,6 +36,7 @@ import {
 import { useRules } from "@/hooks/use-rules"
 import type { HushUIMessage, HushView } from "@/lib/assistant/agent"
 import type { HushProvider } from "@/lib/assistant/hush"
+import type { SheetSnap } from "@/lib/editor/sheet"
 import { shortcutHint } from "@/lib/editor/shortcuts"
 import { cn } from "@/lib/utils"
 import { useAppDispatch, useAppSelector, useAppStore } from "@/store/hooks"
@@ -140,7 +142,17 @@ function improvePrompt(rule: RuleView): string {
   return `Improve my ${rule.scope} RegEx rule \`${rule.pattern}\` (rule id ${rule.id}, category ${rule.category}). Look at what it matched here and which of those matches I rejected, test a tighter pattern with compare_patterns, and propose the change with update_rule. Keep every match I accepted.`
 }
 
-export function HushPanel({ documentId }: { documentId: string }) {
+export function HushPanel({
+  documentId,
+  variant = "rail",
+}: {
+  documentId: string
+  /**
+   * A rail beside the page on a wide screen; a sheet over it on a narrow one,
+   * where there is no room for both. The workspace mounts the one that fits.
+   */
+  variant?: "rail" | "sheet"
+}) {
   const dispatch = useAppDispatch()
   const store = useAppStore()
   const request = useAppSelector((state) => state.ui.assistant)
@@ -268,23 +280,23 @@ export function HushPanel({ documentId }: { documentId: string }) {
     },
   }
 
-  if (!request) return null
+  // On a phone Hush opens full height, for typing. When a reply's location
+  // chip moves the page, it drops to half, so the place it pointed at is
+  // visible above it rather than behind it.
+  const [sheetSnap, setSheetSnap] = useState<SheetSnap>("full")
+  const focusNonce = useAppSelector((state) => state.editor.focus?.nonce ?? 0)
+  const [seenNonce, setSeenNonce] = useState(focusNonce)
+  if (focusNonce !== seenNonce) {
+    setSeenNonce(focusNonce)
+    if (variant === "sheet" && focusNonce > seenNonce) setSheetSnap("half")
+  }
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setSheetSnap("full")
+  }
 
-  return (
-    <aside
-      role="dialog"
-      aria-modal="false"
-      aria-labelledby="hush-title"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.stopPropagation()
-          dispatch(assistantToggled(null))
-        }
-      }}
-      // A rail beside the page on a wide screen; a sheet over it on a narrow
-      // one, where there is no room for both.
-      className="fixed inset-0 z-40 flex w-full flex-col border-l border-border bg-surface-2 shadow-panel lg:static lg:inset-auto lg:z-auto lg:w-[400px] lg:shrink-0 lg:shadow-none xl:w-[420px]"
-    >
+  const header = (
       <header className="flex flex-col gap-2.5 border-b border-border px-4 pt-3 pb-3">
         <div className="flex items-center gap-2.5">
           <span
@@ -354,7 +366,10 @@ export function HushPanel({ documentId }: { documentId: string }) {
           provider={status.state === "ready" ? status.provider : undefined}
         />
       </header>
+  )
 
+  const body = (
+    <>
       <Conversation
         messages={messages}
         busy={busy}
@@ -387,6 +402,46 @@ export function HushPanel({ documentId }: { documentId: string }) {
         onSend={(text) => void sendMessage({ text })}
         onStop={() => void stop()}
       />
+    </>
+  )
+
+  if (variant === "sheet") {
+    return (
+      <Sheet
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) dispatch(assistantToggled(null))
+        }}
+        title="Hush, the review assistant"
+        header={header}
+        snaps={["half", "full"]}
+        initialSnap="full"
+        snap={sheetSnap}
+        onSnapChange={setSheetSnap}
+        className="lg:hidden"
+      >
+        {body}
+      </Sheet>
+    )
+  }
+
+  if (!request) return null
+
+  return (
+    <aside
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="hush-title"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation()
+          dispatch(assistantToggled(null))
+        }
+      }}
+      className="flex w-[400px] shrink-0 flex-col border-l border-border bg-surface-2 xl:w-[420px]"
+    >
+      {header}
+      {body}
     </aside>
   )
 }

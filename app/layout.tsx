@@ -45,6 +45,10 @@ export const viewport: Viewport = {
   // The workspace chrome is charcoal; match the browser UI to it.
   themeColor: "#212429",
   colorScheme: "dark",
+  // Draw under the notch and the home indicator, and let each fixed control
+  // step out of the way with env(safe-area-inset-*). Without this, iOS
+  // reports every inset as zero and the bottom bar sits under the indicator.
+  viewportFit: "cover",
 }
 
 export default function RootLayout({
@@ -58,7 +62,7 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`antialiased font-sans ${poppins.variable}`}
     >
-      <body className="min-h-svh bg-background text-foreground">
+      <body className="min-h-svh bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground">
         <Providers>{children}</Providers>
       </body>
     </html>

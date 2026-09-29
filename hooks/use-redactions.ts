@@ -14,12 +14,14 @@ import {
   redactionsReplaced,
   redactionStatusSet,
   redactionMethodSet,
+  redactionBoxSet,
   redone,
   ruleAdded,
   undone,
 } from "@/store/redactionSlice"
 import { selectRedactions } from "@/store/selectors"
 import type { AppDispatch } from "@/store/store"
+import type { BoundingBox } from "@/types/document"
 import type { RuleScope } from "@/types/rules"
 import type {
   Redaction,
@@ -289,6 +291,37 @@ export function useRedactions(documentId: string, active: boolean) {
   )
 
   /**
+   * Moves or resizes a drawn region. Its status is untouched: adjusting a box
+   * is not a decision to redact, and a suggestion stays a suggestion.
+   */
+  const adjust = useCallback(
+    async (id: string, boundingBox: BoundingBox) => {
+      const rollback = optimistic(redactionBoxSet({ id, boundingBox }))
+
+      try {
+        const response = await fetch(
+          `/api/documents/${documentId}/redactions`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ ids: [id], boundingBox }),
+          }
+        )
+        if (!response.ok) {
+          await toastFailure(toast, response, "That change could not be saved.")
+          rollback()
+          void reload()
+        }
+      } catch {
+        toast.error("That change could not be saved.")
+        rollback()
+        void reload()
+      }
+    },
+    [documentId, optimistic, reload]
+  )
+
+  /**
    * Takes a step through history and tells the server what that step changed,
    * and nothing else. The canvas is what the user just saw change, and the
    * server has to agree with it because the export reads the server's copy.
@@ -331,6 +364,7 @@ export function useRedactions(documentId: string, active: boolean) {
     setMethod,
     create,
     remove,
+    adjust,
     applyGlobalRule,
     undo,
     redo,

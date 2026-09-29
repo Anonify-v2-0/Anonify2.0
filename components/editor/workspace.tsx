@@ -7,7 +7,12 @@ import { HushPanel } from "@/components/assistant/hush-panel"
 import { DocumentCanvas } from "@/components/document-viewer/document-canvas"
 import { EditorToolbar } from "@/components/editor/editor-toolbar"
 import { LiveAnnouncer } from "@/components/editor/live-announcer"
-import { PageNavigator } from "@/components/editor/page-navigator"
+import { MobileActionBar } from "@/components/editor/mobile-action-bar"
+import {
+  PageNavigator,
+  PagesSheet,
+  PageStepper,
+} from "@/components/editor/page-navigator"
 import { ShortcutSheet } from "@/components/editor/shortcut-sheet"
 import { WorkspaceHeader } from "@/components/editor/workspace-header"
 import { FailureNotice } from "@/components/processing/failure-notice"
@@ -18,6 +23,7 @@ import { RedactionInspector } from "@/components/redaction/redaction-inspector"
 import { RuleDialog } from "@/components/rules/rule-dialog"
 import { SearchBar, SearchResults } from "@/components/search/search-bar"
 import { useLearnedShapeNudge } from "@/hooks/use-learned-shapes"
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { useProcessingStream } from "@/hooks/use-processing-stream"
 import { useRedactions, type RuleScope } from "@/hooks/use-redactions"
 import { reloadRules, useRules } from "@/hooks/use-rules"
@@ -29,6 +35,7 @@ import { useAppDispatch, useAppSelector, useAppStore } from "@/store/hooks"
 import { searchClosed, searchOpened, searchReset } from "@/store/searchSlice"
 import { selectSelectedRedaction } from "@/store/selectors"
 import { assistantToggled, shortcutsToggled } from "@/store/uiSlice"
+import { WIDE_LAYOUT } from "@/lib/editor/layout"
 import { isReviewable, type DocumentSummary } from "@/types/document"
 import type { RedactionMethod } from "@/types/redaction"
 
@@ -40,6 +47,10 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
   const selected = useAppSelector(selectSelectedRedaction)
   const currentPage = useAppSelector((state) => state.editor.currentPage)
   const hushOpen = useAppSelector((state) => state.ui.assistant !== null)
+  // Hush is a rail beside the page when there is room, and a sheet over it
+  // when there is not. Decided in script because only one may be mounted: two
+  // conversations with the same agent would be two conversations.
+  const wide = useMediaQuery(WIDE_LAYOUT)
 
   useEffect(() => {
     dispatch(documentLoaded(summary))
@@ -47,7 +58,7 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
 
   useProcessingStream(summary.id, summary.status)
 
-  const { accept, reject, setMethod, create, applyGlobalRule, undo, redo } =
+  const { accept, reject, setMethod, create, remove, adjust, applyGlobalRule, undo, redo } =
     useRedactions(summary.id, isReviewable(current))
 
   const store = useAppStore()
@@ -122,8 +133,14 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
   useShortcuts(shortcuts, isReviewable(current))
 
   const canvasActions = useMemo(
-    () => ({ create: (input: Parameters<typeof create>[0]) => void create(input) }),
-    [create]
+    () => ({
+      create: (input: Parameters<typeof create>[0]) => void create(input),
+      accept: (ids: string[]) => void accept(ids),
+      reject: (ids: string[]) => void reject(ids),
+      remove: (id: string) => void remove(id),
+      adjust: (id: string, box: Parameters<typeof adjust>[1]) => void adjust(id, box),
+    }),
+    [accept, adjust, create, reject, remove]
   )
 
   const inspectorActions = useMemo(
@@ -194,21 +211,27 @@ export function Workspace({ summary }: { summary: DocumentSummary }) {
                 onRedact={canvasActions.create}
               />
               <div className="flex min-h-0 flex-1">
-                <DocumentCanvas summary={current} actions={canvasActions} />
+                <div className="relative flex min-w-0 flex-1">
+                  <DocumentCanvas summary={current} actions={canvasActions} />
+                  <PageStepper documentId={summary.id} />
+                </div>
                 <SearchResults batchId={current.batch?.batchId ?? null} />
               </div>
             </div>
             {/* Hush takes the right rail while it is open, rather than
                 floating over the page and the search strip. Closing it
                 brings the inspector back. */}
-            {hushOpen ? (
+            {hushOpen && wide ? (
               <HushPanel documentId={summary.id} />
             ) : (
               <RedactionInspector actions={inspectorActions} documentId={summary.id} />
             )}
           </div>
+          {wide ? null : <HushPanel documentId={summary.id} variant="sheet" />}
           <MobileInspector actions={inspectorActions} documentId={summary.id} />
+          <PagesSheet documentId={summary.id} />
           <EditorToolbar onUndo={undo} onRedo={redo} onExport={onExport} />
+          <MobileActionBar summary={current} onUndo={undo} onRedo={redo} />
         </div>
       ) : (
         <ProcessingScreen summary={current} />

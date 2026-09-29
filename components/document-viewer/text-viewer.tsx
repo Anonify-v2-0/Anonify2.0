@@ -67,6 +67,7 @@ export function TextViewer({
 }) {
   return (
     <div
+      data-zoom-surface
       className="relative shadow-document"
       style={{ width: page.width * zoom, minHeight: page.height * zoom }}
     >

@@ -2,13 +2,30 @@
 
 import {
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react"
 
+import {
+  RedactionPopover,
+  RegionHandles,
+  TapFlash,
+  useRegionEditor,
+  type RedactionLayerActions,
+} from "@/components/redaction/touch-overlays"
+import { usePinchZoom } from "@/hooks/use-pinch-zoom"
+import {
+  draftBox,
+  drawReducer,
+  IDLE,
+  surfaceTouchAction,
+  type DrawEvent,
+  type DrawState,
+} from "@/lib/editor/draw-gesture"
+import { MIN_TOUCH_TARGET } from "@/lib/editor/layout"
+import { nearestBox } from "@/lib/editor/touch-geometry"
 import { boxesForRedaction, padBox } from "@/lib/redaction/geometry"
 import { cn } from "@/lib/utils"
 import type {
@@ -32,24 +49,16 @@ import type { Redaction } from "@/types/redaction"
  * OCR words are hit targets, not proposals. Clicking one redacts it, and a
  * hand-drawn rectangle snaps to one when it lands close — detection assists the
  * user rather than deciding for them.
+ *
+ * Touch follows the same rules as the PDF layer (see redaction-layer.tsx and
+ * draw-gesture.ts): one finger scrolls and pinches zoom unless the redact tool
+ * is in hand. The surface used to be `touch-none` in every tool, which made
+ * drawing work and left a phone unable to scroll past an image that filled
+ * its screen.
  */
 
 /** A drag whose corners land within this many px of a region snaps to it. */
 const SNAP_TOLERANCE = 12
-/** Anything smaller than this is a stray click, not a redaction. */
-const MIN_DRAG_PX = 6
-
-type Draft = { startX: number; startY: number; x: number; y: number }
-
-function draftToBox(draft: Draft): BoundingBox {
-  return {
-    x: Math.min(draft.startX, draft.x),
-    y: Math.min(draft.startY, draft.y),
-    width: Math.abs(draft.x - draft.startX),
-    height: Math.abs(draft.y - draft.startY),
-  }
-}
-
 function snap(box: BoundingBox, regions: ImageRegion[]): BoundingBox {
   let best: { region: ImageRegion; distance: number } | null = null
 
@@ -91,6 +100,8 @@ export type ImageCanvasProps = {
   onRedactWord?: (span: { start: number; end: number; text: string }) => void
   /** Drawn in image units above everything else: search hits. */
   overlay?: ReactNode
+  tool?: "select" | "redact" | "pan"
+  actions?: RedactionLayerActions
 }
 
 export function ImageCanvas({
@@ -104,9 +115,28 @@ export function ImageCanvas({
   onCreateRegion,
   onRedactWord,
   overlay,
+  tool = "select",
+  actions,
 }: ImageCanvasProps) {
   const surfaceRef = useRef<HTMLDivElement>(null)
-  const [draft, setDraft] = useState<Draft | null>(null)
+  const sectionRef = useRef<HTMLElement>(null)
+  const [draw, setDraw] = useState<DrawState>(IDLE)
+  const drawRef = useRef<DrawState>(IDLE)
+  const lastPointer = useRef("mouse")
+  const justDrew = useRef(false)
+  const anchors = useRef(new Map<string, HTMLElement>())
+  const [menu, setMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null)
+  const [flash, setFlash] = useState<{ key: number; boxes: BoundingBox[] } | null>(null)
+  const regionEditor = useRegionEditor({
+    bounds: { width: page?.width ?? 0, height: page?.height ?? 0 },
+    commit: actions?.adjust
+      ? (id, box) => actions.adjust(id, snap(box, regions))
+      : undefined,
+  })
+  // Memoized by the compiler; the popover resubscribes if it changes.
+  const closeMenu = () => setMenu(null)
+
+  usePinchZoom(sectionRef, zoom)
 
   // A text redaction carries offsets, not a rectangle. Resolving it through the
   // OCR span geometry is what makes a detection over scanned text visible on
@@ -132,53 +162,90 @@ export function ImageCanvas({
     [zoom]
   )
 
-  // The drag continues even when the pointer leaves the image.
-  useEffect(() => {
-    if (!draft) return
-
-    function onMove(event: PointerEvent) {
-      const point = toImageSpace(event)
-      setDraft((current) =>
-        current ? { ...current, x: point.x, y: point.y } : current
-      )
+  const send = (event: DrawEvent) => {
+    const { state, commit } = drawReducer(drawRef.current, event)
+    if (state === drawRef.current) return
+    drawRef.current = state
+    setDraw(state)
+    if (commit) {
+      justDrew.current = true
+      setTimeout(() => (justDrew.current = false), 0)
+      onCreateRegion?.(snap(commit, regions))
     }
+  }
 
-    function onUp() {
-      setDraft((current) => {
-        if (!current) return null
-        const box = draftToBox(current)
-        if (box.width >= MIN_DRAG_PX && box.height >= MIN_DRAG_PX) {
-          onCreateRegion?.(snap(box, regions))
-        }
-        return null
-      })
+  const redactWord = (span: { start: number; end: number; text: string }, box: BoundingBox) => {
+    onRedactWord?.(span)
+    if (lastPointer.current !== "mouse") {
+      setFlash((previous) => ({ key: (previous?.key ?? 0) + 1, boxes: [box] }))
     }
-
-    window.addEventListener("pointermove", onMove)
-    window.addEventListener("pointerup", onUp)
-    return () => {
-      window.removeEventListener("pointermove", onMove)
-      window.removeEventListener("pointerup", onUp)
-    }
-  }, [draft, onCreateRegion, regions, toImageSpace])
+  }
 
   if (!page) return null
 
-  const draftBox = draft ? draftToBox(draft) : null
+  const draft = draftBox(draw)
   const spans = new Map(page.spans.map((span) => [span.id, span]))
+  const selected = placed.find(({ redaction }) => redaction.id === selectedId)?.redaction
+  const selectedBox = selected ? regionEditor.boxOf(selected) : undefined
+  const menuRedaction = menu
+    ? redactions.find((candidate) => candidate.id === menu.id)
+    : undefined
 
   return (
-    <section className="flex min-w-0 flex-1 items-start justify-center overflow-auto bg-surface-1 p-8">
+    <section
+      ref={sectionRef}
+      style={{ touchAction: "pan-x pan-y" }}
+      className="flex min-w-0 flex-1 items-start justify-center overflow-auto bg-surface-1 p-3 sm:p-8"
+    >
       <div
         ref={surfaceRef}
+        data-zoom-surface
         onPointerDown={(event) => {
-          if (event.button !== 0) return
-          event.preventDefault()
-          const point = toImageSpace(event)
-          setDraft({ startX: point.x, startY: point.y, ...point })
+          lastPointer.current = event.pointerType
+          send({
+            type: "down",
+            pointerId: event.pointerId,
+            pointerType: event.pointerType,
+            button: event.button,
+            // A mouse draws on an image in any tool, as it always has.
+            tool: event.pointerType === "mouse" && tool === "select" ? "redact" : tool,
+            point: toImageSpace(event),
+          })
+          if (drawRef.current.kind === "drafting") {
+            // Not the browser's image drag or text selection.
+            event.preventDefault()
+            event.currentTarget.setPointerCapture?.(event.pointerId)
+          }
         }}
-        className="relative touch-none shadow-document select-none"
-        style={{ width: page.width * zoom, height: page.height * zoom }}
+        onPointerMove={(event) =>
+          drawRef.current.kind === "drafting" &&
+          send({ type: "move", pointerId: event.pointerId, point: toImageSpace(event) })
+        }
+        onPointerUp={(event) => send({ type: "up", pointerId: event.pointerId })}
+        onPointerCancel={(event) => send({ type: "cancel", pointerId: event.pointerId })}
+        onLostPointerCapture={(event) => send({ type: "cancel", pointerId: event.pointerId })}
+        onClick={(event) => {
+          // A tap between OCR words: the nearest one within a finger's reach.
+          if (justDrew.current || lastPointer.current === "mouse") return
+          if ((event.target as HTMLElement).closest("button")) return
+          const point = toImageSpace(event)
+          const index = nearestBox(
+            point,
+            regions.map((region) => region.boundingBox),
+            MIN_TOUCH_TARGET / 2 / zoom
+          )
+          if (index === null) return
+          const region = regions[index]
+          const span = spans.get(region.id)
+          if (!span) return
+          redactWord({ start: span.start, end: span.end, text: span.text }, region.boundingBox)
+        }}
+        className="relative shadow-document select-none"
+        style={{
+          width: page.width * zoom,
+          height: page.height * zoom,
+          touchAction: surfaceTouchAction(tool),
+        }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- authorized, no-store source stream */}
         <img
@@ -194,6 +261,7 @@ export function ImageCanvas({
             width: page.width,
             height: page.height,
             transform: `scale(${zoom})`,
+            ["--hit-size" as string]: `${MIN_TOUCH_TARGET / zoom}px`,
           }}
         >
           {/* OCR words, transparent until hovered. Drawing a dashed box around
@@ -211,13 +279,18 @@ export function ImageCanvas({
                 type="button"
                 tabIndex={-1}
                 aria-hidden
-                onPointerDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => {
+                  lastPointer.current = event.pointerType
+                  // In the redact tool a finger may start a box on a word.
+                  if (tool !== "redact" || event.pointerType === "mouse") {
+                    event.stopPropagation()
+                  }
+                }}
                 onClick={() =>
-                  onRedactWord?.({
-                    start: span.start,
-                    end: span.end,
-                    text: span.text,
-                  })
+                  redactWord(
+                    { start: span.start, end: span.end, text: span.text },
+                    region.boundingBox
+                  )
                 }
                 title={region.text ? `Redact "${region.text}"` : "Redact"}
                 className="absolute rounded-[1px] border border-transparent transition-colors hover:border-red-border hover:bg-primary/20"
@@ -233,20 +306,42 @@ export function ImageCanvas({
 
           {placed.map(({ redaction, boxes }) =>
             boxes.map((raw, index) => {
-              const box = padBox(raw)
+              const own = regionEditor.boxOf(redaction)
+              const box = own ? own : padBox(raw)
               const accepted = redaction.status === "accepted"
               const selected = selectedId === redaction.id
 
               return (
                 <button
                   key={`${redaction.id}-${index}`}
+                  ref={(element) => {
+                    if (index !== 0) return
+                    if (element) anchors.current.set(redaction.id, element)
+                    else anchors.current.delete(redaction.id)
+                  }}
                   type="button"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={() => onSelect?.(redaction.id)}
+                  onPointerDown={(event) => {
+                    lastPointer.current = event.pointerType
+                    event.stopPropagation()
+                  }}
+                  onClick={(event) => {
+                    onSelect?.(redaction.id)
+                    if (lastPointer.current !== "mouse" && actions) {
+                      setMenu({ id: redaction.id, anchor: event.currentTarget })
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (!selected) return
+                    if (!event.key.startsWith("Arrow")) return
+                    if (regionEditor.nudge(redaction, event.key, event.shiftKey)) {
+                      event.preventDefault()
+                      event.stopPropagation()
+                    }
+                  }}
                   aria-pressed={accepted}
                   aria-label={`${accepted ? "Redacted" : "Suggested"}: ${describe(redaction)}`}
                   className={cn(
-                    "absolute transition-colors",
+                    "hit-expand absolute transition-colors",
                     accepted
                       ? "bg-black"
                       : "border border-dashed bg-red-soft hover:bg-primary/20",
@@ -278,19 +373,50 @@ export function ImageCanvas({
 
           {overlay}
 
-          {draftBox ? (
+          {selected && selectedBox && actions ? (
+            <RegionHandles
+              box={selectedBox}
+              zoom={zoom}
+              bounds={{ width: page.width, height: page.height }}
+              onPreview={(box) =>
+                regionEditor.setPreview(box ? { id: selected.id, box } : null)
+              }
+              onCommit={(box) =>
+                regionEditor.finish(selected.id, box, selected.boundingBox!)
+              }
+              onTap={(event) => {
+                if (event.pointerType === "mouse") return
+                const anchor = anchors.current.get(selected.id)
+                if (anchor) setMenu({ id: selected.id, anchor })
+              }}
+            />
+          ) : null}
+
+          {flash ? (
+            <TapFlash key={flash.key} boxes={flash.boxes} onDone={() => setFlash(null)} />
+          ) : null}
+
+          {draft ? (
             <div
-              className="absolute border border-primary bg-primary/20"
+              className="pointer-events-none absolute border border-primary bg-primary/20"
               style={{
-                left: draftBox.x,
-                top: draftBox.y,
-                width: draftBox.width,
-                height: draftBox.height,
+                left: draft.x,
+                top: draft.y,
+                width: draft.width,
+                height: draft.height,
               }}
             />
           ) : null}
         </div>
       </div>
+      {menu && menuRedaction && actions ? (
+        <RedactionPopover
+          redaction={menuRedaction}
+          anchor={menu.anchor}
+          actions={actions}
+          onClose={closeMenu}
+        />
+      ) : null}
     </section>
   )
 }

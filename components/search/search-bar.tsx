@@ -17,6 +17,9 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Sheet } from "@/components/ui/sheet"
+import { useMediaQuery } from "@/hooks/use-media-query"
+import { RESULTS_COLUMN } from "@/lib/editor/layout"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { shortcutHint } from "@/lib/editor/shortcuts"
 import type { ListedHit } from "@/lib/redaction/search"
@@ -72,7 +75,7 @@ function OptionToggle({
             aria-pressed={pressed}
             onClick={onClick}
             className={cn(
-              "flex size-7 items-center justify-center rounded-[5px] transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              "flex size-7 items-center justify-center rounded-[5px] transition-colors pointer-coarse:size-11 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
               pressed
                 ? "bg-white/12 text-white"
                 : "text-text-muted hover:bg-white/5 hover:text-white"
@@ -218,12 +221,43 @@ export function SearchBar({
     )
   }
 
+  // Drawn in the field on a wide screen and in the second row on a phone;
+  // only one of the two is ever visible.
+  const options = (
+    <>
+            <OptionToggle
+        pressed={search.matchCase}
+        label="Match case"
+        hint="Match case"
+        onClick={() => dispatch(optionsChanged({ matchCase: !search.matchCase }))}
+      >
+        <CaseSensitive className="size-4" />
+      </OptionToggle>
+      <OptionToggle
+        pressed={search.wholeWord}
+        label="Whole word"
+        hint="Whole word"
+        onClick={() => dispatch(optionsChanged({ wholeWord: !search.wholeWord }))}
+      >
+        <WholeWord className="size-4" />
+      </OptionToggle>
+      <OptionToggle
+        pressed={search.regex}
+        label="Regular expression"
+        hint="Regular expression (RE2)"
+        onClick={() => dispatch(optionsChanged({ regex: !search.regex }))}
+      >
+        <Regex className="size-4" />
+      </OptionToggle>
+    </>
+  )
+
   return (
     <div role="search" aria-label="Search this document" className="relative z-20 shrink-0">
-      <div className="flex h-12 items-center gap-2 border-b border-border bg-surface-2 px-3">
+      <div className="flex min-h-12 items-center gap-2 border-b border-border bg-surface-2 px-3 compact:gap-0.5 compact:border-b-0 compact:px-2 compact:pt-1">
         <label
           className={cn(
-            "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border bg-surface-3 px-2.5 transition-colors focus-within:border-white/30",
+            "flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border bg-surface-3 px-2.5 transition-colors focus-within:border-white/30 pointer-coarse:h-11",
             search.status === "error" ? "border-red-border" : "border-border"
           )}
         >
@@ -283,32 +317,9 @@ export function SearchBar({
                 ? search.error
                 : ""}
           </span>
-          <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
-          <span role="group" aria-label="Search options" className="flex shrink-0 gap-0.5">
-            <OptionToggle
-              pressed={search.matchCase}
-              label="Match case"
-              hint="Match case"
-              onClick={() => dispatch(optionsChanged({ matchCase: !search.matchCase }))}
-            >
-              <CaseSensitive className="size-4" />
-            </OptionToggle>
-            <OptionToggle
-              pressed={search.wholeWord}
-              label="Whole word"
-              hint="Whole word"
-              onClick={() => dispatch(optionsChanged({ wholeWord: !search.wholeWord }))}
-            >
-              <WholeWord className="size-4" />
-            </OptionToggle>
-            <OptionToggle
-              pressed={search.regex}
-              label="Regular expression"
-              hint="Regular expression (RE2)"
-              onClick={() => dispatch(optionsChanged({ regex: !search.regex }))}
-            >
-              <Regex className="size-4" />
-            </OptionToggle>
+          <span aria-hidden className="h-4 w-px shrink-0 bg-border compact:hidden" />
+          <span role="group" aria-label="Search options" className="flex shrink-0 gap-0.5 compact:hidden">
+            {options}
           </span>
         </label>
 
@@ -331,12 +342,12 @@ export function SearchBar({
           </IconButton>
         </div>
 
-        <div className="hidden shrink-0 items-center overflow-hidden rounded-md border border-border sm:flex">
+        <div className="flex shrink-0 items-center overflow-hidden rounded-md border border-border compact:hidden">
           <button
             type="button"
             disabled={!ready || !currentLoaded}
             onClick={redactCurrent}
-            className="flex h-8 items-center gap-1.5 px-2.5 text-xs text-white transition-colors hover:bg-white/5 disabled:pointer-events-none disabled:opacity-40"
+            className="flex h-8 items-center pointer-coarse:h-11 gap-1.5 px-2.5 text-xs text-white transition-colors hover:bg-white/5 disabled:pointer-events-none disabled:opacity-40"
           >
             <span aria-hidden className="h-2.5 w-3.5 rounded-[1px] bg-current" />
             Redact this
@@ -346,7 +357,7 @@ export function SearchBar({
             type="button"
             disabled={!ready}
             onClick={redactAll}
-            className="flex h-8 items-center gap-1.5 bg-red-soft px-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-40"
+            className="flex h-8 items-center pointer-coarse:h-11 gap-1.5 bg-red-soft px-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-40"
           >
             Redact all{ready ? ` ${search.total.toLocaleString("en")}` : ""}
           </button>
@@ -376,6 +387,37 @@ export function SearchBar({
           >
             <X className="size-4" />
           </IconButton>
+        </div>
+      </div>
+
+      {/*
+        The second row on a phone: the match options and the two ways to act
+        on what was found. Both used to be hidden below 640 px, so a phone
+        could find a value and do nothing with it.
+      */}
+      <div className="hidden items-center gap-2 border-b border-border bg-surface-2 px-2 pb-1 compact:flex">
+        <span role="group" aria-label="Search options" className="flex shrink-0 gap-0.5">
+          {options}
+        </span>
+        <div className="flex min-w-0 flex-1 items-center overflow-hidden rounded-md border border-border">
+          <button
+            type="button"
+            disabled={!ready || !currentLoaded}
+            onClick={redactCurrent}
+            className="flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 px-2 text-xs whitespace-nowrap text-white transition-colors hover:bg-white/5 disabled:pointer-events-none disabled:opacity-40"
+          >
+            <span aria-hidden className="h-2.5 w-3.5 shrink-0 rounded-[1px] bg-current" />
+            Redact this
+          </button>
+          <span aria-hidden className="h-6 w-px shrink-0 bg-border" />
+          <button
+            type="button"
+            disabled={!ready}
+            onClick={redactAll}
+            className="flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 bg-red-soft px-2 text-xs font-medium whitespace-nowrap text-primary transition-colors hover:bg-primary/20 disabled:pointer-events-none disabled:opacity-40"
+          >
+            Redact all{ready ? ` ${search.total.toLocaleString("en")}` : ""}
+          </button>
         </div>
       </div>
 
@@ -413,8 +455,38 @@ export function SearchResults({ batchId }: { batchId: string | null }) {
     Boolean(search.query) &&
     (search.resultsOpen || search.batch.open) &&
     (search.status === "ready" || search.batch.open)
-  if (!show) return null
-  return <ResultsPanel inBatch={inBatch && Boolean(batchId)} />
+  return (
+    <ResultsPlacement show={show} inBatch={inBatch && Boolean(batchId)} />
+  )
+}
+
+/**
+ * A column beside the page where there is room for one, and a sheet over it
+ * on a phone, where a 320 px column would be the whole screen. Below 768 px
+ * there used to be no list at all.
+ */
+function ResultsPlacement({ show, inBatch }: { show: boolean; inBatch: boolean }) {
+  const dispatch = useAppDispatch()
+  const batchOpen = useAppSelector((state) => state.search.batch.open)
+  const column = useMediaQuery(RESULTS_COLUMN)
+
+  if (column) return show ? <ResultsPanel inBatch={inBatch} variant="column" /> : null
+
+  return (
+    <Sheet
+      open={show}
+      onOpenChange={(open) => {
+        if (open) return
+        dispatch(resultsToggled(false))
+        if (batchOpen) dispatch(batchSearchToggled(false))
+      }}
+      title="Search results"
+      snaps={["peek", "half", "full"]}
+      initialSnap="half"
+    >
+      <ResultsPanel inBatch={inBatch} variant="sheet" />
+    </Sheet>
+  )
 }
 
 /**
@@ -422,7 +494,13 @@ export function SearchResults({ batchId }: { batchId: string | null }) {
  * current hit, which moves the page to it; the current one is marked here as
  * it is on the page.
  */
-function ResultsPanel({ inBatch }: { inBatch: boolean }) {
+function ResultsPanel({
+  inBatch,
+  variant,
+}: {
+  inBatch: boolean
+  variant: "column" | "sheet"
+}) {
   const dispatch = useAppDispatch()
   const search = useAppSelector((state) => state.search)
   const [tab, setTab] = useState<"document" | "batch">(
@@ -446,10 +524,7 @@ function ResultsPanel({ inBatch }: { inBatch: boolean }) {
   }, [position])
 
   return (
-    <aside
-      aria-label="Search results"
-      className="hidden w-[320px] shrink-0 flex-col border-l border-border bg-surface-2 md:flex"
-    >
+    <Wrapper variant={variant}>
       <div className="flex items-center gap-1 border-b border-border px-2 pt-2">
         <PanelTab selected={active === "document"} onClick={() => setTab("document")}>
           This document
@@ -468,6 +543,7 @@ function ResultsPanel({ inBatch }: { inBatch: boolean }) {
             dispatch(resultsToggled(false))
             if (search.batch.open) dispatch(batchSearchToggled(false))
           }}
+          hidden={variant === "sheet"}
           className="mb-1.5 ml-auto rounded p-1 text-text-muted transition-colors hover:bg-white/6 hover:text-white"
           title="Hide results"
         >
@@ -506,7 +582,7 @@ function ResultsPanel({ inBatch }: { inBatch: boolean }) {
                           aria-current={current ? "true" : undefined}
                           onClick={() => dispatch(currentChanged(hit.index))}
                           className={cn(
-                            "w-full rounded-md border-l-2 px-2 py-1.5 text-left text-xs leading-relaxed transition-colors",
+                            "w-full rounded-md border-l-2 px-2 py-1.5 text-left text-xs leading-relaxed transition-colors pointer-coarse:min-h-11 pointer-coarse:py-2.5",
                             current
                               ? "border-search-current bg-white/6 text-white"
                               : "border-transparent text-text-secondary hover:bg-white/4"
@@ -534,6 +610,26 @@ function ResultsPanel({ inBatch }: { inBatch: boolean }) {
           </>
         )}
       </div>
+    </Wrapper>
+  )
+}
+
+function Wrapper({
+  variant,
+  children,
+}: {
+  variant: "column" | "sheet"
+  children: ReactNode
+}) {
+  if (variant === "sheet") {
+    return <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+  }
+  return (
+    <aside
+      aria-label="Search results"
+      className="flex w-[320px] shrink-0 flex-col border-l border-border bg-surface-2"
+    >
+      {children}
     </aside>
   )
 }
@@ -553,7 +649,7 @@ function PanelTab({
       aria-pressed={selected}
       onClick={onClick}
       className={cn(
-        "-mb-px border-b-2 px-2 pb-2 text-xs transition-colors",
+        "-mb-px border-b-2 px-2 pb-2 text-xs transition-colors pointer-coarse:min-h-11",
         selected ? "border-primary text-white" : "border-transparent text-text-muted hover:text-white"
       )}
     >

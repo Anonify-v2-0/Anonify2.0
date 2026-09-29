@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type ReactNode,
 } from "react"
 import { FileWarning } from "lucide-react"
@@ -31,19 +32,32 @@ import {
   useNormalizedPage,
   usePrefetchPages,
 } from "@/hooks/use-normalized-document"
+import { usePinchZoom } from "@/hooks/use-pinch-zoom"
 import { fitModeChanged, zoomChanged } from "@/store/editorSlice"
 import { useAppDispatch, useAppSelector } from "@/store/hooks"
 import { redactionSelected } from "@/store/redactionSlice"
+import { inspectorTabChanged, mobileSheetToggled } from "@/store/uiSlice"
 import { selectRedactions } from "@/store/selectors"
 import { cn } from "@/lib/utils"
 import type { BoundingBox, DocumentSummary } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
 
-/** Horizontal breathing room kept around the page when fitting to width. */
-const CANVAS_PADDING = 64
-
 export type CanvasActions = {
   create: (input: Omit<Redaction, "id" | "documentId">) => void
+  accept?: (ids: string[]) => void
+  reject?: (ids: string[]) => void
+  remove?: (id: string) => void
+  /** A drawn region moved or resized; see `adjustBox`. */
+  adjust?: (id: string, box: BoundingBox) => void
+}
+
+/** The breathing room around the page: whatever padding the canvas has now. */
+function paddingOf(element: HTMLElement): { x: number; y: number } {
+  const style = getComputedStyle(element)
+  return {
+    x: parseFloat(style.paddingLeft) + parseFloat(style.paddingRight),
+    y: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom),
+  }
 }
 
 export function DocumentCanvas({
@@ -100,6 +114,70 @@ export function DocumentCanvas({
   useTextHighlights(containerRef, page, textFlow, pageRedactions, selectedId)
   const paintsCharacters = useHighlightsSupported()
 
+  usePinchZoom(containerRef, zoom)
+
+  /**
+   * How the last press on the canvas was made. A mouse selection redacts on
+   * release, as it always has. A touch selection does not: on a phone it is
+   * a long-press and then handles adjusted in several steps, and there is no
+   * moment that means "done" — so it offers a "Redact selection" button
+   * instead, and nothing is redacted until that is pressed.
+   */
+  const lastPointer = useRef<string>("mouse")
+  const [pendingSelection, setPendingSelection] = useState<{
+    start: number
+    end: number
+    rect: { left: number; top: number; bottom: number; width: number }
+  } | null>(null)
+  const pressingAction = useRef(false)
+
+  useEffect(() => {
+    if (!textFlow || !page) return
+    let clearTimer: ReturnType<typeof setTimeout> | undefined
+    function onSelectionChange() {
+      if (lastPointer.current === "mouse") return
+      const root = containerRef.current
+      const selection = window.getSelection()
+      const inside =
+        root &&
+        selection &&
+        !selection.isCollapsed &&
+        selection.anchorNode &&
+        selection.focusNode &&
+        root.contains(selection.anchorNode) &&
+        root.contains(selection.focusNode)
+      if (!inside || !page) {
+        // Tapping the button collapses the selection before its click
+        // arrives on some phones; keep the offer long enough to be taken.
+        clearTimeout(clearTimer)
+        clearTimer = setTimeout(() => {
+          if (!pressingAction.current) setPendingSelection(null)
+        }, 400)
+        return
+      }
+      clearTimeout(clearTimer)
+      const from = pageOffsetOf(root, page, selection.anchorNode!, selection.anchorOffset)
+      const to = pageOffsetOf(root, page, selection.focusNode!, selection.focusOffset)
+      if (from === null || to === null || from === to) return
+      const bounds = selection.getRangeAt(0).getBoundingClientRect()
+      setPendingSelection({
+        start: Math.min(from, to),
+        end: Math.max(from, to),
+        rect: {
+          left: bounds.left,
+          top: bounds.top,
+          bottom: bounds.bottom,
+          width: bounds.width,
+        },
+      })
+    }
+    document.addEventListener("selectionchange", onSelectionChange)
+    return () => {
+      clearTimeout(clearTimer)
+      document.removeEventListener("selectionchange", onSelectionChange)
+    }
+  }, [page, textFlow])
+
   const createRegion = useCallback(
     (boundingBox: BoundingBox) => {
       actions?.create({
@@ -139,12 +217,15 @@ export function DocumentCanvas({
 
     function apply() {
       if (!container || !page) return
-      const available = container.clientWidth - CANVAS_PADDING
+      // Read from the element, not a constant: the padding is smaller on a
+      // phone, where 64 px of a 390 px screen was a sixth of the page.
+      const padding = paddingOf(container)
+      const available = container.clientWidth - padding.x
       const scale =
         mode === "page"
           ? Math.min(
               available / page.width,
-              (container.clientHeight - CANVAS_PADDING) / page.height
+              (container.clientHeight - padding.y) / page.height
             )
           : available / page.width
 
@@ -161,6 +242,22 @@ export function DocumentCanvas({
     return () => observer.disconnect()
   }, [dispatch, fitMode, page])
 
+  /** What a tap on a redaction can do without the inspector; see RedactionPopover. */
+  const redactionActions = useMemo(
+    () => ({
+      accept: (id: string) => actions?.accept?.([id]),
+      reject: (id: string) => actions?.reject?.([id]),
+      remove: (id: string) => actions?.remove?.(id),
+      adjust: (id: string, box: BoundingBox) => actions?.adjust?.(id, box),
+      inspect: (id: string) => {
+        dispatch(redactionSelected(id))
+        dispatch(inspectorTabChanged("redactions"))
+        dispatch(mobileSheetToggled(true))
+      },
+    }),
+    [actions, dispatch]
+  )
+
   if (summary.kind === "image") {
     return normalized ? (
       <ImageCanvas
@@ -173,6 +270,8 @@ export function DocumentCanvas({
         onSelect={(redactionId) => dispatch(redactionSelected(redactionId))}
         onCreateRegion={createRegion}
         onRedactWord={redactSpan}
+        tool={tool}
+        actions={redactionActions}
         overlay={page ? <SearchBoxes page={page} /> : null}
       />
     ) : (
@@ -236,6 +335,7 @@ export function DocumentCanvas({
   }
 
   const onSelectionEnd = () => {
+    if (lastPointer.current !== "mouse") return
     const root = containerRef.current
     const selection = window.getSelection()
     if (!root || !page || !selection || selection.isCollapsed) return
@@ -322,6 +422,7 @@ export function DocumentCanvas({
         onSelect={(id) => dispatch(redactionSelected(id))}
         onCreateRegion={createRegion}
         onRedactSpan={redactSpan}
+        actions={redactionActions}
       />
       <SearchBoxes page={page} />
     </>
@@ -330,8 +431,14 @@ export function DocumentCanvas({
   return (
     <section
       ref={containerRef}
+      onPointerDown={(event) => {
+        lastPointer.current = event.pointerType
+        if (event.pointerType === "mouse") setPendingSelection(null)
+      }}
       onMouseUp={textFlow ? onSelectionEnd : undefined}
-      className="flex min-w-0 flex-1 justify-center overflow-auto bg-surface-1 p-8"
+      // One finger scrolls; two are the canvas's own pinch (usePinchZoom).
+      style={{ touchAction: "pan-x pan-y" }}
+      className="flex min-w-0 flex-1 justify-center overflow-auto bg-surface-1 p-3 pb-20 sm:p-8 sm:pb-20 lg:pb-8"
     >
       {summary.kind === "pdf" && page ? (
         <PdfViewer
@@ -362,6 +469,31 @@ export function DocumentCanvas({
       ) : (
         <Placeholder summary={summary} />
       )}
+      {pendingSelection ? (
+        <button
+          type="button"
+          onPointerDown={() => (pressingAction.current = true)}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            pressingAction.current = false
+            redactRange(pendingSelection.start, pendingSelection.end)
+            window.getSelection()?.removeAllRanges()
+            setPendingSelection(null)
+          }}
+          // Below the selection: the phone's own copy menu sits above it.
+          style={{
+            left: Math.min(
+              Math.max(12, pendingSelection.rect.left + pendingSelection.rect.width / 2 - 80),
+              window.innerWidth - 172
+            ),
+            top: Math.min(pendingSelection.rect.bottom + 12, window.innerHeight - 140),
+          }}
+          className="fixed z-30 flex h-11 w-40 items-center justify-center gap-2 rounded-full bg-primary text-sm font-medium text-primary-foreground shadow-panel"
+        >
+          <span aria-hidden className="h-2.5 w-3.5 rounded-[1px] bg-current" />
+          Redact selection
+        </button>
+      ) : null}
     </section>
   )
 }
