@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="256" viewBox="0 0 880 256" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Where the result comes from</title>
-<desc id="d">Where the result comes from. gpt-5.6-luna patterns 93, model 223, local search 34, only together 0; gpt-6-luna patterns 92, model 219, local search 49, only together 0; zai/glm-5.3-flash patterns 79, model 184, local search 35, only together 0.</desc>
+<desc id="d">Where the result comes from. gpt-5.6-luna patterns 93, model 223, local search 34, only together 0; gpt-6-luna patterns 92, model 219, local search 49, only together 0; zai/glm-5.3-flash patterns 90, model 222, local search 39, only together 0.</desc>
 <rect x="0.5" y="0.5" width="879" height="255" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">Where the result comes from</text>
 <text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · share of covered labels, deterministic-first</text>
@@ -22,12 +22,12 @@
 <text x="720.91" y="161" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">14%</text>
 <text x="770" y="161" font-size="10.5" fill="#c3c2b7">360 of 411</text>
 <text x="148.24" y="189" font-size="12" fill="#ffffff" text-anchor="end">zai/glm-5.3-flash</text>
-<g><title>zai/glm-5.3-flash, patterns: 79 (27%)</title><path d="M158.24 176H316.3V194H158.24Z" fill="#3987e5"/></g>
-<text x="237.27" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">27%</text>
-<g><title>zai/glm-5.3-flash, model: 184 (62%)</title><path d="M318.3 176H689.09V194H318.3Z" fill="#d95926"/></g>
-<text x="503.69" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">62%</text>
-<g><title>zai/glm-5.3-flash, local search: 35 (12%)</title><path d="M691.09 176H758Q762 176 762 180V190Q762 194 758 194H691.09Z" fill="#199e70"/></g>
-<text x="726.54" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">12%</text>
-<text x="770" y="189" font-size="10.5" fill="#c3c2b7">298 of 344</text>
+<g><title>zai/glm-5.3-flash, patterns: 90 (26%)</title><path d="M158.24 176H311.05V194H158.24Z" fill="#3987e5"/></g>
+<text x="234.65" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">26%</text>
+<g><title>zai/glm-5.3-flash, model: 222 (63%)</title><path d="M313.05 176H692.92V194H313.05Z" fill="#d95926"/></g>
+<text x="502.98" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">63%</text>
+<g><title>zai/glm-5.3-flash, local search: 39 (11%)</title><path d="M694.92 176H758Q762 176 762 180V190Q762 194 758 194H694.92Z" fill="#199e70"/></g>
+<text x="728.46" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">11%</text>
+<text x="770" y="189" font-size="10.5" fill="#c3c2b7">351 of 411</text>
 <text x="28" y="238" font-size="11" fill="#898781">Only together: a value no single pass covered in full, such as a name the model found half of.</text>
 </svg>

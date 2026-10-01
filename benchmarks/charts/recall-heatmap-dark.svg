@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="394" viewBox="0 0 880 394" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Recall by category</title>
-<desc id="d">Recall by category. patterns alone: email 100, phone 83, url 21, api-key 33, bank-account 35, financial 9, government-id 7, customer-id 29, person 0, address 1, date-of-birth 39, confidential 0, other 0; gpt-5.6-luna: email 100, phone 92, url 100, api-key 100, bank-account 95, financial 91, government-id 100, customer-id 97, person 79, address 76, date-of-birth 100, confidential 60, other 83; gpt-6-luna: email 100, phone 88, url 100, api-key 100, bank-account 95, financial 78, government-id 89, customer-id 97, person 87, address 76, date-of-birth 100, confidential 50, other 83; zai/glm-5.3-flash: email 100, phone 90, url 100, api-key 100, bank-account 90, financial 42, government-id 100, customer-id 93, person 93, address 70, date-of-birth 86, confidential 50, other 100.</desc>
+<desc id="d">Recall by category. patterns alone: email 100, phone 83, url 21, api-key 33, bank-account 35, financial 9, government-id 7, customer-id 29, person 0, address 1, date-of-birth 39, confidential 0, other 0; gpt-5.6-luna: email 100, phone 92, url 100, api-key 100, bank-account 95, financial 91, government-id 100, customer-id 97, person 79, address 76, date-of-birth 100, confidential 60, other 83; gpt-6-luna: email 100, phone 88, url 100, api-key 100, bank-account 95, financial 78, government-id 89, customer-id 97, person 87, address 76, date-of-birth 100, confidential 50, other 83; zai/glm-5.3-flash: email 100, phone 92, url 100, api-key 100, bank-account 95, financial 41, government-id 100, customer-id 90, person 89, address 72, date-of-birth 91, confidential 50, other 100.</desc>
 <rect x="0.5" y="0.5" width="879" height="393" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">Recall by category</text>
 <text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · covered recall: every character of the value redacted</text>
@@ -105,26 +105,26 @@
 <text x="148.24" y="307" font-size="12" fill="#ffffff" text-anchor="end">zai/glm-5.3-flash</text>
 <g><title>zai/glm-5.3-flash, email: 100</title><rect x="159.24" y="289" width="51.37" height="28" rx="4" fill="#cde2fb"/></g>
 <text x="184.92" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">100</text>
-<g><title>zai/glm-5.3-flash, phone: 90</title><rect x="212.61" y="289" width="51.37" height="28" rx="4" fill="#b7d3f6"/></g>
-<text x="238.29" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">90</text>
+<g><title>zai/glm-5.3-flash, phone: 92</title><rect x="212.61" y="289" width="51.37" height="28" rx="4" fill="#b7d3f6"/></g>
+<text x="238.29" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">92</text>
 <g><title>zai/glm-5.3-flash, url: 100</title><rect x="265.97" y="289" width="51.37" height="28" rx="4" fill="#cde2fb"/></g>
 <text x="291.66" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">100</text>
 <g><title>zai/glm-5.3-flash, api-key: 100</title><rect x="319.34" y="289" width="51.37" height="28" rx="4" fill="#cde2fb"/></g>
 <text x="345.02" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">100</text>
-<g><title>zai/glm-5.3-flash, bank-account: 90</title><rect x="372.7" y="289" width="51.37" height="28" rx="4" fill="#b7d3f6"/></g>
-<text x="398.39" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">90</text>
-<g><title>zai/glm-5.3-flash, financial: 42</title><rect x="426.07" y="289" width="51.37" height="28" rx="4" fill="#2a78d6"/></g>
-<text x="451.75" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">42</text>
+<g><title>zai/glm-5.3-flash, bank-account: 95</title><rect x="372.7" y="289" width="51.37" height="28" rx="4" fill="#b7d3f6"/></g>
+<text x="398.39" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">95</text>
+<g><title>zai/glm-5.3-flash, financial: 41</title><rect x="426.07" y="289" width="51.37" height="28" rx="4" fill="#2a78d6"/></g>
+<text x="451.75" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">41</text>
 <g><title>zai/glm-5.3-flash, government-id: 100</title><rect x="479.44" y="289" width="51.37" height="28" rx="4" fill="#cde2fb"/></g>
 <text x="505.12" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">100</text>
-<g><title>zai/glm-5.3-flash, customer-id: 93</title><rect x="532.8" y="289" width="51.37" height="28" rx="4" fill="#b7d3f6"/></g>
-<text x="558.49" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">93</text>
-<g><title>zai/glm-5.3-flash, person: 93</title><rect x="586.17" y="289" width="51.37" height="28" rx="4" fill="#b7d3f6"/></g>
-<text x="611.85" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">93</text>
-<g><title>zai/glm-5.3-flash, address: 70</title><rect x="639.54" y="289" width="51.37" height="28" rx="4" fill="#6da7ec"/></g>
-<text x="665.22" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">70</text>
-<g><title>zai/glm-5.3-flash, date-of-birth: 86</title><rect x="692.9" y="289" width="51.37" height="28" rx="4" fill="#9ec5f4"/></g>
-<text x="718.58" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">86</text>
+<g><title>zai/glm-5.3-flash, customer-id: 90</title><rect x="532.8" y="289" width="51.37" height="28" rx="4" fill="#b7d3f6"/></g>
+<text x="558.49" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">90</text>
+<g><title>zai/glm-5.3-flash, person: 89</title><rect x="586.17" y="289" width="51.37" height="28" rx="4" fill="#b7d3f6"/></g>
+<text x="611.85" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">89</text>
+<g><title>zai/glm-5.3-flash, address: 72</title><rect x="639.54" y="289" width="51.37" height="28" rx="4" fill="#86b6ef"/></g>
+<text x="665.22" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">72</text>
+<g><title>zai/glm-5.3-flash, date-of-birth: 91</title><rect x="692.9" y="289" width="51.37" height="28" rx="4" fill="#b7d3f6"/></g>
+<text x="718.58" y="307" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">91</text>
 <g><title>zai/glm-5.3-flash, confidential: 50</title><rect x="746.27" y="289" width="51.37" height="28" rx="4" fill="#3987e5"/></g>
 <text x="771.95" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">50</text>
 <g><title>zai/glm-5.3-flash, other: 100</title><rect x="799.63" y="289" width="51.37" height="28" rx="4" fill="#cde2fb"/></g>

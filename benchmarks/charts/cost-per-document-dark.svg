@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="374" viewBox="0 0 880 374" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Cost per document, by model</title>
-<desc id="d">Cost per document, by model. gpt-5.6-luna: short documents $0.002, medium documents $0.0046, long documents $0.015; gpt-6-luna: short documents $0.00059, medium documents $0.0011, long documents $0.0034; zai/glm-5.3-flash: short documents $0.0011, medium documents $0.002, long documents $0.005.</desc>
+<desc id="d">Cost per document, by model. gpt-5.6-luna: short documents $0.002, medium documents $0.0046, long documents $0.015; gpt-6-luna: short documents $0.00059, medium documents $0.0011, long documents $0.0034; zai/glm-5.3-flash: short documents $0.0012, medium documents $0.002, long documents $0.0057.</desc>
 <rect x="0.5" y="0.5" width="879" height="373" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">Cost per document, by model</text>
 <text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · deterministic-first · log scale</text>
@@ -29,11 +29,11 @@
 <g><title>gpt-6-luna, long documents: $0.0034</title><path d="M158.24 222H471.62Q475.62 222 475.62 226V232Q475.62 236 471.62 236H158.24Z" fill="#199e70"/></g>
 <text x="481.62" y="233" font-size="10.5" fill="#c3c2b7">$0.0034</text>
 <text x="148.24" y="283" font-size="12" fill="#ffffff" text-anchor="end">zai/glm-5.3-flash</text>
-<g><title>zai/glm-5.3-flash, short documents: $0.0011</title><path d="M158.24 256H369.86Q373.86 256 373.86 260V266Q373.86 270 369.86 270H158.24Z" fill="#3987e5"/></g>
-<text x="379.86" y="267" font-size="10.5" fill="#c3c2b7">$0.0011</text>
-<g><title>zai/glm-5.3-flash, medium documents: $0.002</title><path d="M158.24 272H425.65Q429.65 272 429.65 276V282Q429.65 286 425.65 286H158.24Z" fill="#d95926"/></g>
-<text x="435.65" y="283" font-size="10.5" fill="#c3c2b7">$0.002</text>
-<g><title>zai/glm-5.3-flash, long documents: $0.005</title><path d="M158.24 288H508.28Q512.28 288 512.28 292V298Q512.28 302 508.28 302H158.24Z" fill="#199e70"/></g>
-<text x="518.28" y="299" font-size="10.5" fill="#c3c2b7">$0.005</text>
+<g><title>zai/glm-5.3-flash, short documents: $0.0012</title><path d="M158.24 256H381.51Q385.51 256 385.51 260V266Q385.51 270 381.51 270H158.24Z" fill="#3987e5"/></g>
+<text x="391.51" y="267" font-size="10.5" fill="#c3c2b7">$0.0012</text>
+<g><title>zai/glm-5.3-flash, medium documents: $0.002</title><path d="M158.24 272H424.3Q428.3 272 428.3 276V282Q428.3 286 424.3 286H158.24Z" fill="#d95926"/></g>
+<text x="434.3" y="283" font-size="10.5" fill="#c3c2b7">$0.002</text>
+<g><title>zai/glm-5.3-flash, long documents: $0.0057</title><path d="M158.24 288H518.97Q522.97 288 522.97 292V298Q522.97 302 518.97 302H158.24Z" fill="#199e70"/></g>
+<text x="528.97" y="299" font-size="10.5" fill="#c3c2b7">$0.0057</text>
 <text x="28" y="356" font-size="11" fill="#898781">Tokens times each model's configured price. Short is up to a page, medium two to five, long ten to thirty.</text>
 </svg>
