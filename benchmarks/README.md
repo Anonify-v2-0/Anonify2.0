@@ -14,16 +14,16 @@ wherever one exists. Where none does, as for IBANs and most national IDs, they
 are random and can coincide with a real one; see
 [_Where no reserved range exists_](#reserved-ranges).
 
-|                                                                                                   | Status                                        |
-| ------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `corpus/generate.ts`: spec sampler, prompt, placeholder filler, markup stripper, rejection checks | done                                          |
-| `corpus/validate.ts`: cross-family validator, disagreements queued for a person                   | done                                          |
-| `corpus/check.ts`: CI check that committed files hold only reserved values                        | done, runs in the `Test` job                  |
-| `corpus/synthetic-v1.tar.gz`: the 600 documents, with `manifest.json` beside it                   | 534 of 600, not yet reviewed                  |
-| `corpus/render.ts`: txt / eml / pdf / docx / csv / xlsx                                           | done; `corpus:score --format` reads them back |
-| `score.ts`: per-category precision and recall, weighted cost, agreement                           | done                                          |
-| `models.ts`: models against each other, and deterministic-first against model-only (#59, #55)     | done; no model has been run yet               |
-| `charts.ts`: the five charts in CONTRIBUTING §4 and two for #55, from the committed results       | done; drawn once a model has been run         |
+|                                                                                                     | Status                                        |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `corpus/generate.ts`: spec sampler, prompt, placeholder filler, markup stripper, rejection checks   | done                                          |
+| `corpus/validate.ts`: cross-family validator, disagreements queued for a person                     | done                                          |
+| `corpus/check.ts`: CI check that committed files hold only reserved values                          | done, runs in the `Test` job                  |
+| `corpus/synthetic-v1.tar.gz`: the 600 documents, with `manifest.json` beside it                     | 534 of 600, not yet reviewed                  |
+| `corpus/render.ts`: txt / eml / pdf / docx / csv / xlsx                                             | done; `corpus:score --format` reads them back |
+| `score.ts`: per-category precision and recall, weighted cost, agreement                             | done                                          |
+| `models.ts`: models against each other, and deterministic-first against model-only (#59, #55)       | done; no model has been run yet               |
+| `charts.ts`: the five charts in CONTRIBUTING §4, two for #55, and tokens and cost, from the results | done; drawn once a model has been run         |
 
 ## Generating
 
@@ -471,46 +471,82 @@ tokens at comparable quality, which is the claim the whole pipeline is built
 on and which nobody had measured. Both are answered from the same runs.
 
 ```sh
+pnpm bench:models                             # in a terminal: asks what to run, then runs it
+pnpm bench:models --yes                       # the saved setup and every default, no questions
 pnpm bench:models --dry-run                   # what would run, and what is already measured
-pnpm bench:models --limit 20                  # a first look: 20 documents, every phase
-pnpm bench:models                             # the model in .env, over the 395 test documents
+pnpm bench:models --limit 20                  # a first look: 20 documents
 pnpm bench:charts                             # redraw the charts and the Results section below
 ```
 
-### Choosing the models
+### Setting it up
 
-The models come from the environment, the same way the app's does, so there is
-nothing to configure twice:
+In a terminal, `pnpm bench:models` sets up its own run before it spends
+anything:
 
-| Variable           | What it does                                                                                                                     |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `BENCH_MODELS`     | The models to run, one after another: `provider:model`, comma-separated, each with an optional `=label` for the charts           |
-| `AI_PROVIDER`, `AI_MODEL` | Used when `BENCH_MODELS` is unset: the one model the app is configured with                                               |
-| each provider's key | Read from `.env` exactly as the app reads it, so every provider in `BENCH_MODELS` needs its key there                          |
-| `AI_MODEL_PRICES`  | Prices, keyed by the usage id: the model id on the gateway, `provider:model` elsewhere. A model without one has tokens but no cost |
-| `ANONIFY_AI_REQUESTS_PER_MINUTE`, `ANONIFY_AI_MAX_ATTEMPTS` | Pacing and retries, as in the app; recorded in each results file                       |
+1. **The corpus.** It names the corpus and the archive it was unpacked from
+   (`benchmarks/corpus/synthetic-v1.tar.gz`), with its manifest hash and how
+   many documents each split holds. It asks which split, and how many of its
+   documents to run. Fewer is a cheaper first look, and the results file says
+   it is partial.
+2. **The phases.** All three, the two quality phases, or deterministic-first
+   alone, which is the cheapest. See [What a run does](#what-a-run-does).
+3. **The providers and models.** For a provider, it asks for its key, or for
+   a ChatGPT subscription, a sign-in in the browser. It then lists the
+   provider's models with what each advertises and its list price. Choose one
+   or more, then add models from another provider or finish. The list is
+   setup's own, so a model setup would refuse (no structured output) cannot be
+   chosen.
+4. **The prices.** A model with a list price is priced at it, with where the
+   price came from and how old it is. One without can be given a price, or left
+   unpriced: its tokens are counted and its cost is not.
+
+A question an option already answers (`--split`, `--limit`, `--ids`,
+`--phases`, `--models`) is not asked. Run it again and it offers the saved
+models, or a fresh choice where each saved key is offered again.
+
+### The benchmark's own environment
+
+The benchmark never reads `.env`. Everything it needs lives in
+`benchmarks/.bench/`, which git ignores, so measuring a model changes nothing the
+instance uses: no key, no price that is a spend limit there, and no sign-in.
+
+| File                           | What it holds                                                                                                                 |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `benchmarks/.bench/.env`       | `BENCH_MODELS`, each provider's key and settings under the app's names, `AI_MODEL_PRICES`, and an `ENCRYPTION_KEY` of its own |
+| `benchmarks/.bench/store.json` | A ChatGPT sign-in, sealed under that `ENCRYPTION_KEY` the way the app seals one in its database                               |
+
+Delete the directory to start over. The setup writes the file, and it is fine
+to edit by hand. Without a terminal (`--yes`, CI, piped), the run takes the
+saved models as they are, and stops with a message if there are none:
+
+| Variable                                                    | What it does                                                                                                                       |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `BENCH_MODELS`                                              | The models to run, one after another: `provider:model`, comma-separated, each with an optional `=label` for the charts             |
+| each provider's key                                         | Under the name the app reads it by, such as `AI_GATEWAY_API_KEY` or `OPENAI_API_KEY`                                               |
+| `AI_MODEL_PRICES`                                           | Prices, keyed by the usage id: the model id on the gateway, `provider:model` elsewhere. A model without one has tokens but no cost |
+| `ANONIFY_AI_REQUESTS_PER_MINUTE`, `ANONIFY_AI_MAX_ATTEMPTS` | Pacing and retries, as in the app; recorded in each results file                                                                   |
 
 ```sh
-# .env
+# benchmarks/.bench/.env
 BENCH_MODELS=gateway:anthropic/claude-haiku-4.5=Haiku 4.5, openai:gpt-5-mini=GPT-5 mini
 AI_GATEWAY_API_KEY=...
 OPENAI_API_KEY=...
 AI_MODEL_PRICES={"anthropic/claude-haiku-4.5":{"inputPerMillion":1,"outputPerMillion":5},"openai:gpt-5-mini":{"inputPerMillion":0.25,"outputPerMillion":2}}
 ```
 
-The app calls a model only once it is verified, and the verification in
-`.env` (`AI_MODEL_CAPABILITIES`) covers one provider and model. So before each
-model's first phase, a model it does not cover is verified the way
-`pnpm ai verify` does it, with two small synthetic calls, for that run only:
-`.env` is not written. A model that fails is skipped with the reason, rather
-than analysed on the patterns alone.
-
-The prices above are an example, not a quote. `--models` takes the same list
-on the command line and wins over the variable. The provider is everything before the first colon, so
+A variable set in the shell wins over the file for that run, and `--models`
+wins over both. The provider is everything before the first colon, so
 `ollama:llama3.1:8b` works, and an entry with no colon is a gateway model.
-Prices change and differ per account, so they are yours to set: check them
-against the provider's page on the day you run. Each results file records the
-rates it was priced at.
+
+The app calls a model only once it is verified. So before each model's first
+phase, the model is verified the way `pnpm ai verify` does it, with two small
+synthetic calls, and the verification holds for that run only. A model that
+fails is skipped with the reason, rather than analysed on the patterns alone.
+
+The prices above are an example, not a quote. List prices are what a
+provider's model list says, which can lag behind its pricing page and differ per
+account. Check them on the day you run if the cost matters. Each results file
+records the rates it was priced at.
 
 A model from a different family than the one that wrote the corpus (Codex,
 GPT 6 Luna) should be among them: a model may do better on its own family's
@@ -521,11 +557,11 @@ writing.
 For each model, three phases, each written to the results file as soon as it
 finishes:
 
-| Phase                 | Documents                     | What it measures                                                                                                                                                 |
-| --------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `deterministic-first` | the split (395 test)          | The pipeline as it ships: quality per category, tokens and cost per document, wall-clock by stage, and what the patterns, the model and the local search each contributed |
-| `model-only`          | the same documents            | The same model with the deterministic pass switched off: the tokens and quality the patterns save, or do not                                                     |
-| `throughput`          | 24, at 1, 2, 4 and 8 at once  | Documents per minute as concurrency rises, and where the provider starts cutting the model pass short                                                            |
+| Phase                 | Documents                    | What it measures                                                                                                                                                          |
+| --------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deterministic-first` | the split (395 test)         | The pipeline as it ships: quality per category, tokens and cost per document, wall-clock by stage, and what the patterns, the model and the local search each contributed |
+| `model-only`          | the same documents           | The same model with the deterministic pass switched off: the tokens and quality the patterns save, or do not                                                              |
+| `throughput`          | 24, at 1, 2, 4 and 8 at once | Documents per minute as concurrency rises, and where the provider starts cutting the model pass short                                                                     |
 
 `--phases deterministic-first,model-only` runs a subset, `--sweep 1,2,4,8,16`
 and `--sweep-documents 40` change the throughput phase, `--concurrency` sets
@@ -540,6 +576,14 @@ split is about twenty times that per phase. The model-only phase costs more
 than the first, since that is the point of it. The throughput phase adds about
 four times its sample. Nothing is recorded against the instance's daily spend
 cap or written to its usage table.
+
+**What it spent.** When the run finishes, or is stopped, it prints what that
+run spent: calls, input and output tokens and cost for each model and phase,
+a subtotal for each model and the total. It counts only the calls made in
+that run, so a resumed phase shows only the part run now. The total says when
+it leaves out a model with no price. The "Tokens spent and what they cost"
+chart does the same from the results files: every measured phase of every
+model, as input and output tokens with the price beside each bar.
 
 **Stopping and resuming.** In a terminal the run is a live view: a progress
 bar, what each worker is analysing and at which stage, tokens and dollars so
@@ -634,6 +678,7 @@ Not drawn yet:
 - Token savings: needs a model with both the deterministic-first and model-only phases, that made model calls.
 - Throughput: needs a model with the throughput phase.
 - Recall by category: needs a model with a deterministic-first run.
+- Tokens spent and what they cost: needs a model with a measured phase that made model calls.
 
 <!-- bench:results:end -->
 

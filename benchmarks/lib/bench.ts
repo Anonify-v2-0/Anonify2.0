@@ -530,12 +530,20 @@ export type ThroughputPoint = {
   p95Ms: number
   /** Documents whose model pass was cut short, by reason: where the limit bites. */
   degraded: Record<string, number>
+  /**
+   * What the level spent. Absent from points measured before it was
+   * recorded; the chart of tokens and cost leaves the sweep out for them.
+   */
+  inputTokens?: number
+  outputTokens?: number
+  costUsd?: number | null
 }
 
 export function throughputPoint(
   concurrency: number,
   records: DocumentRecord[],
-  durationMs: number
+  durationMs: number,
+  rates: ModelRates | null = null
 ): ThroughputPoint {
   const usage = sumUsage(records)
   const minutes = Math.max(durationMs, 1) / 60_000
@@ -557,6 +565,9 @@ export function throughputPoint(
       0.95
     ),
     degraded,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    costUsd: costOf(usage, rates),
   }
 }
 

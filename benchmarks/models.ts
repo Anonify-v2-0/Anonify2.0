@@ -1,11 +1,20 @@
 /**
  * Benchmarks models on the labelled corpus (issues #59 and #55).
  *
- *   pnpm bench:models                          # the model in .env (AI_PROVIDER, AI_MODEL)
+ *   pnpm bench:models                          # in a terminal: asks which corpus split and how
+ *                                              # much of it, which phases, which providers
+ *                                              # (a key or a sign-in) and which models
  *   BENCH_MODELS="gateway:anthropic/claude-haiku-4.5, openai:gpt-5-mini" pnpm bench:models
  *   pnpm bench:models --limit 20 --phases deterministic-first   # a quick look
+ *   pnpm bench:models --yes                    # the saved setup, without questions
  *   pnpm bench:models --dry-run                # what would run, and what is already measured
  *   pnpm bench:charts                          # redraw the charts from every results file
+ *
+ * The benchmark keeps its own environment in benchmarks/.bench/ and never
+ * reads .env, so measuring a model changes nothing the instance uses (see
+ * lib/environment.ts). Its answers are saved there, and offered again next
+ * time. When it finishes, or is stopped, it reports what this run spent:
+ * calls, tokens and cost for each model and phase.
  *
  * For each model, up to three phases, each written as soon as it finishes:
  *
@@ -62,6 +71,12 @@ import {
 import { corpusHash, gitCommit, loadCorpus, parseSplit } from "./lib/corpus"
 import { BenchDashboard, compact, pct } from "./lib/dashboard"
 import {
+  BENCH_ENV_FILE,
+  fileSettingStore,
+  loadBenchEnv,
+  saveBenchEnv,
+} from "./lib/environment"
+import {
   analyse,
   captureUsage,
   liftSpendCap,
@@ -69,7 +84,9 @@ import {
   selectModel,
   type Usage,
 } from "./lib/pipeline"
+import { money } from "./lib/report"
 import { scoreDocument } from "./lib/scoring"
+import { SpendLedger, spendTable, spendTotal } from "./lib/spend"
 import type { ModelRates } from "@/lib/ai/usage-types"
 
 const HERE = import.meta.dirname
@@ -79,15 +96,25 @@ const CHECKPOINTS = path.join(HERE, "results", ".checkpoints")
 const PHASES = [...MODES, "throughput"] as const
 type Phase = (typeof PHASES)[number]
 
+const ENV_NAME = path
+  .relative(process.cwd(), BENCH_ENV_FILE)
+  .split(path.sep)
+  .join("/")
+
 const USAGE = `Usage: pnpm bench:models [options]
 
-Models come from BENCH_MODELS (or --models): entries separated by commas or
-new lines, each provider:model, optionally =label. Without it, the one model
-.env configures (AI_PROVIDER, AI_MODEL). Keys and provider settings come from
-.env exactly as the app reads them; prices from AI_MODEL_PRICES, keyed by the
-usage id (the model id on the gateway, provider:model elsewhere).
+In a terminal it asks what to run: which split of the corpus and how many of
+its documents, which phases, and which providers and models, with a key or a
+ChatGPT sign-in for each provider. A question answered by an option below is
+not asked. The answers are saved to ${ENV_NAME} and offered next time.
 
-  --models <list>        instead of BENCH_MODELS
+That file is the benchmark's whole environment; .env is never read. It holds
+BENCH_MODELS (entries separated by commas or new lines, each provider:model,
+optionally =label), each provider's key and settings as the app names them,
+and AI_MODEL_PRICES, keyed by the usage id (the model id on the gateway,
+provider:model elsewhere). A variable set in the shell overrides it.
+
+  --models <list>        instead of BENCH_MODELS, and no model questions
   --phases <list>        any of ${PHASES.join(", ")}
                          (default: all three)
   --corpus <dir>         corpus directory (default benchmarks/corpus/synthetic-v1)
@@ -102,6 +129,7 @@ usage id (the model id on the gateway, provider:model elsewhere).
   --sweep-documents <n>  documents per level (default 24)
   --replace              measure again a phase this model already has
   --fresh                ignore a checkpoint and start the phase over
+  --yes                  ask nothing: the saved models and every default
   --dry-run              show what would run, and stop
 `
 
@@ -400,15 +428,61 @@ async function printTable(directory: string, c: Palette) {
 }
 
 /**
+ * What this run spent, model by model and phase by phase. Only the calls made
+ * here: a phase resumed from a checkpoint shows the part run now, and one
+ * skipped as already measured does not appear.
+ */
+function printSpend(ledger: SpendLedger, c: Palette) {
+  const rows = ledger.rows()
+  if (rows.length === 0) {
+    console.log(
+      `\n${box([c.dim("No model calls were made.")], c, "what this run spent")}`
+    )
+    return
+  }
+  const { head, body, total } = spendTable(rows, { money, tokens: compact })
+  const all = [head, ...body, total]
+  const widths = head.map((_, i) => Math.max(...all.map((r) => r[i].length)))
+  const line = (cells: string[]) =>
+    cells
+      .map((cell, i) =>
+        i < 2 ? cell.padEnd(widths[i]) : cell.padStart(widths[i])
+      )
+      .join("  ")
+  const unpriced = spendTotal(rows).unpriced
+  console.log(
+    `\n${box(
+      [
+        c.dim(line(head)),
+        ...body.map((r) => (r[1] === "all phases" ? c.dim(line(r)) : line(r))),
+        c.bold(line(total)),
+        ...(unpriced.length
+          ? [
+              c.yellow(
+                `No price for ${unpriced.join(", ")}: its tokens are counted and its cost is not, so the total is a floor.`
+              ),
+            ]
+          : []),
+        c.dim(
+          "Not counted: the two small verification calls a model gets before its first phase."
+        ),
+      ],
+      c,
+      "what this run spent"
+    )}`
+  )
+}
+
+/**
  * Makes sure the app will actually call this model.
  *
  * The app sends a model structured-output calls only once it has been
- * verified, and the verification in `.env` (AI_MODEL_CAPABILITIES) is bound
- * to one provider and model. Every other model in BENCH_MODELS would be
+ * verified, and a verification (AI_MODEL_CAPABILITIES) is bound to one
+ * provider and model. Every other model in BENCH_MODELS would be
  * "unsupported": each document analysed on the patterns alone, at no cost,
  * looking like a model that found nothing. So a model the declaration does
  * not cover is probed here, with `pnpm ai verify`'s two synthetic calls, and
- * the result applies to this run only; `.env` is not written.
+ * the result applies to this run only; nothing is written.
  */
 async function ensureVerified(
   entry: ModelEntry,
@@ -421,7 +495,7 @@ async function ensureVerified(
   if (dryRun) {
     console.log(
       c.dim(
-        "  not verified in .env: a real run verifies it first (two small calls)"
+        "  not verified yet: a real run verifies it first (two small calls)"
       )
     )
     return true
@@ -441,9 +515,7 @@ async function ensureVerified(
     vision: result.vision,
   })
   console.log(
-    c.dim(
-      "  verified for this run: structured output works (not written to .env)"
-    )
+    c.dim("  verified for this run: structured output works (not saved)")
   )
   return true
 }
@@ -460,12 +532,12 @@ async function main() {
   const { values } = parseArgs({
     options: {
       models: { type: "string" },
-      phases: { type: "string", default: PHASES.join(",") },
+      phases: { type: "string" },
       corpus: {
         type: "string",
         default: path.join(HERE, "corpus", "synthetic-v1"),
       },
-      split: { type: "string", default: "test" },
+      split: { type: "string" },
       format: { type: "string", default: "text" },
       ids: { type: "string" },
       limit: { type: "string" },
@@ -474,6 +546,7 @@ async function main() {
       "sweep-documents": { type: "string", default: "24" },
       replace: { type: "boolean", default: false },
       fresh: { type: "boolean", default: false },
+      yes: { type: "boolean", short: "y", default: false },
       "dry-run": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -484,22 +557,140 @@ async function main() {
   }
   const c = palette()
 
-  const phases = values.phases
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean)
-  for (const phase of phases)
-    if (!(PHASES as readonly string[]).includes(phase))
-      throw new Error(
-        `--phases takes ${PHASES.join(", ")}, not ${JSON.stringify(phase)}`
-      )
+  // The benchmark's environment, before anything reads one. A list given in
+  // the shell is noted first, because the saved file fills in what the shell
+  // leaves unset.
+  const listedInShell = values.models ?? process.env.BENCH_MODELS
+  const saved = await loadBenchEnv()
+
   const format = values.format
   if (format !== "text" && !isRenderFormat(format))
     throw new Error(
       `--format must be text or one of ${RENDER_FORMATS.join(", ")}, not ${JSON.stringify(format)}`
     )
+  if (values.split !== undefined) parseSplit(values.split)
+  const checkPhases = (list: string) => {
+    const phases = list
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean)
+    for (const phase of phases)
+      if (!(PHASES as readonly string[]).includes(phase))
+        throw new Error(
+          `--phases takes ${PHASES.join(", ")}, not ${JSON.stringify(phase)}`
+        )
+    return phases
+  }
+  if (values.phases !== undefined) checkPhases(values.phases)
+
+  const root = path.resolve(values.corpus)
+  const corpus = path.basename(root)
+  let documents = await loadCorpus(root, "all")
+  const hash = await corpusHash(root)
+
+  // Every call is tallied from the first, and a ChatGPT sign-in is read from
+  // the benchmark's own store rather than the instance's database.
+  liftSpendCap()
+  const ledger = new SpendLedger()
+  const live: { current: BenchDashboard | null } = { current: null }
+  const usage = await captureUsage(
+    (row) => {
+      ledger.record(row)
+      live.current?.call(
+        row.documentId,
+        row.task,
+        row.inputTokens,
+        row.outputTokens
+      )
+    },
+    { setting: fileSettingStore() }
+  )
+
+  const interactive =
+    Boolean(process.stdin.isTTY) && !values.yes && !process.env.CI
+  let split = values.split ?? "test"
+  let limit =
+    values.limit !== undefined ? int("limit", values.limit, 1) : undefined
+  let phaseList = values.phases ?? PHASES.join(",")
+  let entries: ModelEntry[]
+  {
+    const { askCorpus, askModels, PHASE_CHOICES } = await import("./lib/setup")
+    const { note, ok, Prompter, say } = await import("@/scripts/tty")
+    const prompt = new Prompter(interactive)
+    const onInterrupt = () => {
+      prompt.close()
+      console.log(c.yellow("\nStopped before anything was run."))
+      process.exit(130)
+    }
+    process.on("SIGINT", onInterrupt)
+    try {
+      if (interactive) {
+        const archive = `${root}.tar.gz`
+        const answer = await askCorpus(
+          prompt,
+          {
+            name: corpus,
+            archive: existsSync(archive)
+              ? path.relative(process.cwd(), archive).replace(/\\/g, "/")
+              : null,
+            hash,
+            counts: {
+              test: documents.filter((d) => d.split === "test").length,
+              dev: documents.filter((d) => d.split === "dev").length,
+            },
+          },
+          {
+            split: values.split,
+            askLimit: limit === undefined && values.ids === undefined,
+          }
+        )
+        split = answer.split
+        limit ??= answer.limit
+        if (values.phases === undefined)
+          phaseList = await prompt.choose("Which phases?", PHASE_CHOICES)
+      }
+
+      const savedList = saved.get("BENCH_MODELS")?.trim()
+      if (listedInShell?.trim()) entries = parseModels(listedInShell)
+      else if (interactive) {
+        let reuse = false
+        if (savedList) {
+          say()
+          say(`  ${c.bold("Saved models")} ${c.dim(`(${ENV_NAME})`)}`)
+          for (const entry of parseModels(savedList))
+            say(`    ${entry.provider}:${entry.model}`)
+          reuse = await prompt.choose("Which models?", [
+            { value: true, label: "These" },
+            {
+              value: false,
+              label: "Choose providers and models again",
+              detail: ["Saved keys are offered again; Enter keeps one."],
+            },
+          ])
+        }
+        if (reuse) entries = parseModels(savedList!)
+        else {
+          const chosen = await askModels(prompt, process.env)
+          entries = chosen.entries
+          await saveBenchEnv(chosen.updates)
+          say()
+          ok(`Saved to ${ENV_NAME}, for the benchmark only.`)
+          note(".env, and everything the instance uses, are unchanged.")
+        }
+      } else if (savedList) entries = parseModels(savedList)
+      else
+        throw new Error(
+          `No models to benchmark. Run pnpm bench:models in a terminal to choose them, or set BENCH_MODELS, with each provider's key, in ${ENV_NAME} or the shell.`
+        )
+    } finally {
+      process.off("SIGINT", onInterrupt)
+      prompt.close()
+    }
+  }
+
+  const phases = checkPhases(phaseList)
   const options: Options = {
-    split: parseSplit(values.split),
+    split: parseSplit(split),
     format,
     concurrency: int("concurrency", values.concurrency, 1),
     sweep: values.sweep.split(",").map((v) => int("sweep", v.trim(), 1)),
@@ -508,14 +699,8 @@ async function main() {
     fresh: values.fresh,
   }
 
-  const { modelId, providerId } = await import("@/lib/ai/providers/config")
-  const listed = values.models ?? process.env.BENCH_MODELS ?? ""
-  const entries: ModelEntry[] = listed.trim()
-    ? parseModels(listed)
-    : [{ provider: providerId(), model: modelId(), label: modelId() }]
-
-  const root = path.resolve(values.corpus)
-  let documents = await loadCorpus(root, options.split)
+  if (options.split !== "all")
+    documents = documents.filter((d) => d.split === options.split)
   if (format !== "text")
     documents = documents.filter((d) => d.render.includes(format))
   if (values.ids) {
@@ -523,48 +708,35 @@ async function main() {
     documents = documents.filter((d) => wanted.has(d.id))
   }
   documents.sort((a, b) => a.id.localeCompare(b.id))
-  if (values.limit !== undefined)
-    documents = documents.slice(0, int("limit", values.limit, 1))
+  if (limit !== undefined) documents = documents.slice(0, limit)
   if (documents.length === 0) throw new Error("no documents to run")
 
-  const corpus = path.basename(root)
-  const hash = await corpusHash(root)
   const directory = path.join(
     RESULTS,
     resultsDirectory(corpus, options.split, format)
   )
-  const partial = values.ids !== undefined || values.limit !== undefined
+  const partial = values.ids !== undefined || limit !== undefined
 
   console.log(
-    box(
+    `\n${box(
       [
         `${c.dim("corpus")} ${corpus} ${c.dim(`(${hash?.slice(7, 19) ?? "no manifest"}…)`)}  ${c.dim("split")} ${options.split}  ${c.dim("format")} ${format}  ${c.dim("documents")} ${documents.length}`,
         `${c.dim("models")} ${entries.map((e) => `${e.provider}:${e.model}`).join(", ")}`,
         `${c.dim("phases")} ${phases.join(" → ")}  ${c.dim("concurrency")} ${options.concurrency}${phases.includes("throughput") ? `  ${c.dim("sweep")} ${options.sweep.join(", ")} × ${Math.min(options.sweepDocuments, documents.length)} documents` : ""}`,
-        `${c.dim("results")} ${path.relative(process.cwd(), directory)}`,
+        `${c.dim("environment")} ${ENV_NAME}  ${c.dim("results")} ${path.relative(process.cwd(), directory)}`,
         ...(partial
           ? [
               c.yellow(
-                "--ids or --limit: a partial run, written as the model's results all the same"
+                "--ids or a limit: a partial run, written as the model's results all the same"
               ),
             ]
           : []),
       ],
       c,
       "bench:models"
-    )
+    )}`
   )
 
-  liftSpendCap()
-  const live: { current: BenchDashboard | null } = { current: null }
-  const usage = await captureUsage((row) =>
-    live.current?.call(
-      row.documentId,
-      row.task,
-      row.inputTokens,
-      row.outputTokens
-    )
-  )
   const { aiConfigured, resolveModel } = await import("@/lib/ai/gateway")
   const { configuredRates } = await import("@/lib/ai/rates")
 
@@ -585,7 +757,7 @@ async function main() {
     if (!aiConfigured()) {
       console.log(
         c.red(
-          `  ${entry.provider} is not configured: set its key in .env (pnpm setup writes it). Skipped.`
+          `  ${entry.provider} is not configured: run pnpm bench:models in a terminal to set it up, or set its key in ${ENV_NAME}. Skipped.`
         )
       )
       process.exitCode = 1
@@ -599,7 +771,7 @@ async function main() {
     if (!rates)
       console.log(
         c.yellow(
-          `  No price for ${model}: tokens are counted, cost is left empty. Add it to AI_MODEL_PRICES to price it.`
+          `  No price for ${model}: tokens are counted, cost is left empty. Add it to AI_MODEL_PRICES in ${ENV_NAME} to price it.`
         )
       )
 
@@ -669,6 +841,7 @@ async function main() {
         for (const level of options.sweep) {
           if (stopping) break
           process.env.ANONIFY_AI_CONCURRENCY = String(level)
+          ledger.begin({ label: entry.label, model, phase, rates })
           const run = await runPhase({
             mode: "deterministic-first",
             documents: picked,
@@ -683,7 +856,12 @@ async function main() {
             title: `${entry.label} · throughput at ${level} at once`,
           })
           if (!run) break
-          const point = throughputPoint(level, run.records, run.durationMs)
+          const point = throughputPoint(
+            level,
+            run.records,
+            run.durationMs,
+            rates
+          )
           points.push(point)
           console.log(
             `  ${c.dim("concurrency")} ${String(level).padStart(2)}  ${c.bold(point.documentsPerMinute.toFixed(1))} ${c.dim("docs/min")}  ${point.callsPerMinute} ${c.dim("calls/min")}  ${c.dim("p95")} ${(point.p95Ms / 1000).toFixed(1)}s${
@@ -715,6 +893,7 @@ async function main() {
           resultsDirectory(corpus, options.split, format),
           `${modelSlug(model)}.${phase}.jsonl`
         )
+        ledger.begin({ label: entry.label, model, phase, rates })
         const run = await runPhase({
           mode: phase,
           documents,
@@ -760,6 +939,7 @@ async function main() {
     }
   }
 
+  if (!values["dry-run"]) printSpend(ledger, c)
   if (stopping) {
     console.log(
       c.yellow(

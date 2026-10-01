@@ -49,14 +49,16 @@ type UsageRow = {
  *
  * `runStructured` writes every call to `prisma.aiUsage`. Here that one table
  * is replaced by a tally, so the benchmark's tokens are counted without a
- * database and never land in the instance's own spend history. Anything else
- * a provider asks the database for (a stored subscription login) goes to the
- * real one when DATABASE_URL is set.
+ * database and never land in the instance's own spend history. `setting`,
+ * where a provider keeps a subscription sign-in, goes to `options.setting`
+ * when one is given (bench:models keeps its own; see environment.ts).
+ * Anything else goes to the real database when DATABASE_URL is set.
  *
  * `onCall` sees each call as it is recorded, for a live view.
  */
 export async function captureUsage(
-  onCall?: (row: UsageRow) => void
+  onCall?: (row: UsageRow) => void,
+  options: { setting?: object } = {}
 ): Promise<Map<string, Usage>> {
   const usage = new Map<string, Usage>()
   const aiUsage = {
@@ -85,6 +87,7 @@ export async function captureUsage(
     {
       get(_target, property) {
         if (property === "aiUsage") return aiUsage
+        if (property === "setting" && options.setting) return options.setting
         if (!real) {
           throw new Error(
             `the provider needs the database (prisma.${String(property)}); set DATABASE_URL`
@@ -120,7 +123,8 @@ export function withoutModel() {
  * Selects a provider and model for the calls that follow. The provider layer
  * reads the environment on every call and caches no client, so this is all a
  * switch between models takes; each provider's key and settings come from
- * `.env` as they do for the app.
+ * the environment, as they do for the app (for bench:models, its own; see
+ * environment.ts).
  */
 export function selectModel(provider: string, model: string) {
   process.env.AI_PROVIDER = provider

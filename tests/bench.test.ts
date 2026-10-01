@@ -25,6 +25,7 @@ import {
   money,
   replaceSection,
   rootMarkdown,
+  spendRows,
 } from "@/benchmarks/lib/report"
 import { DARK, LIGHT, paretoFrontier, wrap } from "@/benchmarks/lib/svg"
 import { detectPatterns } from "@/lib/redaction/detectors"
@@ -282,6 +283,15 @@ describe("a run's summary", () => {
       callsPerMinute: 8,
     })
   })
+
+  it("records what a sweep level spent, priced when there is a price", () => {
+    expect(throughputPoint(4, records, 30_000, rates)).toMatchObject({
+      inputTokens: 6000,
+      outputTokens: 600,
+      costUsd: 0.009,
+    })
+    expect(throughputPoint(4, records, 30_000).costUsd).toBeNull()
+  })
 })
 
 describe("the results file", () => {
@@ -361,8 +371,8 @@ function results(
     throughput: {
       documents: [],
       points: [
-        throughputPoint(1, [rec], 6000),
-        throughputPoint(2, [rec], 4000),
+        throughputPoint(1, [rec], 6000, rates),
+        throughputPoint(2, [rec], 4000, rates),
       ],
     },
     settings: { aiRequestsPerMinute: null, aiMaxAttempts: null },
@@ -404,6 +414,7 @@ describe("the charts", () => {
       "recall-heatmap",
       "sources",
       "expansion",
+      "tokens-and-cost",
     ])
     for (const chart of report.charts) {
       for (const svg of Object.values(chart.svg)) {
@@ -414,6 +425,44 @@ describe("the charts", () => {
     }
     // Ordered by when each was first measured, not by file name.
     expect(report.models.map((m) => m.label)).toEqual(["A", "B"])
+  })
+
+  it("charts each phase's tokens and cost, and what each model cost in all", () => {
+    const priced = results("A", "a/model", "2026-09-01")
+    const rows = spendRows([priced])
+    expect(rows.map((r) => r.phase)).toEqual([
+      "deterministic-first",
+      "model-only",
+      "throughput",
+    ])
+    // The sweep counts every level's sample, each time it was analysed.
+    expect(rows[2].documents).toBe(2)
+    expect(rows[2].inputTokens).toBe(2 * rows[0].inputTokens)
+
+    const report = buildReport({
+      results: [priced],
+      baseline: null,
+      corpusHash: "sha256:x",
+      context: "c",
+    })
+    const chart = report.charts.find((c) => c.name === "tokens-and-cost")!
+    expect(chart.svg.light).toContain("Throughput sweep, every level")
+    expect(chart.svg.light).toContain(money(rows[1].costUsd!))
+    const total = rows.reduce((sum, r) => sum + r.costUsd!, 0)
+    expect(chart.table).toContain(`| A | all phases | 4 |`)
+    expect(chart.table).toContain(money(total))
+
+    // A sweep measured before points recorded tokens is left out, not guessed.
+    const older = results("B", "b/model", "2026-09-02")
+    for (const point of older.throughput!.points) {
+      delete point.inputTokens
+      delete point.outputTokens
+      delete point.costUsd
+    }
+    expect(spendRows([older]).map((r) => r.phase)).toEqual([
+      "deterministic-first",
+      "model-only",
+    ])
   })
 
   it("keeps a model's colour when another model is added", () => {

@@ -140,7 +140,7 @@ export const AI_ENV_KEYS = [
  * is offered for refresh rather than silently refetched or silently used, and
  * a failed refresh falls back to it with its age said out loud.
  */
-async function readModels(
+export async function readModels(
   prompt: Prompter,
   env: ProviderEnv
 ): Promise<CatalogResult | undefined> {
@@ -369,6 +369,123 @@ const REASON_LABELS: Partial<Record<ProbeFailureReason, string>> = {
   "wrong-answer": "wrong answer",
 }
 
+/**
+ * Asks for the selected provider's credential and settings: its key, the
+ * fields it needs, and for Bedrock and Vertex which kind of credential. Each
+ * question offers what `env` already holds, so pressing Enter keeps it.
+ * Shared by setup and `pnpm bench:models`, which keeps its own environment.
+ */
+export async function askCredentials(
+  prompt: Prompter,
+  env: ProviderEnv
+): Promise<void> {
+  const provider = selectedProvider(env)
+  if (provider.envKey) {
+    if (provider.keyOptional)
+      note("Leave the key blank if the endpoint does not take one.")
+    env[provider.envKey] = await prompt.secret(
+      provider.envKey,
+      env[provider.envKey]
+    )
+  }
+  for (const field of provider.fields ?? []) {
+    for (;;) {
+      env[field] = await prompt.ask(field, {
+        fallback:
+          env[field] ||
+          (field === "OLLAMA_BASE_URL"
+            ? DEFAULT_OLLAMA_URL
+            : field === "FIREWORKS_ACCOUNT_ID"
+              ? "fireworks"
+              : field === "AI_BASE_URL"
+                ? (provider.compatible?.baseUrl ?? "")
+                : ""),
+        hint:
+          field === "AI_BASE_URL"
+            ? "The base URL the endpoint's /chat/completions and /models sit under, usually ending in /v1."
+            : undefined,
+      })
+      if (field !== "AI_BASE_URL") break
+      try {
+        compatibleBaseUrl(env, false)
+        break
+      } catch (error) {
+        // Our own validation message; it never repeats the value.
+        warn((error as Error).message)
+        env[field] = ""
+      }
+    }
+  }
+  if (provider.id === "amazon-bedrock")
+    note(
+      "Bedrock uses your AWS credential chain (profile, environment or role). Runtime bearer keys cannot list control-plane models."
+    )
+  if (provider.id === "amazon-bedrock") {
+    const auth = await prompt.choose(
+      "Bedrock authentication",
+      [
+        {
+          value: "chain",
+          label: "Use AWS environment credentials, profile or role",
+        },
+        { value: "keys", label: "Enter AWS access credentials" },
+        { value: "bearer", label: "Enter a Bedrock runtime API key" },
+      ],
+      env.AWS_BEARER_TOKEN_BEDROCK ? 2 : 0
+    )
+    if (auth !== "bearer") env.AWS_BEARER_TOKEN_BEDROCK = ""
+    if (auth === "keys") {
+      for (const key of [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+      ])
+        env[key] = await prompt.secret(key, env[key])
+    }
+    if (auth === "bearer")
+      env.AWS_BEARER_TOKEN_BEDROCK = await prompt.secret(
+        "AWS_BEARER_TOKEN_BEDROCK",
+        env.AWS_BEARER_TOKEN_BEDROCK
+      )
+  }
+  if (provider.id === "azure")
+    note(
+      "Deployment discovery uses Azure CLI / managed identity credentials. Inference uses AZURE_API_KEY."
+    )
+  if (provider.id === "google-vertex")
+    note(
+      "Vertex uses Google Application Default Credentials. Credential files must also be available to the running app."
+    )
+  if (provider.id === "google-vertex") {
+    const auth = await prompt.choose(
+      "Vertex authentication",
+      [
+        { value: "adc", label: "Use Google Application Default Credentials" },
+        { value: "key", label: "Enter a Vertex express-mode API key" },
+      ],
+      env.GOOGLE_VERTEX_API_KEY ? 1 : 0
+    )
+    env.GOOGLE_VERTEX_API_KEY =
+      auth === "key"
+        ? await prompt.secret(
+            "GOOGLE_VERTEX_API_KEY",
+            env.GOOGLE_VERTEX_API_KEY
+          )
+        : ""
+  }
+}
+
+/** Whether the selected provider has the credential it needs to be called. */
+export function hasCredential(env: ProviderEnv): boolean {
+  const provider = selectedProvider(env)
+  return (
+    !provider.envKey ||
+    Boolean(provider.keyOptional) ||
+    Boolean(env[provider.envKey]) ||
+    (provider.id === "gateway" && Boolean(env.VERCEL_OIDC_TOKEN))
+  )
+}
+
 export async function askAiProvider(
   prompt: Prompter,
   current: ProviderEnv,
@@ -429,105 +546,8 @@ export async function askAiProvider(
       return env
     }
   }
-  if (provider.envKey) {
-    if (provider.keyOptional)
-      note("Leave the key blank if the endpoint does not take one.")
-    env[provider.envKey] = await prompt.secret(
-      provider.envKey,
-      env[provider.envKey]
-    )
-  }
-  for (const field of provider.fields ?? []) {
-    for (;;) {
-      env[field] = await prompt.ask(field, {
-        fallback:
-          env[field] ||
-          (field === "OLLAMA_BASE_URL"
-            ? DEFAULT_OLLAMA_URL
-            : field === "FIREWORKS_ACCOUNT_ID"
-              ? "fireworks"
-              : field === "AI_BASE_URL"
-                ? (provider.compatible?.baseUrl ?? "")
-                : ""),
-        hint:
-          field === "AI_BASE_URL"
-            ? "The base URL the endpoint's /chat/completions and /models sit under, usually ending in /v1."
-            : undefined,
-      })
-      if (field !== "AI_BASE_URL") break
-      try {
-        compatibleBaseUrl(env, false)
-        break
-      } catch (error) {
-        // Our own validation message; it never repeats the value.
-        warn((error as Error).message)
-        env[field] = ""
-      }
-    }
-  }
-  if (picked === "amazon-bedrock")
-    note(
-      "Bedrock uses your AWS credential chain (profile, environment or role). Runtime bearer keys cannot list control-plane models."
-    )
-  if (picked === "amazon-bedrock") {
-    const auth = await prompt.choose(
-      "Bedrock authentication",
-      [
-        {
-          value: "chain",
-          label: "Use AWS environment credentials, profile or role",
-        },
-        { value: "keys", label: "Enter AWS access credentials" },
-        { value: "bearer", label: "Enter a Bedrock runtime API key" },
-      ],
-      env.AWS_BEARER_TOKEN_BEDROCK ? 2 : 0
-    )
-    if (auth !== "bearer") env.AWS_BEARER_TOKEN_BEDROCK = ""
-    if (auth === "keys") {
-      for (const key of [
-        "AWS_ACCESS_KEY_ID",
-        "AWS_SECRET_ACCESS_KEY",
-        "AWS_SESSION_TOKEN",
-      ])
-        env[key] = await prompt.secret(key, env[key])
-    }
-    if (auth === "bearer")
-      env.AWS_BEARER_TOKEN_BEDROCK = await prompt.secret(
-        "AWS_BEARER_TOKEN_BEDROCK",
-        env.AWS_BEARER_TOKEN_BEDROCK
-      )
-  }
-  if (picked === "azure")
-    note(
-      "Deployment discovery uses Azure CLI / managed identity credentials. Inference uses AZURE_API_KEY."
-    )
-  if (picked === "google-vertex")
-    note(
-      "Vertex uses Google Application Default Credentials. Credential files must also be available to the running app."
-    )
-  if (picked === "google-vertex") {
-    const auth = await prompt.choose(
-      "Vertex authentication",
-      [
-        { value: "adc", label: "Use Google Application Default Credentials" },
-        { value: "key", label: "Enter a Vertex express-mode API key" },
-      ],
-      env.GOOGLE_VERTEX_API_KEY ? 1 : 0
-    )
-    env.GOOGLE_VERTEX_API_KEY =
-      auth === "key"
-        ? await prompt.secret(
-            "GOOGLE_VERTEX_API_KEY",
-            env.GOOGLE_VERTEX_API_KEY
-          )
-        : ""
-  }
-  if (
-    provider.envKey &&
-    !provider.keyOptional &&
-    !env[provider.envKey] &&
-    !(picked === "gateway" && env.VERCEL_OIDC_TOKEN)
-  ) {
+  await askCredentials(prompt, env)
+  if (!hasCredential(env)) {
     warn(
       "No credential configured. AI detection stays off until the credential is set."
     )
