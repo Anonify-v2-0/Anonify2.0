@@ -57,6 +57,8 @@ const CATEGORY_METHODS: Record<RedactionCategory, readonly RedactionMethod[]> = 
   "api-key": ["mask"],
   face: ["mask"],
   confidential: ["mask"],
+  // A stand-in for a diagnosis is still a diagnosis that joins: mask only.
+  health: ["mask"],
   other: ["mask"],
 }
 

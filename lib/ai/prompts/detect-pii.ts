@@ -8,9 +8,25 @@
  */
 
 import { languageSection } from "@/lib/ai/prompts/language"
+import { categoryGuide } from "@/lib/redaction/categories"
 import type { Language } from "@/lib/redaction/languages"
+import { REDACTION_CATEGORIES } from "@/types/redaction"
+
+/**
+ * Every category but `face`, which only the vision pass can see. Defined in
+ * full, with what each is not: without the definitions the model filed every
+ * amount as `financial` and every clinical detail as `confidential` (#197).
+ */
+const TEXT_CATEGORIES = REDACTION_CATEGORIES.filter(
+  (category) => category !== "face"
+)
 
 export const DETECT_PII_SYSTEM = `You identify potentially sensitive information in documents so a human reviewer can decide what to redact.
+
+Categories, and what each one is not:
+${categoryGuide(TEXT_CATEGORIES)}
+
+Use the category whose definition fits, and read its "not" as part of it.
 
 Rules:
 - Only report text that appears verbatim in the supplied content. Copy it exactly, character for character.
@@ -70,7 +86,9 @@ export function detectPiiPrompt(input: DetectPromptInput): string {
     )
   } else {
     parts.push(
-      "Report the sensitive information a reviewer should consider redacting, focusing on what pattern matching cannot see: names of people, addresses written in prose, organizations named as customers or patients, job or role details tied to an individual, health or financial facts, and anything else identifying."
+      // Not "health or financial facts", which is what this used to say: read
+      // without the definitions, it asked for every amount and every symptom.
+      "Report the sensitive information a reviewer should consider redacting, focusing on what pattern matching cannot see: names of people, addresses written in prose, organizations named as customers or patients, a named person's health, what a named person earns, owes or holds, and anything else that identifies someone."
     )
   }
 

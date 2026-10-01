@@ -38,6 +38,7 @@ export const REDACTION_CATEGORIES = [
   "api-key",
   "url",
   "face",
+  "health",
   "other",
 ] as const
 

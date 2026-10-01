@@ -26,7 +26,8 @@ The default. Every detector, and the contextual pass unrestricted.
 - **Categories:** all (`null`)
 - Looks for: email/phone/postal addresses, people's names and
   customer/patient-named organizations, government identifiers, payment cards
-  and bank/account numbers, dates of birth and customer/case references,
+  and bank/account numbers, dates of birth and customer/case references, a
+  named person's health and what they earn, owe or hold,
   credentials and API keys and token-bearing links, faces and signatures in
   images.
 

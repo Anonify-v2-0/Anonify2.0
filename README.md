@@ -47,6 +47,24 @@ pipeline is argued through in [docs/pipelines.md](docs/pipelines.md).
 Every export is then re-opened and read the way an adversary would. A surviving
 value fails the export rather than shipping (`lib/redaction/validation.ts`).
 
+### What it looks for
+
+People's names, addresses, phone numbers, email addresses, government IDs,
+bank accounts, financial details, dates of birth, customer and case numbers,
+confidential business information, credentials, identifying URLs, faces, a
+person's health, and anything else that identifies someone. Each category is
+defined in one place, `lib/redaction/categories.ts`, with what it is *not*:
+an amount on an invoice is not a financial detail unless it is what a named
+person earns, owes or holds, and a date is not a date of birth because a name
+is nearby. The model's instructions and the benchmark corpus read the same
+definitions ([#197](https://github.com/Anonify-v2-0/Anonify2.0/issues/197)).
+
+Health has its own category. A diagnosis, a medication or a blood pressure
+reading about a named person is suggested as `health`, and it can only be
+masked: a stand-in for a diagnosis still says something about the person.
+Before this, the same details were suggested as `confidential`, which is meant
+for codenames and trade secrets.
+
 ## How it works
 
 Four layers, kept deliberately separate:
