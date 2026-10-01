@@ -14,6 +14,28 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.12.1] - 2026-10-01
+
+### Added
+
+- `pnpm bench:models` sets up its own run in a terminal. It names the corpus
+  and archive it reads, and asks which split, how many documents and which
+  phases to run. It asks which provider, its key or a ChatGPT sign-in, and one
+  or more models from the provider's list, each priced at its list price. When
+  the run ends or is stopped, it prints what it spent: calls, tokens and cost
+  for each model and phase. `pnpm bench:charts` adds a chart of the tokens each
+  phase spent and what they cost (#164)
+
+### Changed
+
+- `pnpm bench:models` and `pnpm corpus:score` no longer read `.env`. Their
+  keys, models, prices and any ChatGPT sign-in are kept in `benchmarks/.bench/`,
+  which git ignores, so benchmarking a model changes nothing the instance uses.
+  A run without a terminal reads `BENCH_MODELS` and each provider's key from
+  `benchmarks/.bench/.env` or the shell. `corpus:score --detector pipeline` runs
+  the saved model, or one named with `--model provider:model`, and verifies it
+  before it scores anything (#164)
+
 ## [1.12.0] - 2026-09-29
 
 ### Added
