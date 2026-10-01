@@ -71,7 +71,7 @@ import {
 import { corpusHash, gitCommit, loadCorpus, parseSplit } from "./lib/corpus"
 import { BenchDashboard, compact, pct } from "./lib/dashboard"
 import {
-  BENCH_ENV_FILE,
+  benchEnvName,
   fileSettingStore,
   loadBenchEnv,
   saveBenchEnv,
@@ -87,6 +87,7 @@ import {
 import { money } from "./lib/report"
 import { scoreDocument } from "./lib/scoring"
 import { SpendLedger, spendTable, spendTotal } from "./lib/spend"
+import { ensureVerified } from "./lib/verify"
 import type { ModelRates } from "@/lib/ai/usage-types"
 
 const HERE = import.meta.dirname
@@ -96,10 +97,7 @@ const CHECKPOINTS = path.join(HERE, "results", ".checkpoints")
 const PHASES = [...MODES, "throughput"] as const
 type Phase = (typeof PHASES)[number]
 
-const ENV_NAME = path
-  .relative(process.cwd(), BENCH_ENV_FILE)
-  .split(path.sep)
-  .join("/")
+const ENV_NAME = benchEnvName()
 
 const USAGE = `Usage: pnpm bench:models [options]
 
@@ -473,53 +471,6 @@ function printSpend(ledger: SpendLedger, c: Palette) {
   )
 }
 
-/**
- * Makes sure the app will actually call this model.
- *
- * The app sends a model structured-output calls only once it has been
- * verified, and a verification (AI_MODEL_CAPABILITIES) is bound to one
- * provider and model. Every other model in BENCH_MODELS would be
- * "unsupported": each document analysed on the patterns alone, at no cost,
- * looking like a model that found nothing. So a model the declaration does
- * not cover is probed here, with `pnpm ai verify`'s two synthetic calls, and
- * the result applies to this run only; nothing is written.
- */
-async function ensureVerified(
-  entry: ModelEntry,
-  c: Palette,
-  dryRun: boolean
-): Promise<boolean> {
-  const { capabilityDeclaration, configuredCapabilities } =
-    await import("@/lib/ai/providers/config")
-  if (configuredCapabilities().structuredOutput) return true
-  if (dryRun) {
-    console.log(
-      c.dim(
-        "  not verified yet: a real run verifies it first (two small calls)"
-      )
-    )
-    return true
-  }
-  const { probeModel } = await import("@/lib/ai/providers/probe")
-  const result = await probeModel(process.env)
-  if (!result.structuredOutput) {
-    console.log(
-      c.red(
-        `  ${entry.provider}:${entry.model} failed verification (${result.reason ?? result.failure}): ${result.detail ?? "no structured output"}. Skipped.`
-      )
-    )
-    return false
-  }
-  process.env.AI_MODEL_CAPABILITIES = capabilityDeclaration(process.env, {
-    structuredOutput: true,
-    vision: result.vision,
-  })
-  console.log(
-    c.dim("  verified for this run: structured output works (not saved)")
-  )
-  return true
-}
-
 // --- main -------------------------------------------------------------------
 
 function sample(documents: LabelledDocument[], n: number): LabelledDocument[] {
@@ -764,6 +715,7 @@ async function main() {
       continue
     }
     if (!(await ensureVerified(entry, c, values["dry-run"]))) {
+      console.log(c.red("  Skipped."))
       process.exitCode = 1
       continue
     }

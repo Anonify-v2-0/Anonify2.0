@@ -36,7 +36,7 @@
     "corpus:pack": "tsx benchmarks/corpus/archive.ts pack",
     "corpus:unpack": "tsx benchmarks/corpus/archive.ts unpack",
     "corpus:status": "tsx benchmarks/corpus/archive.ts status",
-    "corpus:score": "tsx --env-file-if-exists=.env benchmarks/score.ts",
+    "corpus:score": "tsx benchmarks/score.ts",
     "bench:models": "tsx benchmarks/models.ts",
     "bench:charts": "tsx benchmarks/charts.ts",
     "workflow:bootstrap": "node node_modules/@workflow/world-postgres/bin/setup.js"

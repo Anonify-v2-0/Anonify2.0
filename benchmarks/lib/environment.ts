@@ -27,6 +27,11 @@ export const BENCH_DIRECTORY = path.join(import.meta.dirname, "..", ".bench")
 export const BENCH_ENV_FILE = path.join(BENCH_DIRECTORY, ".env")
 export const BENCH_STORE_FILE = path.join(BENCH_DIRECTORY, "store.json")
 
+/** The environment file as a message names it, relative and with slashes. */
+export function benchEnvName(): string {
+  return path.relative(process.cwd(), BENCH_ENV_FILE).split(path.sep).join("/")
+}
+
 const HEADER = [
   "# The benchmark's own environment, read by `pnpm bench:models` instead of .env.",
   "# Written by its setup; safe to edit by hand. Delete benchmarks/.bench/ to",

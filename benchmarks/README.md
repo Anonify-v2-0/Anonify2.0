@@ -395,7 +395,7 @@ if the two differ.
 
 ```sh
 pnpm corpus:score                            # deterministic detectors, test split
-pnpm corpus:score --detector pipeline        # the whole pipeline, with the provider in .env
+pnpm corpus:score --detector pipeline        # the whole pipeline, with the benchmark's model
 pnpm corpus:score --split dev --limit 20     # a quick look while iterating
 pnpm corpus:score --format pdf               # through PDF rendering and the PDF extractor
 pnpm corpus:score --rescore <results.json>   # today's scoring rules, stored detections
@@ -405,11 +405,25 @@ pnpm corpus:score --compare <a.json> <b.json>  # agreement between two runs
 Each document goes through `analyzeDocument`, the function an upload goes
 through. By default it is one plain-text page; with `--format` it is rendered
 and read back first (see [Rendering](#rendering)). `patterns` runs it with the
-model switched off, which is exactly what an install without a key does. `pipeline` uses the
-provider and `AI_MODEL` in `.env`. The run's tokens are counted from the
-pipeline's own usage records, which are not written to the instance's
-database, and the daily spend cap does not apply. A cost is reported when the
-model has prices configured.
+model switched off, which is exactly what an install without a key does.
+
+`pipeline` runs one model from the benchmark's own environment,
+`benchmarks/.bench/.env`, as `bench:models` does, and never from `.env` (see
+[The benchmark's own environment](#the-benchmarks-own-environment)). It runs
+the saved model, or `--model provider:model` with that provider's key saved
+there.
+
+- **Several models saved:** in a terminal it asks which one; without a
+  terminal, `--model` is required.
+- **None saved:** in a terminal it asks for a provider and a model, as
+  `bench:models` does, and saves the answer.
+
+The model is verified with two small calls before the first document. One that
+fails stops the run rather than scoring the patterns alone under its name.
+
+The run's tokens are counted from the pipeline's own usage records. Those
+records are not written to the instance's database, and the daily spend cap
+does not apply. A cost is reported when the model has a price.
 
 A detection is matched to a label by character overlap, as #57 specifies:
 
@@ -506,9 +520,10 @@ models, or a fresh choice where each saved key is offered again.
 
 ### The benchmark's own environment
 
-The benchmark never reads `.env`. Everything it needs lives in
-`benchmarks/.bench/`, which git ignores, so measuring a model changes nothing the
-instance uses: no key, no price that is a spend limit there, and no sign-in.
+Neither `bench:models` nor `corpus:score` reads `.env`. Everything they need
+lives in `benchmarks/.bench/`, which git ignores, so measuring a model changes
+nothing the instance uses: no key, no price that is a spend limit there, and no
+sign-in.
 
 | File                           | What it holds                                                                                                                 |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
