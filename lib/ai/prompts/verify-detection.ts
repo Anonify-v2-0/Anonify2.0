@@ -6,6 +6,9 @@
  * categories, and in one batched call rather than one call per candidate.
  */
 
+import { languageLine } from "@/lib/ai/prompts/language"
+import type { Language } from "@/lib/redaction/languages"
+
 export const VERIFY_SYSTEM = `You review candidate detections from a pattern matcher and judge whether each one is genuinely sensitive in its context.
 
 Rules:
@@ -22,12 +25,15 @@ export type VerificationCandidate = {
 }
 
 export function verifyDetectionPrompt(
-  candidates: VerificationCandidate[]
+  candidates: VerificationCandidate[],
+  /** The document's language, when it was detected; see prompts/language.ts. */
+  language?: Language
 ): string {
   const lines = candidates.map(
     (candidate) =>
       `${candidate.index}. [${candidate.category}] ${JSON.stringify(candidate.text)}\n   context: ${JSON.stringify(candidate.context)}`
   )
 
-  return ["CANDIDATES:", ...lines].join("\n")
+  const note = languageLine(language)
+  return [...(note ? [note, ""] : []), "CANDIDATES:", ...lines].join("\n")
 }

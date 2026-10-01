@@ -12,6 +12,11 @@ import { newRedactionId } from "@/lib/documents/ids"
 import { readNormalized } from "@/lib/documents/normalized-store"
 import { normalizeValue } from "@/lib/documents/shared/text"
 import { detectPatterns } from "@/lib/redaction/detectors"
+import {
+  detectLanguage,
+  detectorLanguages,
+  LANGUAGES,
+} from "@/lib/redaction/languages"
 import { fromDatabaseRow, toDatabaseRow } from "@/lib/redaction/model"
 import { createOwnerRule, updateOwnerRule } from "@/lib/redaction/owner-rules"
 import {
@@ -404,6 +409,7 @@ export function hushTools(context: HushContext) {
         for await (const page of reader().pages()) {
           for (const found of detectPatterns(page.text, {
             page: page.number,
+            languages: detectorLanguages(detectLanguage(page.text)),
           })) {
             if (found.start === undefined || found.end === undefined) continue
             if (flags(covered.text(page, found.start, found.end))) continue
@@ -422,7 +428,10 @@ export function hushTools(context: HushContext) {
           for (const cell of sheet.cells) {
             if (!cell.value) continue
             if (flags(covered.cell(sheet.name, cell.row, cell.column))) continue
-            for (const found of detectPatterns(cell.value)) {
+            // A cell is too short to tell its language, so all of them.
+            for (const found of detectPatterns(cell.value, {
+              languages: LANGUAGES,
+            })) {
               add(
                 found.category,
                 found.text,

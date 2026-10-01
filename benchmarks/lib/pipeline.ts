@@ -172,6 +172,8 @@ export type Analysed = {
   detections: Detected[]
   passes: Passes
   degraded: string | null
+  /** The language the analysis read the document in, or "undetected". */
+  language: string
   /** Wall-clock by stage. Extraction includes normalization: the app does both in one step. */
   timings: {
     extractMs: number | null
@@ -247,6 +249,7 @@ export async function analyse(
       detections: onText(result.detections),
       passes: mapPasses(result.passes, onText, []),
       degraded: result.degraded?.reason ?? null,
+      language: languageRead(result.language),
       timings: { extractMs: null, analyzeMs, exportMs: null },
     }
   }
@@ -300,6 +303,7 @@ export async function analyse(
     ],
     passes: mapPasses(result.passes, carry, columns),
     degraded: result.degraded?.reason ?? null,
+    language: languageRead(result.language),
     timings: { extractMs, analyzeMs, exportMs },
     exportError,
     outside: mapped.filter((d) => d === null).length,
@@ -309,6 +313,10 @@ export async function analyse(
     ],
     substituted: rendered.substituted,
   }
+}
+
+function languageRead(guess: { language: string; detected: boolean }): string {
+  return guess.detected ? guess.language : "undetected"
 }
 
 /** A whole sensitive column is the model's judgement, so it counts as the model's. */

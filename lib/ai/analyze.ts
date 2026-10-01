@@ -37,6 +37,12 @@ import {
 } from "@/lib/ai/schemas/detection"
 import { detectPatterns } from "@/lib/redaction/detectors"
 import {
+  detectLanguage,
+  detectorLanguages,
+  type Language,
+  type LanguageGuess,
+} from "@/lib/redaction/languages"
+import {
   categoryAllowed,
   detectorsFor,
   type Preset,
@@ -71,6 +77,8 @@ const CONTEXT_WINDOW = 80
 const CLASSIFY_SAMPLE = 2000
 /** Example values shown per spreadsheet column. */
 const COLUMN_SAMPLES = 5
+/** Text read to tell the document's language. */
+const LANGUAGE_SAMPLE = 20_000
 
 export type AnalysisProgress = (update: {
   stage: "classify" | "detect" | "verify" | "columns" | "image"
@@ -105,6 +113,11 @@ export type ImageAnalysis = {
 export type AnalysisResult = {
   detections: Detection[]
   classification: Classification | null
+  /**
+   * The language the detectors and prompts were tuned for, and whether it was
+   * detected or assumed. Reported so the reviewer can be told; see #43.
+   */
+  language: LanguageGuess
   /** Null when every model call the pass wanted to make was made. */
   degraded: AnalysisDegradation | null
   /** Columns the model judged sensitive as a whole. */
@@ -238,6 +251,25 @@ export function chunkPages(
   return chunks
 }
 
+/**
+ * The document's language, from its text: the pages, and for a spreadsheet
+ * the cells, headers included, since those are most of what it has to say.
+ */
+export function documentLanguage(model: NormalizedDocument): LanguageGuess {
+  let sample = ""
+  for (const page of model.pages) {
+    if (sample.length >= LANGUAGE_SAMPLE) break
+    sample += `${page.text}\n`
+  }
+  for (const sheet of model.sheets ?? []) {
+    for (const cell of sheet.cells) {
+      if (sample.length >= LANGUAGE_SAMPLE) break
+      if (cell.value) sample += `${cell.value}\n`
+    }
+  }
+  return detectLanguage(sample)
+}
+
 async function classify(
   documentId: string,
   model: NormalizedDocument,
@@ -273,6 +305,7 @@ async function detectInChunk(
   documentId: string,
   chunk: Chunk,
   documentType: string | undefined,
+  language: Language | undefined,
   alreadyFound: string[],
   preset: Preset | null,
   tally: SkipTally
@@ -283,6 +316,7 @@ async function detectInChunk(
     system: DETECT_PII_SYSTEM,
     prompt: detectPiiPrompt({
       documentType,
+      language,
       content: chunk.text,
       alreadyFound,
       lookFor: preset?.looksFor,
@@ -323,6 +357,7 @@ async function verifyCandidates(
   documentId: string,
   model: NormalizedDocument,
   candidates: Detection[],
+  language: Language | undefined,
   tally: SkipTally
 ): Promise<Detection[]> {
   if (candidates.length === 0) return []
@@ -345,7 +380,7 @@ async function verifyCandidates(
     task: "verify",
     documentId,
     system: VERIFY_SYSTEM,
-    prompt: verifyDetectionPrompt(payload),
+    prompt: verifyDetectionPrompt(payload, language),
     schema: verificationSchema,
   })
 
@@ -520,9 +555,17 @@ export async function analyzeDocument(
 
   const detectors = detectorsFor(preset)
 
+  // The language first, because the patterns depend on it: a German letter
+  // labels a birth date "Geburtsdatum", and an English-only sweep reads past it.
+  const language = documentLanguage(model)
+  const languages = detectorLanguages(language)
+  // What the model is told. Only a language that was detected: a guess stated
+  // as fact would point it at the wrong shapes.
+  const promptLanguage = language.detected ? language.language : undefined
+
   for (const page of model.pages) {
     deterministic.push(
-      ...detectPatterns(page.text, { page: page.number, detectors })
+      ...detectPatterns(page.text, { page: page.number, detectors, languages })
     )
   }
 
@@ -532,6 +575,7 @@ export async function analyzeDocument(
       for (const detection of detectPatterns(cell.value, {
         worksheet: sheet.name,
         detectors,
+        languages,
       })) {
         deterministic.push({
           ...detection,
@@ -576,6 +620,7 @@ export async function analyzeDocument(
     return {
       detections: dedupeDetections(deterministic),
       classification: null,
+      language,
       degraded: { reason: "budget", calls: 0 },
       sensitiveColumns: [],
       passes: { patterns: deterministic, rejected: 0, model: [], expanded: [] },
@@ -609,6 +654,7 @@ export async function analyzeDocument(
         documentId,
         chunk,
         classification?.documentType,
+        promptLanguage,
         alreadyFound,
         preset,
         tally
@@ -631,7 +677,13 @@ export async function analyzeDocument(
   const solid = deterministic.filter(
     (detection) => detection.confidence > VERIFY_BELOW
   )
-  const verified = await verifyCandidates(documentId, model, shaky, tally)
+  const verified = await verifyCandidates(
+    documentId,
+    model,
+    shaky,
+    promptLanguage,
+    tally
+  )
   await onProgress?.({
     stage: "verify",
     completed: 1,
@@ -668,6 +720,7 @@ export async function analyzeDocument(
   return {
     detections,
     classification,
+    language,
     degraded: tally.result(),
     sensitiveColumns,
     passes: {

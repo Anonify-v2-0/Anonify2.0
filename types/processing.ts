@@ -54,6 +54,12 @@ export type ProcessingEventType =
    */
   | "document.ai.degraded"
   /**
+   * The language the detectors and prompts were tuned for, and whether it was
+   * detected from the text or assumed because the text did not say. Carries
+   * a language code and a flag, never any of the text it was read from.
+   */
+  | "document.language"
+  /**
    * A container finished: a mailbox became a batch of messages, and the
    * mailbox itself will not be reviewed or exported. Carries the number of
    * children only, never a subject line or a sender.

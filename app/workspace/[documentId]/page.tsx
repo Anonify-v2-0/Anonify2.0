@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 
 import { Workspace } from "@/components/editor/workspace"
 import { Brand } from "@/components/layout/brand"
+import { readDocumentLanguage } from "@/lib/ai/usage-report"
 import { batchPositionFor } from "@/lib/documents/batches"
 import { expandedChildCount } from "@/lib/documents/expand"
 import { presetById, presetNarrows } from "@/lib/redaction/presets"
@@ -46,6 +47,7 @@ export default async function WorkspacePage(
           : null,
       // Only when it narrowed something: "looked for everything" is noise.
       presetLabel: presetNarrows(preset) ? (preset?.label ?? null) : null,
+      language: await readDocumentLanguage(document.id),
     }
   } catch (error) {
     if (error instanceof AccessError && error.status === 410) {

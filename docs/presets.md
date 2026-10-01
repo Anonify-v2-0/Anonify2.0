@@ -43,7 +43,8 @@ The things that identify a person directly, and nothing else.
 
 Reference numbers and dates that pin a record to a person.
 
-- **Detectors:** `us-social-security`, `labelled-reference`,
+- **Detectors:** `us-social-security`, `labelled-national-id`,
+  `es-national-id`, `fr-social-security`, `de-tax-id`, `labelled-reference`,
   `labelled-date-of-birth`
 - **Categories:** `government-id`, `customer-id`, `date-of-birth`
 - Looks for: government identifiers (e.g. Social Security numbers), customer /

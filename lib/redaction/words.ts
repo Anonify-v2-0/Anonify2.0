@@ -1,5 +1,6 @@
 import type { CharRange } from "@/lib/documents/shared/text"
 import { detectPatterns } from "@/lib/redaction/detectors"
+import { LANGUAGES } from "@/lib/redaction/languages"
 
 /**
  * The value under a click.
@@ -74,6 +75,9 @@ export function wordAt(text: string, offset: number): CharRange | null {
   const from = Math.max(0, at - WINDOW)
   const detected = detectPatterns(text.slice(from, at + WINDOW), {
     offset: from,
+    // Every language's shapes: the window is too short to tell which one
+    // it is in, and the reviewer has already said there is a value here.
+    languages: LANGUAGES,
   }).find(
     (detection) =>
       detection.start !== undefined &&

@@ -846,7 +846,7 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
   let visionSkip: StructuredSkip | undefined
   let lostVisionCalls = 0
 
-  const { detections, sensitiveColumns, degraded } = await analyzeDocument(
+  const analysis = await analyzeDocument(
     documentId,
     model,
     async (update) => {
@@ -862,6 +862,15 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
     },
     preset
   )
+  const { detections, sensitiveColumns, degraded, language } = analysis
+
+  // Which language the detectors and the prompts were tuned for. The editor
+  // says so, because a short list from a document read in the wrong language
+  // looks exactly like a short list from one with little in it (#43).
+  await emit(documentId, "document.language", {
+    status: "analyzing",
+    payload: { language: language.language, detected: language.detected },
+  })
 
   // Pixels get a vision pass, because no amount of text analysis can see a
   // face, a signature or a photographed ID card.
