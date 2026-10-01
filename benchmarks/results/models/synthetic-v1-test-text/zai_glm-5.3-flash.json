@@ -1,0 +1,5546 @@
+{
+  "schema": 1,
+  "model": "zai/glm-5.3-flash",
+  "provider": "gateway",
+  "label": "zai/glm-5.3-flash",
+  "firstMeasuredAt": "2026-10-01T06:44:52.376Z",
+  "corpus": "synthetic-v1",
+  "corpusHash": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f",
+  "split": "test",
+  "format": "text",
+  "rates": {
+    "inputPerMillion": 0.15,
+    "outputPerMillion": 0.5
+  },
+  "commit": "5bc8268",
+  "createdAt": "2026-10-01T06:47:25.704Z",
+  "documents": 20,
+  "deterministicFirst": true,
+  "totals": {
+    "calls": 79,
+    "inputTokens": 85207,
+    "outputTokens": 44986,
+    "durationMs": 85386,
+    "costUsd": 0.035274
+  },
+  "perDocument": {
+    "medianMs": 15919,
+    "p95Ms": 36841,
+    "costUsd": 0.001764,
+    "inputTokens": 4260,
+    "outputTokens": 2249
+  },
+  "quality": {
+    "labels": 344,
+    "detections": 425,
+    "precision": 0.8706,
+    "precisionStrict": 0.8541,
+    "recall": 0.8663,
+    "recallOverlap": 0.907,
+    "recallStrict": 0.8634,
+    "f1": 0.8684,
+    "falsePositives": 55,
+    "negativeHits": 4,
+    "unscored": {
+      "health": 25
+    },
+    "byCategory": {
+      "person": {
+        "labels": 163,
+        "recall": 0.9325,
+        "recallOverlap": 0.9448,
+        "recallStrict": 0.9325,
+        "detections": 201,
+        "precision": 1,
+        "precisionStrict": 0.9701
+      },
+      "address": {
+        "labels": 20,
+        "recall": 0.7,
+        "recallOverlap": 1,
+        "recallStrict": 0.7,
+        "detections": 27,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "phone": {
+        "labels": 20,
+        "recall": 0.9,
+        "recallOverlap": 1,
+        "recallStrict": 0.9,
+        "detections": 26,
+        "precision": 0.8462,
+        "precisionStrict": 0.8077
+      },
+      "email": {
+        "labels": 16,
+        "recall": 1,
+        "recallOverlap": 1,
+        "recallStrict": 1,
+        "detections": 16,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "government-id": {
+        "labels": 8,
+        "recall": 1,
+        "recallOverlap": 1,
+        "recallStrict": 0.875,
+        "detections": 7,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "bank-account": {
+        "labels": 21,
+        "recall": 0.9048,
+        "recallOverlap": 0.9048,
+        "recallStrict": 0.9048,
+        "detections": 20,
+        "precision": 0.95,
+        "precisionStrict": 0.95
+      },
+      "financial": {
+        "labels": 31,
+        "recall": 0.4194,
+        "recallOverlap": 0.4194,
+        "recallStrict": 0.4194,
+        "detections": 19,
+        "precision": 0.6842,
+        "precisionStrict": 0.6842
+      },
+      "date-of-birth": {
+        "labels": 7,
+        "recall": 0.8571,
+        "recallOverlap": 0.8571,
+        "recallStrict": 0.8571,
+        "detections": 6,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "customer-id": {
+        "labels": 28,
+        "recall": 0.9286,
+        "recallOverlap": 0.9286,
+        "recallStrict": 0.9286,
+        "detections": 63,
+        "precision": 0.4127,
+        "precisionStrict": 0.4127
+      },
+      "confidential": {
+        "labels": 8,
+        "recall": 0.5,
+        "recallOverlap": 1,
+        "recallStrict": 0.5,
+        "detections": 12,
+        "precision": 0.9167,
+        "precisionStrict": 0.9167
+      },
+      "api-key": {
+        "labels": 12,
+        "recall": 1,
+        "recallOverlap": 1,
+        "recallStrict": 1,
+        "detections": 12,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "url": {
+        "labels": 5,
+        "recall": 1,
+        "recallOverlap": 1,
+        "recallStrict": 1,
+        "detections": 5,
+        "precision": 1,
+        "precisionStrict": 1
+      },
+      "other": {
+        "labels": 5,
+        "recall": 1,
+        "recallOverlap": 1,
+        "recallStrict": 1,
+        "detections": 11,
+        "precision": 0.4545,
+        "precisionStrict": 0.4545
+      }
+    },
+    "weightedCost": {
+      "total": 373,
+      "perDocument": 18.65,
+      "missed": {
+        "person": 11,
+        "address": 6,
+        "phone": 2,
+        "date-of-birth": 1,
+        "customer-id": 2,
+        "confidential": 4,
+        "bank-account": 2,
+        "financial": 18
+      },
+      "falsePositives": 55,
+      "weights": {
+        "missed": {
+          "government-id": 10,
+          "bank-account": 10,
+          "financial": 10,
+          "api-key": 10,
+          "person": 5,
+          "address": 5,
+          "date-of-birth": 5,
+          "email": 5,
+          "phone": 5,
+          "customer-id": 5,
+          "confidential": 2,
+          "url": 2,
+          "other": 2
+        },
+        "falsePositive": 1
+      }
+    }
+  },
+  "runs": {
+    "deterministic-first": {
+      "mode": "deterministic-first",
+      "commit": "5bc8268",
+      "createdAt": "2026-10-01T06:46:17.796Z",
+      "documents": 20,
+      "failed": [],
+      "totals": {
+        "calls": 79,
+        "inputTokens": 85207,
+        "outputTokens": 44986,
+        "durationMs": 85386,
+        "costUsd": 0.035274
+      },
+      "perDocument": {
+        "medianMs": 15919,
+        "p95Ms": 36841,
+        "costUsd": 0.001764,
+        "inputTokens": 4260,
+        "outputTokens": 2249
+      },
+      "concurrency": 4,
+      "byTask": {
+        "classify": {
+          "calls": 20,
+          "inputTokens": 8921,
+          "outputTokens": 3066,
+          "durationMs": 65216
+        },
+        "detect": {
+          "calls": 43,
+          "inputTokens": 70928,
+          "outputTokens": 35545,
+          "durationMs": 284606
+        },
+        "verify": {
+          "calls": 16,
+          "inputTokens": 5358,
+          "outputTokens": 6375,
+          "durationMs": 62320
+        }
+      },
+      "stages": {
+        "extract": null,
+        "analyze": {
+          "documents": 20,
+          "medianMs": 15919,
+          "p95Ms": 36841,
+          "totalMs": 309765
+        },
+        "export": null,
+        "exportFailures": []
+      },
+      "degraded": {
+        "documents": 0,
+        "reasons": {}
+      },
+      "quality": {
+        "labels": 344,
+        "detections": 425,
+        "precision": 0.8706,
+        "precisionStrict": 0.8541,
+        "recall": 0.8663,
+        "recallOverlap": 0.907,
+        "recallStrict": 0.8634,
+        "f1": 0.8684,
+        "falsePositives": 55,
+        "negativeHits": 4,
+        "unscored": {
+          "health": 25
+        },
+        "byCategory": {
+          "person": {
+            "labels": 163,
+            "recall": 0.9325,
+            "recallOverlap": 0.9448,
+            "recallStrict": 0.9325,
+            "detections": 201,
+            "precision": 1,
+            "precisionStrict": 0.9701
+          },
+          "address": {
+            "labels": 20,
+            "recall": 0.7,
+            "recallOverlap": 1,
+            "recallStrict": 0.7,
+            "detections": 27,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "phone": {
+            "labels": 20,
+            "recall": 0.9,
+            "recallOverlap": 1,
+            "recallStrict": 0.9,
+            "detections": 26,
+            "precision": 0.8462,
+            "precisionStrict": 0.8077
+          },
+          "email": {
+            "labels": 16,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 16,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "government-id": {
+            "labels": 8,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 0.875,
+            "detections": 7,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "bank-account": {
+            "labels": 21,
+            "recall": 0.9048,
+            "recallOverlap": 0.9048,
+            "recallStrict": 0.9048,
+            "detections": 20,
+            "precision": 0.95,
+            "precisionStrict": 0.95
+          },
+          "financial": {
+            "labels": 31,
+            "recall": 0.4194,
+            "recallOverlap": 0.4194,
+            "recallStrict": 0.4194,
+            "detections": 19,
+            "precision": 0.6842,
+            "precisionStrict": 0.6842
+          },
+          "date-of-birth": {
+            "labels": 7,
+            "recall": 0.8571,
+            "recallOverlap": 0.8571,
+            "recallStrict": 0.8571,
+            "detections": 6,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "customer-id": {
+            "labels": 28,
+            "recall": 0.9286,
+            "recallOverlap": 0.9286,
+            "recallStrict": 0.9286,
+            "detections": 63,
+            "precision": 0.4127,
+            "precisionStrict": 0.4127
+          },
+          "confidential": {
+            "labels": 8,
+            "recall": 0.5,
+            "recallOverlap": 1,
+            "recallStrict": 0.5,
+            "detections": 12,
+            "precision": 0.9167,
+            "precisionStrict": 0.9167
+          },
+          "api-key": {
+            "labels": 12,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 12,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "url": {
+            "labels": 5,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 5,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "other": {
+            "labels": 5,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 11,
+            "precision": 0.4545,
+            "precisionStrict": 0.4545
+          }
+        },
+        "weightedCost": {
+          "total": 373,
+          "perDocument": 18.65,
+          "missed": {
+            "person": 11,
+            "address": 6,
+            "phone": 2,
+            "date-of-birth": 1,
+            "customer-id": 2,
+            "confidential": 4,
+            "bank-account": 2,
+            "financial": 18
+          },
+          "falsePositives": 55,
+          "weights": {
+            "missed": {
+              "government-id": 10,
+              "bank-account": 10,
+              "financial": 10,
+              "api-key": 10,
+              "person": 5,
+              "address": 5,
+              "date-of-birth": 5,
+              "email": 5,
+              "phone": 5,
+              "customer-id": 5,
+              "confidential": 2,
+              "url": 2,
+              "other": 2
+            },
+            "falsePositive": 1
+          }
+        }
+      },
+      "byDocType": {
+        "API/config dump": {
+          "documents": 2,
+          "words": 1518,
+          "calls": 6,
+          "inputTokens": 6846,
+          "outputTokens": 4175,
+          "costUsd": 0.003114,
+          "costPerDocumentUsd": 0.001557,
+          "tokensPerDocument": 5511,
+          "medianMs": 18592,
+          "precision": 0.8824,
+          "recall": 0.9459,
+          "f1": 0.913
+        },
+        "bank statement": {
+          "documents": 4,
+          "words": 1768,
+          "calls": 12,
+          "inputTokens": 9437,
+          "outputTokens": 7875,
+          "costUsd": 0.005353,
+          "costPerDocumentUsd": 0.001338,
+          "tokensPerDocument": 4328,
+          "medianMs": 17177,
+          "precision": 0.8667,
+          "recall": 0.7931,
+          "f1": 0.8283
+        },
+        "contract": {
+          "documents": 4,
+          "words": 4494,
+          "calls": 15,
+          "inputTokens": 15716,
+          "outputTokens": 7376,
+          "costUsd": 0.006045,
+          "costPerDocumentUsd": 0.001511,
+          "tokensPerDocument": 5773,
+          "medianMs": 14546,
+          "precision": 0.9,
+          "recall": 0.8947,
+          "f1": 0.8973
+        },
+        "CV": {
+          "documents": 1,
+          "words": 95,
+          "calls": 3,
+          "inputTokens": 1414,
+          "outputTokens": 1131,
+          "costUsd": 0.000778,
+          "costPerDocumentUsd": 0.000778,
+          "tokensPerDocument": 2545,
+          "medianMs": 17428,
+          "precision": 1,
+          "recall": 0.7,
+          "f1": 0.8235
+        },
+        "email thread": {
+          "documents": 1,
+          "words": 111,
+          "calls": 3,
+          "inputTokens": 1545,
+          "outputTokens": 1704,
+          "costUsd": 0.001084,
+          "costPerDocumentUsd": 0.001084,
+          "tokensPerDocument": 3249,
+          "medianMs": 16373,
+          "precision": 1,
+          "recall": 0.8667,
+          "f1": 0.9286
+        },
+        "invoice": {
+          "documents": 3,
+          "words": 1746,
+          "calls": 10,
+          "inputTokens": 8426,
+          "outputTokens": 5895,
+          "costUsd": 0.004211,
+          "costPerDocumentUsd": 0.001404,
+          "tokensPerDocument": 4774,
+          "medianMs": 13335,
+          "precision": 0.9818,
+          "recall": 0.7833,
+          "f1": 0.8714
+        },
+        "medical referral": {
+          "documents": 1,
+          "words": 2048,
+          "calls": 5,
+          "inputTokens": 5786,
+          "outputTokens": 4860,
+          "costUsd": 0.003298,
+          "costPerDocumentUsd": 0.003298,
+          "tokensPerDocument": 10646,
+          "medianMs": 17306,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1
+        },
+        "meeting minutes": {
+          "documents": 1,
+          "words": 7559,
+          "calls": 11,
+          "inputTokens": 16536,
+          "outputTokens": 2918,
+          "costUsd": 0.003939,
+          "costPerDocumentUsd": 0.003939,
+          "tokensPerDocument": 19454,
+          "medianMs": 19850,
+          "precision": 1,
+          "recall": 0.7692,
+          "f1": 0.8695
+        },
+        "tabular export": {
+          "documents": 3,
+          "words": 6971,
+          "calls": 14,
+          "inputTokens": 19501,
+          "outputTokens": 9052,
+          "costUsd": 0.007451,
+          "costPerDocumentUsd": 0.002484,
+          "tokensPerDocument": 9518,
+          "medianMs": 9932,
+          "precision": 0.725,
+          "recall": 0.9351,
+          "f1": 0.8168
+        }
+      },
+      "byLength": {
+        "short": {
+          "documents": 12,
+          "words": 1539,
+          "calls": 33,
+          "inputTokens": 20589,
+          "outputTokens": 19954,
+          "costUsd": 0.013065,
+          "costPerDocumentUsd": 0.001089,
+          "tokensPerDocument": 3379,
+          "medianMs": 14317,
+          "precision": 0.9594,
+          "recall": 0.8526,
+          "f1": 0.9029
+        },
+        "medium": {
+          "documents": 6,
+          "words": 10365,
+          "calls": 25,
+          "inputTokens": 31073,
+          "outputTokens": 14920,
+          "costUsd": 0.012121,
+          "costPerDocumentUsd": 0.00202,
+          "tokensPerDocument": 7666,
+          "medianMs": 17306,
+          "precision": 0.8889,
+          "recall": 0.8788,
+          "f1": 0.8838
+        },
+        "long": {
+          "documents": 2,
+          "words": 14406,
+          "calls": 21,
+          "inputTokens": 33545,
+          "outputTokens": 10112,
+          "costUsd": 0.010088,
+          "costPerDocumentUsd": 0.005044,
+          "tokensPerDocument": 21829,
+          "medianMs": 23750,
+          "precision": 0.6765,
+          "recall": 0.8909,
+          "f1": 0.769
+        }
+      },
+      "byDensity": {
+        "none": {
+          "documents": 1,
+          "words": 1344,
+          "calls": 3,
+          "inputTokens": 3662,
+          "outputTokens": 598,
+          "costUsd": 0.000848,
+          "costPerDocumentUsd": 0.000848,
+          "tokensPerDocument": 4260,
+          "medianMs": 4712,
+          "precision": 0,
+          "recall": null,
+          "f1": null
+        },
+        "low": {
+          "documents": 7,
+          "words": 10373,
+          "calls": 28,
+          "inputTokens": 31211,
+          "outputTokens": 10839,
+          "costUsd": 0.010101,
+          "costPerDocumentUsd": 0.001443,
+          "tokensPerDocument": 6007,
+          "medianMs": 12678,
+          "precision": 0.9792,
+          "recall": 0.8636,
+          "f1": 0.9178
+        },
+        "medium": {
+          "documents": 11,
+          "words": 14391,
+          "calls": 45,
+          "inputTokens": 47922,
+          "outputTokens": 30516,
+          "costUsd": 0.022446,
+          "costPerDocumentUsd": 0.002041,
+          "tokensPerDocument": 7131,
+          "medianMs": 16373,
+          "precision": 0.8356,
+          "recall": 0.859,
+          "f1": 0.8471
+        },
+        "high": {
+          "documents": 1,
+          "words": 202,
+          "calls": 3,
+          "inputTokens": 2412,
+          "outputTokens": 3033,
+          "costUsd": 0.001878,
+          "costPerDocumentUsd": 0.001878,
+          "tokensPerDocument": 5445,
+          "medianMs": 17177,
+          "precision": 0.9143,
+          "recall": 0.931,
+          "f1": 0.9226
+        }
+      },
+      "byLocale": {
+        "de-DE": {
+          "documents": 2,
+          "words": 287,
+          "calls": 5,
+          "inputTokens": 4139,
+          "outputTokens": 3189,
+          "costUsd": 0.002215,
+          "costPerDocumentUsd": 0.001108,
+          "tokensPerDocument": 3664,
+          "medianMs": 13335,
+          "precision": 0.9655,
+          "recall": 0.8621,
+          "f1": 0.9109
+        },
+        "en-GB": {
+          "documents": 3,
+          "words": 8413,
+          "calls": 17,
+          "inputTokens": 23052,
+          "outputTokens": 11478,
+          "costUsd": 0.009197,
+          "costPerDocumentUsd": 0.003066,
+          "tokensPerDocument": 11510,
+          "medianMs": 19639,
+          "precision": 0.6983,
+          "recall": 0.825,
+          "f1": 0.7564
+        },
+        "en-IN": {
+          "documents": 2,
+          "words": 7703,
+          "calls": 14,
+          "inputTokens": 18111,
+          "outputTokens": 4636,
+          "costUsd": 0.005035,
+          "costPerDocumentUsd": 0.002518,
+          "tokensPerDocument": 11374,
+          "medianMs": 19850,
+          "precision": 1,
+          "recall": 0.8519,
+          "f1": 0.92
+        },
+        "en-US": {
+          "documents": 10,
+          "words": 7335,
+          "calls": 33,
+          "inputTokens": 29271,
+          "outputTokens": 21917,
+          "costUsd": 0.015349,
+          "costPerDocumentUsd": 0.001535,
+          "tokensPerDocument": 5119,
+          "medianMs": 17177,
+          "precision": 0.9073,
+          "recall": 0.8869,
+          "f1": 0.897
+        },
+        "es-ES": {
+          "documents": 1,
+          "words": 2344,
+          "calls": 5,
+          "inputTokens": 7438,
+          "outputTokens": 1636,
+          "costUsd": 0.001934,
+          "costPerDocumentUsd": 0.001934,
+          "tokensPerDocument": 9074,
+          "medianMs": 12678,
+          "precision": 1,
+          "recall": 0.8889,
+          "f1": 0.9412
+        },
+        "fr-FR": {
+          "documents": 2,
+          "words": 228,
+          "calls": 5,
+          "inputTokens": 3196,
+          "outputTokens": 2130,
+          "costUsd": 0.001544,
+          "costPerDocumentUsd": 0.000772,
+          "tokensPerDocument": 2663,
+          "medianMs": 11536,
+          "precision": 1,
+          "recall": 0.871,
+          "f1": 0.9311
+        }
+      },
+      "attribution": {
+        "labels": 344,
+        "covered": 298,
+        "patterns": 79,
+        "model": 184,
+        "expansion": 35,
+        "together": 0,
+        "detections": {
+          "patterns": 90,
+          "rejected": 6,
+          "model": 269,
+          "expanded": 345,
+          "expandedAdded": 91
+        }
+      },
+      "expansion": [
+        {
+          "bucket": "none",
+          "documents": 1,
+          "added": 0,
+          "addedPerDocument": 0,
+          "labelsOnlyByExpansion": 0,
+          "modelCalls": 3
+        },
+        {
+          "bucket": "1–2",
+          "documents": 5,
+          "added": 7,
+          "addedPerDocument": 1.4,
+          "labelsOnlyByExpansion": 6,
+          "modelCalls": 18
+        },
+        {
+          "bucket": "2.5–5",
+          "documents": 12,
+          "added": 69,
+          "addedPerDocument": 5.75,
+          "labelsOnlyByExpansion": 23,
+          "modelCalls": 51
+        },
+        {
+          "bucket": "5–10",
+          "documents": 2,
+          "added": 15,
+          "addedPerDocument": 7.5,
+          "labelsOnlyByExpansion": 6,
+          "modelCalls": 7
+        }
+      ],
+      "records": [
+        {
+          "id": "syn-v1-0001",
+          "docType": "tabular export",
+          "length": "short",
+          "density": "low",
+          "words": 64,
+          "repeat": 2.5,
+          "detections": [
+            [100, 125, "email"],
+            [211, 236, "email"],
+            [305, 330, "email"],
+            [399, 421, "email"],
+            [484, 506, "email"],
+            [86, 99, "person"],
+            [86, 92, "person"],
+            [294, 304, "person"],
+            [388, 398, "person"],
+            [474, 483, "person"],
+            [70, 78, "customer-id"],
+            [372, 380, "customer-id"],
+            [160, 173, "confidential"],
+            [174, 187, "other"],
+            [204, 210, "person"],
+            [188, 196, "customer-id"],
+            [278, 286, "customer-id"],
+            [458, 466, "customer-id"]
+          ],
+          "passes": {
+            "patterns": [
+              [100, 125, "email"],
+              [211, 236, "email"],
+              [305, 330, "email"],
+              [399, 421, "email"],
+              [484, 506, "email"]
+            ],
+            "rejected": 0,
+            "model": [
+              [86, 99, "person"],
+              [86, 92, "person"],
+              [294, 304, "person"],
+              [388, 398, "person"],
+              [474, 483, "person"],
+              [70, 78, "customer-id"],
+              [372, 380, "customer-id"],
+              [160, 173, "confidential"],
+              [174, 187, "other"]
+            ],
+            "expanded": [
+              [100, 125, "email"],
+              [211, 236, "email"],
+              [305, 330, "email"],
+              [399, 421, "email"],
+              [484, 506, "email"],
+              [86, 99, "person"],
+              [86, 92, "person"],
+              [204, 210, "person"],
+              [294, 304, "person"],
+              [388, 398, "person"],
+              [474, 483, "person"],
+              [70, 78, "customer-id"],
+              [188, 196, "customer-id"],
+              [278, 286, "customer-id"],
+              [372, 380, "customer-id"],
+              [458, 466, "customer-id"],
+              [160, 173, "confidential"],
+              [174, 187, "other"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1255,
+            "outputTokens": 664,
+            "durationMs": 4742,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 296,
+                "outputTokens": 126,
+                "durationMs": 2189
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 959,
+                "outputTokens": 538,
+                "durationMs": 2553
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 4757,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "undetected"
+        },
+        {
+          "id": "syn-v1-0002",
+          "docType": "tabular export",
+          "length": "short",
+          "density": "low",
+          "words": 60,
+          "repeat": 3.5,
+          "detections": [
+            [83, 106, "email"],
+            [107, 119, "phone"],
+            [225, 237, "phone"],
+            [345, 362, "email"],
+            [363, 377, "phone"],
+            [408, 440, "api-key"],
+            [71, 82, "person"],
+            [335, 344, "person"],
+            [164, 173, "person"],
+            [252, 260, "person"],
+            [77, 82, "person"],
+            [71, 76, "person"],
+            [468, 475, "person"],
+            [120, 131, "government-id"],
+            [378, 389, "government-id"],
+            [132, 140, "customer-id"],
+            [390, 398, "customer-id"],
+            [150, 163, "api-key"]
+          ],
+          "passes": {
+            "patterns": [
+              [83, 106, "email"],
+              [107, 119, "phone"],
+              [225, 237, "phone"],
+              [345, 362, "email"],
+              [363, 377, "phone"],
+              [408, 440, "api-key"]
+            ],
+            "rejected": 0,
+            "model": [
+              [71, 82, "person"],
+              [335, 344, "person"],
+              [164, 173, "person"],
+              [252, 260, "person"],
+              [77, 82, "person"],
+              [71, 76, "person"],
+              [468, 475, "person"],
+              [120, 131, "government-id"],
+              [378, 389, "government-id"],
+              [132, 140, "customer-id"],
+              [390, 398, "customer-id"],
+              [150, 163, "api-key"]
+            ],
+            "expanded": [
+              [83, 106, "email"],
+              [107, 119, "phone"],
+              [225, 237, "phone"],
+              [345, 362, "email"],
+              [363, 377, "phone"],
+              [408, 440, "api-key"],
+              [71, 82, "person"],
+              [335, 344, "person"],
+              [164, 173, "person"],
+              [252, 260, "person"],
+              [468, 475, "person"],
+              [120, 131, "government-id"],
+              [378, 389, "government-id"],
+              [132, 140, "customer-id"],
+              [390, 398, "customer-id"],
+              [150, 163, "api-key"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1237,
+            "outputTokens": 1194,
+            "durationMs": 9923,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 264,
+                "outputTokens": 181,
+                "durationMs": 2812
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 973,
+                "outputTokens": 1013,
+                "durationMs": 7111
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 9932,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "undetected"
+        },
+        {
+          "id": "syn-v1-0004",
+          "docType": "bank statement",
+          "length": "short",
+          "density": "high",
+          "words": 202,
+          "repeat": 2.17,
+          "detections": [
+            [308, 327, "financial"],
+            [518, 532, "phone"],
+            [1107, 1119, "phone"],
+            [1142, 1174, "api-key"],
+            [145, 167, "address"],
+            [208, 217, "customer-id"],
+            [229, 241, "bank-account"],
+            [587, 599, "bank-account"],
+            [1019, 1031, "bank-account"],
+            [88, 99, "person"],
+            [261, 270, "person"],
+            [990, 999, "person"],
+            [114, 127, "person"],
+            [169, 194, "address"],
+            [285, 294, "government-id"],
+            [554, 565, "person"],
+            [554, 559, "person"],
+            [609, 618, "bank-account"],
+            [837, 849, "person"],
+            [866, 876, "person"],
+            [855, 864, "customer-id"],
+            [907, 919, "person"],
+            [936, 946, "person"],
+            [925, 934, "customer-id"],
+            [959, 963, "financial"],
+            [346, 355, "financial"],
+            [399, 408, "financial"],
+            [422, 428, "financial"],
+            [1051, 1090, "url"],
+            [1198, 1267, "confidential"],
+            [1373, 1382, "person"],
+            [1373, 1377, "person"],
+            [1452, 1459, "person"],
+            [683, 688, "person"],
+            [1443, 1447, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [308, 327, "financial"],
+              [518, 532, "phone"],
+              [1107, 1119, "phone"],
+              [1142, 1174, "api-key"],
+              [145, 167, "address"],
+              [208, 217, "customer-id"],
+              [229, 241, "bank-account"],
+              [587, 599, "bank-account"],
+              [1019, 1031, "bank-account"]
+            ],
+            "rejected": 0,
+            "model": [
+              [88, 99, "person"],
+              [261, 270, "person"],
+              [990, 999, "person"],
+              [114, 127, "person"],
+              [169, 194, "address"],
+              [285, 294, "government-id"],
+              [554, 565, "person"],
+              [554, 559, "person"],
+              [609, 618, "bank-account"],
+              [837, 849, "person"],
+              [866, 876, "person"],
+              [855, 864, "customer-id"],
+              [907, 919, "person"],
+              [936, 946, "person"],
+              [925, 934, "customer-id"],
+              [959, 963, "financial"],
+              [346, 355, "financial"],
+              [399, 408, "financial"],
+              [422, 428, "financial"],
+              [1051, 1090, "url"],
+              [1198, 1267, "confidential"],
+              [1373, 1382, "person"],
+              [1373, 1377, "person"],
+              [1452, 1459, "person"]
+            ],
+            "expanded": [
+              [308, 327, "financial"],
+              [518, 532, "phone"],
+              [1107, 1119, "phone"],
+              [1142, 1174, "api-key"],
+              [229, 241, "bank-account"],
+              [587, 599, "bank-account"],
+              [1019, 1031, "bank-account"],
+              [88, 99, "person"],
+              [261, 270, "person"],
+              [990, 999, "person"],
+              [114, 127, "person"],
+              [169, 194, "address"],
+              [285, 294, "government-id"],
+              [554, 565, "person"],
+              [554, 559, "person"],
+              [683, 688, "person"],
+              [609, 618, "bank-account"],
+              [837, 849, "person"],
+              [866, 876, "person"],
+              [855, 864, "customer-id"],
+              [907, 919, "person"],
+              [936, 946, "person"],
+              [925, 934, "customer-id"],
+              [959, 963, "financial"],
+              [346, 355, "financial"],
+              [399, 408, "financial"],
+              [422, 428, "financial"],
+              [1051, 1090, "url"],
+              [1198, 1267, "confidential"],
+              [1373, 1382, "person"],
+              [1373, 1377, "person"],
+              [1443, 1447, "person"],
+              [1452, 1459, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 2412,
+            "outputTokens": 3033,
+            "durationMs": 17170,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 565,
+                "outputTokens": 104,
+                "durationMs": 1990
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1302,
+                "outputTokens": 2591,
+                "durationMs": 12391
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 545,
+                "outputTokens": 338,
+                "durationMs": 2789
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 17177,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0005",
+          "docType": "meeting minutes",
+          "length": "long",
+          "density": "low",
+          "words": 7559,
+          "repeat": 4.5,
+          "detections": [
+            [45296, 45325, "email"],
+            [340, 353, "person"],
+            [361, 371, "person"],
+            [1249, 1258, "person"],
+            [340, 346, "person"],
+            [5371, 5380, "person"],
+            [10619, 10625, "person"],
+            [17143, 17152, "person"],
+            [21707, 21720, "person"],
+            [44501, 44510, "person"],
+            [45210, 45288, "address"],
+            [347, 353, "person"],
+            [1252, 1258, "person"],
+            [5374, 5380, "person"],
+            [17146, 17152, "person"],
+            [21714, 21720, "person"],
+            [44504, 44510, "person"],
+            [45298, 45304, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [45296, 45325, "email"]
+            ],
+            "rejected": 3,
+            "model": [
+              [340, 353, "person"],
+              [361, 371, "person"],
+              [1249, 1258, "person"],
+              [340, 346, "person"],
+              [5371, 5380, "person"],
+              [10619, 10625, "person"],
+              [17143, 17152, "person"],
+              [21707, 21720, "person"],
+              [44501, 44510, "person"],
+              [45210, 45288, "address"]
+            ],
+            "expanded": [
+              [45296, 45325, "email"],
+              [347, 353, "person"],
+              [1252, 1258, "person"],
+              [5374, 5380, "person"],
+              [10619, 10625, "person"],
+              [17146, 17152, "person"],
+              [21714, 21720, "person"],
+              [44504, 44510, "person"],
+              [45298, 45304, "person"],
+              [1249, 1258, "person"],
+              [17143, 17152, "person"],
+              [340, 353, "person"],
+              [21707, 21720, "person"],
+              [5371, 5380, "person"],
+              [44501, 44510, "person"],
+              [45210, 45288, "address"]
+            ]
+          },
+          "usage": {
+            "calls": 11,
+            "inputTokens": 16536,
+            "outputTokens": 2918,
+            "durationMs": 39411,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 479,
+                "outputTokens": 181,
+                "durationMs": 2809
+              },
+              "detect": {
+                "calls": 9,
+                "inputTokens": 15725,
+                "outputTokens": 2043,
+                "durationMs": 28959
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 332,
+                "outputTokens": 694,
+                "durationMs": 7643
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 19850,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0009",
+          "docType": "API/config dump",
+          "length": "short",
+          "density": "low",
+          "words": 140,
+          "repeat": 3.5,
+          "detections": [
+            [251, 269, "email"],
+            [364, 386, "bank-account"],
+            [463, 495, "api-key"],
+            [168, 178, "person"],
+            [228, 238, "person"],
+            [640, 654, "person"],
+            [705, 710, "person"],
+            [173, 178, "person"],
+            [404, 433, "url"],
+            [1038, 1048, "person"],
+            [1050, 1083, "person"],
+            [955, 965, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [251, 269, "email"],
+              [364, 386, "bank-account"],
+              [463, 495, "api-key"]
+            ],
+            "rejected": 0,
+            "model": [
+              [168, 178, "person"],
+              [228, 238, "person"],
+              [640, 654, "person"],
+              [705, 710, "person"],
+              [173, 178, "person"],
+              [404, 433, "url"],
+              [1038, 1048, "person"],
+              [1050, 1083, "person"]
+            ],
+            "expanded": [
+              [251, 269, "email"],
+              [364, 386, "bank-account"],
+              [463, 495, "api-key"],
+              [168, 178, "person"],
+              [955, 965, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1799,
+            "outputTokens": 1160,
+            "durationMs": 11028,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 458,
+                "outputTokens": 258,
+                "durationMs": 5202
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1341,
+                "outputTokens": 902,
+                "durationMs": 5826
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 11029,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "de"
+        },
+        {
+          "id": "syn-v1-0007",
+          "docType": "API/config dump",
+          "length": "medium",
+          "density": "medium",
+          "words": 1378,
+          "repeat": 4,
+          "detections": [
+            [1316, 1332, "financial"],
+            [1154, 1165, "customer-id"],
+            [1220, 1232, "bank-account"],
+            [3390, 3409, "address"],
+            [5096, 5107, "customer-id"],
+            [1120, 1130, "person"],
+            [1188, 1199, "government-id"],
+            [1287, 1296, "financial"],
+            [3444, 3449, "address"],
+            [2205, 2269, "api-key"],
+            [844, 853, "person"],
+            [849, 853, "person"],
+            [3763, 3770, "person"],
+            [4319, 4329, "person"],
+            [4417, 4431, "customer-id"],
+            [4795, 4808, "other"],
+            [2387, 2397, "customer-id"],
+            [4459, 4463, "bank-account"],
+            [5977, 5992, "confidential"],
+            [5985, 5992, "confidential"],
+            [5891, 5895, "confidential"],
+            [8334, 8343, "person"],
+            [7889, 7897, "person"],
+            [7893, 7897, "person"],
+            [6688, 6692, "person"],
+            [8522, 8527, "person"],
+            [5271, 5281, "person"],
+            [4243, 4253, "customer-id"],
+            [5062, 5072, "customer-id"],
+            [6199, 6206, "confidential"],
+            [8719, 8727, "person"],
+            [2854, 2858, "person"],
+            [3766, 3770, "person"],
+            [8102, 8106, "person"],
+            [8339, 8343, "person"],
+            [8723, 8727, "person"],
+            [844, 848, "person"],
+            [8334, 8338, "person"],
+            [9470, 9474, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [1316, 1332, "financial"],
+              [1154, 1165, "customer-id"],
+              [1220, 1232, "bank-account"],
+              [3390, 3409, "address"],
+              [5096, 5107, "customer-id"]
+            ],
+            "rejected": 0,
+            "model": [
+              [1120, 1130, "person"],
+              [1188, 1199, "government-id"],
+              [1287, 1296, "financial"],
+              [3444, 3449, "address"],
+              [2205, 2269, "api-key"],
+              [844, 853, "person"],
+              [849, 853, "person"],
+              [3763, 3770, "person"],
+              [4319, 4329, "person"],
+              [4417, 4431, "customer-id"],
+              [4795, 4808, "other"],
+              [2387, 2397, "customer-id"],
+              [4459, 4463, "bank-account"],
+              [5977, 5992, "confidential"],
+              [5985, 5992, "confidential"],
+              [5891, 5895, "confidential"],
+              [8334, 8343, "person"],
+              [7889, 7897, "person"],
+              [7893, 7897, "person"],
+              [6688, 6692, "person"],
+              [8522, 8527, "person"]
+            ],
+            "expanded": [
+              [1316, 1332, "financial"],
+              [1220, 1232, "bank-account"],
+              [1120, 1130, "person"],
+              [5271, 5281, "person"],
+              [1188, 1199, "government-id"],
+              [1287, 1296, "financial"],
+              [2205, 2269, "api-key"],
+              [4417, 4431, "customer-id"],
+              [4795, 4808, "other"],
+              [2387, 2397, "customer-id"],
+              [4243, 4253, "customer-id"],
+              [5062, 5072, "customer-id"],
+              [4459, 4463, "bank-account"],
+              [5977, 5992, "confidential"],
+              [5985, 5992, "confidential"],
+              [6199, 6206, "confidential"],
+              [844, 853, "person"],
+              [8334, 8343, "person"],
+              [7889, 7897, "person"],
+              [8719, 8727, "person"],
+              [849, 853, "person"],
+              [2854, 2858, "person"],
+              [3766, 3770, "person"],
+              [7893, 7897, "person"],
+              [8102, 8106, "person"],
+              [8339, 8343, "person"],
+              [8723, 8727, "person"],
+              [844, 848, "person"],
+              [6688, 6692, "person"],
+              [8334, 8338, "person"],
+              [9470, 9474, "person"],
+              [8522, 8527, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 4,
+            "inputTokens": 5047,
+            "outputTokens": 3015,
+            "durationMs": 25262,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 648,
+                "outputTokens": 131,
+                "durationMs": 3214
+              },
+              "detect": {
+                "calls": 2,
+                "inputTokens": 3951,
+                "outputTokens": 2501,
+                "durationMs": 19565
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 448,
+                "outputTokens": 383,
+                "durationMs": 2483
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 18592,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0017",
+          "docType": "bank statement",
+          "length": "medium",
+          "density": "none",
+          "words": 1344,
+          "repeat": 0,
+          "detections": [
+            [3103, 3114, "phone"],
+            [8938, 8947, "financial"]
+          ],
+          "passes": {
+            "patterns": [
+              [3103, 3114, "phone"]
+            ],
+            "rejected": 0,
+            "model": [
+              [8938, 8947, "financial"]
+            ],
+            "expanded": [
+              [3103, 3114, "phone"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 3662,
+            "outputTokens": 598,
+            "durationMs": 5685,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 450,
+                "outputTokens": 152,
+                "durationMs": 1571
+              },
+              "detect": {
+                "calls": 2,
+                "inputTokens": 3212,
+                "outputTokens": 446,
+                "durationMs": 4114
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 4712,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0013",
+          "docType": "invoice",
+          "length": "short",
+          "density": "medium",
+          "words": 144,
+          "repeat": 3,
+          "detections": [
+            [207, 221, "phone"],
+            [505, 530, "email"],
+            [176, 186, "date-of-birth"],
+            [122, 140, "person"],
+            [306, 321, "person"],
+            [122, 127, "person"],
+            [764, 770, "person"],
+            [454, 467, "person"],
+            [544, 552, "person"],
+            [933, 943, "person"],
+            [708, 723, "confidential"],
+            [754, 762, "confidential"],
+            [293, 302, "financial"],
+            [831, 846, "person"],
+            [349, 354, "person"],
+            [899, 904, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [207, 221, "phone"],
+              [505, 530, "email"],
+              [176, 186, "date-of-birth"]
+            ],
+            "rejected": 0,
+            "model": [
+              [122, 140, "person"],
+              [306, 321, "person"],
+              [122, 127, "person"],
+              [764, 770, "person"],
+              [454, 467, "person"],
+              [544, 552, "person"],
+              [933, 943, "person"],
+              [708, 723, "confidential"],
+              [754, 762, "confidential"],
+              [293, 302, "financial"]
+            ],
+            "expanded": [
+              [207, 221, "phone"],
+              [505, 530, "email"],
+              [122, 140, "person"],
+              [306, 321, "person"],
+              [831, 846, "person"],
+              [122, 127, "person"],
+              [349, 354, "person"],
+              [899, 904, "person"],
+              [764, 770, "person"],
+              [454, 467, "person"],
+              [544, 552, "person"],
+              [933, 943, "person"],
+              [708, 723, "confidential"],
+              [754, 762, "confidential"],
+              [293, 302, "financial"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 1575,
+            "outputTokens": 1718,
+            "durationMs": 10048,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 348,
+                "outputTokens": 136,
+                "durationMs": 1305
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1021,
+                "outputTokens": 1507,
+                "durationMs": 7600
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 206,
+                "outputTokens": 75,
+                "durationMs": 1143
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 10048,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0011",
+          "docType": "bank statement",
+          "length": "short",
+          "density": "low",
+          "words": 111,
+          "repeat": 4,
+          "detections": [
+            [83, 94, "person"],
+            [163, 172, "person"],
+            [83, 87, "person"],
+            [580, 584, "person"],
+            [114, 156, "address"],
+            [207, 214, "financial"],
+            [232, 238, "financial"],
+            [684, 748, "api-key"],
+            [797, 808, "other"],
+            [760, 771, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 1,
+            "model": [
+              [83, 94, "person"],
+              [163, 172, "person"],
+              [83, 87, "person"],
+              [580, 584, "person"],
+              [114, 156, "address"],
+              [207, 214, "financial"],
+              [232, 238, "financial"],
+              [684, 748, "api-key"],
+              [797, 808, "other"]
+            ],
+            "expanded": [
+              [83, 94, "person"],
+              [760, 771, "person"],
+              [114, 156, "address"],
+              [207, 214, "financial"],
+              [232, 238, "financial"],
+              [684, 748, "api-key"],
+              [797, 808, "other"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 1532,
+            "outputTokens": 2136,
+            "durationMs": 14316,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 345,
+                "outputTokens": 124,
+                "durationMs": 1564
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 995,
+                "outputTokens": 1136,
+                "durationMs": 6336
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 192,
+                "outputTokens": 876,
+                "durationMs": 6416
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 14317,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0012",
+          "docType": "invoice",
+          "length": "short",
+          "density": "medium",
+          "words": 147,
+          "repeat": 2.75,
+          "detections": [
+            [77, 91, "phone"],
+            [104, 113, "customer-id"],
+            [140, 170, "address"],
+            [415, 425, "date-of-birth"],
+            [479, 510, "address"],
+            [126, 139, "person"],
+            [182, 195, "person"],
+            [126, 130, "person"],
+            [653, 664, "person"],
+            [786, 795, "person"],
+            [869, 881, "person"],
+            [925, 936, "person"],
+            [949, 962, "person"],
+            [978, 989, "person"],
+            [1052, 1061, "person"],
+            [1079, 1088, "person"],
+            [745, 757, "confidential"]
+          ],
+          "passes": {
+            "patterns": [
+              [77, 91, "phone"],
+              [104, 113, "customer-id"],
+              [140, 170, "address"],
+              [415, 425, "date-of-birth"],
+              [479, 510, "address"]
+            ],
+            "rejected": 0,
+            "model": [
+              [126, 139, "person"],
+              [182, 195, "person"],
+              [126, 130, "person"],
+              [653, 664, "person"],
+              [786, 795, "person"],
+              [869, 881, "person"],
+              [925, 936, "person"],
+              [949, 962, "person"],
+              [978, 989, "person"],
+              [1052, 1061, "person"],
+              [1079, 1088, "person"],
+              [745, 757, "confidential"]
+            ],
+            "expanded": [
+              [77, 91, "phone"],
+              [745, 757, "confidential"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 2340,
+            "outputTokens": 2029,
+            "durationMs": 13334,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 464,
+                "outputTokens": 192,
+                "durationMs": 2328
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1349,
+                "outputTokens": 1488,
+                "durationMs": 7346
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 527,
+                "outputTokens": 349,
+                "durationMs": 3660
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 13335,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "de"
+        },
+        {
+          "id": "syn-v1-0018",
+          "docType": "medical referral",
+          "length": "medium",
+          "density": "medium",
+          "words": 2048,
+          "repeat": 3.33,
+          "detections": [
+            [243, 255, "phone"],
+            [263, 288, "email"],
+            [163, 173, "date-of-birth"],
+            [106, 119, "person"],
+            [515, 526, "person"],
+            [106, 111, "person"],
+            [439, 455, "person"],
+            [477, 491, "person"],
+            [188, 235, "address"],
+            [304, 313, "government-id"],
+            [136, 147, "customer-id"],
+            [3005, 3069, "api-key"],
+            [588, 671, "health"],
+            [1573, 1585, "health"],
+            [1599, 1624, "health"],
+            [1626, 1652, "health"],
+            [1678, 1696, "health"],
+            [1897, 1919, "health"],
+            [1953, 1983, "health"],
+            [2147, 2196, "health"],
+            [3603, 3647, "health"],
+            [4603, 4673, "health"],
+            [2548, 2562, "health"],
+            [5249, 5303, "health"],
+            [6145, 6155, "person"],
+            [6148, 6155, "person"],
+            [10665, 10675, "person"],
+            [8658, 8699, "health"],
+            [6000, 6030, "health"],
+            [8754, 8782, "health"],
+            [8833, 8855, "health"],
+            [8860, 8913, "health"],
+            [6671, 6705, "health"],
+            [8942, 8956, "health"],
+            [9046, 9062, "health"],
+            [9120, 9137, "health"],
+            [12009, 12017, "person"],
+            [12094, 12135, "health"],
+            [12371, 12401, "health"],
+            [11565, 11574, "health"],
+            [271, 276, "person"],
+            [1557, 1562, "person"],
+            [112, 119, "person"],
+            [263, 270, "person"],
+            [519, 526, "person"],
+            [8309, 8316, "person"],
+            [481, 491, "person"],
+            [7810, 7824, "health"],
+            [1297, 1305, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [243, 255, "phone"],
+              [263, 288, "email"],
+              [163, 173, "date-of-birth"]
+            ],
+            "rejected": 0,
+            "model": [
+              [106, 119, "person"],
+              [515, 526, "person"],
+              [106, 111, "person"],
+              [439, 455, "person"],
+              [477, 491, "person"],
+              [188, 235, "address"],
+              [304, 313, "government-id"],
+              [136, 147, "customer-id"],
+              [3005, 3069, "api-key"],
+              [588, 671, "health"],
+              [1573, 1585, "health"],
+              [1599, 1624, "health"],
+              [1626, 1652, "health"],
+              [1678, 1696, "health"],
+              [1897, 1919, "health"],
+              [1953, 1983, "health"],
+              [2147, 2196, "health"],
+              [3603, 3647, "health"],
+              [4603, 4673, "health"],
+              [2548, 2562, "health"],
+              [5249, 5303, "health"],
+              [6145, 6155, "person"],
+              [6148, 6155, "person"],
+              [10665, 10675, "person"],
+              [8658, 8699, "health"],
+              [6000, 6030, "health"],
+              [8754, 8782, "health"],
+              [8833, 8855, "health"],
+              [8860, 8913, "health"],
+              [6671, 6705, "health"],
+              [8942, 8956, "health"],
+              [9046, 9062, "health"],
+              [9120, 9137, "health"],
+              [12009, 12017, "person"],
+              [12094, 12135, "health"],
+              [12371, 12401, "health"],
+              [11565, 11574, "health"]
+            ],
+            "expanded": [
+              [243, 255, "phone"],
+              [263, 288, "email"],
+              [106, 119, "person"],
+              [515, 526, "person"],
+              [106, 111, "person"],
+              [271, 276, "person"],
+              [1557, 1562, "person"],
+              [439, 455, "person"],
+              [477, 491, "person"],
+              [188, 235, "address"],
+              [304, 313, "government-id"],
+              [136, 147, "customer-id"],
+              [3005, 3069, "api-key"],
+              [6145, 6155, "person"],
+              [112, 119, "person"],
+              [263, 270, "person"],
+              [519, 526, "person"],
+              [6148, 6155, "person"],
+              [8309, 8316, "person"],
+              [481, 491, "person"],
+              [10665, 10675, "person"],
+              [7810, 7824, "health"],
+              [8942, 8956, "health"],
+              [9046, 9062, "health"],
+              [9120, 9137, "health"],
+              [1297, 1305, "person"],
+              [12009, 12017, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 5,
+            "inputTokens": 5786,
+            "outputTokens": 4860,
+            "durationMs": 31677,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 532,
+                "outputTokens": 128,
+                "durationMs": 1823
+              },
+              "detect": {
+                "calls": 3,
+                "inputTokens": 5044,
+                "outputTokens": 4649,
+                "durationMs": 28320
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 210,
+                "outputTokens": 83,
+                "durationMs": 1534
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 17306,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0020",
+          "docType": "contract",
+          "length": "short",
+          "density": "medium",
+          "words": 190,
+          "repeat": 3.5,
+          "detections": [
+            [636, 668, "api-key"],
+            [504, 515, "bank-account"],
+            [69, 78, "person"],
+            [92, 103, "person"],
+            [69, 73, "person"],
+            [952, 960, "person"],
+            [995, 1000, "person"],
+            [1053, 1061, "person"],
+            [1161, 1165, "person"],
+            [174, 219, "address"],
+            [594, 605, "government-id"],
+            [533, 542, "bank-account"],
+            [478, 485, "financial"],
+            [429, 435, "financial"],
+            [358, 367, "financial"],
+            [265, 269, "person"],
+            [1110, 1114, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [636, 668, "api-key"],
+              [504, 515, "bank-account"]
+            ],
+            "rejected": 0,
+            "model": [
+              [69, 78, "person"],
+              [92, 103, "person"],
+              [69, 73, "person"],
+              [952, 960, "person"],
+              [995, 1000, "person"],
+              [1053, 1061, "person"],
+              [1161, 1165, "person"],
+              [174, 219, "address"],
+              [594, 605, "government-id"],
+              [533, 542, "bank-account"],
+              [478, 485, "financial"],
+              [429, 435, "financial"],
+              [358, 367, "financial"]
+            ],
+            "expanded": [
+              [636, 668, "api-key"],
+              [504, 515, "bank-account"],
+              [69, 78, "person"],
+              [92, 103, "person"],
+              [69, 73, "person"],
+              [265, 269, "person"],
+              [1110, 1114, "person"],
+              [952, 960, "person"],
+              [995, 1000, "person"],
+              [1053, 1061, "person"],
+              [1161, 1165, "person"],
+              [174, 219, "address"],
+              [594, 605, "government-id"],
+              [533, 542, "bank-account"],
+              [478, 485, "financial"],
+              [429, 435, "financial"],
+              [358, 367, "financial"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 1708,
+            "outputTokens": 1611,
+            "durationMs": 14545,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 419,
+                "outputTokens": 136,
+                "durationMs": 5231
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1095,
+                "outputTokens": 1393,
+                "durationMs": 8251
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 194,
+                "outputTokens": 82,
+                "durationMs": 1063
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 14546,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0019",
+          "docType": "CV",
+          "length": "short",
+          "density": "low",
+          "words": 95,
+          "repeat": 6,
+          "detections": [
+            [300, 314, "phone"],
+            [251, 261, "date-of-birth"],
+            [275, 284, "customer-id"],
+            [24, 36, "person"],
+            [29, 36, "person"],
+            [367, 379, "other"],
+            [657, 669, "person"],
+            [238, 245, "person"],
+            [396, 403, "person"],
+            [600, 607, "person"],
+            [662, 669, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [300, 314, "phone"],
+              [251, 261, "date-of-birth"],
+              [275, 284, "customer-id"]
+            ],
+            "rejected": 0,
+            "model": [
+              [24, 36, "person"],
+              [29, 36, "person"],
+              [367, 379, "other"]
+            ],
+            "expanded": [
+              [300, 314, "phone"],
+              [24, 36, "person"],
+              [657, 669, "person"],
+              [29, 36, "person"],
+              [238, 245, "person"],
+              [396, 403, "person"],
+              [600, 607, "person"],
+              [662, 669, "person"],
+              [367, 379, "other"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 1414,
+            "outputTokens": 1131,
+            "durationMs": 17427,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 233,
+                "outputTokens": 162,
+                "durationMs": 3952
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 911,
+                "outputTokens": 428,
+                "durationMs": 5313
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 270,
+                "outputTokens": 541,
+                "durationMs": 8162
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 17428,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0021",
+          "docType": "contract",
+          "length": "medium",
+          "density": "medium",
+          "words": 1796,
+          "repeat": 5.5,
+          "detections": [
+            [1503, 1520, "phone"],
+            [4767, 4779, "phone"],
+            [4866, 4883, "phone"],
+            [7626, 7658, "api-key"],
+            [272, 293, "address"],
+            [1386, 1395, "customer-id"],
+            [203, 215, "person"],
+            [1359, 1370, "person"],
+            [203, 207, "person"],
+            [295, 302, "address"],
+            [304, 325, "address"],
+            [1571, 1581, "bank-account"],
+            [10118, 10130, "person"],
+            [10185, 10195, "person"],
+            [5737, 5748, "person"],
+            [10118, 10122, "person"],
+            [10079, 10090, "person"],
+            [11525, 11532, "person"],
+            [7795, 7809, "confidential"],
+            [8550, 8584, "other"],
+            [11430, 11442, "person"],
+            [243, 247, "person"],
+            [3285, 3289, "person"],
+            [10277, 10281, "person"],
+            [11430, 11434, "person"],
+            [153, 187, "other"],
+            [1425, 1459, "other"],
+            [4731, 4765, "other"],
+            [10040, 10074, "other"],
+            [11489, 11523, "other"]
+          ],
+          "passes": {
+            "patterns": [
+              [1503, 1520, "phone"],
+              [4767, 4779, "phone"],
+              [4866, 4883, "phone"],
+              [7626, 7658, "api-key"],
+              [272, 293, "address"],
+              [1386, 1395, "customer-id"]
+            ],
+            "rejected": 0,
+            "model": [
+              [203, 215, "person"],
+              [1359, 1370, "person"],
+              [203, 207, "person"],
+              [295, 302, "address"],
+              [304, 325, "address"],
+              [1571, 1581, "bank-account"],
+              [10118, 10130, "person"],
+              [10185, 10195, "person"],
+              [5737, 5748, "person"],
+              [10118, 10122, "person"],
+              [10079, 10090, "person"],
+              [11525, 11532, "person"],
+              [7795, 7809, "confidential"],
+              [8550, 8584, "other"]
+            ],
+            "expanded": [
+              [1503, 1520, "phone"],
+              [4866, 4883, "phone"],
+              [4767, 4779, "phone"],
+              [7626, 7658, "api-key"],
+              [203, 215, "person"],
+              [10118, 10130, "person"],
+              [11430, 11442, "person"],
+              [1359, 1370, "person"],
+              [5737, 5748, "person"],
+              [203, 207, "person"],
+              [243, 247, "person"],
+              [3285, 3289, "person"],
+              [10118, 10122, "person"],
+              [10277, 10281, "person"],
+              [11430, 11434, "person"],
+              [295, 302, "address"],
+              [304, 325, "address"],
+              [1571, 1581, "bank-account"],
+              [10185, 10195, "person"],
+              [10079, 10090, "person"],
+              [11525, 11532, "person"],
+              [7795, 7809, "confidential"],
+              [153, 187, "other"],
+              [1425, 1459, "other"],
+              [4731, 4765, "other"],
+              [8550, 8584, "other"],
+              [10040, 10074, "other"],
+              [11489, 11523, "other"]
+            ]
+          },
+          "usage": {
+            "calls": 4,
+            "inputTokens": 4629,
+            "outputTokens": 2663,
+            "durationMs": 22414,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 531,
+                "outputTokens": 134,
+                "durationMs": 4749
+              },
+              "detect": {
+                "calls": 2,
+                "inputTokens": 3855,
+                "outputTokens": 2312,
+                "durationMs": 15833
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 243,
+                "outputTokens": 217,
+                "durationMs": 1832
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 15919,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0025",
+          "docType": "email thread",
+          "length": "short",
+          "density": "medium",
+          "words": 111,
+          "repeat": 2.25,
+          "detections": [
+            [145, 160, "phone"],
+            [84, 93, "customer-id"],
+            [52, 61, "person"],
+            [52, 56, "person"],
+            [557, 565, "person"],
+            [233, 240, "financial"],
+            [6, 16, "person"],
+            [327, 336, "person"],
+            [6, 9, "person"],
+            [317, 325, "person"],
+            [629, 640, "person"],
+            [629, 634, "person"],
+            [602, 616, "other"],
+            [379, 507, "api-key"],
+            [648, 651, "person"],
+            [725, 730, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [145, 160, "phone"],
+              [84, 93, "customer-id"]
+            ],
+            "rejected": 0,
+            "model": [
+              [52, 61, "person"],
+              [52, 56, "person"],
+              [557, 565, "person"],
+              [233, 240, "financial"],
+              [6, 16, "person"],
+              [327, 336, "person"],
+              [6, 9, "person"],
+              [317, 325, "person"],
+              [629, 640, "person"],
+              [629, 634, "person"],
+              [602, 616, "other"],
+              [379, 507, "api-key"]
+            ],
+            "expanded": [
+              [145, 160, "phone"],
+              [6, 9, "person"],
+              [648, 651, "person"],
+              [629, 634, "person"],
+              [725, 730, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 1545,
+            "outputTokens": 1704,
+            "durationMs": 16380,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 348,
+                "outputTokens": 126,
+                "durationMs": 7404
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1012,
+                "outputTokens": 1492,
+                "durationMs": 8106
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 185,
+                "outputTokens": 86,
+                "durationMs": 870
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 16373,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0023",
+          "docType": "invoice",
+          "length": "medium",
+          "density": "medium",
+          "words": 1455,
+          "repeat": 2.33,
+          "detections": [
+            [441, 454, "phone"],
+            [473, 491, "email"],
+            [3680, 3707, "bank-account"],
+            [6544, 6555, "phone"],
+            [6563, 6586, "email"],
+            [6628, 6644, "phone"],
+            [6652, 6674, "email"],
+            [7440, 7459, "email"],
+            [3639, 3647, "bank-account"],
+            [195, 206, "person"],
+            [498, 506, "person"],
+            [207, 244, "address"],
+            [3614, 3622, "bank-account"],
+            [1201, 1208, "financial"],
+            [6520, 6531, "person"],
+            [6605, 6616, "person"],
+            [7898, 7903, "person"],
+            [7102, 7109, "person"],
+            [7348, 7356, "person"],
+            [1242, 1249, "financial"],
+            [4919, 4926, "financial"],
+            [195, 200, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [441, 454, "phone"],
+              [473, 491, "email"],
+              [3680, 3707, "bank-account"],
+              [6544, 6555, "phone"],
+              [6563, 6586, "email"],
+              [6628, 6644, "phone"],
+              [6652, 6674, "email"],
+              [7440, 7459, "email"],
+              [3639, 3647, "bank-account"]
+            ],
+            "rejected": 1,
+            "model": [
+              [195, 206, "person"],
+              [498, 506, "person"],
+              [207, 244, "address"],
+              [3614, 3622, "bank-account"],
+              [1201, 1208, "financial"],
+              [6520, 6531, "person"],
+              [6605, 6616, "person"],
+              [7898, 7903, "person"],
+              [7102, 7109, "person"],
+              [7348, 7356, "person"]
+            ],
+            "expanded": [
+              [441, 454, "phone"],
+              [473, 491, "email"],
+              [3680, 3707, "bank-account"],
+              [6544, 6555, "phone"],
+              [6563, 6586, "email"],
+              [6628, 6644, "phone"],
+              [6652, 6674, "email"],
+              [7440, 7459, "email"],
+              [3639, 3647, "bank-account"],
+              [195, 206, "person"],
+              [498, 506, "person"],
+              [207, 244, "address"],
+              [3614, 3622, "bank-account"],
+              [1201, 1208, "financial"],
+              [1242, 1249, "financial"],
+              [4919, 4926, "financial"],
+              [6520, 6531, "person"],
+              [6605, 6616, "person"],
+              [195, 200, "person"],
+              [7898, 7903, "person"],
+              [7102, 7109, "person"],
+              [7348, 7356, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 4,
+            "inputTokens": 4511,
+            "outputTokens": 2148,
+            "durationMs": 28485,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 621,
+                "outputTokens": 128,
+                "durationMs": 1552
+              },
+              "detect": {
+                "calls": 2,
+                "inputTokens": 3616,
+                "outputTokens": 1755,
+                "durationMs": 20002
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 274,
+                "outputTokens": 265,
+                "durationMs": 6931
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 19639,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0022",
+          "docType": "tabular export",
+          "length": "long",
+          "density": "medium",
+          "words": 6847,
+          "repeat": 3,
+          "detections": [
+            [691, 704, "phone"],
+            [1825, 1857, "api-key"],
+            [4960, 4973, "phone"],
+            [17564, 17577, "phone"],
+            [25357, 25370, "phone"],
+            [28309, 28322, "phone"],
+            [730, 738, "bank-account"],
+            [4723, 4732, "customer-id"],
+            [7674, 7688, "address"],
+            [10686, 10694, "bank-account"],
+            [10835, 10842, "customer-id"],
+            [11945, 11952, "customer-id"],
+            [20208, 20215, "customer-id"],
+            [25162, 25176, "address"],
+            [28033, 28049, "date-of-birth"],
+            [29374, 29381, "customer-id"],
+            [33244, 33251, "customer-id"],
+            [34506, 34513, "customer-id"],
+            [40217, 40224, "customer-id"],
+            [174, 184, "person"],
+            [587, 624, "address"],
+            [666, 682, "date-of-birth"],
+            [124, 132, "customer-id"],
+            [1946, 1976, "url"],
+            [3144, 3152, "customer-id"],
+            [3425, 3436, "person"],
+            [4363, 4371, "customer-id"],
+            [4408, 4418, "person"],
+            [4408, 4413, "person"],
+            [4858, 4892, "address"],
+            [6388, 6395, "person"],
+            [7710, 7718, "address"],
+            [10716, 10724, "bank-account"],
+            [14671, 14676, "person"],
+            [13247, 13251, "person"],
+            [11644, 11652, "customer-id"],
+            [13024, 13032, "customer-id"],
+            [14428, 14436, "customer-id"],
+            [15769, 15777, "customer-id"],
+            [17538, 17546, "bank-account"],
+            [19909, 19953, "address"],
+            [21424, 21434, "person"],
+            [22864, 22894, "url"],
+            [23801, 23808, "person"],
+            [25178, 25184, "address"],
+            [25198, 25206, "address"],
+            [22405, 22413, "customer-id"],
+            [23601, 23609, "customer-id"],
+            [24928, 24936, "customer-id"],
+            [27975, 27987, "person"],
+            [28203, 28215, "address"],
+            [28224, 28232, "address"],
+            [30368, 30373, "person"],
+            [37809, 37816, "person"],
+            [38352, 38360, "customer-id"],
+            [40473, 40481, "customer-id"],
+            [41420, 41428, "customer-id"],
+            [17508, 17516, "bank-account"],
+            [34241, 34249, "bank-account"],
+            [1588, 1596, "customer-id"],
+            [28913, 28921, "customer-id"],
+            [36214, 36222, "customer-id"],
+            [18465, 18473, "customer-id"],
+            [31464, 31472, "customer-id"],
+            [5938, 5946, "customer-id"],
+            [21042, 21050, "customer-id"],
+            [30211, 30219, "customer-id"],
+            [37279, 37287, "customer-id"],
+            [4692, 4697, "person"],
+            [21424, 21429, "person"],
+            [174, 179, "person"],
+            [1968, 1973, "person"],
+            [22886, 22891, "person"],
+            [10294, 10302, "customer-id"],
+            [17162, 17170, "customer-id"],
+            [27539, 27547, "customer-id"],
+            [32595, 32603, "customer-id"],
+            [33865, 33873, "customer-id"],
+            [39479, 39487, "customer-id"],
+            [7390, 7398, "customer-id"],
+            [8794, 8802, "customer-id"],
+            [19746, 19754, "customer-id"],
+            [26224, 26232, "customer-id"],
+            [34963, 34971, "customer-id"]
+          ],
+          "passes": {
+            "patterns": [
+              [691, 704, "phone"],
+              [1825, 1857, "api-key"],
+              [4960, 4973, "phone"],
+              [17564, 17577, "phone"],
+              [25357, 25370, "phone"],
+              [28309, 28322, "phone"],
+              [730, 738, "bank-account"],
+              [4723, 4732, "customer-id"],
+              [7674, 7688, "address"],
+              [10686, 10694, "bank-account"],
+              [10835, 10842, "customer-id"],
+              [11945, 11952, "customer-id"],
+              [20208, 20215, "customer-id"],
+              [25162, 25176, "address"],
+              [28033, 28049, "date-of-birth"],
+              [29374, 29381, "customer-id"],
+              [33244, 33251, "customer-id"],
+              [34506, 34513, "customer-id"],
+              [40217, 40224, "customer-id"]
+            ],
+            "rejected": 0,
+            "model": [
+              [174, 184, "person"],
+              [587, 624, "address"],
+              [666, 682, "date-of-birth"],
+              [124, 132, "customer-id"],
+              [1946, 1976, "url"],
+              [3144, 3152, "customer-id"],
+              [3425, 3436, "person"],
+              [4363, 4371, "customer-id"],
+              [4408, 4418, "person"],
+              [4408, 4413, "person"],
+              [4858, 4892, "address"],
+              [6388, 6395, "person"],
+              [7710, 7718, "address"],
+              [10716, 10724, "bank-account"],
+              [14671, 14676, "person"],
+              [13247, 13251, "person"],
+              [11644, 11652, "customer-id"],
+              [13024, 13032, "customer-id"],
+              [14428, 14436, "customer-id"],
+              [15769, 15777, "customer-id"],
+              [17538, 17546, "bank-account"],
+              [19909, 19953, "address"],
+              [21424, 21434, "person"],
+              [22864, 22894, "url"],
+              [23801, 23808, "person"],
+              [25178, 25184, "address"],
+              [25198, 25206, "address"],
+              [22405, 22413, "customer-id"],
+              [23601, 23609, "customer-id"],
+              [24928, 24936, "customer-id"],
+              [27975, 27987, "person"],
+              [28203, 28215, "address"],
+              [28224, 28232, "address"],
+              [30368, 30373, "person"],
+              [37809, 37816, "person"],
+              [38352, 38360, "customer-id"],
+              [40473, 40481, "customer-id"],
+              [41420, 41428, "customer-id"]
+            ],
+            "expanded": [
+              [691, 704, "phone"],
+              [1825, 1857, "api-key"],
+              [4960, 4973, "phone"],
+              [17564, 17577, "phone"],
+              [25357, 25370, "phone"],
+              [28309, 28322, "phone"],
+              [730, 738, "bank-account"],
+              [10686, 10694, "bank-account"],
+              [17508, 17516, "bank-account"],
+              [34241, 34249, "bank-account"],
+              [174, 184, "person"],
+              [587, 624, "address"],
+              [666, 682, "date-of-birth"],
+              [124, 132, "customer-id"],
+              [1588, 1596, "customer-id"],
+              [14428, 14436, "customer-id"],
+              [22405, 22413, "customer-id"],
+              [28913, 28921, "customer-id"],
+              [36214, 36222, "customer-id"],
+              [38352, 38360, "customer-id"],
+              [1946, 1976, "url"],
+              [22864, 22894, "url"],
+              [3144, 3152, "customer-id"],
+              [18465, 18473, "customer-id"],
+              [31464, 31472, "customer-id"],
+              [40473, 40481, "customer-id"],
+              [3425, 3436, "person"],
+              [4363, 4371, "customer-id"],
+              [5938, 5946, "customer-id"],
+              [13024, 13032, "customer-id"],
+              [21042, 21050, "customer-id"],
+              [23601, 23609, "customer-id"],
+              [30211, 30219, "customer-id"],
+              [37279, 37287, "customer-id"],
+              [4408, 4418, "person"],
+              [21424, 21434, "person"],
+              [4408, 4413, "person"],
+              [4692, 4697, "person"],
+              [21424, 21429, "person"],
+              [30368, 30373, "person"],
+              [4858, 4892, "address"],
+              [6388, 6395, "person"],
+              [23801, 23808, "person"],
+              [37809, 37816, "person"],
+              [7710, 7718, "address"],
+              [25198, 25206, "address"],
+              [10716, 10724, "bank-account"],
+              [17538, 17546, "bank-account"],
+              [174, 179, "person"],
+              [1968, 1973, "person"],
+              [14671, 14676, "person"],
+              [22886, 22891, "person"],
+              [13247, 13251, "person"],
+              [10294, 10302, "customer-id"],
+              [11644, 11652, "customer-id"],
+              [17162, 17170, "customer-id"],
+              [27539, 27547, "customer-id"],
+              [32595, 32603, "customer-id"],
+              [33865, 33873, "customer-id"],
+              [39479, 39487, "customer-id"],
+              [7390, 7398, "customer-id"],
+              [8794, 8802, "customer-id"],
+              [15769, 15777, "customer-id"],
+              [19746, 19754, "customer-id"],
+              [24928, 24936, "customer-id"],
+              [26224, 26232, "customer-id"],
+              [34963, 34971, "customer-id"],
+              [41420, 41428, "customer-id"],
+              [27975, 27987, "person"],
+              [28203, 28215, "address"],
+              [28224, 28232, "address"]
+            ]
+          },
+          "usage": {
+            "calls": 10,
+            "inputTokens": 17009,
+            "outputTokens": 7194,
+            "durationMs": 63402,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 547,
+                "outputTokens": 220,
+                "durationMs": 2102
+              },
+              "detect": {
+                "calls": 8,
+                "inputTokens": 15628,
+                "outputTokens": 6156,
+                "durationMs": 56405
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 834,
+                "outputTokens": 818,
+                "durationMs": 4895
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 23750,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0028",
+          "docType": "contract",
+          "length": "short",
+          "density": "medium",
+          "words": 164,
+          "repeat": 2.67,
+          "detections": [
+            [451, 475, "email"],
+            [179, 219, "address"],
+            [55, 68, "person"],
+            [100, 111, "person"],
+            [55, 62, "person"],
+            [429, 438, "government-id"],
+            [620, 635, "confidential"],
+            [638, 680, "confidential"],
+            [736, 745, "person"],
+            [758, 766, "person"],
+            [820, 832, "person"],
+            [933, 943, "person"],
+            [365, 372, "person"],
+            [451, 458, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [451, 475, "email"],
+              [179, 219, "address"]
+            ],
+            "rejected": 0,
+            "model": [
+              [55, 68, "person"],
+              [100, 111, "person"],
+              [55, 62, "person"],
+              [429, 438, "government-id"],
+              [620, 635, "confidential"],
+              [638, 680, "confidential"],
+              [736, 745, "person"],
+              [758, 766, "person"],
+              [820, 832, "person"],
+              [933, 943, "person"]
+            ],
+            "expanded": [
+              [451, 475, "email"],
+              [55, 62, "person"],
+              [365, 372, "person"],
+              [451, 458, "person"],
+              [429, 438, "government-id"],
+              [620, 635, "confidential"],
+              [736, 745, "person"],
+              [758, 766, "person"],
+              [933, 943, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 1941,
+            "outputTokens": 1466,
+            "durationMs": 11535,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 411,
+                "outputTokens": 139,
+                "durationMs": 3222
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1277,
+                "outputTokens": 1056,
+                "durationMs": 5726
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 253,
+                "outputTokens": 271,
+                "durationMs": 2587
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 11536,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "fr"
+        },
+        {
+          "id": "syn-v1-0027",
+          "docType": "contract",
+          "length": "medium",
+          "density": "low",
+          "words": 2344,
+          "repeat": 1.5,
+          "detections": [
+            [3622, 3634, "phone"],
+            [409, 451, "address"],
+            [103, 115, "person"],
+            [162, 176, "person"],
+            [1785, 1797, "person"],
+            [3723, 3754, "url"],
+            [3622, 3639, "phone"],
+            [15154, 15159, "person"],
+            [15182, 15187, "person"]
+          ],
+          "passes": {
+            "patterns": [
+              [3622, 3634, "phone"],
+              [409, 451, "address"]
+            ],
+            "rejected": 0,
+            "model": [
+              [103, 115, "person"],
+              [162, 176, "person"],
+              [1785, 1797, "person"],
+              [3723, 3754, "url"],
+              [3622, 3639, "phone"],
+              [15154, 15159, "person"],
+              [15182, 15187, "person"]
+            ],
+            "expanded": [
+              [3622, 3634, "phone"],
+              [103, 115, "person"],
+              [162, 176, "person"],
+              [1785, 1797, "person"],
+              [3723, 3754, "url"],
+              [3622, 3639, "phone"],
+              [15154, 15159, "person"],
+              [15182, 15187, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 5,
+            "inputTokens": 7438,
+            "outputTokens": 1636,
+            "durationMs": 18509,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 599,
+                "outputTokens": 193,
+                "durationMs": 2031
+              },
+              "detect": {
+                "calls": 3,
+                "inputTokens": 6601,
+                "outputTokens": 1128,
+                "durationMs": 13945
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 238,
+                "outputTokens": 315,
+                "durationMs": 2533
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 12678,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "es"
+        },
+        {
+          "id": "syn-v1-0024",
+          "docType": "bank statement",
+          "length": "short",
+          "density": "medium",
+          "words": 111,
+          "repeat": 1.75,
+          "detections": [
+            [193, 208, "phone"],
+            [433, 447, "phone"],
+            [225, 237, "bank-account"],
+            [251, 261, "customer-id"],
+            [85, 98, "person"],
+            [103, 116, "person"],
+            [370, 377, "person"],
+            [531, 541, "person"],
+            [825, 835, "person"],
+            [875, 890, "person"],
+            [161, 185, "address"],
+            [615, 641, "financial"],
+            [695, 727, "api-key"]
+          ],
+          "passes": {
+            "patterns": [
+              [193, 208, "phone"],
+              [433, 447, "phone"],
+              [225, 237, "bank-account"],
+              [251, 261, "customer-id"]
+            ],
+            "rejected": 1,
+            "model": [
+              [85, 98, "person"],
+              [103, 116, "person"],
+              [370, 377, "person"],
+              [531, 541, "person"],
+              [825, 835, "person"],
+              [875, 890, "person"],
+              [161, 185, "address"],
+              [615, 641, "financial"],
+              [695, 727, "api-key"]
+            ],
+            "expanded": [
+              [193, 208, "phone"],
+              [433, 447, "phone"],
+              [225, 237, "bank-account"],
+              [695, 727, "api-key"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 1831,
+            "outputTokens": 2108,
+            "durationMs": 36849,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 363,
+                "outputTokens": 115,
+                "durationMs": 8166
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1061,
+                "outputTokens": 1011,
+                "durationMs": 20904
+              },
+              "verify": {
+                "calls": 1,
+                "inputTokens": 407,
+                "outputTokens": 982,
+                "durationMs": 7779
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 36841,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        }
+      ]
+    },
+    "model-only": {
+      "mode": "model-only",
+      "commit": "5bc8268",
+      "createdAt": "2026-10-01T06:47:25.694Z",
+      "documents": 20,
+      "failed": [],
+      "totals": {
+        "calls": 63,
+        "inputTokens": 76875,
+        "outputTokens": 42904,
+        "durationMs": 67852,
+        "costUsd": 0.032983
+      },
+      "perDocument": {
+        "medianMs": 11690,
+        "p95Ms": 22833,
+        "costUsd": 0.001649,
+        "inputTokens": 3844,
+        "outputTokens": 2145
+      },
+      "concurrency": 4,
+      "byTask": {
+        "classify": {
+          "calls": 20,
+          "inputTokens": 8921,
+          "outputTokens": 3123,
+          "durationMs": 67568
+        },
+        "detect": {
+          "calls": 43,
+          "inputTokens": 67954,
+          "outputTokens": 39781,
+          "durationMs": 302711
+        }
+      },
+      "stages": {
+        "extract": null,
+        "analyze": {
+          "documents": 20,
+          "medianMs": 11690,
+          "p95Ms": 22833,
+          "totalMs": 245591
+        },
+        "export": null,
+        "exportFailures": []
+      },
+      "degraded": {
+        "documents": 0,
+        "reasons": {}
+      },
+      "quality": {
+        "labels": 344,
+        "detections": 401,
+        "precision": 0.8903,
+        "precisionStrict": 0.8753,
+        "recall": 0.8779,
+        "recallOverlap": 0.8983,
+        "recallStrict": 0.875,
+        "f1": 0.8841,
+        "falsePositives": 44,
+        "negativeHits": 0,
+        "unscored": {
+          "health": 19
+        },
+        "byCategory": {
+          "person": {
+            "labels": 163,
+            "recall": 0.9264,
+            "recallOverlap": 0.9387,
+            "recallStrict": 0.9202,
+            "detections": 195,
+            "precision": 1,
+            "precisionStrict": 0.9744
+          },
+          "address": {
+            "labels": 20,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 20,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "phone": {
+            "labels": 20,
+            "recall": 0.85,
+            "recallOverlap": 0.85,
+            "recallStrict": 0.85,
+            "detections": 17,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "email": {
+            "labels": 16,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 16,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "government-id": {
+            "labels": 8,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 8,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "bank-account": {
+            "labels": 21,
+            "recall": 0.8095,
+            "recallOverlap": 0.8095,
+            "recallStrict": 0.8095,
+            "detections": 17,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "financial": {
+            "labels": 31,
+            "recall": 0.4194,
+            "recallOverlap": 0.4194,
+            "recallStrict": 0.4194,
+            "detections": 19,
+            "precision": 0.6842,
+            "precisionStrict": 0.6842
+          },
+          "date-of-birth": {
+            "labels": 7,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 8,
+            "precision": 1,
+            "precisionStrict": 0.875
+          },
+          "customer-id": {
+            "labels": 28,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 65,
+            "precision": 0.4308,
+            "precisionStrict": 0.4308
+          },
+          "confidential": {
+            "labels": 8,
+            "recall": 0.375,
+            "recallOverlap": 1,
+            "recallStrict": 0.375,
+            "detections": 14,
+            "precision": 0.9286,
+            "precisionStrict": 0.9286
+          },
+          "api-key": {
+            "labels": 12,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 12,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "url": {
+            "labels": 5,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 5,
+            "precision": 1,
+            "precisionStrict": 1
+          },
+          "other": {
+            "labels": 5,
+            "recall": 1,
+            "recallOverlap": 1,
+            "recallStrict": 1,
+            "detections": 5,
+            "precision": 1,
+            "precisionStrict": 1
+          }
+        },
+        "weightedCost": {
+          "total": 349,
+          "perDocument": 17.45,
+          "missed": {
+            "person": 12,
+            "phone": 3,
+            "confidential": 5,
+            "financial": 18,
+            "bank-account": 4
+          },
+          "falsePositives": 44,
+          "weights": {
+            "missed": {
+              "government-id": 10,
+              "bank-account": 10,
+              "financial": 10,
+              "api-key": 10,
+              "person": 5,
+              "address": 5,
+              "date-of-birth": 5,
+              "email": 5,
+              "phone": 5,
+              "customer-id": 5,
+              "confidential": 2,
+              "url": 2,
+              "other": 2
+            },
+            "falsePositive": 1
+          }
+        }
+      },
+      "byDocType": {
+        "API/config dump": {
+          "documents": 2,
+          "words": 1518,
+          "calls": 5,
+          "inputTokens": 6232,
+          "outputTokens": 4199,
+          "costUsd": 0.003034,
+          "costPerDocumentUsd": 0.001517,
+          "tokensPerDocument": 5216,
+          "medianMs": 13545,
+          "precision": 0.8723,
+          "recall": 0.8378,
+          "f1": 0.8547
+        },
+        "bank statement": {
+          "documents": 4,
+          "words": 1768,
+          "calls": 9,
+          "inputTokens": 8042,
+          "outputTokens": 5683,
+          "costUsd": 0.004048,
+          "costPerDocumentUsd": 0.001012,
+          "tokensPerDocument": 3431,
+          "medianMs": 12046,
+          "precision": 0.9167,
+          "recall": 0.8793,
+          "f1": 0.8976
+        },
+        "contract": {
+          "documents": 4,
+          "words": 4494,
+          "calls": 11,
+          "inputTokens": 14410,
+          "outputTokens": 6606,
+          "costUsd": 0.005465,
+          "costPerDocumentUsd": 0.001366,
+          "tokensPerDocument": 5254,
+          "medianMs": 9849,
+          "precision": 1,
+          "recall": 0.8596,
+          "f1": 0.9245
+        },
+        "CV": {
+          "documents": 1,
+          "words": 95,
+          "calls": 2,
+          "inputTokens": 1098,
+          "outputTokens": 895,
+          "costUsd": 0.000612,
+          "costPerDocumentUsd": 0.000612,
+          "tokensPerDocument": 1993,
+          "medianMs": 8880,
+          "precision": 1,
+          "recall": 0.8,
+          "f1": 0.8889
+        },
+        "email thread": {
+          "documents": 1,
+          "words": 111,
+          "calls": 2,
+          "inputTokens": 1330,
+          "outputTokens": 1897,
+          "costUsd": 0.001148,
+          "costPerDocumentUsd": 0.001148,
+          "tokensPerDocument": 3227,
+          "medianMs": 21405,
+          "precision": 1,
+          "recall": 0.9333,
+          "f1": 0.9655
+        },
+        "invoice": {
+          "documents": 3,
+          "words": 1746,
+          "calls": 7,
+          "inputTokens": 7083,
+          "outputTokens": 6235,
+          "costUsd": 0.00418,
+          "costPerDocumentUsd": 0.001393,
+          "tokensPerDocument": 4439,
+          "medianMs": 12703,
+          "precision": 1,
+          "recall": 0.7333,
+          "f1": 0.8461
+        },
+        "medical referral": {
+          "documents": 1,
+          "words": 2048,
+          "calls": 4,
+          "inputTokens": 5471,
+          "outputTokens": 3965,
+          "costUsd": 0.002803,
+          "costPerDocumentUsd": 0.002803,
+          "tokensPerDocument": 9436,
+          "medianMs": 10689,
+          "precision": 1,
+          "recall": 0.9412,
+          "f1": 0.9697
+        },
+        "meeting minutes": {
+          "documents": 1,
+          "words": 7559,
+          "calls": 10,
+          "inputTokens": 15754,
+          "outputTokens": 2571,
+          "costUsd": 0.003649,
+          "costPerDocumentUsd": 0.003649,
+          "tokensPerDocument": 18325,
+          "medianMs": 17998,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1
+        },
+        "tabular export": {
+          "documents": 3,
+          "words": 6971,
+          "calls": 13,
+          "inputTokens": 17455,
+          "outputTokens": 10853,
+          "costUsd": 0.008045,
+          "costPerDocumentUsd": 0.002682,
+          "tokensPerDocument": 9436,
+          "medianMs": 7697,
+          "precision": 0.7203,
+          "recall": 0.987,
+          "f1": 0.8328
+        }
+      },
+      "byLength": {
+        "short": {
+          "documents": 12,
+          "words": 1539,
+          "calls": 24,
+          "inputTokens": 17183,
+          "outputTokens": 19474,
+          "costUsd": 0.012314,
+          "costPerDocumentUsd": 0.001026,
+          "tokensPerDocument": 3055,
+          "medianMs": 11690,
+          "precision": 0.9799,
+          "recall": 0.8842,
+          "f1": 0.9296
+        },
+        "medium": {
+          "documents": 6,
+          "words": 10365,
+          "calls": 20,
+          "inputTokens": 28875,
+          "outputTokens": 12673,
+          "costUsd": 0.010668,
+          "costPerDocumentUsd": 0.001778,
+          "tokensPerDocument": 6925,
+          "medianMs": 10689,
+          "precision": 0.932,
+          "recall": 0.798,
+          "f1": 0.8598
+        },
+        "long": {
+          "documents": 2,
+          "words": 14406,
+          "calls": 19,
+          "inputTokens": 30817,
+          "outputTokens": 10757,
+          "costUsd": 0.010001,
+          "costPerDocumentUsd": 0.005001,
+          "tokensPerDocument": 20787,
+          "medianMs": 22833,
+          "precision": 0.6667,
+          "recall": 1,
+          "f1": 0.8
+        }
+      },
+      "byDensity": {
+        "none": {
+          "documents": 1,
+          "words": 1344,
+          "calls": 3,
+          "inputTokens": 3610,
+          "outputTokens": 592,
+          "costUsd": 0.000837,
+          "costPerDocumentUsd": 0.000837,
+          "tokensPerDocument": 4202,
+          "medianMs": 5916,
+          "precision": 0,
+          "recall": null,
+          "f1": null
+        },
+        "low": {
+          "documents": 7,
+          "words": 10373,
+          "calls": 24,
+          "inputTokens": 29359,
+          "outputTokens": 9703,
+          "costUsd": 0.009255,
+          "costPerDocumentUsd": 0.001322,
+          "tokensPerDocument": 5580,
+          "medianMs": 8880,
+          "precision": 0.9804,
+          "recall": 0.9091,
+          "f1": 0.9434
+        },
+        "medium": {
+          "documents": 11,
+          "words": 14391,
+          "calls": 34,
+          "inputTokens": 42145,
+          "outputTokens": 29957,
+          "costUsd": 0.0213,
+          "costPerDocumentUsd": 0.001936,
+          "tokensPerDocument": 6555,
+          "medianMs": 12703,
+          "precision": 0.8528,
+          "recall": 0.859,
+          "f1": 0.8559
+        },
+        "high": {
+          "documents": 1,
+          "words": 202,
+          "calls": 2,
+          "inputTokens": 1761,
+          "outputTokens": 2652,
+          "costUsd": 0.00159,
+          "costPerDocumentUsd": 0.00159,
+          "tokensPerDocument": 4413,
+          "medianMs": 12046,
+          "precision": 0.9394,
+          "recall": 0.931,
+          "f1": 0.9352
+        }
+      },
+      "byLocale": {
+        "de-DE": {
+          "documents": 2,
+          "words": 287,
+          "calls": 4,
+          "inputTokens": 3490,
+          "outputTokens": 3599,
+          "costUsd": 0.002323,
+          "costPerDocumentUsd": 0.001162,
+          "tokensPerDocument": 3545,
+          "medianMs": 12703,
+          "precision": 1,
+          "recall": 0.8621,
+          "f1": 0.9259
+        },
+        "en-GB": {
+          "documents": 3,
+          "words": 8413,
+          "calls": 14,
+          "inputTokens": 20386,
+          "outputTokens": 11300,
+          "costUsd": 0.008708,
+          "costPerDocumentUsd": 0.002903,
+          "tokensPerDocument": 10562,
+          "medianMs": 14825,
+          "precision": 0.6602,
+          "recall": 0.8125,
+          "f1": 0.7285
+        },
+        "en-IN": {
+          "documents": 2,
+          "words": 7703,
+          "calls": 12,
+          "inputTokens": 17077,
+          "outputTokens": 4439,
+          "costUsd": 0.004781,
+          "costPerDocumentUsd": 0.002391,
+          "tokensPerDocument": 10758,
+          "medianMs": 17998,
+          "precision": 1,
+          "recall": 0.963,
+          "f1": 0.9812
+        },
+        "en-US": {
+          "documents": 10,
+          "words": 7335,
+          "calls": 25,
+          "inputTokens": 25985,
+          "outputTokens": 19394,
+          "costUsd": 0.013595,
+          "costPerDocumentUsd": 0.00136,
+          "tokensPerDocument": 4538,
+          "medianMs": 10689,
+          "precision": 0.9531,
+          "recall": 0.9107,
+          "f1": 0.9314
+        },
+        "es-ES": {
+          "documents": 1,
+          "words": 2344,
+          "calls": 4,
+          "inputTokens": 7062,
+          "outputTokens": 1224,
+          "costUsd": 0.001671,
+          "costPerDocumentUsd": 0.001671,
+          "tokensPerDocument": 8286,
+          "medianMs": 8785,
+          "precision": 1,
+          "recall": 0.8889,
+          "f1": 0.9412
+        },
+        "fr-FR": {
+          "documents": 2,
+          "words": 228,
+          "calls": 4,
+          "inputTokens": 2875,
+          "outputTokens": 2948,
+          "costUsd": 0.001905,
+          "costPerDocumentUsd": 0.000953,
+          "tokensPerDocument": 2912,
+          "medianMs": 10927,
+          "precision": 1,
+          "recall": 0.8065,
+          "f1": 0.8929
+        }
+      },
+      "attribution": {
+        "labels": 344,
+        "covered": 302,
+        "patterns": 0,
+        "model": 262,
+        "expansion": 40,
+        "together": 0,
+        "detections": {
+          "patterns": 0,
+          "rejected": 0,
+          "model": 342,
+          "expanded": 335,
+          "expandedAdded": 80
+        }
+      },
+      "expansion": [
+        {
+          "bucket": "none",
+          "documents": 1,
+          "added": 0,
+          "addedPerDocument": 0,
+          "labelsOnlyByExpansion": 0,
+          "modelCalls": 3
+        },
+        {
+          "bucket": "1–2",
+          "documents": 5,
+          "added": 7,
+          "addedPerDocument": 1.4,
+          "labelsOnlyByExpansion": 7,
+          "modelCalls": 13
+        },
+        {
+          "bucket": "2.5–5",
+          "documents": 12,
+          "added": 66,
+          "addedPerDocument": 5.5,
+          "labelsOnlyByExpansion": 27,
+          "modelCalls": 42
+        },
+        {
+          "bucket": "5–10",
+          "documents": 2,
+          "added": 7,
+          "addedPerDocument": 3.5,
+          "labelsOnlyByExpansion": 6,
+          "modelCalls": 5
+        }
+      ],
+      "records": [
+        {
+          "id": "syn-v1-0002",
+          "docType": "tabular export",
+          "length": "short",
+          "density": "low",
+          "words": 60,
+          "repeat": 3.5,
+          "detections": [
+            [71, 82, "person"],
+            [83, 106, "email"],
+            [107, 119, "phone"],
+            [120, 131, "government-id"],
+            [132, 140, "customer-id"],
+            [150, 163, "api-key"],
+            [164, 173, "person"],
+            [71, 76, "person"],
+            [252, 260, "person"],
+            [77, 82, "person"],
+            [335, 344, "person"],
+            [345, 362, "email"],
+            [363, 377, "phone"],
+            [378, 389, "government-id"],
+            [390, 398, "customer-id"],
+            [408, 440, "api-key"],
+            [468, 475, "person"],
+            [225, 237, "phone"],
+            [83, 88, "person"],
+            [218, 223, "person"],
+            [89, 94, "person"],
+            [168, 173, "person"],
+            [255, 260, "person"],
+            [296, 301, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [71, 82, "person"],
+              [83, 106, "email"],
+              [107, 119, "phone"],
+              [120, 131, "government-id"],
+              [132, 140, "customer-id"],
+              [150, 163, "api-key"],
+              [164, 173, "person"],
+              [71, 76, "person"],
+              [252, 260, "person"],
+              [77, 82, "person"],
+              [335, 344, "person"],
+              [345, 362, "email"],
+              [363, 377, "phone"],
+              [378, 389, "government-id"],
+              [390, 398, "customer-id"],
+              [408, 440, "api-key"],
+              [468, 475, "person"]
+            ],
+            "expanded": [
+              [71, 82, "person"],
+              [83, 106, "email"],
+              [107, 119, "phone"],
+              [225, 237, "phone"],
+              [120, 131, "government-id"],
+              [132, 140, "customer-id"],
+              [150, 163, "api-key"],
+              [164, 173, "person"],
+              [71, 76, "person"],
+              [83, 88, "person"],
+              [218, 223, "person"],
+              [252, 260, "person"],
+              [77, 82, "person"],
+              [89, 94, "person"],
+              [168, 173, "person"],
+              [255, 260, "person"],
+              [296, 301, "person"],
+              [335, 344, "person"],
+              [345, 362, "email"],
+              [363, 377, "phone"],
+              [378, 389, "government-id"],
+              [390, 398, "customer-id"],
+              [408, 440, "api-key"],
+              [468, 475, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1165,
+            "outputTokens": 1474,
+            "durationMs": 7535,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 264,
+                "outputTokens": 191,
+                "durationMs": 1927
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 901,
+                "outputTokens": 1283,
+                "durationMs": 5608
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 7537,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "undetected"
+        },
+        {
+          "id": "syn-v1-0001",
+          "docType": "tabular export",
+          "length": "short",
+          "density": "low",
+          "words": 64,
+          "repeat": 2.5,
+          "detections": [
+            [86, 99, "person"],
+            [86, 92, "person"],
+            [294, 304, "person"],
+            [100, 125, "email"],
+            [70, 78, "customer-id"],
+            [160, 173, "confidential"],
+            [388, 398, "person"],
+            [474, 483, "person"],
+            [399, 421, "email"],
+            [372, 380, "customer-id"],
+            [174, 187, "other"],
+            [211, 236, "email"],
+            [305, 330, "email"],
+            [188, 196, "customer-id"],
+            [278, 286, "customer-id"],
+            [484, 506, "email"],
+            [458, 466, "customer-id"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [86, 99, "person"],
+              [86, 92, "person"],
+              [294, 304, "person"],
+              [100, 125, "email"],
+              [70, 78, "customer-id"],
+              [160, 173, "confidential"],
+              [388, 398, "person"],
+              [474, 483, "person"],
+              [399, 421, "email"],
+              [372, 380, "customer-id"],
+              [174, 187, "other"]
+            ],
+            "expanded": [
+              [100, 125, "email"],
+              [211, 236, "email"],
+              [305, 330, "email"],
+              [70, 78, "customer-id"],
+              [188, 196, "customer-id"],
+              [278, 286, "customer-id"],
+              [160, 173, "confidential"],
+              [399, 421, "email"],
+              [484, 506, "email"],
+              [372, 380, "customer-id"],
+              [458, 466, "customer-id"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1227,
+            "outputTokens": 1193,
+            "durationMs": 7695,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 296,
+                "outputTokens": 164,
+                "durationMs": 1603
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 931,
+                "outputTokens": 1029,
+                "durationMs": 6092
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 7697,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "undetected"
+        },
+        {
+          "id": "syn-v1-0004",
+          "docType": "bank statement",
+          "length": "short",
+          "density": "high",
+          "words": 202,
+          "repeat": 2.17,
+          "detections": [
+            [88, 99, "person"],
+            [114, 127, "person"],
+            [261, 270, "person"],
+            [990, 999, "person"],
+            [554, 565, "person"],
+            [554, 559, "person"],
+            [837, 849, "person"],
+            [866, 876, "person"],
+            [907, 919, "person"],
+            [936, 946, "person"],
+            [1373, 1382, "person"],
+            [1452, 1459, "person"],
+            [1373, 1377, "person"],
+            [145, 194, "address"],
+            [208, 217, "customer-id"],
+            [855, 864, "customer-id"],
+            [925, 934, "customer-id"],
+            [285, 294, "government-id"],
+            [229, 241, "bank-account"],
+            [609, 618, "bank-account"],
+            [308, 327, "financial"],
+            [947, 963, "financial"],
+            [328, 355, "financial"],
+            [386, 408, "financial"],
+            [409, 428, "financial"],
+            [1051, 1090, "url"],
+            [1142, 1174, "api-key"],
+            [1198, 1213, "confidential"],
+            [1224, 1249, "confidential"],
+            [683, 688, "person"],
+            [1443, 1447, "person"],
+            [587, 599, "bank-account"],
+            [1019, 1031, "bank-account"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [88, 99, "person"],
+              [114, 127, "person"],
+              [261, 270, "person"],
+              [990, 999, "person"],
+              [554, 565, "person"],
+              [554, 559, "person"],
+              [837, 849, "person"],
+              [866, 876, "person"],
+              [907, 919, "person"],
+              [936, 946, "person"],
+              [1373, 1382, "person"],
+              [1452, 1459, "person"],
+              [1373, 1377, "person"],
+              [145, 194, "address"],
+              [208, 217, "customer-id"],
+              [855, 864, "customer-id"],
+              [925, 934, "customer-id"],
+              [285, 294, "government-id"],
+              [229, 241, "bank-account"],
+              [609, 618, "bank-account"],
+              [308, 327, "financial"],
+              [947, 963, "financial"],
+              [328, 355, "financial"],
+              [386, 408, "financial"],
+              [409, 428, "financial"],
+              [1051, 1090, "url"],
+              [1142, 1174, "api-key"],
+              [1198, 1213, "confidential"],
+              [1224, 1249, "confidential"]
+            ],
+            "expanded": [
+              [88, 99, "person"],
+              [114, 127, "person"],
+              [261, 270, "person"],
+              [990, 999, "person"],
+              [554, 565, "person"],
+              [554, 559, "person"],
+              [683, 688, "person"],
+              [837, 849, "person"],
+              [866, 876, "person"],
+              [907, 919, "person"],
+              [936, 946, "person"],
+              [1373, 1382, "person"],
+              [1452, 1459, "person"],
+              [1373, 1377, "person"],
+              [1443, 1447, "person"],
+              [145, 194, "address"],
+              [208, 217, "customer-id"],
+              [855, 864, "customer-id"],
+              [925, 934, "customer-id"],
+              [285, 294, "government-id"],
+              [229, 241, "bank-account"],
+              [587, 599, "bank-account"],
+              [1019, 1031, "bank-account"],
+              [609, 618, "bank-account"],
+              [308, 327, "financial"],
+              [947, 963, "financial"],
+              [1051, 1090, "url"],
+              [1142, 1174, "api-key"],
+              [1198, 1213, "confidential"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1761,
+            "outputTokens": 2652,
+            "durationMs": 12044,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 565,
+                "outputTokens": 157,
+                "durationMs": 2017
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1196,
+                "outputTokens": 2495,
+                "durationMs": 10027
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 12046,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0005",
+          "docType": "meeting minutes",
+          "length": "long",
+          "density": "low",
+          "words": 7559,
+          "repeat": 4.5,
+          "detections": [
+            [340, 353, "person"],
+            [361, 371, "person"],
+            [1249, 1258, "person"],
+            [340, 346, "person"],
+            [5371, 5380, "person"],
+            [10619, 10625, "person"],
+            [17143, 17152, "person"],
+            [21707, 21720, "person"],
+            [44501, 44510, "person"],
+            [45210, 45288, "address"],
+            [45296, 45325, "email"],
+            [45341, 45357, "date-of-birth"],
+            [45391, 45403, "customer-id"],
+            [2504, 2510, "person"],
+            [21707, 21713, "person"],
+            [347, 353, "person"],
+            [1252, 1258, "person"],
+            [5374, 5380, "person"],
+            [17146, 17152, "person"],
+            [21714, 21720, "person"],
+            [44504, 44510, "person"],
+            [45298, 45304, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [340, 353, "person"],
+              [361, 371, "person"],
+              [1249, 1258, "person"],
+              [340, 346, "person"],
+              [5371, 5380, "person"],
+              [10619, 10625, "person"],
+              [17143, 17152, "person"],
+              [21707, 21720, "person"],
+              [44501, 44510, "person"],
+              [45210, 45288, "address"],
+              [45296, 45325, "email"],
+              [45341, 45357, "date-of-birth"],
+              [45391, 45403, "customer-id"]
+            ],
+            "expanded": [
+              [340, 353, "person"],
+              [21707, 21720, "person"],
+              [361, 371, "person"],
+              [1249, 1258, "person"],
+              [17143, 17152, "person"],
+              [340, 346, "person"],
+              [2504, 2510, "person"],
+              [21707, 21713, "person"],
+              [5371, 5380, "person"],
+              [44501, 44510, "person"],
+              [347, 353, "person"],
+              [1252, 1258, "person"],
+              [5374, 5380, "person"],
+              [10619, 10625, "person"],
+              [17146, 17152, "person"],
+              [21714, 21720, "person"],
+              [44504, 44510, "person"],
+              [45298, 45304, "person"],
+              [45210, 45288, "address"],
+              [45296, 45325, "email"],
+              [45341, 45357, "date-of-birth"],
+              [45391, 45403, "customer-id"]
+            ]
+          },
+          "usage": {
+            "calls": 10,
+            "inputTokens": 15754,
+            "outputTokens": 2571,
+            "durationMs": 53574,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 479,
+                "outputTokens": 137,
+                "durationMs": 2824
+              },
+              "detect": {
+                "calls": 9,
+                "inputTokens": 15275,
+                "outputTokens": 2434,
+                "durationMs": 50750
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 17998,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0009",
+          "docType": "API/config dump",
+          "length": "short",
+          "density": "low",
+          "words": 140,
+          "repeat": 3.5,
+          "detections": [
+            [168, 178, "person"],
+            [228, 238, "person"],
+            [705, 710, "person"],
+            [168, 172, "person"],
+            [173, 178, "person"],
+            [1038, 1048, "person"],
+            [1044, 1048, "person"],
+            [251, 269, "email"],
+            [404, 433, "url"],
+            [463, 495, "api-key"],
+            [364, 386, "bank-account"],
+            [955, 965, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [168, 178, "person"],
+              [228, 238, "person"],
+              [705, 710, "person"],
+              [168, 172, "person"],
+              [173, 178, "person"],
+              [1038, 1048, "person"],
+              [1044, 1048, "person"],
+              [251, 269, "email"],
+              [404, 433, "url"],
+              [463, 495, "api-key"],
+              [364, 386, "bank-account"]
+            ],
+            "expanded": [
+              [168, 178, "person"],
+              [955, 965, "person"],
+              [251, 269, "email"],
+              [404, 433, "url"],
+              [463, 495, "api-key"],
+              [364, 386, "bank-account"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1735,
+            "outputTokens": 1250,
+            "durationMs": 11690,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 458,
+                "outputTokens": 224,
+                "durationMs": 3804
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1277,
+                "outputTokens": 1026,
+                "durationMs": 7886
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 11690,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "de"
+        },
+        {
+          "id": "syn-v1-0007",
+          "docType": "API/config dump",
+          "length": "medium",
+          "density": "medium",
+          "words": 1378,
+          "repeat": 4,
+          "detections": [
+            [1120, 1130, "person"],
+            [1154, 1165, "customer-id"],
+            [1188, 1199, "government-id"],
+            [1220, 1232, "bank-account"],
+            [1287, 1296, "financial"],
+            [1316, 1332, "financial"],
+            [4453, 4463, "financial"],
+            [3390, 3409, "address"],
+            [3429, 3449, "address"],
+            [2205, 2269, "api-key"],
+            [4795, 4808, "other"],
+            [844, 853, "person"],
+            [3763, 3770, "person"],
+            [849, 853, "person"],
+            [4319, 4329, "person"],
+            [4417, 4431, "customer-id"],
+            [2387, 2397, "customer-id"],
+            [6688, 6692, "person"],
+            [7889, 7897, "person"],
+            [7893, 7897, "person"],
+            [8334, 8343, "person"],
+            [8522, 8527, "person"],
+            [5977, 5992, "confidential"],
+            [5985, 5992, "confidential"],
+            [5891, 5895, "confidential"],
+            [5271, 5281, "person"],
+            [5096, 5107, "customer-id"],
+            [2854, 2858, "person"],
+            [3766, 3770, "person"],
+            [8102, 8106, "person"],
+            [8339, 8343, "person"],
+            [8723, 8727, "person"],
+            [4243, 4253, "customer-id"],
+            [5062, 5072, "customer-id"],
+            [6199, 6206, "confidential"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [1120, 1130, "person"],
+              [1154, 1165, "customer-id"],
+              [1188, 1199, "government-id"],
+              [1220, 1232, "bank-account"],
+              [1287, 1296, "financial"],
+              [1316, 1332, "financial"],
+              [4453, 4463, "financial"],
+              [3390, 3409, "address"],
+              [3429, 3449, "address"],
+              [2205, 2269, "api-key"],
+              [4795, 4808, "other"],
+              [844, 853, "person"],
+              [3763, 3770, "person"],
+              [849, 853, "person"],
+              [4319, 4329, "person"],
+              [4417, 4431, "customer-id"],
+              [2387, 2397, "customer-id"],
+              [6688, 6692, "person"],
+              [7889, 7897, "person"],
+              [7893, 7897, "person"],
+              [8334, 8343, "person"],
+              [8522, 8527, "person"],
+              [7889, 7897, "person"],
+              [6688, 6692, "person"],
+              [5977, 5992, "confidential"],
+              [5985, 5992, "confidential"],
+              [5891, 5895, "confidential"]
+            ],
+            "expanded": [
+              [1120, 1130, "person"],
+              [5271, 5281, "person"],
+              [1154, 1165, "customer-id"],
+              [5096, 5107, "customer-id"],
+              [1188, 1199, "government-id"],
+              [1220, 1232, "bank-account"],
+              [1287, 1296, "financial"],
+              [1316, 1332, "financial"],
+              [4453, 4463, "financial"],
+              [3390, 3409, "address"],
+              [3429, 3449, "address"],
+              [2205, 2269, "api-key"],
+              [4795, 4808, "other"],
+              [844, 853, "person"],
+              [8334, 8343, "person"],
+              [3763, 3770, "person"],
+              [849, 853, "person"],
+              [2854, 2858, "person"],
+              [3766, 3770, "person"],
+              [7893, 7897, "person"],
+              [8102, 8106, "person"],
+              [8339, 8343, "person"],
+              [8723, 8727, "person"],
+              [4319, 4329, "person"],
+              [4417, 4431, "customer-id"],
+              [2387, 2397, "customer-id"],
+              [4243, 4253, "customer-id"],
+              [5062, 5072, "customer-id"],
+              [5977, 5992, "confidential"],
+              [5985, 5992, "confidential"],
+              [6199, 6206, "confidential"],
+              [5891, 5895, "confidential"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 4497,
+            "outputTokens": 2949,
+            "durationMs": 19130,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 648,
+                "outputTokens": 168,
+                "durationMs": 3249
+              },
+              "detect": {
+                "calls": 2,
+                "inputTokens": 3849,
+                "outputTokens": 2781,
+                "durationMs": 15881
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 13545,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0011",
+          "docType": "bank statement",
+          "length": "short",
+          "density": "low",
+          "words": 111,
+          "repeat": 4,
+          "detections": [
+            [83, 94, "person"],
+            [163, 172, "person"],
+            [83, 87, "person"],
+            [580, 584, "person"],
+            [114, 156, "address"],
+            [207, 214, "financial"],
+            [232, 238, "financial"],
+            [319, 327, "bank-account"],
+            [684, 748, "api-key"],
+            [797, 808, "other"],
+            [760, 771, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [83, 94, "person"],
+              [163, 172, "person"],
+              [83, 87, "person"],
+              [580, 584, "person"],
+              [114, 156, "address"],
+              [207, 214, "financial"],
+              [232, 238, "financial"],
+              [319, 327, "bank-account"],
+              [684, 748, "api-key"],
+              [797, 808, "other"]
+            ],
+            "expanded": [
+              [83, 94, "person"],
+              [760, 771, "person"],
+              [114, 156, "address"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1318,
+            "outputTokens": 1096,
+            "durationMs": 11745,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 345,
+                "outputTokens": 128,
+                "durationMs": 2685
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 973,
+                "outputTokens": 968,
+                "durationMs": 9060
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 11744,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0017",
+          "docType": "bank statement",
+          "length": "medium",
+          "density": "none",
+          "words": 1344,
+          "repeat": 0,
+          "detections": [
+            [8938, 8947, "financial"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [8938, 8947, "financial"]
+            ],
+            "expanded": []
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 3610,
+            "outputTokens": 592,
+            "durationMs": 6675,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 450,
+                "outputTokens": 137,
+                "durationMs": 1743
+              },
+              "detect": {
+                "calls": 2,
+                "inputTokens": 3160,
+                "outputTokens": 455,
+                "durationMs": 4932
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 5916,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0013",
+          "docType": "invoice",
+          "length": "short",
+          "density": "medium",
+          "words": 144,
+          "repeat": 3,
+          "detections": [
+            [122, 140, "person"],
+            [306, 321, "person"],
+            [122, 127, "person"],
+            [764, 768, "person"],
+            [176, 186, "date-of-birth"],
+            [199, 221, "government-id"],
+            [293, 302, "financial"],
+            [454, 467, "person"],
+            [544, 552, "person"],
+            [505, 530, "email"],
+            [708, 723, "confidential"],
+            [725, 762, "confidential"],
+            [933, 943, "person"],
+            [831, 846, "person"],
+            [349, 354, "person"],
+            [899, 904, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [122, 140, "person"],
+              [306, 321, "person"],
+              [122, 127, "person"],
+              [764, 768, "person"],
+              [176, 186, "date-of-birth"],
+              [199, 221, "government-id"],
+              [293, 302, "financial"],
+              [454, 467, "person"],
+              [544, 552, "person"],
+              [505, 530, "email"],
+              [708, 723, "confidential"],
+              [725, 762, "confidential"],
+              [933, 943, "person"]
+            ],
+            "expanded": [
+              [122, 140, "person"],
+              [306, 321, "person"],
+              [831, 846, "person"],
+              [122, 127, "person"],
+              [349, 354, "person"],
+              [899, 904, "person"],
+              [764, 768, "person"],
+              [176, 186, "date-of-birth"],
+              [199, 221, "government-id"],
+              [293, 302, "financial"],
+              [454, 467, "person"],
+              [544, 552, "person"],
+              [505, 530, "email"],
+              [708, 723, "confidential"],
+              [725, 762, "confidential"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1323,
+            "outputTokens": 1868,
+            "durationMs": 9583,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 348,
+                "outputTokens": 133,
+                "durationMs": 1527
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 975,
+                "outputTokens": 1735,
+                "durationMs": 8056
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 9584,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0012",
+          "docType": "invoice",
+          "length": "short",
+          "density": "medium",
+          "words": 147,
+          "repeat": 2.75,
+          "detections": [
+            [126, 139, "person"],
+            [182, 195, "person"],
+            [381, 402, "date-of-birth"],
+            [415, 425, "date-of-birth"],
+            [140, 170, "address"],
+            [104, 113, "customer-id"],
+            [277, 287, "financial"],
+            [745, 757, "confidential"],
+            [760, 784, "confidential"],
+            [653, 664, "person"],
+            [786, 795, "person"],
+            [869, 881, "person"],
+            [925, 936, "person"],
+            [949, 962, "person"],
+            [978, 989, "person"],
+            [1052, 1061, "person"],
+            [1079, 1088, "person"],
+            [479, 509, "address"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [126, 139, "person"],
+              [182, 195, "person"],
+              [381, 402, "date-of-birth"],
+              [415, 425, "date-of-birth"],
+              [140, 170, "address"],
+              [104, 113, "customer-id"],
+              [277, 287, "financial"],
+              [745, 757, "confidential"],
+              [760, 784, "confidential"],
+              [653, 664, "person"],
+              [786, 795, "person"],
+              [869, 881, "person"],
+              [925, 936, "person"],
+              [949, 962, "person"],
+              [978, 989, "person"],
+              [1052, 1061, "person"],
+              [1079, 1088, "person"]
+            ],
+            "expanded": [
+              [126, 139, "person"],
+              [182, 195, "person"],
+              [381, 402, "date-of-birth"],
+              [415, 425, "date-of-birth"],
+              [140, 170, "address"],
+              [479, 509, "address"],
+              [104, 113, "customer-id"],
+              [277, 287, "financial"],
+              [745, 757, "confidential"],
+              [760, 784, "confidential"],
+              [653, 664, "person"],
+              [786, 795, "person"],
+              [869, 881, "person"],
+              [925, 936, "person"],
+              [949, 962, "person"],
+              [978, 989, "person"],
+              [1052, 1061, "person"],
+              [1079, 1088, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1755,
+            "outputTokens": 2349,
+            "durationMs": 12703,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 464,
+                "outputTokens": 218,
+                "durationMs": 2058
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1291,
+                "outputTokens": 2131,
+                "durationMs": 10645
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 12703,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "de"
+        },
+        {
+          "id": "syn-v1-0018",
+          "docType": "medical referral",
+          "length": "medium",
+          "density": "medium",
+          "words": 2048,
+          "repeat": 3.33,
+          "detections": [
+            [106, 119, "person"],
+            [515, 526, "person"],
+            [106, 111, "person"],
+            [136, 147, "customer-id"],
+            [163, 173, "date-of-birth"],
+            [188, 235, "address"],
+            [243, 255, "phone"],
+            [263, 288, "email"],
+            [304, 313, "government-id"],
+            [439, 455, "person"],
+            [477, 491, "person"],
+            [1297, 1305, "person"],
+            [588, 671, "health"],
+            [1573, 1624, "health"],
+            [2147, 2169, "health"],
+            [1658, 1726, "health"],
+            [1895, 1983, "health"],
+            [4603, 4673, "health"],
+            [5249, 5272, "health"],
+            [5274, 5303, "health"],
+            [3005, 3069, "api-key"],
+            [6148, 6155, "person"],
+            [10665, 10675, "person"],
+            [8658, 8750, "health"],
+            [8754, 8829, "health"],
+            [8833, 8856, "health"],
+            [8860, 8914, "health"],
+            [8942, 8980, "health"],
+            [7810, 7837, "health"],
+            [9046, 9082, "health"],
+            [9120, 9160, "health"],
+            [12009, 12017, "person"],
+            [12094, 12135, "health"],
+            [12371, 12401, "health"],
+            [11565, 11574, "health"],
+            [271, 276, "person"],
+            [1557, 1562, "person"],
+            [112, 119, "person"],
+            [263, 270, "person"],
+            [519, 526, "person"],
+            [8309, 8316, "person"],
+            [481, 491, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [106, 119, "person"],
+              [515, 526, "person"],
+              [106, 111, "person"],
+              [136, 147, "customer-id"],
+              [163, 173, "date-of-birth"],
+              [188, 235, "address"],
+              [243, 255, "phone"],
+              [263, 288, "email"],
+              [304, 313, "government-id"],
+              [439, 455, "person"],
+              [477, 491, "person"],
+              [1297, 1305, "person"],
+              [588, 671, "health"],
+              [1573, 1624, "health"],
+              [2147, 2169, "health"],
+              [1658, 1726, "health"],
+              [1895, 1983, "health"],
+              [4603, 4673, "health"],
+              [5249, 5272, "health"],
+              [5274, 5303, "health"],
+              [3005, 3069, "api-key"],
+              [6148, 6155, "person"],
+              [10665, 10675, "person"],
+              [8658, 8750, "health"],
+              [8754, 8829, "health"],
+              [8833, 8856, "health"],
+              [8860, 8914, "health"],
+              [8942, 8980, "health"],
+              [7810, 7837, "health"],
+              [9046, 9082, "health"],
+              [9120, 9160, "health"],
+              [12009, 12017, "person"],
+              [12094, 12135, "health"],
+              [12371, 12401, "health"],
+              [11565, 11574, "health"]
+            ],
+            "expanded": [
+              [106, 119, "person"],
+              [515, 526, "person"],
+              [106, 111, "person"],
+              [271, 276, "person"],
+              [1557, 1562, "person"],
+              [136, 147, "customer-id"],
+              [163, 173, "date-of-birth"],
+              [188, 235, "address"],
+              [243, 255, "phone"],
+              [263, 288, "email"],
+              [304, 313, "government-id"],
+              [439, 455, "person"],
+              [477, 491, "person"],
+              [1297, 1305, "person"],
+              [12009, 12017, "person"],
+              [3005, 3069, "api-key"],
+              [112, 119, "person"],
+              [263, 270, "person"],
+              [519, 526, "person"],
+              [6148, 6155, "person"],
+              [8309, 8316, "person"],
+              [481, 491, "person"],
+              [10665, 10675, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 4,
+            "inputTokens": 5471,
+            "outputTokens": 3965,
+            "durationMs": 26325,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 532,
+                "outputTokens": 95,
+                "durationMs": 1448
+              },
+              "detect": {
+                "calls": 3,
+                "inputTokens": 4939,
+                "outputTokens": 3870,
+                "durationMs": 24877
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 10689,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0019",
+          "docType": "CV",
+          "length": "short",
+          "density": "low",
+          "words": 95,
+          "repeat": 6,
+          "detections": [
+            [24, 36, "person"],
+            [234, 245, "person"],
+            [393, 403, "person"],
+            [251, 261, "date-of-birth"],
+            [275, 284, "customer-id"],
+            [300, 314, "phone"],
+            [367, 379, "other"],
+            [657, 669, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [24, 36, "person"],
+              [234, 245, "person"],
+              [393, 403, "person"],
+              [251, 261, "date-of-birth"],
+              [275, 284, "customer-id"],
+              [300, 314, "phone"],
+              [367, 379, "other"]
+            ],
+            "expanded": [
+              [24, 36, "person"],
+              [657, 669, "person"],
+              [234, 245, "person"],
+              [393, 403, "person"],
+              [251, 261, "date-of-birth"],
+              [275, 284, "customer-id"],
+              [300, 314, "phone"],
+              [367, 379, "other"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1098,
+            "outputTokens": 895,
+            "durationMs": 8880,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 233,
+                "outputTokens": 175,
+                "durationMs": 4982
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 865,
+                "outputTokens": 720,
+                "durationMs": 3898
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 8880,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0020",
+          "docType": "contract",
+          "length": "short",
+          "density": "medium",
+          "words": 190,
+          "repeat": 3.5,
+          "detections": [
+            [69, 78, "person"],
+            [92, 103, "person"],
+            [69, 73, "person"],
+            [952, 960, "person"],
+            [995, 1000, "person"],
+            [1053, 1061, "person"],
+            [1161, 1165, "person"],
+            [174, 219, "address"],
+            [504, 515, "bank-account"],
+            [533, 542, "bank-account"],
+            [594, 605, "government-id"],
+            [636, 668, "api-key"],
+            [478, 485, "financial"],
+            [265, 269, "person"],
+            [1110, 1114, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [69, 78, "person"],
+              [92, 103, "person"],
+              [69, 73, "person"],
+              [952, 960, "person"],
+              [995, 1000, "person"],
+              [1053, 1061, "person"],
+              [1161, 1165, "person"],
+              [174, 219, "address"],
+              [504, 515, "bank-account"],
+              [533, 542, "bank-account"],
+              [594, 605, "government-id"],
+              [636, 668, "api-key"],
+              [478, 485, "financial"]
+            ],
+            "expanded": [
+              [69, 78, "person"],
+              [92, 103, "person"],
+              [69, 73, "person"],
+              [265, 269, "person"],
+              [1110, 1114, "person"],
+              [952, 960, "person"],
+              [995, 1000, "person"],
+              [1053, 1061, "person"],
+              [1161, 1165, "person"],
+              [174, 219, "address"],
+              [504, 515, "bank-account"],
+              [533, 542, "bank-account"],
+              [594, 605, "government-id"],
+              [636, 668, "api-key"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1470,
+            "outputTokens": 1702,
+            "durationMs": 9849,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 419,
+                "outputTokens": 153,
+                "durationMs": 4226
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1051,
+                "outputTokens": 1549,
+                "durationMs": 5623
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 9849,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0021",
+          "docType": "contract",
+          "length": "medium",
+          "density": "medium",
+          "words": 1796,
+          "repeat": 5.5,
+          "detections": [
+            [203, 215, "person"],
+            [1359, 1370, "person"],
+            [203, 207, "person"],
+            [272, 325, "address"],
+            [1386, 1395, "customer-id"],
+            [1503, 1520, "phone"],
+            [1571, 1581, "bank-account"],
+            [5737, 5748, "person"],
+            [10118, 10130, "person"],
+            [10185, 10195, "person"],
+            [10118, 10122, "person"],
+            [10079, 10090, "person"],
+            [11525, 11532, "person"],
+            [7626, 7658, "api-key"],
+            [7795, 7809, "confidential"],
+            [11430, 11442, "person"],
+            [243, 247, "person"],
+            [3285, 3289, "person"],
+            [10277, 10281, "person"],
+            [11430, 11434, "person"],
+            [4866, 4883, "phone"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [203, 215, "person"],
+              [1359, 1370, "person"],
+              [203, 207, "person"],
+              [272, 325, "address"],
+              [1386, 1395, "customer-id"],
+              [1503, 1520, "phone"],
+              [1571, 1581, "bank-account"],
+              [5737, 5748, "person"],
+              [10118, 10130, "person"],
+              [10185, 10195, "person"],
+              [10118, 10122, "person"],
+              [10079, 10090, "person"],
+              [11525, 11532, "person"],
+              [7626, 7658, "api-key"],
+              [7795, 7809, "confidential"]
+            ],
+            "expanded": [
+              [203, 215, "person"],
+              [10118, 10130, "person"],
+              [11430, 11442, "person"],
+              [1359, 1370, "person"],
+              [5737, 5748, "person"],
+              [203, 207, "person"],
+              [243, 247, "person"],
+              [3285, 3289, "person"],
+              [10118, 10122, "person"],
+              [10277, 10281, "person"],
+              [11430, 11434, "person"],
+              [272, 325, "address"],
+              [1386, 1395, "customer-id"],
+              [1503, 1520, "phone"],
+              [4866, 4883, "phone"],
+              [1571, 1581, "bank-account"],
+              [10185, 10195, "person"],
+              [10079, 10090, "person"],
+              [11525, 11532, "person"],
+              [7626, 7658, "api-key"],
+              [7795, 7809, "confidential"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 4230,
+            "outputTokens": 1925,
+            "durationMs": 13355,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 531,
+                "outputTokens": 129,
+                "durationMs": 2729
+              },
+              "detect": {
+                "calls": 2,
+                "inputTokens": 3699,
+                "outputTokens": 1796,
+                "durationMs": 10626
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 8841,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0023",
+          "docType": "invoice",
+          "length": "medium",
+          "density": "medium",
+          "words": 1455,
+          "repeat": 2.33,
+          "detections": [
+            [195, 206, "person"],
+            [498, 506, "person"],
+            [207, 244, "address"],
+            [171, 185, "customer-id"],
+            [473, 491, "email"],
+            [6520, 6531, "person"],
+            [6543, 6555, "phone"],
+            [6563, 6586, "email"],
+            [6605, 6616, "person"],
+            [6628, 6644, "phone"],
+            [6652, 6674, "email"],
+            [7102, 7109, "person"],
+            [7348, 7356, "person"],
+            [7440, 7459, "email"],
+            [7898, 7903, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [195, 206, "person"],
+              [498, 506, "person"],
+              [207, 244, "address"],
+              [171, 185, "customer-id"],
+              [473, 491, "email"],
+              [6520, 6531, "person"],
+              [6543, 6555, "phone"],
+              [6563, 6586, "email"],
+              [6605, 6616, "person"],
+              [6628, 6644, "phone"],
+              [6652, 6674, "email"],
+              [7102, 7109, "person"],
+              [7348, 7356, "person"],
+              [7440, 7459, "email"],
+              [7898, 7903, "person"]
+            ],
+            "expanded": [
+              [195, 206, "person"],
+              [498, 506, "person"],
+              [207, 244, "address"],
+              [171, 185, "customer-id"],
+              [473, 491, "email"]
+            ]
+          },
+          "usage": {
+            "calls": 3,
+            "inputTokens": 4005,
+            "outputTokens": 2018,
+            "durationMs": 25081,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 621,
+                "outputTokens": 88,
+                "durationMs": 2927
+              },
+              "detect": {
+                "calls": 2,
+                "inputTokens": 3384,
+                "outputTokens": 1930,
+                "durationMs": 22154
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 14825,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0024",
+          "docType": "bank statement",
+          "length": "short",
+          "density": "medium",
+          "words": 111,
+          "repeat": 1.75,
+          "detections": [
+            [85, 98, "person"],
+            [103, 116, "person"],
+            [825, 835, "person"],
+            [875, 890, "person"],
+            [370, 377, "person"],
+            [531, 541, "person"],
+            [134, 185, "address"],
+            [193, 208, "phone"],
+            [225, 237, "bank-account"],
+            [251, 261, "customer-id"],
+            [263, 289, "financial"],
+            [615, 641, "financial"],
+            [642, 669, "financial"],
+            [340, 350, "financial"],
+            [695, 727, "api-key"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [85, 98, "person"],
+              [103, 116, "person"],
+              [825, 835, "person"],
+              [875, 890, "person"],
+              [370, 377, "person"],
+              [531, 541, "person"],
+              [134, 185, "address"],
+              [193, 208, "phone"],
+              [225, 237, "bank-account"],
+              [251, 261, "customer-id"],
+              [263, 289, "financial"],
+              [615, 641, "financial"],
+              [642, 669, "financial"],
+              [340, 350, "financial"],
+              [695, 727, "api-key"]
+            ],
+            "expanded": [
+              [85, 98, "person"],
+              [103, 116, "person"],
+              [825, 835, "person"],
+              [875, 890, "person"],
+              [370, 377, "person"],
+              [531, 541, "person"],
+              [134, 185, "address"],
+              [193, 208, "phone"],
+              [225, 237, "bank-account"],
+              [251, 261, "customer-id"],
+              [695, 727, "api-key"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1353,
+            "outputTokens": 1343,
+            "durationMs": 18096,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 363,
+                "outputTokens": 103,
+                "durationMs": 7623
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 990,
+                "outputTokens": 1240,
+                "durationMs": 10473
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 18097,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0022",
+          "docType": "tabular export",
+          "length": "long",
+          "density": "medium",
+          "words": 6847,
+          "repeat": 3,
+          "detections": [
+            [124, 132, "customer-id"],
+            [174, 184, "person"],
+            [587, 624, "address"],
+            [666, 682, "date-of-birth"],
+            [691, 704, "phone"],
+            [730, 738, "bank-account"],
+            [1825, 1857, "api-key"],
+            [1946, 1976, "url"],
+            [3144, 3152, "customer-id"],
+            [3425, 3436, "person"],
+            [4363, 4371, "customer-id"],
+            [4408, 4418, "person"],
+            [4408, 4413, "person"],
+            [4723, 4732, "customer-id"],
+            [4858, 4892, "address"],
+            [4960, 4973, "phone"],
+            [6388, 6395, "person"],
+            [7674, 7718, "address"],
+            [10686, 10694, "bank-account"],
+            [10716, 10724, "bank-account"],
+            [10835, 10842, "customer-id"],
+            [11644, 11652, "customer-id"],
+            [11945, 11952, "customer-id"],
+            [13247, 13251, "person"],
+            [13024, 13032, "customer-id"],
+            [14671, 14676, "person"],
+            [14428, 14436, "customer-id"],
+            [15769, 15777, "customer-id"],
+            [17508, 17516, "bank-account"],
+            [17538, 17546, "bank-account"],
+            [17564, 17577, "phone"],
+            [17162, 17170, "customer-id"],
+            [18465, 18473, "customer-id"],
+            [19746, 19754, "customer-id"],
+            [20208, 20215, "customer-id"],
+            [19909, 19953, "address"],
+            [21042, 21050, "customer-id"],
+            [21424, 21434, "person"],
+            [22864, 22894, "url"],
+            [23801, 23808, "person"],
+            [25162, 25206, "address"],
+            [25357, 25370, "phone"],
+            [22405, 22413, "customer-id"],
+            [23601, 23609, "customer-id"],
+            [24928, 24936, "customer-id"],
+            [27975, 27987, "person"],
+            [28033, 28049, "date-of-birth"],
+            [28203, 28232, "address"],
+            [28309, 28322, "phone"],
+            [29374, 29381, "customer-id"],
+            [30368, 30373, "person"],
+            [37809, 37816, "person"],
+            [32595, 32603, "customer-id"],
+            [33244, 33251, "customer-id"],
+            [34963, 34971, "customer-id"],
+            [36214, 36222, "customer-id"],
+            [37279, 37287, "customer-id"],
+            [34241, 34249, "bank-account"],
+            [1588, 1596, "customer-id"],
+            [28913, 28921, "customer-id"],
+            [38352, 38360, "customer-id"],
+            [10294, 10302, "customer-id"],
+            [27539, 27547, "customer-id"],
+            [33865, 33873, "customer-id"],
+            [39479, 39487, "customer-id"],
+            [31464, 31472, "customer-id"],
+            [40473, 40481, "customer-id"],
+            [7390, 7398, "customer-id"],
+            [8794, 8802, "customer-id"],
+            [26224, 26232, "customer-id"],
+            [41420, 41428, "customer-id"],
+            [5938, 5946, "customer-id"],
+            [30211, 30219, "customer-id"],
+            [4692, 4697, "person"],
+            [21424, 21429, "person"],
+            [34506, 34513, "customer-id"],
+            [40217, 40224, "customer-id"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [124, 132, "customer-id"],
+              [174, 184, "person"],
+              [587, 624, "address"],
+              [666, 682, "date-of-birth"],
+              [691, 704, "phone"],
+              [730, 738, "bank-account"],
+              [1825, 1857, "api-key"],
+              [1946, 1976, "url"],
+              [3144, 3152, "customer-id"],
+              [3425, 3436, "person"],
+              [4363, 4371, "customer-id"],
+              [4408, 4418, "person"],
+              [4408, 4413, "person"],
+              [4723, 4732, "customer-id"],
+              [4858, 4892, "address"],
+              [4960, 4973, "phone"],
+              [6388, 6395, "person"],
+              [7674, 7718, "address"],
+              [10686, 10694, "bank-account"],
+              [10716, 10724, "bank-account"],
+              [10835, 10842, "customer-id"],
+              [11644, 11652, "customer-id"],
+              [11945, 11952, "customer-id"],
+              [13247, 13251, "person"],
+              [13024, 13032, "customer-id"],
+              [14671, 14676, "person"],
+              [14428, 14436, "customer-id"],
+              [15769, 15777, "customer-id"],
+              [17508, 17516, "bank-account"],
+              [17538, 17546, "bank-account"],
+              [17564, 17577, "phone"],
+              [17162, 17170, "customer-id"],
+              [18465, 18473, "customer-id"],
+              [19746, 19754, "customer-id"],
+              [20208, 20215, "customer-id"],
+              [19909, 19953, "address"],
+              [21042, 21050, "customer-id"],
+              [21424, 21434, "person"],
+              [22864, 22894, "url"],
+              [23801, 23808, "person"],
+              [25162, 25206, "address"],
+              [25357, 25370, "phone"],
+              [22405, 22413, "customer-id"],
+              [23601, 23609, "customer-id"],
+              [24928, 24936, "customer-id"],
+              [27975, 27987, "person"],
+              [28033, 28049, "date-of-birth"],
+              [28203, 28232, "address"],
+              [28309, 28322, "phone"],
+              [29374, 29381, "customer-id"],
+              [30368, 30373, "person"],
+              [37809, 37816, "person"],
+              [32595, 32603, "customer-id"],
+              [33244, 33251, "customer-id"],
+              [34963, 34971, "customer-id"],
+              [36214, 36222, "customer-id"],
+              [37279, 37287, "customer-id"],
+              [34241, 34249, "bank-account"]
+            ],
+            "expanded": [
+              [124, 132, "customer-id"],
+              [1588, 1596, "customer-id"],
+              [14428, 14436, "customer-id"],
+              [22405, 22413, "customer-id"],
+              [28913, 28921, "customer-id"],
+              [36214, 36222, "customer-id"],
+              [38352, 38360, "customer-id"],
+              [6388, 6395, "person"],
+              [23801, 23808, "person"],
+              [37809, 37816, "person"],
+              [7674, 7718, "address"],
+              [25162, 25206, "address"],
+              [10686, 10694, "bank-account"],
+              [17508, 17516, "bank-account"],
+              [34241, 34249, "bank-account"],
+              [10716, 10724, "bank-account"],
+              [17538, 17546, "bank-account"],
+              [17564, 17577, "phone"],
+              [25357, 25370, "phone"],
+              [28309, 28322, "phone"],
+              [10294, 10302, "customer-id"],
+              [11644, 11652, "customer-id"],
+              [17162, 17170, "customer-id"],
+              [27539, 27547, "customer-id"],
+              [32595, 32603, "customer-id"],
+              [33865, 33873, "customer-id"],
+              [39479, 39487, "customer-id"],
+              [3144, 3152, "customer-id"],
+              [18465, 18473, "customer-id"],
+              [31464, 31472, "customer-id"],
+              [40473, 40481, "customer-id"],
+              [7390, 7398, "customer-id"],
+              [8794, 8802, "customer-id"],
+              [15769, 15777, "customer-id"],
+              [19746, 19754, "customer-id"],
+              [24928, 24936, "customer-id"],
+              [26224, 26232, "customer-id"],
+              [34963, 34971, "customer-id"],
+              [41420, 41428, "customer-id"],
+              [20208, 20215, "customer-id"],
+              [19909, 19953, "address"],
+              [4363, 4371, "customer-id"],
+              [5938, 5946, "customer-id"],
+              [13024, 13032, "customer-id"],
+              [21042, 21050, "customer-id"],
+              [23601, 23609, "customer-id"],
+              [30211, 30219, "customer-id"],
+              [37279, 37287, "customer-id"],
+              [4408, 4418, "person"],
+              [21424, 21434, "person"],
+              [1946, 1976, "url"],
+              [22864, 22894, "url"],
+              [27975, 27987, "person"],
+              [28033, 28049, "date-of-birth"],
+              [28203, 28232, "address"],
+              [29374, 29381, "customer-id"],
+              [4408, 4413, "person"],
+              [4692, 4697, "person"],
+              [21424, 21429, "person"],
+              [30368, 30373, "person"],
+              [10835, 10842, "customer-id"],
+              [11945, 11952, "customer-id"],
+              [33244, 33251, "customer-id"],
+              [34506, 34513, "customer-id"],
+              [40217, 40224, "customer-id"]
+            ]
+          },
+          "usage": {
+            "calls": 9,
+            "inputTokens": 15063,
+            "outputTokens": 8186,
+            "durationMs": 69845,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 547,
+                "outputTokens": 170,
+                "durationMs": 3203
+              },
+              "detect": {
+                "calls": 8,
+                "inputTokens": 14516,
+                "outputTokens": 8016,
+                "durationMs": 66642
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 22833,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0027",
+          "docType": "contract",
+          "length": "medium",
+          "density": "low",
+          "words": 2344,
+          "repeat": 1.5,
+          "detections": [
+            [103, 115, "person"],
+            [1785, 1797, "person"],
+            [162, 176, "person"],
+            [409, 451, "address"],
+            [3622, 3639, "phone"],
+            [3723, 3754, "url"],
+            [15154, 15159, "person"],
+            [15182, 15187, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [103, 115, "person"],
+              [1785, 1797, "person"],
+              [162, 176, "person"],
+              [409, 451, "address"],
+              [3622, 3639, "phone"],
+              [3723, 3754, "url"],
+              [15154, 15159, "person"],
+              [15182, 15187, "person"]
+            ],
+            "expanded": [
+              [103, 115, "person"],
+              [1785, 1797, "person"],
+              [162, 176, "person"],
+              [409, 451, "address"],
+              [3622, 3639, "phone"],
+              [3723, 3754, "url"],
+              [15154, 15159, "person"],
+              [15182, 15187, "person"]
+            ]
+          },
+          "usage": {
+            "calls": 4,
+            "inputTokens": 7062,
+            "outputTokens": 1224,
+            "durationMs": 14144,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 599,
+                "outputTokens": 205,
+                "durationMs": 5219
+              },
+              "detect": {
+                "calls": 3,
+                "inputTokens": 6463,
+                "outputTokens": 1019,
+                "durationMs": 8925
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 8785,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "es"
+        },
+        {
+          "id": "syn-v1-0025",
+          "docType": "email thread",
+          "length": "short",
+          "density": "medium",
+          "words": 111,
+          "repeat": 2.25,
+          "detections": [
+            [52, 61, "person"],
+            [52, 56, "person"],
+            [557, 565, "person"],
+            [84, 93, "customer-id"],
+            [145, 160, "phone"],
+            [233, 240, "financial"],
+            [6, 16, "person"],
+            [327, 336, "person"],
+            [6, 9, "person"],
+            [317, 325, "person"],
+            [629, 640, "person"],
+            [629, 634, "person"],
+            [379, 507, "api-key"],
+            [602, 616, "other"],
+            [95, 99, "person"],
+            [648, 651, "person"],
+            [725, 730, "person"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [52, 61, "person"],
+              [52, 56, "person"],
+              [557, 565, "person"],
+              [84, 93, "customer-id"],
+              [145, 160, "phone"],
+              [233, 240, "financial"],
+              [6, 16, "person"],
+              [327, 336, "person"],
+              [6, 9, "person"],
+              [317, 325, "person"],
+              [629, 640, "person"],
+              [629, 634, "person"],
+              [379, 507, "api-key"],
+              [602, 616, "other"]
+            ],
+            "expanded": [
+              [52, 61, "person"],
+              [52, 56, "person"],
+              [95, 99, "person"],
+              [557, 565, "person"],
+              [84, 93, "customer-id"],
+              [145, 160, "phone"],
+              [233, 240, "financial"],
+              [6, 16, "person"],
+              [327, 336, "person"],
+              [6, 9, "person"],
+              [648, 651, "person"],
+              [317, 325, "person"],
+              [629, 640, "person"],
+              [629, 634, "person"],
+              [725, 730, "person"],
+              [379, 507, "api-key"],
+              [602, 616, "other"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1330,
+            "outputTokens": 1897,
+            "durationMs": 21404,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 348,
+                "outputTokens": 134,
+                "durationMs": 8542
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 982,
+                "outputTokens": 1763,
+                "durationMs": 12862
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 21405,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "en"
+        },
+        {
+          "id": "syn-v1-0028",
+          "docType": "contract",
+          "length": "short",
+          "density": "medium",
+          "words": 164,
+          "repeat": 2.67,
+          "detections": [
+            [55, 68, "person"],
+            [55, 62, "person"],
+            [736, 745, "person"],
+            [758, 766, "person"],
+            [100, 111, "person"],
+            [820, 832, "person"],
+            [820, 825, "person"],
+            [933, 943, "person"],
+            [179, 212, "address"],
+            [429, 438, "government-id"],
+            [451, 475, "email"],
+            [620, 635, "confidential"],
+            [638, 680, "confidential"]
+          ],
+          "passes": {
+            "patterns": [],
+            "rejected": 0,
+            "model": [
+              [55, 68, "person"],
+              [55, 62, "person"],
+              [736, 745, "person"],
+              [758, 766, "person"],
+              [100, 111, "person"],
+              [820, 832, "person"],
+              [820, 825, "person"],
+              [933, 943, "person"],
+              [179, 212, "address"],
+              [429, 438, "government-id"],
+              [451, 475, "email"],
+              [620, 635, "confidential"],
+              [638, 680, "confidential"]
+            ],
+            "expanded": [
+              [55, 68, "person"],
+              [429, 438, "government-id"],
+              [451, 475, "email"]
+            ]
+          },
+          "usage": {
+            "calls": 2,
+            "inputTokens": 1648,
+            "outputTokens": 1755,
+            "durationMs": 10926,
+            "byTask": {
+              "classify": {
+                "calls": 1,
+                "inputTokens": 411,
+                "outputTokens": 214,
+                "durationMs": 3232
+              },
+              "detect": {
+                "calls": 1,
+                "inputTokens": 1237,
+                "outputTokens": 1541,
+                "durationMs": 7694
+              }
+            }
+          },
+          "timings": {
+            "extractMs": null,
+            "analyzeMs": 10927,
+            "exportMs": null
+          },
+          "degraded": null,
+          "language": "fr"
+        }
+      ]
+    }
+  },
+  "throughput": null,
+  "settings": {
+    "aiRequestsPerMinute": null,
+    "aiMaxAttempts": null
+  },
+  "notMeasured": ["Extraction and export: each document is analysed as one plain-text page, so the extract and export stages are not timed; see --format.", "Faces, handwriting, scanned noise and non-Latin scripts, which the corpus does not contain.", "Real-world prevalence: categories are over-represented on purpose, so precision here is not precision on real documents.", "Anything a person accepts or rejects in review: every proposal counts as a redaction, and the export stage exports all of them.", "Model calls saved by expansion are not observed directly: the pipeline never asks the model per occurrence, so the saving is counted as the occurrences the local search added that no model call found.", "Cost is tokens times the configured price; cached-input discounts, batch pricing and a subscription's flat fee are not modelled.", "Throughput depends on the provider, the plan's rate limits and the network at the time of the run; it is one afternoon, not a property of the model."]
+}

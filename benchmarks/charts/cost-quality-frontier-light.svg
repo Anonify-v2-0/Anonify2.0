@@ -1,37 +1,42 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="546" viewBox="0 0 880 546" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">What each model buys: cost against F1</title>
-<desc id="d">What each model buys: cost against F1. gpt-5.6-luna: $0.0038, 68%; gpt-6-luna: $0.00096, 77% (frontier).</desc>
+<desc id="d">What each model buys: cost against F1. gpt-5.6-luna: $0.0038, 68%; gpt-6-luna: $0.00096, 77% (frontier); zai/glm-5.3-flash: $0.0018, 87% (frontier).</desc>
 <rect x="0.5" y="0.5" width="879" height="545" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#0b0b0b">What each model buys: cost against F1</text>
 <text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · deterministic-first · cost on a log scale</text>
 <rect x="28" y="78" width="12" height="12" rx="3" fill="#2a78d6"/><text x="46" y="88" font-size="12" fill="#52514e">on the frontier: nothing cheaper does better</text><rect x="359.68" y="78" width="12" height="12" rx="3" fill="#898781"/><text x="377.68" y="88" font-size="12" fill="#52514e">beaten on both cost and quality</text>
 <line x1="76" y1="462" x2="832" y2="462" stroke="#e1e0d9"/>
 <text x="68" y="466" font-size="11" fill="#898781" text-anchor="end">20%</text>
-<line x1="76" y1="416.29" x2="832" y2="416.29" stroke="#e1e0d9"/>
-<text x="68" y="420.29" font-size="11" fill="#898781" text-anchor="end">30%</text>
-<line x1="76" y1="370.57" x2="832" y2="370.57" stroke="#e1e0d9"/>
-<text x="68" y="374.57" font-size="11" fill="#898781" text-anchor="end">40%</text>
-<line x1="76" y1="324.86" x2="832" y2="324.86" stroke="#e1e0d9"/>
-<text x="68" y="328.86" font-size="11" fill="#898781" text-anchor="end">50%</text>
-<line x1="76" y1="279.14" x2="832" y2="279.14" stroke="#e1e0d9"/>
-<text x="68" y="283.14" font-size="11" fill="#898781" text-anchor="end">60%</text>
-<line x1="76" y1="233.43" x2="832" y2="233.43" stroke="#e1e0d9"/>
-<text x="68" y="237.43" font-size="11" fill="#898781" text-anchor="end">70%</text>
-<line x1="76" y1="187.71" x2="832" y2="187.71" stroke="#e1e0d9"/>
-<text x="68" y="191.71" font-size="11" fill="#898781" text-anchor="end">80%</text>
+<line x1="76" y1="422" x2="832" y2="422" stroke="#e1e0d9"/>
+<text x="68" y="426" font-size="11" fill="#898781" text-anchor="end">30%</text>
+<line x1="76" y1="382" x2="832" y2="382" stroke="#e1e0d9"/>
+<text x="68" y="386" font-size="11" fill="#898781" text-anchor="end">40%</text>
+<line x1="76" y1="342" x2="832" y2="342" stroke="#e1e0d9"/>
+<text x="68" y="346" font-size="11" fill="#898781" text-anchor="end">50%</text>
+<line x1="76" y1="302" x2="832" y2="302" stroke="#e1e0d9"/>
+<text x="68" y="306" font-size="11" fill="#898781" text-anchor="end">60%</text>
+<line x1="76" y1="262" x2="832" y2="262" stroke="#e1e0d9"/>
+<text x="68" y="266" font-size="11" fill="#898781" text-anchor="end">70%</text>
+<line x1="76" y1="222" x2="832" y2="222" stroke="#e1e0d9"/>
+<text x="68" y="226" font-size="11" fill="#898781" text-anchor="end">80%</text>
+<line x1="76" y1="182" x2="832" y2="182" stroke="#e1e0d9"/>
+<text x="68" y="186" font-size="11" fill="#898781" text-anchor="end">90%</text>
 <line x1="76" y1="142" x2="832" y2="142" stroke="#e1e0d9"/>
-<text x="68" y="146" font-size="11" fill="#898781" text-anchor="end">90%</text>
+<text x="68" y="146" font-size="11" fill="#898781" text-anchor="end">100%</text>
 <text x="76" y="480" font-size="11" fill="#898781" text-anchor="middle">$0.0001</text>
 <text x="454" y="480" font-size="11" fill="#898781" text-anchor="middle">$0.001</text>
 <text x="832" y="480" font-size="11" fill="#898781" text-anchor="middle">$0.01</text>
 <line x1="76" y1="462" x2="832" y2="462" stroke="#c3c2b7"/>
 <text x="454" y="500" font-size="11.5" fill="#52514e" text-anchor="middle">dollars per document</text>
 <text x="22" y="128" font-size="11.5" fill="#52514e">F1</text>
-<line x1="76" y1="401.84" x2="832" y2="401.84" stroke="#52514e" stroke-opacity="0.55"/>
-<text x="832" y="395.84" font-size="11" fill="#52514e" text-anchor="end">patterns alone, at $0: F1 33%</text>
-<g><title>gpt-6-luna: $0.00096 a document, F1 77%</title><circle cx="447.81" cy="200.88" r="12" fill="transparent"/><circle cx="447.81" cy="200.88" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<text x="457.81" y="204.88" font-size="11.5" font-weight="600" fill="#0b0b0b">gpt-6-luna</text>
-<g><title>gpt-5.6-luna: $0.0038 a document, F1 68%</title><circle cx="673.68" cy="242.94" r="12" fill="transparent"/><circle cx="673.68" cy="242.94" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/></g>
-<text x="683.68" y="246.94" font-size="11.5" fill="#52514e">gpt-5.6-luna</text>
+<line x1="76" y1="409.36" x2="832" y2="409.36" stroke="#52514e" stroke-opacity="0.55"/>
+<text x="832" y="403.36" font-size="11" fill="#52514e" text-anchor="end">patterns alone, at $0: F1 33%</text>
+<polyline points="447.81,233.52 547.18,194.64" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-opacity="0.45"/>
+<g><title>gpt-6-luna: $0.00096 a document, F1 77%</title><circle cx="447.81" cy="233.52" r="12" fill="transparent"/><circle cx="447.81" cy="233.52" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<text x="457.81" y="237.52" font-size="11.5" font-weight="600" fill="#0b0b0b">gpt-6-luna</text>
+<g><title>zai/glm-5.3-flash: $0.0018 a document, F1 87%</title><circle cx="547.18" cy="194.64" r="12" fill="transparent"/><circle cx="547.18" cy="194.64" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<text x="557.18" y="198.64" font-size="11.5" font-weight="600" fill="#0b0b0b">zai/glm-5.3-flash</text>
+<g><title>gpt-5.6-luna: $0.0038 a document, F1 68%</title><circle cx="673.68" cy="270.32" r="12" fill="transparent"/><circle cx="673.68" cy="270.32" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/></g>
+<text x="683.68" y="274.32" font-size="11.5" fill="#52514e">gpt-5.6-luna</text>
 <text x="28" y="528" font-size="11" fill="#898781">F1 from covered recall and precision over every category.</text>
 </svg>
