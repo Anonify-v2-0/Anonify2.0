@@ -681,6 +681,19 @@ export function buildReport(input: {
       )
   )
 
+  // Detections the corpus cannot judge, said rather than dropped quietly.
+  for (const m of models) {
+    for (const run of Object.values(m.runs)) {
+      const unscored = Object.entries(run?.quality.unscored ?? {})
+      if (!run || unscored.length === 0) continue
+      caveats.push(
+        `${m.label}, ${run.mode}: ${unscored
+          .map(([category, n]) => `${n} ${category}`)
+          .join(", ")} detections are not scored, because the corpus does not label that category`
+      )
+    }
+  }
+
   return { charts, missing, models, excluded, caveats }
 }
 

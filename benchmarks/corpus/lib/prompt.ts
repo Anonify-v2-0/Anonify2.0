@@ -1,5 +1,18 @@
+import { CATEGORY_DEFINITIONS } from "@/lib/redaction/categories"
+
 import { describeLength } from "./spec"
-import type { DocumentSpec } from "./types"
+import { CATEGORIES, type DocumentSpec } from "./types"
+
+/**
+ * The categories, in columns, from the definitions the app's detection prompt
+ * reads too (lib/redaction/categories.ts), so the two cannot drift apart.
+ * The text it produces is pinned by tests/categories.test.ts: a change to it
+ * is a new PROMPT_VERSION.
+ */
+const CATEGORY_BLOCK = CATEGORIES.map(
+  (category) =>
+    `  ${category.padEnd(16)}${CATEGORY_DEFINITIONS[category].meaning}`
+).join("\n")
 
 /**
  * The generation prompt, from issue #57.
@@ -34,20 +47,7 @@ You mark up personal data inline AS YOU WRITE IT, using exactly this syntax:
   [[category|value]]
 
 Categories (use only these):
-  person          a private individual's name, in any form ("Priya Raman", "Ms Raman", "Priya")
-  address         a postal address or a specific enough part of one (street + number, postcode)
-  phone           a phone or fax number
-  email           an email address
-  government-id   national ID, SSN, NI number, passport, driving licence, tax ID
-  bank-account    account number, sort code, IBAN, routing number
-  financial       card number, salary, a specific person's balance or debt
-  date-of-birth   a date of birth or an age that identifies someone
-  customer-id     customer, patient, employee, member or case number tied to a person
-  confidential    internal codenames, unreleased figures, trade secrets
-  api-key         secrets, tokens, passwords, private keys
-  url             a URL that identifies a person (a profile, a personal site, a signed link)
-  other           anything else that identifies a person: licence plate, IP address,
-                  a unique description ("the only left-handed surgeon at St Mary's")
+${CATEGORY_BLOCK}
 
 For these, DO NOT invent the value. Write a placeholder and the tool fills it:
   [[phone|{{PHONE}}]]  [[email|{{EMAIL}}]]  [[government-id|{{GOV_ID}}]]

@@ -1,5 +1,6 @@
 import {
   CATEGORIES,
+  isCategory,
   type Category,
   type LabelledDocument,
 } from "../corpus/lib/types"
@@ -23,6 +24,11 @@ import {
  *
  * Misses and false positives are not the same error, so the weighted cost
  * prices them apart. The weights are the starting ones from #57.
+ *
+ * A detection in a category the corpus does not label, such as `health`, is
+ * left out of the score and counted on its own. The corpus cannot say whether
+ * it is right, so counting it as a false positive would mark the app down for
+ * the corpus's gap, and leaving it out silently would hide it (#197).
  */
 
 export const MISS_WEIGHTS: Record<Category, number> = {
@@ -91,12 +97,18 @@ export type DocumentScore = {
   docType: string
   labels: LabelResult[]
   detections: DetectionResult[]
+  /** Categories of the detections left out because the corpus does not label them. */
+  unscored?: string[]
 }
 
 export function scoreDocument(
   document: LabelledDocument,
-  detections: Detected[]
+  all: Detected[]
 ): DocumentScore {
+  const detections = all.filter((detection) => isCategory(detection.category))
+  const unscored = all
+    .filter((detection) => !isCategory(detection.category))
+    .map((detection) => detection.category)
   const labels = document.spans.map((span) => ({
     category: span.category,
     covered: covers(document.text, span, detections),
@@ -123,6 +135,7 @@ export function scoreDocument(
     docType: document.docType,
     labels,
     detections: results,
+    ...(unscored.length > 0 ? { unscored } : {}),
   }
 }
 
@@ -152,6 +165,11 @@ export type Quality = {
   falsePositives: number
   /** False positives that landed on a hard negative. */
   negativeHits: number
+  /**
+   * Detections in categories the corpus does not label, by category: not in
+   * any figure above, because the corpus cannot judge them.
+   */
+  unscored: Record<string, number>
   byCategory: Record<string, CategoryQuality>
   weightedCost: {
     total: number
@@ -250,6 +268,7 @@ export function aggregate(scores: DocumentScore[]): Quality {
         : round((2 * precision * recall) / (precision + recall)),
     falsePositives,
     negativeHits: count(detections, (d) => d.negative),
+    unscored: unscoredCounts(scores),
     byCategory,
     weightedCost: {
       total: cost,
@@ -259,6 +278,14 @@ export function aggregate(scores: DocumentScore[]): Quality {
       weights: { missed: MISS_WEIGHTS, falsePositive: FALSE_POSITIVE_WEIGHT },
     },
   }
+}
+
+function unscoredCounts(scores: DocumentScore[]): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const category of scores.flatMap((score) => score.unscored ?? [])) {
+    counts[category] = (counts[category] ?? 0) + 1
+  }
+  return counts
 }
 
 // --- agreement --------------------------------------------------------------

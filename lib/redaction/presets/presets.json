@@ -10,6 +10,7 @@
         "Names of people, and organizations named as a customer or patient",
         "Government identifiers, payment cards, bank and account numbers",
         "Dates of birth, customer and case references",
+        "A named person's health, and what they earn, owe or hold",
         "Credentials, API keys and links carrying a token",
         "Faces and signatures in images"
       ],

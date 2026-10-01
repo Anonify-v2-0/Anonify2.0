@@ -12,7 +12,7 @@ import { REDACTION_CATEGORIES } from "@/types/redaction"
 
 const category = z
   .enum(REDACTION_CATEGORIES)
-  .describe("The kind of sensitive information this is")
+  .describe("The kind of sensitive information this is, as the instructions define it")
 
 export const detectionSchema = z.object({
   text: z
