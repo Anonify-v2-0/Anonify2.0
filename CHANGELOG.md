@@ -14,6 +14,19 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.13.0] - 2026-10-01
+
+### Added
+
+- German, French and Spanish documents are read in their own language: the
+  language is told from the text, pattern detection finds dates of birth,
+  addresses, client references, account numbers and identity numbers (Steuer-ID,
+  NIR, DNI and NIE) by the labels and formats those languages use, the model is
+  told which language it is reading, and the editor says which language a
+  document was read in, or that it could not tell and read it as English. IBANs
+  printed in groups of four are now found in every language, and the "Identifiers
+  and dates" preset includes the new identity detectors (#43)
+
 ## [1.12.1] - 2026-10-01
 
 ### Added
