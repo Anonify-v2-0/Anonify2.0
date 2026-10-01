@@ -1,22 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="492" viewBox="0 0 880 492" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">What local expansion adds as values repeat</title>
-<desc id="d">What local expansion adds as values repeat. gpt-5.6-luna: none 2.5, 1–2 1.2, 2.5–5 5.9, 5–10 5.0, 10+ 29; gpt-6-luna: none 1.5, 1–2 2.0, 2.5–5 7.3, 5–10 4.7, 10+ 20.</desc>
+<desc id="d">What local expansion adds as values repeat. gpt-5.6-luna: none 2.5, 1–2 1.2, 2.5–5 5.9, 5–10 5.0, 10+ 29; gpt-6-luna: none 1.5, 1–2 2.0, 2.5–5 7.3, 5–10 4.7, 10+ 20; zai/glm-5.3-flash: none 1.5, 1–2 0.0, 2.5–5 4.8, 5–10 3.3, 10+ 37.</desc>
 <rect x="0.5" y="0.5" width="879" height="491" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#0b0b0b">What local expansion adds as values repeat</text>
 <text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · occurrences added per document, deterministic-first</text>
-<line x1="28" y1="84" x2="40" y2="84" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/><circle cx="34" cy="84" r="3" fill="#2a78d6"/><text x="46" y="88" font-size="12" fill="#52514e">gpt-5.6-luna</text><line x1="144.64000000000001" y1="84" x2="156.64000000000001" y2="84" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="150.64000000000001" cy="84" r="3" fill="#eb6834"/><text x="162.64" y="88" font-size="12" fill="#52514e">gpt-6-luna</text>
+<line x1="28" y1="84" x2="40" y2="84" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/><circle cx="34" cy="84" r="3" fill="#2a78d6"/><text x="46" y="88" font-size="12" fill="#52514e">gpt-5.6-luna</text><line x1="144.64000000000001" y1="84" x2="156.64000000000001" y2="84" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="150.64000000000001" cy="84" r="3" fill="#eb6834"/><text x="162.64" y="88" font-size="12" fill="#52514e">gpt-6-luna</text><line x1="247.84000000000003" y1="84" x2="259.84000000000003" y2="84" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="253.84000000000003" cy="84" r="3" fill="#1baf7a"/><text x="265.84" y="88" font-size="12" fill="#52514e">zai/glm-5.3-flash</text>
 <line x1="80" y1="408" x2="702" y2="408" stroke="#c3c2b7"/>
 <text x="72" y="412" font-size="11" fill="#898781" text-anchor="end">0</text>
 <line x1="80" y1="352" x2="702" y2="352" stroke="#e1e0d9"/>
-<text x="72" y="356" font-size="11" fill="#898781" text-anchor="end">6</text>
+<text x="72" y="356" font-size="11" fill="#898781" text-anchor="end">8</text>
 <line x1="80" y1="296" x2="702" y2="296" stroke="#e1e0d9"/>
-<text x="72" y="300" font-size="11" fill="#898781" text-anchor="end">12</text>
+<text x="72" y="300" font-size="11" fill="#898781" text-anchor="end">16</text>
 <line x1="80" y1="240" x2="702" y2="240" stroke="#e1e0d9"/>
-<text x="72" y="244" font-size="11" fill="#898781" text-anchor="end">18</text>
+<text x="72" y="244" font-size="11" fill="#898781" text-anchor="end">24</text>
 <line x1="80" y1="184" x2="702" y2="184" stroke="#e1e0d9"/>
-<text x="72" y="188" font-size="11" fill="#898781" text-anchor="end">24</text>
+<text x="72" y="188" font-size="11" fill="#898781" text-anchor="end">32</text>
 <line x1="80" y1="128" x2="702" y2="128" stroke="#e1e0d9"/>
-<text x="72" y="132" font-size="11" fill="#898781" text-anchor="end">30</text>
+<text x="72" y="132" font-size="11" fill="#898781" text-anchor="end">40</text>
 <text x="80" y="426" font-size="11" fill="#898781" text-anchor="middle">none</text>
 <text x="235.5" y="426" font-size="11" fill="#898781" text-anchor="middle">1–2</text>
 <text x="391" y="426" font-size="11" fill="#898781" text-anchor="middle">2.5–5</text>
@@ -24,19 +24,26 @@
 <text x="702" y="426" font-size="11" fill="#898781" text-anchor="middle">10+</text>
 <text x="391" y="446" font-size="11.5" fill="#52514e" text-anchor="middle">mentions per cast member</text>
 <text x="22" y="114" font-size="11.5" fill="#52514e">occurrences added per document</text>
-<polyline points="80,384.67 235.5,396.8 391,353.31 546.5,361.33 702,137.33" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<g><title>gpt-5.6-luna, none: 2.5</title><circle cx="80" cy="384.67" r="12" fill="transparent"/><circle cx="80" cy="384.67" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-5.6-luna, 1–2: 1.2</title><circle cx="235.5" cy="396.8" r="12" fill="transparent"/><circle cx="235.5" cy="396.8" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-5.6-luna, 2.5–5: 5.9</title><circle cx="391" cy="353.31" r="12" fill="transparent"/><circle cx="391" cy="353.31" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-5.6-luna, 5–10: 5.0</title><circle cx="546.5" cy="361.33" r="12" fill="transparent"/><circle cx="546.5" cy="361.33" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-5.6-luna, 10+: 29</title><circle cx="702" cy="137.33" r="12" fill="transparent"/><circle cx="702" cy="137.33" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<polyline points="80,394 235.5,389.33 391,339.96 546.5,364.41 702,221.33" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<g><title>gpt-6-luna, none: 1.5</title><circle cx="80" cy="394" r="12" fill="transparent"/><circle cx="80" cy="394" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-6-luna, 1–2: 2.0</title><circle cx="235.5" cy="389.33" r="12" fill="transparent"/><circle cx="235.5" cy="389.33" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-6-luna, 2.5–5: 7.3</title><circle cx="391" cy="339.96" r="12" fill="transparent"/><circle cx="391" cy="339.96" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-6-luna, 5–10: 4.7</title><circle cx="546.5" cy="364.41" r="12" fill="transparent"/><circle cx="546.5" cy="364.41" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-6-luna, 10+: 20</title><circle cx="702" cy="221.33" r="12" fill="transparent"/><circle cx="702" cy="221.33" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
-<text x="712" y="141.33" font-size="11.5" fill="#0b0b0b">gpt-5.6-luna  29</text>
-<text x="712" y="225.33" font-size="11.5" fill="#0b0b0b">gpt-6-luna  20</text>
+<polyline points="80,390.5 235.5,399.6 391,366.98 546.5,373 702,205" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g><title>gpt-5.6-luna, none: 2.5</title><circle cx="80" cy="390.5" r="12" fill="transparent"/><circle cx="80" cy="390.5" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>gpt-5.6-luna, 1–2: 1.2</title><circle cx="235.5" cy="399.6" r="12" fill="transparent"/><circle cx="235.5" cy="399.6" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>gpt-5.6-luna, 2.5–5: 5.9</title><circle cx="391" cy="366.98" r="12" fill="transparent"/><circle cx="391" cy="366.98" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>gpt-5.6-luna, 5–10: 5.0</title><circle cx="546.5" cy="373" r="12" fill="transparent"/><circle cx="546.5" cy="373" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>gpt-5.6-luna, 10+: 29</title><circle cx="702" cy="205" r="12" fill="transparent"/><circle cx="702" cy="205" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<polyline points="80,397.5 235.5,394 391,356.97 546.5,375.31 702,268" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g><title>gpt-6-luna, none: 1.5</title><circle cx="80" cy="397.5" r="12" fill="transparent"/><circle cx="80" cy="397.5" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>gpt-6-luna, 1–2: 2.0</title><circle cx="235.5" cy="394" r="12" fill="transparent"/><circle cx="235.5" cy="394" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>gpt-6-luna, 2.5–5: 7.3</title><circle cx="391" cy="356.97" r="12" fill="transparent"/><circle cx="391" cy="356.97" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>gpt-6-luna, 5–10: 4.7</title><circle cx="546.5" cy="375.31" r="12" fill="transparent"/><circle cx="546.5" cy="375.31" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>gpt-6-luna, 10+: 20</title><circle cx="702" cy="268" r="12" fill="transparent"/><circle cx="702" cy="268" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
+<polyline points="80,397.5 235.5,408 391,374.47 546.5,384.69 702,149" fill="none" stroke="#1baf7a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g><title>zai/glm-5.3-flash, none: 1.5</title><circle cx="80" cy="397.5" r="12" fill="transparent"/><circle cx="80" cy="397.5" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>zai/glm-5.3-flash, 1–2: 0.0</title><circle cx="235.5" cy="408" r="12" fill="transparent"/><circle cx="235.5" cy="408" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>zai/glm-5.3-flash, 2.5–5: 4.8</title><circle cx="391" cy="374.47" r="12" fill="transparent"/><circle cx="391" cy="374.47" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>zai/glm-5.3-flash, 5–10: 3.3</title><circle cx="546.5" cy="384.69" r="12" fill="transparent"/><circle cx="546.5" cy="384.69" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/></g>
+<g><title>zai/glm-5.3-flash, 10+: 37</title><circle cx="702" cy="149" r="12" fill="transparent"/><circle cx="702" cy="149" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/></g>
+<text x="712" y="153" font-size="11.5" fill="#0b0b0b">zai/glm-5.3-flash  37</text>
+<text x="712" y="209" font-size="11.5" fill="#0b0b0b">gpt-5.6-luna  29</text>
+<text x="712" y="272" font-size="11.5" fill="#0b0b0b">gpt-6-luna  20</text>
 <text x="28" y="474" font-size="11" fill="#898781">Repetition is the mean number of mentions per cast member in the document's spec.</text>
 </svg>

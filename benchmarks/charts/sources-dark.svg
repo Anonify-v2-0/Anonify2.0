@@ -1,25 +1,33 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="228" viewBox="0 0 880 228" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="256" viewBox="0 0 880 256" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Where the result comes from</title>
-<desc id="d">Where the result comes from. gpt-5.6-luna patterns 93, model 223, local search 34, only together 0; gpt-6-luna patterns 92, model 219, local search 49, only together 0.</desc>
-<rect x="0.5" y="0.5" width="879" height="227" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
+<desc id="d">Where the result comes from. gpt-5.6-luna patterns 93, model 223, local search 34, only together 0; gpt-6-luna patterns 92, model 219, local search 49, only together 0; zai/glm-5.3-flash patterns 90, model 222, local search 39, only together 0.</desc>
+<rect x="0.5" y="0.5" width="879" height="255" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">Where the result comes from</text>
 <text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · share of covered labels, deterministic-first</text>
 <rect x="28" y="78" width="12" height="12" rx="3" fill="#3987e5"/><text x="46" y="88" font-size="12" fill="#c3c2b7">patterns</text><rect x="117.76" y="78" width="12" height="12" rx="3" fill="#d95926"/><text x="135.76" y="88" font-size="12" fill="#c3c2b7">model</text><rect x="187.36" y="78" width="12" height="12" rx="3" fill="#199e70"/><text x="205.36" y="88" font-size="12" fill="#c3c2b7">local search</text>
-<text x="114.64" y="133" font-size="12" fill="#ffffff" text-anchor="end">gpt-5.6-luna</text>
-<g><title>gpt-5.6-luna, patterns: 93 (27%)</title><path d="M124.64 120H292V138H124.64Z" fill="#3987e5"/></g>
-<text x="208.32" y="133" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">27%</text>
-<g><title>gpt-5.6-luna, model: 223 (64%)</title><path d="M294 120H698.09V138H294Z" fill="#d95926"/></g>
-<text x="496.04" y="133" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">64%</text>
-<g><title>gpt-5.6-luna, local search: 34 (10%)</title><path d="M700.09 120H758Q762 120 762 124V134Q762 138 758 138H700.09Z" fill="#199e70"/></g>
-<text x="731.04" y="133" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">10%</text>
+<text x="148.24" y="133" font-size="12" fill="#ffffff" text-anchor="end">gpt-5.6-luna</text>
+<g><title>gpt-5.6-luna, patterns: 93 (27%)</title><path d="M158.24 120H316.67V138H158.24Z" fill="#3987e5"/></g>
+<text x="237.45" y="133" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">27%</text>
+<g><title>gpt-5.6-luna, model: 223 (64%)</title><path d="M318.67 120H701.35V138H318.67Z" fill="#d95926"/></g>
+<text x="510.01" y="133" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">64%</text>
+<g><title>gpt-5.6-luna, local search: 34 (10%)</title><path d="M703.35 120H758Q762 120 762 124V134Q762 138 758 138H703.35Z" fill="#199e70"/></g>
+<text x="732.67" y="133" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">10%</text>
 <text x="770" y="133" font-size="10.5" fill="#c3c2b7">350 of 411</text>
-<text x="114.64" y="161" font-size="12" fill="#ffffff" text-anchor="end">gpt-6-luna</text>
-<g><title>gpt-6-luna, patterns: 92 (26%)</title><path d="M124.64 148H285.52V166H124.64Z" fill="#3987e5"/></g>
-<text x="205.08" y="161" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">26%</text>
-<g><title>gpt-6-luna, model: 219 (61%)</title><path d="M287.52 148H673.25V166H287.52Z" fill="#d95926"/></g>
-<text x="480.38" y="161" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">61%</text>
-<g><title>gpt-6-luna, local search: 49 (14%)</title><path d="M675.25 148H758Q762 148 762 152V162Q762 166 758 166H675.25Z" fill="#199e70"/></g>
-<text x="718.62" y="161" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">14%</text>
+<text x="148.24" y="161" font-size="12" fill="#ffffff" text-anchor="end">gpt-6-luna</text>
+<g><title>gpt-6-luna, patterns: 92 (26%)</title><path d="M158.24 148H310.53V166H158.24Z" fill="#3987e5"/></g>
+<text x="234.39" y="161" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">26%</text>
+<g><title>gpt-6-luna, model: 219 (61%)</title><path d="M312.53 148H677.82V166H312.53Z" fill="#d95926"/></g>
+<text x="495.18" y="161" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">61%</text>
+<g><title>gpt-6-luna, local search: 49 (14%)</title><path d="M679.82 148H758Q762 148 762 152V162Q762 166 758 166H679.82Z" fill="#199e70"/></g>
+<text x="720.91" y="161" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">14%</text>
 <text x="770" y="161" font-size="10.5" fill="#c3c2b7">360 of 411</text>
-<text x="28" y="210" font-size="11" fill="#898781">Only together: a value no single pass covered in full, such as a name the model found half of.</text>
+<text x="148.24" y="189" font-size="12" fill="#ffffff" text-anchor="end">zai/glm-5.3-flash</text>
+<g><title>zai/glm-5.3-flash, patterns: 90 (26%)</title><path d="M158.24 176H311.05V194H158.24Z" fill="#3987e5"/></g>
+<text x="234.65" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">26%</text>
+<g><title>zai/glm-5.3-flash, model: 222 (63%)</title><path d="M313.05 176H692.92V194H313.05Z" fill="#d95926"/></g>
+<text x="502.98" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">63%</text>
+<g><title>zai/glm-5.3-flash, local search: 39 (11%)</title><path d="M694.92 176H758Q762 176 762 180V190Q762 194 758 194H694.92Z" fill="#199e70"/></g>
+<text x="728.46" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">11%</text>
+<text x="770" y="189" font-size="10.5" fill="#c3c2b7">351 of 411</text>
+<text x="28" y="238" font-size="11" fill="#898781">Only together: a value no single pass covered in full, such as a name the model found half of.</text>
 </svg>

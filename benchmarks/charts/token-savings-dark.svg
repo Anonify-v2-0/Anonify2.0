@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="820" viewBox="0 0 880 820" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="1148" viewBox="0 0 880 1148" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Tokens the deterministic pass saves, by document type</title>
-<desc id="d">Tokens the deterministic pass saves, by document type. gpt-5.6-luna: API/config dump spent, patterns first 5.3k, saved by the patterns 0, spent beyond model-only 243; bank statement spent, patterns first 3.7k, saved by the patterns 0, spent beyond model-only 672; contract spent, patterns first 4.1k, saved by the patterns 0, spent beyond model-only 335; CV spent, patterns first 2.3k, saved by the patterns 0, spent beyond model-only 93; email thread spent, patterns first 2.6k, saved by the patterns 253, spent beyond model-only 0; HR note spent, patterns first 8.0k, saved by the patterns 0, spent beyond model-only 267; invoice spent, patterns first 4.2k, saved by the patterns 0, spent beyond model-only 341; medical referral spent, patterns first 9.2k, saved by the patterns 970, spent beyond model-only 0; meeting minutes spent, patterns first 10.2k, saved by the patterns 0, spent beyond model-only 971; tabular export spent, patterns first 7.5k, saved by the patterns 0, spent beyond model-only 976. gpt-6-luna: API/config dump spent, patterns first 4.0k, saved by the patterns 0, spent beyond model-only 111; bank statement spent, patterns first 2.9k, saved by the patterns 0, spent beyond model-only 231; contract spent, patterns first 3.5k, saved by the patterns 0, spent beyond model-only 410; CV spent, patterns first 1.6k, saved by the patterns 0, spent beyond model-only 512; email thread spent, patterns first 2.1k, saved by the patterns 0, spent beyond model-only 318; HR note spent, patterns first 5.4k, saved by the patterns 0, spent beyond model-only 555; invoice spent, patterns first 3.2k, saved by the patterns 0, spent beyond model-only 492; medical referral spent, patterns first 6.9k, saved by the patterns 211, spent beyond model-only 0; meeting minutes spent, patterns first 8.6k, saved by the patterns 0, spent beyond model-only 1.0k; tabular export spent, patterns first 5.3k, saved by the patterns 0, spent beyond model-only 497.</desc>
-<rect x="0.5" y="0.5" width="879" height="819" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
+<desc id="d">Tokens the deterministic pass saves, by document type. gpt-5.6-luna: API/config dump spent, patterns first 5.3k, saved by the patterns 0, spent beyond model-only 243; bank statement spent, patterns first 3.7k, saved by the patterns 0, spent beyond model-only 672; contract spent, patterns first 4.1k, saved by the patterns 0, spent beyond model-only 335; CV spent, patterns first 2.3k, saved by the patterns 0, spent beyond model-only 93; email thread spent, patterns first 2.6k, saved by the patterns 253, spent beyond model-only 0; HR note spent, patterns first 8.0k, saved by the patterns 0, spent beyond model-only 267; invoice spent, patterns first 4.2k, saved by the patterns 0, spent beyond model-only 341; medical referral spent, patterns first 9.2k, saved by the patterns 970, spent beyond model-only 0; meeting minutes spent, patterns first 10.2k, saved by the patterns 0, spent beyond model-only 971; tabular export spent, patterns first 7.5k, saved by the patterns 0, spent beyond model-only 976. gpt-6-luna: API/config dump spent, patterns first 4.0k, saved by the patterns 0, spent beyond model-only 111; bank statement spent, patterns first 2.9k, saved by the patterns 0, spent beyond model-only 231; contract spent, patterns first 3.5k, saved by the patterns 0, spent beyond model-only 410; CV spent, patterns first 1.6k, saved by the patterns 0, spent beyond model-only 512; email thread spent, patterns first 2.1k, saved by the patterns 0, spent beyond model-only 318; HR note spent, patterns first 5.4k, saved by the patterns 0, spent beyond model-only 555; invoice spent, patterns first 3.2k, saved by the patterns 0, spent beyond model-only 492; medical referral spent, patterns first 6.9k, saved by the patterns 211, spent beyond model-only 0; meeting minutes spent, patterns first 8.6k, saved by the patterns 0, spent beyond model-only 1.0k; tabular export spent, patterns first 5.3k, saved by the patterns 0, spent beyond model-only 497. zai/glm-5.3-flash: API/config dump spent, patterns first 5.7k, saved by the patterns 0, spent beyond model-only 412; bank statement spent, patterns first 3.5k, saved by the patterns 0, spent beyond model-only 562; contract spent, patterns first 4.2k, saved by the patterns 0, spent beyond model-only 361; CV spent, patterns first 2.0k, saved by the patterns 0, spent beyond model-only 523; email thread spent, patterns first 2.4k, saved by the patterns 0, spent beyond model-only 791; HR note spent, patterns first 7.0k, saved by the patterns 0, spent beyond model-only 551; invoice spent, patterns first 4.1k, saved by the patterns 0, spent beyond model-only 591; medical referral spent, patterns first 9.5k, saved by the patterns 0, spent beyond model-only 1.1k; meeting minutes spent, patterns first 10.2k, saved by the patterns 0, spent beyond model-only 763; tabular export spent, patterns first 7.4k, saved by the patterns 0, spent beyond model-only 2.2k.</desc>
+<rect x="0.5" y="0.5" width="879" height="1147" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">Tokens the deterministic pass saves, by document type</text>
 <text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · tokens per document, input and output</text>
 <rect x="28" y="78" width="12" height="12" rx="3" fill="#3987e5"/><text x="46" y="88" font-size="12" fill="#c3c2b7">spent, patterns first</text><rect x="205.12" y="78" width="12" height="12" rx="3" fill="#d95926"/><text x="223.12" y="88" font-size="12" fill="#c3c2b7">saved by the patterns</text><rect x="382.24" y="78" width="12" height="12" rx="3" fill="#199e70"/><text x="400.24" y="88" font-size="12" fill="#c3c2b7">spent beyond model-only</text>
@@ -107,5 +107,56 @@
 <text x="456.76" y="758" font-size="10.5" fill="#898781" text-anchor="middle">6.0k</text>
 <text x="609.38" y="758" font-size="10.5" fill="#898781" text-anchor="middle">9.0k</text>
 <text x="762" y="758" font-size="10.5" fill="#898781" text-anchor="middle">12.0k</text>
-<text x="28" y="802" font-size="11" fill="#898781">Same documents, same model, same prompts; the only difference is whether the patterns run first.</text>
+<text x="28" y="788" font-size="12.5" font-weight="600" fill="#ffffff">zai/glm-5.3-flash</text>
+<line x1="151.52" y1="796" x2="151.52" y2="1072" stroke="#2c2c2a"/>
+<line x1="304.14" y1="796" x2="304.14" y2="1072" stroke="#2c2c2a"/>
+<line x1="456.76" y1="796" x2="456.76" y2="1072" stroke="#2c2c2a"/>
+<line x1="609.38" y1="796" x2="609.38" y2="1072" stroke="#2c2c2a"/>
+<line x1="762" y1="796" x2="762" y2="1072" stroke="#2c2c2a"/>
+<text x="141.52" y="811" font-size="12" fill="#ffffff" text-anchor="end">API/config dump</text>
+<g><title>API/config dump, spent, patterns first: 5.7k (93%)</title><path d="M151.52 798H439.96V816H151.52Z" fill="#3987e5"/></g>
+<g><title>API/config dump, spent beyond model-only: 412 (7%)</title><path d="M441.96 798H458.92Q462.92 798 462.92 802V812Q462.92 816 458.92 816H441.96Z" fill="#199e70"/></g>
+<text x="470.92" y="811" font-size="10.5" fill="#c3c2b7">5.7k without · 7% more</text>
+<text x="141.52" y="839" font-size="12" fill="#ffffff" text-anchor="end">bank statement</text>
+<g><title>bank statement, spent, patterns first: 3.5k (86%)</title><path d="M151.52 826H328.14V844H151.52Z" fill="#3987e5"/></g>
+<g><title>bank statement, spent beyond model-only: 562 (14%)</title><path d="M330.14 826H354.73Q358.73 826 358.73 830V840Q358.73 844 354.73 844H330.14Z" fill="#199e70"/></g>
+<text x="366.73" y="839" font-size="10.5" fill="#c3c2b7">3.5k without · 16% more</text>
+<text x="141.52" y="867" font-size="12" fill="#ffffff" text-anchor="end">contract</text>
+<g><title>contract, spent, patterns first: 4.2k (92%)</title><path d="M151.52 854H365.63V872H151.52Z" fill="#3987e5"/></g>
+<g><title>contract, spent beyond model-only: 361 (8%)</title><path d="M367.63 854H382Q386 854 386 858V868Q386 872 382 872H367.63Z" fill="#199e70"/></g>
+<text x="394" y="867" font-size="10.5" fill="#c3c2b7">4.2k without · 8% more</text>
+<text x="141.52" y="895" font-size="12" fill="#ffffff" text-anchor="end">CV</text>
+<g><title>CV, spent, patterns first: 2.0k (79%)</title><path d="M151.52 882H252.23V900H151.52Z" fill="#3987e5"/></g>
+<g><title>CV, spent beyond model-only: 523 (21%)</title><path d="M254.23 882H276.84Q280.84 882 280.84 886V896Q280.84 900 276.84 900H254.23Z" fill="#199e70"/></g>
+<text x="288.84" y="895" font-size="10.5" fill="#c3c2b7">2.0k without · 26% more</text>
+<text x="141.52" y="923" font-size="12" fill="#ffffff" text-anchor="end">email thread</text>
+<g><title>email thread, spent, patterns first: 2.4k (75%)</title><path d="M151.52 910H272.12V928H151.52Z" fill="#3987e5"/></g>
+<g><title>email thread, spent beyond model-only: 791 (25%)</title><path d="M274.12 910H310.37Q314.37 910 314.37 914V924Q314.37 928 310.37 928H274.12Z" fill="#199e70"/></g>
+<text x="322.37" y="923" font-size="10.5" fill="#c3c2b7">2.4k without · 33% more</text>
+<text x="141.52" y="951" font-size="12" fill="#ffffff" text-anchor="end">HR note</text>
+<g><title>HR note, spent, patterns first: 7.0k (93%)</title><path d="M151.52 938H507.21V956H151.52Z" fill="#3987e5"/></g>
+<g><title>HR note, spent beyond model-only: 551 (7%)</title><path d="M509.21 938H533.24Q537.24 938 537.24 942V952Q537.24 956 533.24 956H509.21Z" fill="#199e70"/></g>
+<text x="545.24" y="951" font-size="10.5" fill="#c3c2b7">7.0k without · 8% more</text>
+<text x="141.52" y="979" font-size="12" fill="#ffffff" text-anchor="end">invoice</text>
+<g><title>invoice, spent, patterns first: 4.1k (87%)</title><path d="M151.52 966H359.22V984H151.52Z" fill="#3987e5"/></g>
+<g><title>invoice, spent beyond model-only: 591 (13%)</title><path d="M361.22 966H387.29Q391.29 966 391.29 970V980Q391.29 984 387.29 984H361.22Z" fill="#199e70"/></g>
+<text x="399.29" y="979" font-size="10.5" fill="#c3c2b7">4.1k without · 14% more</text>
+<text x="141.52" y="1007" font-size="12" fill="#ffffff" text-anchor="end">medical referral</text>
+<g><title>medical referral, spent, patterns first: 9.5k (90%)</title><path d="M151.52 994H634.65V1012H151.52Z" fill="#3987e5"/></g>
+<g><title>medical referral, spent beyond model-only: 1.1k (10%)</title><path d="M636.65 994H686.83Q690.83 994 690.83 998V1008Q690.83 1012 686.83 1012H636.65Z" fill="#199e70"/></g>
+<text x="698.83" y="1007" font-size="10.5" fill="#c3c2b7">9.5k without · 11% more</text>
+<text x="141.52" y="1035" font-size="12" fill="#ffffff" text-anchor="end">meeting minutes</text>
+<g><title>meeting minutes, spent, patterns first: 10.2k (93%)</title><path d="M151.52 1022H670.67V1040H151.52Z" fill="#3987e5"/></g>
+<g><title>meeting minutes, spent beyond model-only: 763 (7%)</title><path d="M672.67 1022H707.48Q711.48 1022 711.48 1026V1036Q711.48 1040 707.48 1040H672.67Z" fill="#199e70"/></g>
+<text x="719.48" y="1035" font-size="10.5" fill="#c3c2b7">10.2k without · 7% more</text>
+<text x="141.52" y="1063" font-size="12" fill="#ffffff" text-anchor="end">tabular export</text>
+<g><title>tabular export, spent, patterns first: 7.4k (77%)</title><path d="M151.52 1050H528.07V1068H151.52Z" fill="#3987e5"/></g>
+<g><title>tabular export, spent beyond model-only: 2.2k (23%)</title><path d="M530.07 1050H639.21Q643.21 1050 643.21 1054V1064Q643.21 1068 639.21 1068H530.07Z" fill="#199e70"/></g>
+<text x="651.21" y="1063" font-size="10.5" fill="#c3c2b7">7.4k without · 30% more</text>
+<text x="151.52" y="1086" font-size="10.5" fill="#898781" text-anchor="middle">0</text>
+<text x="304.14" y="1086" font-size="10.5" fill="#898781" text-anchor="middle">3.0k</text>
+<text x="456.76" y="1086" font-size="10.5" fill="#898781" text-anchor="middle">6.0k</text>
+<text x="609.38" y="1086" font-size="10.5" fill="#898781" text-anchor="middle">9.0k</text>
+<text x="762" y="1086" font-size="10.5" fill="#898781" text-anchor="middle">12.0k</text>
+<text x="28" y="1130" font-size="11" fill="#898781">Same documents, same model, same prompts; the only difference is whether the patterns run first.</text>
 </svg>

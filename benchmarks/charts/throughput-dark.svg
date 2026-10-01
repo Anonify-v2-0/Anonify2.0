@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="507" viewBox="0 0 880 507" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Throughput against concurrency</title>
-<desc id="d">Throughput against concurrency. gpt-5.6-luna: 1 1.1, 2 2.0, 4 4.2, 8 8.1; gpt-6-luna: 1 1.4, 2 3.1, 4 6.3, 8 12.</desc>
+<desc id="d">Throughput against concurrency. gpt-5.6-luna: 1 1.1, 2 2.0, 4 4.2, 8 8.1; gpt-6-luna: 1 1.4, 2 3.1, 4 6.3, 8 12; zai/glm-5.3-flash: 1 3.0, 2 3.2, 4 8.3, 8 4.5.</desc>
 <rect x="0.5" y="0.5" width="879" height="506" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">Throughput against concurrency</text>
 <text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · the same sample of documents at each level</text>
-<line x1="28" y1="84" x2="40" y2="84" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/><circle cx="34" cy="84" r="3" fill="#3987e5"/><text x="46" y="88" font-size="12" fill="#c3c2b7">gpt-5.6-luna</text><line x1="144.64000000000001" y1="84" x2="156.64000000000001" y2="84" stroke="#d95926" stroke-width="2" stroke-linecap="round"/><circle cx="150.64000000000001" cy="84" r="3" fill="#d95926"/><text x="162.64" y="88" font-size="12" fill="#c3c2b7">gpt-6-luna</text>
+<line x1="28" y1="84" x2="40" y2="84" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/><circle cx="34" cy="84" r="3" fill="#3987e5"/><text x="46" y="88" font-size="12" fill="#c3c2b7">gpt-5.6-luna</text><line x1="144.64000000000001" y1="84" x2="156.64000000000001" y2="84" stroke="#d95926" stroke-width="2" stroke-linecap="round"/><circle cx="150.64000000000001" cy="84" r="3" fill="#d95926"/><text x="162.64" y="88" font-size="12" fill="#c3c2b7">gpt-6-luna</text><line x1="247.84000000000003" y1="84" x2="259.84000000000003" y2="84" stroke="#199e70" stroke-width="2" stroke-linecap="round"/><circle cx="253.84000000000003" cy="84" r="3" fill="#199e70"/><text x="265.84" y="88" font-size="12" fill="#c3c2b7">zai/glm-5.3-flash</text>
 <line x1="80" y1="408" x2="702" y2="408" stroke="#383835"/>
 <text x="72" y="412" font-size="11" fill="#898781" text-anchor="end">0</text>
 <line x1="80" y1="352" x2="702" y2="352" stroke="#2c2c2a"/>
@@ -33,8 +33,14 @@
 <g><title>gpt-6-luna, 2: 3.1</title><circle cx="287.33" cy="349.2" r="12" fill="transparent"/><circle cx="287.33" cy="349.2" r="4.5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/></g>
 <g><title>gpt-6-luna, 4: 6.3</title><circle cx="494.67" cy="289.47" r="12" fill="transparent"/><circle cx="494.67" cy="289.47" r="4.5" fill="#d95926" stroke="#1a1a19" stroke-width="2"/></g>
 <g><title>gpt-6-luna, 8: 12 (the model pass was cut short at this level)</title><circle cx="702" cy="178.21" r="12" fill="transparent"/><circle cx="702" cy="178.21" r="4" fill="#1a1a19" stroke="#d95926" stroke-width="2"/></g>
+<polyline points="80,351.63 287.33,347.52 494.67,254 702,324.56" fill="none" stroke="#199e70" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g><title>zai/glm-5.3-flash, 1: 3.0 (the model pass was cut short at this level)</title><circle cx="80" cy="351.63" r="12" fill="transparent"/><circle cx="80" cy="351.63" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="2"/></g>
+<g><title>zai/glm-5.3-flash, 2: 3.2 (the model pass was cut short at this level)</title><circle cx="287.33" cy="347.52" r="12" fill="transparent"/><circle cx="287.33" cy="347.52" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="2"/></g>
+<g><title>zai/glm-5.3-flash, 4: 8.3 (the model pass was cut short at this level)</title><circle cx="494.67" cy="254" r="12" fill="transparent"/><circle cx="494.67" cy="254" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="2"/></g>
+<g><title>zai/glm-5.3-flash, 8: 4.5 (the model pass was cut short at this level)</title><circle cx="702" cy="324.56" r="12" fill="transparent"/><circle cx="702" cy="324.56" r="4" fill="#1a1a19" stroke="#199e70" stroke-width="2"/></g>
 <text x="712" y="182.21" font-size="11.5" fill="#ffffff">gpt-6-luna  12</text>
 <text x="712" y="261.17" font-size="11.5" fill="#ffffff">gpt-5.6-luna  8.1</text>
+<text x="712" y="328.56" font-size="11.5" fill="#ffffff">zai/glm-5.3-flash  4.5</text>
 <text x="28" y="474" font-size="11" fill="#898781">Hollow marker: the model pass was cut short at this level. Concurrency is documents and model calls in flight at once</text>
 <text x="28" y="489" font-size="11" fill="#898781">(ANONIFY_AI_CONCURRENCY). One run, one afternoon, one network.</text>
 </svg>
