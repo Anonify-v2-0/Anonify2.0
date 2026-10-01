@@ -65,3 +65,6 @@ next-env.d.ts
 
 # bench:models: finished documents of a phase still running, so a rerun resumes
 /benchmarks/results/.checkpoints/
+
+# bench:models: the benchmark's own environment and sign-in, kept apart from .env
+/benchmarks/.bench/

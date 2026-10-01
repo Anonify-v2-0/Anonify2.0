@@ -2,16 +2,24 @@
  * The pieces of `pnpm ai login` that are worth testing on their own: the
  * loopback callback and the decision to open a browser. `scripts/ai.ts` runs
  * `main()` on import, so it cannot be tested; this is why the split exists.
+ * The sign-in itself lives here too, so `pnpm bench:models` can sign in to
+ * its own store without going through `pnpm ai`.
  */
 
 import { spawn } from "node:child_process"
 import { createServer, type ServerResponse } from "node:http"
 
 import {
+  authorizeUrl,
   codeFromRedirect,
+  exchangeCode,
   LoginError,
+  newPkce,
   OPENAI_LOGIN,
+  type StoredLogin,
 } from "@/lib/ai/providers/subscription"
+
+import { note, Prompter, say, spin, warn } from "./tty"
 
 export type CallbackServer = {
   /** The authorization code, once the browser comes back with one. */
@@ -131,5 +139,87 @@ export function openBrowser(url: string): void {
     child.unref()
   } catch {
     /* printed already */
+  }
+}
+
+/**
+ * Signs in with a ChatGPT subscription and returns the token, unsaved: where
+ * it is kept is the caller's business. The browser comes back to a loopback
+ * server; in a terminal, the address it ends on can be pasted instead, which
+ * is the way in from a machine with no browser.
+ *
+ * It opens its own prompt, so a caller holding one lends the terminal first
+ * (`Prompter.handOff`).
+ */
+export async function signIn(options: {
+  browser: boolean
+  interactive: boolean
+}): Promise<StoredLogin> {
+  const { interactive } = options
+  const pkce = newPkce()
+  const url = authorizeUrl(pkce)
+  const server = await startCallbackServer(pkce.state)
+  if (!server && !interactive)
+    throw new Error(
+      `Port ${OPENAI_LOGIN.port} is in use and there is no terminal to paste into. Free the port, or run this in a terminal.`
+    )
+
+  say(`  Open this address in a browser signed in to ChatGPT:`)
+  say()
+  say(`  ${url}`)
+  say()
+  if (server && options.browser && canOpenBrowser()) openBrowser(url)
+  if (interactive)
+    note(
+      server
+        ? "The browser returns here by itself. Without a browser on this machine, sign in elsewhere; the last page will fail to load a localhost address. Copy that whole address and paste it below."
+        : `Port ${OPENAI_LOGIN.port} is in use, so paste the address the browser ends on (it will fail to load).`
+    )
+
+  const withdraw = new AbortController()
+  const prompt = new Prompter(interactive)
+  const pasted = async (): Promise<string> => {
+    for (;;) {
+      const text = await prompt.secret(
+        "Redirected address (hidden)",
+        "",
+        withdraw.signal
+      )
+      if (withdraw.signal.aborted) return new Promise<string>(() => {})
+      if (!text) continue
+      try {
+        return codeFromRedirect(text, pkce.state)
+      } catch (error) {
+        if (!(error instanceof LoginError)) throw error
+        warn(error.message)
+      }
+    }
+  }
+  const timeout = new Promise<string>((_, reject) => {
+    const timer = setTimeout(
+      () => reject(new LoginError("No sign-in within ten minutes.")),
+      10 * 60_000
+    )
+    timer.unref()
+  })
+
+  let code: string
+  try {
+    code = await Promise.race([
+      ...(server ? [server.code] : []),
+      ...(interactive ? [pasted()] : []),
+      timeout,
+    ])
+  } finally {
+    withdraw.abort()
+    server?.close()
+    prompt.close()
+  }
+
+  const exchanging = spin("Exchanging the code for a token")
+  try {
+    return await exchangeCode(code, pkce.verifier)
+  } finally {
+    exchanging.stop()
   }
 }

@@ -38,7 +38,7 @@ import {
   writeSettings,
   type Price,
 } from "./ai-configure"
-import { canOpenBrowser, openBrowser, startCallbackServer } from "./ai-login"
+import { signIn } from "./ai-login"
 import {
   accountLines,
   instanceUsageLines,
@@ -336,74 +336,10 @@ async function login(args: Args): Promise<void> {
   for (const line of SUBSCRIPTION_CAVEAT) note(line)
   say()
 
-  const pkce = subscription.newPkce()
-  const url = subscription.authorizeUrl(pkce)
-  const server = await startCallbackServer(pkce.state)
-  if (!server && !interactive)
-    throw new Error(
-      `Port ${subscription.OPENAI_LOGIN.port} is in use and there is no terminal to paste into. Free the port, or run this in a terminal.`
-    )
-
-  say(`  Open this address in a browser signed in to ChatGPT:`)
-  say()
-  say(`  ${url}`)
-  say()
-  if (server && args.browser && canOpenBrowser()) openBrowser(url)
-  if (interactive)
-    note(
-      server
-        ? "The browser returns here by itself. Without a browser on this machine, sign in elsewhere; the last page will fail to load a localhost address. Copy that whole address and paste it below."
-        : `Port ${subscription.OPENAI_LOGIN.port} is in use, so paste the address the browser ends on (it will fail to load).`
-    )
-
-  const withdraw = new AbortController()
-  const prompt = new Prompter(interactive)
-  const pasted = async (): Promise<string> => {
-    for (;;) {
-      const text = await prompt.secret(
-        "Redirected address (hidden)",
-        "",
-        withdraw.signal
-      )
-      if (withdraw.signal.aborted) return new Promise<string>(() => {})
-      if (!text) continue
-      try {
-        return subscription.codeFromRedirect(text, pkce.state)
-      } catch (error) {
-        if (!(error instanceof subscription.LoginError)) throw error
-        warn(error.message)
-      }
-    }
-  }
-  const timeout = new Promise<string>((_, reject) => {
-    const timer = setTimeout(
-      () =>
-        reject(new subscription.LoginError("No sign-in within ten minutes.")),
-      10 * 60_000
-    )
-    timer.unref()
+  const token = await signIn({
+    browser: args.browser,
+    interactive,
   })
-
-  let code: string
-  try {
-    code = await Promise.race([
-      ...(server ? [server.code] : []),
-      ...(interactive ? [pasted()] : []),
-      timeout,
-    ])
-  } finally {
-    withdraw.abort()
-    server?.close()
-    prompt.close()
-  }
-
-  const exchanging = spin("Exchanging the code for a token")
-  let token
-  try {
-    token = await subscription.exchangeCode(code, pkce.verifier)
-  } finally {
-    exchanging.stop()
-  }
   await subscription.saveLogin(token)
   ok("Signed in. The token is sealed in the database and refreshed on use.")
   if (!token.accountId)

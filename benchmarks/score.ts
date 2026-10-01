@@ -2,7 +2,8 @@
  * Scores Anonify's detection against the labelled corpus (issues #57, #59).
  *
  *   pnpm corpus:score                         # deterministic detectors only; no key, no cost
- *   pnpm corpus:score --detector pipeline     # the full pipeline, with AI_MODEL from .env
+ *   pnpm corpus:score --detector pipeline     # the full pipeline, with the benchmark's model
+ *   pnpm corpus:score --detector pipeline --model openai:gpt-5-mini
  *   pnpm corpus:score --split dev --limit 20  # a quick look while iterating
  *   pnpm corpus:score --format pdf            # through PDF rendering and extraction
  *   pnpm corpus:score --compare a.json b.json # agreement between two runs
@@ -13,6 +14,12 @@
  * cost, and every detection by offset, so a later change to the scoring can be
  * applied without running a model again (--rescore) and two runs can be
  * compared. Detections are stored as offsets and a category, never as text.
+ *
+ * Like bench:models, it reads the benchmark's own environment,
+ * benchmarks/.bench/.env, and never .env: the pipeline runs the model saved
+ * there (or --model), with the key saved there, and is verified for the run
+ * first. With nothing saved, a terminal run asks for a provider and model the
+ * way bench:models does, and saves them (see lib/environment.ts).
  *
  * The documents go through `analyzeDocument`, the function an upload goes
  * through. "patterns" runs it with the model switched off, which is exactly
@@ -31,11 +38,19 @@ import { int } from "./corpus/lib/args"
 import { isRenderFormat, RENDER_FORMATS } from "./corpus/lib/render"
 import { palette, progressBar, type Palette } from "./corpus/lib/tui"
 import type { LabelledDocument } from "./corpus/lib/types"
+import { parseModels, type ModelEntry } from "./lib/bench"
 import { corpusHash, gitCommit, loadCorpus, percentile } from "./lib/corpus"
+import {
+  benchEnvName,
+  fileSettingStore,
+  loadBenchEnv,
+  saveBenchEnv,
+} from "./lib/environment"
 import {
   analyse,
   captureUsage,
   liftSpendCap,
+  selectModel,
   withoutModel,
   type Usage,
 } from "./lib/pipeline"
@@ -48,6 +63,7 @@ import {
   type DocumentScore,
   type Quality,
 } from "./lib/scoring"
+import { ensureVerified } from "./lib/verify"
 
 const HERE = import.meta.dirname
 const RESULTS = path.join(HERE, "results")
@@ -56,7 +72,10 @@ const USAGE = `Usage: pnpm corpus:score [options]
 
   --detector <name>     patterns (default): the deterministic detectors, as an
                         install with no AI key runs them; pipeline: the full
-                        analysis, with the provider and AI_MODEL in .env
+                        analysis, with a model from ${benchEnvName()}
+                        (asked for in a terminal when there is none)
+  --model <provider:model>  the pipeline's model, instead of the saved one;
+                        its key comes from ${benchEnvName()} or the shell
   --corpus <dir>        corpus directory (default benchmarks/corpus/synthetic-v1)
   --split <name>        test (default), dev or all
   --format <name>       text (default): each document as one plain-text page;
@@ -155,20 +174,92 @@ type Detector = {
   detect(document: LabelledDocument, format: string): Promise<Detection>
 }
 
-async function createDetector(name: string): Promise<Detector> {
+/**
+ * The one model the pipeline runs: --model, or the model saved for the
+ * benchmarks. Several saved means a question in a terminal and --model
+ * without one; none saved means setting one up, as bench:models does.
+ */
+async function pipelineModel(
+  given: string | undefined,
+  c: Palette
+): Promise<ModelEntry> {
+  if (given !== undefined) {
+    const entries = parseModels(given)
+    if (entries.length !== 1)
+      throw new Error("--model takes one provider:model")
+    return entries[0]
+  }
+  let saved = parseModels(process.env.BENCH_MODELS ?? "")
+  if (saved.length === 1) return saved[0]
+  const env = benchEnvName()
+  if (!process.stdin.isTTY || process.env.CI)
+    throw new Error(
+      saved.length > 1
+        ? `${saved.length} models are saved in ${env}; name one with --model (${saved.map((e) => `${e.provider}:${e.model}`).join(", ")})`
+        : `--detector pipeline needs a model: run it in a terminal to set one up, or pass --model provider:model with its key in ${env}`
+    )
+
+  const { note, ok, Prompter } = await import("@/scripts/tty")
+  const { askModels } = await import("./lib/setup")
+  const prompt = new Prompter(true)
+  const onInterrupt = () => {
+    prompt.close()
+    console.log(c.yellow("\nStopped before anything was scored."))
+    process.exit(130)
+  }
+  process.on("SIGINT", onInterrupt)
+  try {
+    if (saved.length === 0) {
+      note(
+        `No model is saved for the benchmarks yet. Choose one; it is saved to ${env}, apart from .env.`
+      )
+      const chosen = await askModels(prompt, process.env)
+      await saveBenchEnv(chosen.updates)
+      ok(`Saved to ${env}, for the benchmarks only.`)
+      saved = chosen.entries
+      if (saved.length === 1) return saved[0]
+    }
+    return await prompt.choose(
+      "Which model should the pipeline run?",
+      saved.map((entry) => ({
+        value: entry,
+        label: `${entry.provider}:${entry.model}`,
+      }))
+    )
+  } finally {
+    process.off("SIGINT", onInterrupt)
+    prompt.close()
+  }
+}
+
+async function createDetector(
+  name: string,
+  model: string | undefined,
+  c: Palette
+): Promise<Detector> {
   if (name !== "patterns" && name !== "pipeline") {
     throw new Error(
       `--detector must be patterns or pipeline, not ${JSON.stringify(name)}`
     )
   }
+  if (name === "patterns" && model !== undefined)
+    throw new Error("--model is for --detector pipeline")
   liftSpendCap()
   if (name === "patterns") withoutModel()
 
   const { aiConfigured, resolveModel } = await import("@/lib/ai/gateway")
-  if (name === "pipeline" && !aiConfigured()) {
-    throw new Error(
-      "--detector pipeline needs a configured provider: set AI_PROVIDER, AI_MODEL and its key in .env (pnpm setup writes them)"
-    )
+  if (name === "pipeline") {
+    const entry = await pipelineModel(model, c)
+    selectModel(entry.provider, entry.model)
+    if (!aiConfigured())
+      throw new Error(
+        `${entry.provider} is not configured: set its key in ${benchEnvName()}, or run pnpm bench:models in a terminal to set it up`
+      )
+    console.log(c.dim(`${entry.provider}:${entry.model}`))
+    if (!(await ensureVerified(entry, c, false)))
+      throw new Error(
+        "The model failed verification, so the pipeline would run on the patterns alone; nothing was scored."
+      )
   }
 
   return {
@@ -266,6 +357,7 @@ function byDocType(
 
 async function run(values: {
   detector: string
+  model?: string
   corpus: string
   split: string
   ids?: string
@@ -298,8 +390,9 @@ async function run(values: {
     documents = documents.slice(0, int("limit", values.limit, 1))
   const concurrency = int("concurrency", values.concurrency, 1)
 
-  const usage = await captureUsage()
-  const detector = await createDetector(values.detector)
+  // A ChatGPT sign-in is the benchmark's own, never the instance's.
+  const usage = await captureUsage(undefined, { setting: fileSettingStore() })
+  const detector = await createDetector(values.detector, values.model, c)
   console.log(
     `${c.bold("Scoring")} ${detector.name} ${c.dim(detector.model === "none" ? "(no model)" : `(${detector.model})`)} on ${documents.length} ${values.split} documents of ${path.basename(root)}${format === "text" ? "" : `, as ${format}`}`
   )
@@ -540,6 +633,7 @@ async function main() {
     allowPositionals: true,
     options: {
       detector: { type: "string", default: "patterns" },
+      model: { type: "string" },
       corpus: {
         type: "string",
         default: path.join(HERE, "corpus", "synthetic-v1"),
@@ -570,6 +664,8 @@ async function main() {
     if (values.out) await writeResults(path.resolve(values.out), result)
     return
   }
+  // The benchmark's own environment, never .env; the shell still wins.
+  await loadBenchEnv()
   await run(values)
 }
 

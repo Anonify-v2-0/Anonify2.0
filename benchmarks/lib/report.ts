@@ -14,7 +14,8 @@ import {
 
 /**
  * From every results file to the charts #59 and CONTRIBUTING §4 ask for,
- * the two #55 adds, and the Markdown that shows them with their numbers.
+ * the two #55 adds, what measuring cost, and the Markdown that shows them
+ * with their numbers.
  *
  * Pure: `pnpm bench:charts` does the reading and writing. A chart with
  * nothing to draw is left out rather than drawn empty, and the Markdown says
@@ -586,6 +587,85 @@ export function buildReport(input: {
     })
   }
 
+  // 8. What measuring cost: every phase's tokens, input and output, and their
+  // price. The other charts are per document; this is the whole bill, so
+  // whoever reruns a model knows what they are signing up for.
+  const spent = spendRows(models)
+  if (spent.length > 0) {
+    const phases = [...new Set(spent.map((r) => r.phase))]
+    const cost = (usd: number | null) =>
+      usd === null ? "no price" : money(usd)
+    charts.push({
+      name: "tokens-and-cost",
+      title: "Tokens spent and what they cost",
+      alt: "Stacked horizontal bars, one panel per phase and one bar per model: input and output tokens for the whole phase, labelled with the total and its cost.",
+      reading:
+        "Each bar is everything a model spent on one phase, input tokens then output tokens, labelled with the total and its price. The sum of a model's bars is what benchmarking it cost.",
+      svg: both((theme) =>
+        stacked(theme, {
+          title: "Tokens spent and what they cost",
+          subtitle: `${context} · every document of each phase, input and output`,
+          note: "Cost is tokens times each model's configured price, as in the other charts. The two verification calls a model gets first are not counted.",
+          series: ["input tokens", "output tokens"],
+          panels: phases.map((phase) => ({
+            title: PHASE_TITLES[phase] ?? phase,
+            rows: spent
+              .filter((r) => r.phase === phase)
+              .map((r) => ({
+                label: r.label,
+                segments: [r.inputTokens, r.outputTokens],
+                total: `${tokens(r.inputTokens + r.outputTokens)} · ${cost(r.costUsd)}`,
+              })),
+          })),
+          format: tokens,
+        })
+      ),
+      table: table(
+        [
+          "Model",
+          "Phase",
+          "Documents",
+          "Input tokens",
+          "Output tokens",
+          "Total tokens",
+          "Cost",
+        ],
+        models.flatMap((m) => {
+          const own = spent.filter((r) => r.model === m.model)
+          if (own.length === 0) return []
+          const row = (phase: string, r: Omit<SpendSummary, "phase">) => [
+            m.label,
+            phase,
+            String(r.documents),
+            tokens(r.inputTokens),
+            tokens(r.outputTokens),
+            tokens(r.inputTokens + r.outputTokens),
+            cost(r.costUsd),
+          ]
+          const rows = own.map((r) => row(PHASE_TITLES[r.phase] ?? r.phase, r))
+          if (own.length > 1)
+            rows.push(
+              row("all phases", {
+                label: m.label,
+                model: m.model,
+                documents: own.reduce((sum, r) => sum + r.documents, 0),
+                inputTokens: own.reduce((sum, r) => sum + r.inputTokens, 0),
+                outputTokens: own.reduce((sum, r) => sum + r.outputTokens, 0),
+                costUsd: own.every((r) => r.costUsd !== null)
+                  ? own.reduce((sum, r) => sum + r.costUsd!, 0)
+                  : null,
+              })
+            )
+          return rows
+        })
+      ),
+    })
+  } else
+    missing.push({
+      title: "Tokens spent and what they cost",
+      needs: "a model with a measured phase that made model calls",
+    })
+
   // A run whose model pass was cut short is partly the patterns alone, and
   // reads as a worse model unless it says so.
   const caveats = models.flatMap((m) =>
@@ -602,6 +682,66 @@ export function buildReport(input: {
   )
 
   return { charts, missing, models, excluded, caveats }
+}
+
+const PHASE_TITLES: Record<string, string> = {
+  "deterministic-first": "Deterministic-first",
+  "model-only": "Model-only",
+  throughput: "Throughput sweep, every level",
+}
+
+export type SpendSummary = {
+  label: string
+  model: string
+  phase: string
+  /** Documents analysed; for the sweep, every level's sample counted again. */
+  documents: number
+  inputTokens: number
+  outputTokens: number
+  costUsd: number | null
+}
+
+/**
+ * Every measured phase's whole spend, from the results files. A sweep
+ * measured before its points recorded tokens is left out rather than
+ * guessed from its rates, and a phase that made no call has nothing to draw.
+ */
+export function spendRows(models: ModelResults[]): SpendSummary[] {
+  const rows: SpendSummary[] = []
+  for (const m of models) {
+    for (const mode of ["deterministic-first", "model-only"] as const) {
+      const run = m.runs[mode]
+      if (!run || totalTokens(run.totals) === 0) continue
+      rows.push({
+        label: m.label,
+        model: m.model,
+        phase: mode,
+        documents: run.documents,
+        inputTokens: run.totals.inputTokens,
+        outputTokens: run.totals.outputTokens,
+        costUsd: run.totals.costUsd,
+      })
+    }
+    const points = m.throughput?.points ?? []
+    if (points.length > 0 && points.every((p) => p.inputTokens !== undefined)) {
+      const inputTokens = points.reduce((sum, p) => sum + p.inputTokens!, 0)
+      const outputTokens = points.reduce((sum, p) => sum + p.outputTokens!, 0)
+      if (inputTokens + outputTokens > 0)
+        rows.push({
+          label: m.label,
+          model: m.model,
+          phase: "throughput",
+          documents: points.reduce((sum, p) => sum + p.documents, 0),
+          inputTokens,
+          outputTokens,
+          costUsd: points.every((p) => typeof p.costUsd === "number")
+            ? Math.round(points.reduce((sum, p) => sum + p.costUsd!, 0) * 1e6) /
+              1e6
+            : null,
+        })
+    }
+  }
+  return rows
 }
 
 function pctChange(spent: number, without: number): string {
