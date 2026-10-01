@@ -14,6 +14,16 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.14.0] - 2026-10-01
+
+### Added
+
+- A `health` category: a diagnosis, medication, test result or measurement about a named person is suggested as health, and can only be masked. These details used to be suggested as `confidential` (#197)
+
+### Changed
+
+- Fewer wrong suggestions: the model is now told what each category means and what it does not, so invoice lines, prices and totals are no longer suggested as financial details, and letter or appointment dates are no longer suggested as dates of birth. The benchmark corpus is generated from the same definitions (#197)
+
 ## [1.13.0] - 2026-10-01
 
 ### Added
