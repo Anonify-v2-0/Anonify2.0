@@ -7,6 +7,9 @@
  * detection has to be a verbatim substring the application can locate itself.
  */
 
+import { languageSection } from "@/lib/ai/prompts/language"
+import type { Language } from "@/lib/redaction/languages"
+
 export const DETECT_PII_SYSTEM = `You identify potentially sensitive information in documents so a human reviewer can decide what to redact.
 
 Rules:
@@ -23,6 +26,11 @@ You propose. A person reviews every suggestion and decides. Never state or imply
 
 export type DetectPromptInput = {
   documentType?: string
+  /**
+   * The document's language, when it was detected. Absent for English and for
+   * a language that could not be told; see prompts/language.ts.
+   */
+  language?: Language
   /** Normalized content, already chunked. */
   content: string
   /** Categories the deterministic pass already covered, to avoid duplication. */
@@ -41,6 +49,9 @@ export function detectPiiPrompt(input: DetectPromptInput): string {
   if (input.documentType) {
     parts.push(`Document type: ${input.documentType}`)
   }
+
+  const language = languageSection(input.language)
+  if (language) parts.push(language)
 
   if (input.alreadyFound && input.alreadyFound.length > 0) {
     parts.push(

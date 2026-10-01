@@ -7,6 +7,9 @@ import {
   type UsageTotals,
 } from "@/lib/ai/usage-types"
 import { estimateRows } from "@/lib/ai/rates"
+import { isLanguage } from "@/lib/redaction/languages"
+import type { DocumentLanguage } from "@/types/document"
+import type { ProcessingEventType } from "@/types/processing"
 export { configuredRates } from "@/lib/ai/rates"
 
 /**
@@ -36,6 +39,41 @@ function add(
   }
 }
 
+/** The newest event of a type from the newest run: everything after the last `document.queued`. */
+async function newestRunEvent(documentId: string, type: ProcessingEventType) {
+  const started = await prisma.processingEvent.findFirst({
+    where: { documentId, type: "document.queued" },
+    orderBy: { at: "desc" },
+    select: { at: true },
+  })
+
+  return prisma.processingEvent.findFirst({
+    where: {
+      documentId,
+      type,
+      ...(started ? { at: { gte: started.at } } : {}),
+    },
+    orderBy: { at: "desc" },
+  })
+}
+
+/**
+ * The language the newest run read this document in, or null before analysis
+ * has run. Bounded to the newest run for the same reason as the degradation
+ * below: a document reprocessed after an edit is described by its last run.
+ */
+export async function readDocumentLanguage(
+  documentId: string
+): Promise<DocumentLanguage | null> {
+  const event = await newestRunEvent(documentId, "document.language")
+  const payload = (event?.payload ?? {}) as {
+    language?: unknown
+    detected?: unknown
+  }
+  if (!isLanguage(payload.language)) return null
+  return { language: payload.language, detected: payload.detected === true }
+}
+
 /**
  * Whether the model pass fell short on this document, from the event the run
  * wrote when it did.
@@ -50,21 +88,7 @@ function add(
 export async function documentDegradation(
   documentId: string
 ): Promise<UsageDegradation | null> {
-  const started = await prisma.processingEvent.findFirst({
-    where: { documentId, type: "document.queued" },
-    orderBy: { at: "desc" },
-    select: { at: true },
-  })
-
-  const event = await prisma.processingEvent.findFirst({
-    where: {
-      documentId,
-      type: "document.ai.degraded",
-      ...(started ? { at: { gte: started.at } } : {}),
-    },
-    orderBy: { at: "desc" },
-  })
-
+  const event = await newestRunEvent(documentId, "document.ai.degraded")
   if (!event) return null
 
   const payload = (event.payload ?? {}) as { reason?: unknown; calls?: unknown }

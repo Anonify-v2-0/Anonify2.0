@@ -4,6 +4,8 @@
  * format so the canvas, the detectors and the exporters share one vocabulary.
  */
 
+import type { Language } from "@/lib/redaction/languages"
+
 export const DOCUMENT_KINDS = [
   "pdf",
   "docx",
@@ -309,6 +311,19 @@ export type DocumentSummary = {
    * depending on whether everything was looked for.
    */
   presetLabel?: string | null
+  /**
+   * The language the analysis read the document in, once it has run. Shown in
+   * the editor for the same reason as the preset: a short suggestion list
+   * from a document read in the wrong language looks like one with little in
+   * it.
+   */
+  language?: DocumentLanguage | null
+}
+
+export type DocumentLanguage = {
+  language: Language
+  /** False when the text did not say, and English was assumed. */
+  detected: boolean
 }
 
 /**

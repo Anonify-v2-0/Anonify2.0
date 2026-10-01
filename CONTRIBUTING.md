@@ -236,9 +236,15 @@ finished.
       inspector is a real list whose rows are buttons; a live region reports
       where the review stands. Still open: a screen-reader pass by someone who
       actually uses one, and colour-contrast verification.
-- [ ] **Non-English detection.** Detectors are English-shaped (`DOB`, `Account`,
-      street suffixes) and prompts are English. Locale-aware patterns and
-      per-language prompt variants.
+- [x] ~~**Non-English detection.**~~ German, French and Spanish: the language
+      is told from the text (`lib/redaction/languages.ts`), labels, dates,
+      streets and national identity numbers are read in it, the prompts say
+      what documents in it look like, and the editor names the language.
+      Another Latin-script language is a vocabulary entry and a prompt
+      section; measure it against the corpus by locale.
+- [ ] **Non-Latin scripts.** CJK, Cyrillic, Arabic, Hebrew and others, where
+      `\b` and capitals mean nothing and the corpus has no documents yet.
+      [#195](https://github.com/Anonify-v2-0/Anonify2.0/issues/195).
 - [ ] **Touch.** Region drawing works with a pointer; it should work with a
       finger.
 - [x] ~~**Rate limiting is a fixed window.**~~ Now a token bucket, refilling
@@ -662,7 +668,8 @@ Small, self-contained, and genuinely useful:
   understand the codebase, and it tests a claim nobody has checked
 - Any test from §3.3 — the fake model provider is the highest-leverage one
 - Touch support for drawing a region (§3.4)
-- Locale-aware detectors for one language you actually speak (§3.4)
+- Detectors and a prompt section for one language you actually speak (§3.4):
+  German, French and Spanish show the shape in `lib/redaction/languages.ts`
 - A fixture from a format's messier corners — a deck written by Keynote, a
   message from a mailing-list digest, a CSV a bank exported. Every parser bug
   worth fixing came from a real file shaped in a way nobody predicted

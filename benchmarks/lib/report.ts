@@ -822,6 +822,34 @@ function scalingTable(
   )
 }
 
+/**
+ * Quality by the corpus document's locale, which is how a language change
+ * is judged: the English locales should not move, and the others should.
+ */
+function localeTable(models: ModelResults[]): string | null {
+  const rows: string[][] = []
+  for (const m of models) {
+    for (const [mode, run] of Object.entries(m.runs)) {
+      for (const [locale, g] of Object.entries(run?.byLocale ?? {})) {
+        rows.push([
+          m.label,
+          mode,
+          locale,
+          String(g.documents),
+          percent(g.precision),
+          percent(g.recall),
+          percent(g.f1),
+        ])
+      }
+    }
+  }
+  if (rows.length === 0) return null
+  return table(
+    ["Model", "Run", "Locale", "Documents", "Precision", "Recall", "F1"],
+    rows
+  )
+}
+
 export const MARKERS = {
   start: "<!-- bench:results:start -->",
   end: "<!-- bench:results:end -->",
@@ -881,6 +909,8 @@ export function benchmarksMarkdown(
     const density = scalingTable(report.models, "byDensity")
     if (density)
       out.push("#### How it scales with PII density", "", density, "")
+    const locale = localeTable(report.models)
+    if (locale) out.push("#### By language", "", locale, "")
   }
   if (report.missing.length > 0) {
     out.push(

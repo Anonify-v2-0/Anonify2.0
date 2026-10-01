@@ -65,6 +65,11 @@ export type DocumentRecord = {
     exportMs: number | null
   }
   degraded: string | null
+  /**
+   * The language the analysis read it in, or "undetected". Absent from runs
+   * measured before languages were told apart (#43).
+   */
+  language?: string
   exportError?: string
   outside?: number
   recovered?: [number, number]
@@ -89,6 +94,7 @@ export function toRecord(
     detections: Detected[]
     passes: Passes
     degraded: string | null
+    language?: string
     timings: DocumentRecord["timings"]
     exportError?: string
     outside?: number
@@ -126,6 +132,7 @@ export function toRecord(
       exportMs: ms(analysed.timings.exportMs),
     },
     degraded: analysed.degraded,
+    ...(analysed.language ? { language: analysed.language } : {}),
     ...(analysed.exportError ? { exportError: analysed.exportError } : {}),
     ...(analysed.outside !== undefined ? { outside: analysed.outside } : {}),
     ...(analysed.recovered ? { recovered: analysed.recovered } : {}),
@@ -242,6 +249,11 @@ export type RunSummary = {
   byDocType: Record<string, Group>
   byLength: Record<string, Group>
   byDensity: Record<string, Group>
+  /**
+   * By the corpus document's locale. Absent from results measured before it
+   * existed.
+   */
+  byLocale?: Record<string, Group>
   attribution: Attribution
   expansion: ExpansionBucket[]
   records: DocumentRecord[]
@@ -512,6 +524,7 @@ export function summarise(input: {
     byDocType: groupBy(records, (r) => r.docType, byId, rates),
     byLength: groupBy(records, (r) => r.length, byId, rates, LENGTHS),
     byDensity: groupBy(records, (r) => r.density, byId, rates, DENSITIES),
+    byLocale: groupBy(records, (r) => byId.get(r.id)!.locale, byId, rates),
     attribution: attribute(records, byId),
     expansion: expansionByRepeat(records, byId),
     records,

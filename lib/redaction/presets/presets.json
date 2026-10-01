@@ -40,6 +40,10 @@
       ],
       "detectors": [
         "us-social-security",
+        "labelled-national-id",
+        "es-national-id",
+        "fr-social-security",
+        "de-tax-id",
         "labelled-reference",
         "labelled-date-of-birth"
       ],

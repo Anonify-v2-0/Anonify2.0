@@ -512,10 +512,15 @@ actually switches rather than continuing to read with the model already on disk.
 middle of somebody's first redaction.
 
 Only languages present in every variant are listed, so changing the variant can
-never leave you without the data for the language you chose. Note that
-*detection* is still English-shaped
-([#43](https://github.com/Anonify-v2-0/Anonify2.0/issues/43)) — this makes the page
-readable, which is the half that has to work first.
+never leave you without the data for the language you chose. *Detection*
+reads German, French and Spanish as well as English
+([#43](https://github.com/Anonify-v2-0/Anonify2.0/issues/43)): the document's
+language is told from its text, the patterns and the model's instructions are
+tuned for it, and the editor says which language it was read as. Other
+scripts are not tuned yet
+([#195](https://github.com/Anonify-v2-0/Anonify2.0/issues/195)), so OCR in
+those languages makes the page readable, which is the half that has to work
+first.
 
 ### AI detection, model, and cost
 

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { StatusPill } from "@/components/processing/status-pill"
 import { RetentionControl } from "@/components/documents/retention-control"
 import { REPOSITORY_URL } from "@/lib/config"
+import { describeLanguage } from "@/lib/redaction/languages"
 import { useAppDispatch } from "@/store/hooks"
 import { documentLoaded } from "@/store/documentSlice"
 import { exportDialogToggled } from "@/store/uiSlice"
@@ -88,6 +89,7 @@ function BatchNav({ batch }: { batch: NonNullable<DocumentSummary["batch"]> }) {
 
 export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
   const dispatch = useAppDispatch()
+  const language = describeLanguage(summary.language)
 
   return (
     // box-content: the notch's inset is added to the header's height rather
@@ -130,12 +132,26 @@ export function WorkspaceHeader({ summary }: { summary: DocumentSummary }) {
         <p className="truncate text-sm font-medium text-white md:text-base">
           {summary.originalName}
         </p>
-        <p className="text-[11px] text-text-muted">
+        <p className="truncate text-[11px] text-text-muted">
           <span className="uppercase">{summary.kind}</span>
           {summary.presetLabel ? (
             // Said here rather than only at upload: an empty inspector reads as
             // "nothing to redact" unless you know the search was narrowed.
             <span> · looked for {summary.presetLabel.toLowerCase()}</span>
+          ) : null}
+          {language ? (
+            // The same reasoning: a short list from a document read in the
+            // wrong language looks like one with little in it.
+            <span
+              title={
+                summary.language?.detected
+                  ? "Pattern detection and the model's instructions were tuned for this language."
+                  : "The text did not say clearly enough which language it is in. German, French and Spanish labels were still looked for; review it closely."
+              }
+            >
+              {" "}
+              · {language}
+            </span>
           ) : null}
         </p>
       </div>
