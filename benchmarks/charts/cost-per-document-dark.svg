@@ -1,39 +1,37 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="374" viewBox="0 0 880 374" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Cost per document, by model</title>
-<desc id="d">Cost per document, by model. gpt-5.6-luna: short documents $0.002, medium documents $0.0046, long documents $0.015; gpt-6-luna: short documents $0.00059, medium documents $0.0011, long documents $0.0034; zai/glm-5.3-flash: short documents $0.0012, medium documents $0.002, long documents $0.0057.</desc>
+<desc id="d">Cost per document, by model. gpt-5.6-luna: short documents $0.0019, medium documents $0.0037, long documents $0.0087; gpt-6-luna: short documents $0.00057, medium documents $0.0011, long documents $0.0026; zai/glm-5.3-flash: short documents $0.0012, medium documents $0.002, long documents $0.0057.</desc>
 <rect x="0.5" y="0.5" width="879" height="373" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">Cost per document, by model</text>
 <text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · deterministic-first · log scale</text>
 <rect x="28" y="78" width="12" height="12" rx="3" fill="#3987e5"/><text x="46" y="88" font-size="12" fill="#c3c2b7">short documents</text><rect x="164.8" y="78" width="12" height="12" rx="3" fill="#d95926"/><text x="182.8" y="88" font-size="12" fill="#c3c2b7">medium documents</text><rect x="308.32000000000005" y="78" width="12" height="12" rx="3" fill="#199e70"/><text x="326.32" y="88" font-size="12" fill="#c3c2b7">long documents</text>
 <line x1="158.24" y1="114" x2="158.24" y2="316" stroke="#2c2c2a"/>
 <text x="158.24" y="332" font-size="11" fill="#898781" text-anchor="middle">$0.0001</text>
-<line x1="366.16" y1="114" x2="366.16" y2="316" stroke="#2c2c2a"/>
-<text x="366.16" y="332" font-size="11" fill="#898781" text-anchor="middle">$0.001</text>
-<line x1="574.08" y1="114" x2="574.08" y2="316" stroke="#2c2c2a"/>
-<text x="574.08" y="332" font-size="11" fill="#898781" text-anchor="middle">$0.01</text>
+<line x1="470.12" y1="114" x2="470.12" y2="316" stroke="#2c2c2a"/>
+<text x="470.12" y="332" font-size="11" fill="#898781" text-anchor="middle">$0.001</text>
 <line x1="782" y1="114" x2="782" y2="316" stroke="#2c2c2a"/>
-<text x="782" y="332" font-size="11" fill="#898781" text-anchor="middle">$0.10</text>
+<text x="782" y="332" font-size="11" fill="#898781" text-anchor="middle">$0.01</text>
 <line x1="158.24" y1="114" x2="158.24" y2="316" stroke="#383835"/>
 <text x="148.24" y="151" font-size="12" fill="#ffffff" text-anchor="end">gpt-5.6-luna</text>
-<g><title>gpt-5.6-luna, short documents: $0.002</title><path d="M158.24 124H423.71Q427.71 124 427.71 128V134Q427.71 138 423.71 138H158.24Z" fill="#3987e5"/></g>
-<text x="433.71" y="135" font-size="10.5" fill="#c3c2b7">$0.002</text>
-<g><title>gpt-5.6-luna, medium documents: $0.0046</title><path d="M158.24 140H499.39Q503.39 140 503.39 144V150Q503.39 154 499.39 154H158.24Z" fill="#d95926"/></g>
-<text x="509.39" y="151" font-size="10.5" fill="#c3c2b7">$0.0046</text>
-<g><title>gpt-5.6-luna, long documents: $0.015</title><path d="M158.24 156H603.89Q607.89 156 607.89 160V166Q607.89 170 603.89 170H158.24Z" fill="#199e70"/></g>
-<text x="613.89" y="167" font-size="10.5" fill="#c3c2b7">$0.015</text>
+<g><title>gpt-5.6-luna, short documents: $0.0019</title><path d="M158.24 124H555.04Q559.04 124 559.04 128V134Q559.04 138 555.04 138H158.24Z" fill="#3987e5"/></g>
+<text x="565.04" y="135" font-size="10.5" fill="#c3c2b7">$0.0019</text>
+<g><title>gpt-5.6-luna, medium documents: $0.0037</title><path d="M158.24 140H644.57Q648.57 140 648.57 144V150Q648.57 154 644.57 154H158.24Z" fill="#d95926"/></g>
+<text x="654.57" y="151" font-size="10.5" fill="#c3c2b7">$0.0037</text>
+<g><title>gpt-5.6-luna, long documents: $0.0087</title><path d="M158.24 156H758.48Q762.48 156 762.48 160V166Q762.48 170 758.48 170H158.24Z" fill="#199e70"/></g>
+<text x="768.48" y="167" font-size="10.5" fill="#c3c2b7">$0.0087</text>
 <text x="148.24" y="217" font-size="12" fill="#ffffff" text-anchor="end">gpt-6-luna</text>
-<g><title>gpt-6-luna, short documents: $0.00059</title><path d="M158.24 190H314.52Q318.52 190 318.52 194V200Q318.52 204 314.52 204H158.24Z" fill="#3987e5"/></g>
-<text x="324.52" y="201" font-size="10.5" fill="#c3c2b7">$0.00059</text>
-<g><title>gpt-6-luna, medium documents: $0.0011</title><path d="M158.24 206H367.59Q371.59 206 371.59 210V216Q371.59 220 367.59 220H158.24Z" fill="#d95926"/></g>
-<text x="377.59" y="217" font-size="10.5" fill="#c3c2b7">$0.0011</text>
-<g><title>gpt-6-luna, long documents: $0.0034</title><path d="M158.24 222H471.62Q475.62 222 475.62 226V232Q475.62 236 471.62 236H158.24Z" fill="#199e70"/></g>
-<text x="481.62" y="233" font-size="10.5" fill="#c3c2b7">$0.0034</text>
+<g><title>gpt-6-luna, short documents: $0.00057</title><path d="M158.24 190H389.98Q393.98 190 393.98 194V200Q393.98 204 389.98 204H158.24Z" fill="#3987e5"/></g>
+<text x="399.98" y="201" font-size="10.5" fill="#c3c2b7">$0.00057</text>
+<g><title>gpt-6-luna, medium documents: $0.0011</title><path d="M158.24 206H473.88Q477.88 206 477.88 210V216Q477.88 220 473.88 220H158.24Z" fill="#d95926"/></g>
+<text x="483.88" y="217" font-size="10.5" fill="#c3c2b7">$0.0011</text>
+<g><title>gpt-6-luna, long documents: $0.0026</title><path d="M158.24 222H594.76Q598.76 222 598.76 226V232Q598.76 236 594.76 236H158.24Z" fill="#199e70"/></g>
+<text x="604.76" y="233" font-size="10.5" fill="#c3c2b7">$0.0026</text>
 <text x="148.24" y="283" font-size="12" fill="#ffffff" text-anchor="end">zai/glm-5.3-flash</text>
-<g><title>zai/glm-5.3-flash, short documents: $0.0012</title><path d="M158.24 256H381.51Q385.51 256 385.51 260V266Q385.51 270 381.51 270H158.24Z" fill="#3987e5"/></g>
-<text x="391.51" y="267" font-size="10.5" fill="#c3c2b7">$0.0012</text>
-<g><title>zai/glm-5.3-flash, medium documents: $0.002</title><path d="M158.24 272H424.3Q428.3 272 428.3 276V282Q428.3 286 424.3 286H158.24Z" fill="#d95926"/></g>
-<text x="434.3" y="283" font-size="10.5" fill="#c3c2b7">$0.002</text>
-<g><title>zai/glm-5.3-flash, long documents: $0.0057</title><path d="M158.24 288H518.97Q522.97 288 522.97 292V298Q522.97 302 518.97 302H158.24Z" fill="#199e70"/></g>
-<text x="528.97" y="299" font-size="10.5" fill="#c3c2b7">$0.0057</text>
+<g><title>zai/glm-5.3-flash, short documents: $0.0012</title><path d="M158.24 256H495.15Q499.15 256 499.15 260V266Q499.15 270 495.15 270H158.24Z" fill="#3987e5"/></g>
+<text x="505.15" y="267" font-size="10.5" fill="#c3c2b7">$0.0012</text>
+<g><title>zai/glm-5.3-flash, medium documents: $0.002</title><path d="M158.24 272H559.33Q563.33 272 563.33 276V282Q563.33 286 559.33 286H158.24Z" fill="#d95926"/></g>
+<text x="569.33" y="283" font-size="10.5" fill="#c3c2b7">$0.002</text>
+<g><title>zai/glm-5.3-flash, long documents: $0.0057</title><path d="M158.24 288H701.34Q705.34 288 705.34 292V298Q705.34 302 701.34 302H158.24Z" fill="#199e70"/></g>
+<text x="711.34" y="299" font-size="10.5" fill="#c3c2b7">$0.0057</text>
 <text x="28" y="356" font-size="11" fill="#898781">Tokens times each model's configured price. Short is up to a page, medium two to five, long ten to thirty.</text>
 </svg>

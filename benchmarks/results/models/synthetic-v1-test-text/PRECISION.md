@@ -1,5 +1,13 @@
 # Why precision is low in these results
 
+> [!NOTE]
+> **Both luna models have since been rerun** at `77b8d5e`, after #199, on the
+> same 25 documents. Precision rose to **91.5%** for gpt-6-luna and **87.0%**
+> for gpt-5.6-luna, with recall of 84.4% and 89.0%. The results files now hold
+> the rerun. This note explains the earlier figures. Its causes 2 to 5 still
+> apply, and the `customer_ref` column (#202) is now the largest share of the
+> false positives left.
+
 The first test-split results (`openai-subscription_gpt-6-luna.json`,
 `openai-subscription_gpt-5.6-luna.json`, published in #201) report precision of
 **68.9%** for gpt-6-luna and **56.5%** for gpt-5.6-luna, against recall of

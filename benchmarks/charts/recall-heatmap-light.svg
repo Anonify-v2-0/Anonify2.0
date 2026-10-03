@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="394" viewBox="0 0 880 394" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Recall by category</title>
-<desc id="d">Recall by category. patterns alone: email 100, phone 83, url 21, api-key 33, bank-account 35, financial 9, government-id 7, customer-id 29, person 0, address 1, date-of-birth 39, confidential 0, other 0; gpt-5.6-luna: email 100, phone 92, url 100, api-key 100, bank-account 95, financial 91, government-id 100, customer-id 97, person 79, address 76, date-of-birth 100, confidential 60, other 83; gpt-6-luna: email 100, phone 88, url 100, api-key 100, bank-account 95, financial 78, government-id 89, customer-id 97, person 87, address 76, date-of-birth 100, confidential 50, other 83; zai/glm-5.3-flash: email 100, phone 92, url 100, api-key 100, bank-account 95, financial 41, government-id 100, customer-id 90, person 89, address 72, date-of-birth 91, confidential 50, other 100.</desc>
+<desc id="d">Recall by category. patterns alone: email 100, phone 83, url 21, api-key 33, bank-account 35, financial 9, government-id 7, customer-id 29, person 0, address 1, date-of-birth 39, confidential 0, other 0; gpt-5.6-luna: email 100, phone 88, url 100, api-key 100, bank-account 90, financial 63, government-id 100, customer-id 90, person 94, address 76, date-of-birth 91, confidential 50, other 100; gpt-6-luna: email 100, phone 88, url 80, api-key 100, bank-account 90, financial 50, government-id 100, customer-id 86, person 87, address 76, date-of-birth 100, confidential 50, other 100; zai/glm-5.3-flash: email 100, phone 92, url 100, api-key 100, bank-account 95, financial 41, government-id 100, customer-id 90, person 89, address 72, date-of-birth 91, confidential 50, other 100.</desc>
 <rect x="0.5" y="0.5" width="879" height="393" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#0b0b0b">Recall by category</text>
 <text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · covered recall: every character of the value redacted</text>
@@ -51,47 +51,47 @@
 <text x="148.24" y="247" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-5.6-luna</text>
 <g><title>gpt-5.6-luna, email: 100</title><rect x="159.24" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
 <text x="184.92" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>gpt-5.6-luna, phone: 92</title><rect x="212.61" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="238.29" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">92</text>
+<g><title>gpt-5.6-luna, phone: 88</title><rect x="212.61" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
+<text x="238.29" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">88</text>
 <g><title>gpt-5.6-luna, url: 100</title><rect x="265.97" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
 <text x="291.66" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
 <g><title>gpt-5.6-luna, api-key: 100</title><rect x="319.34" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
 <text x="345.02" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>gpt-5.6-luna, bank-account: 95</title><rect x="372.7" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="398.39" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">95</text>
-<g><title>gpt-5.6-luna, financial: 91</title><rect x="426.07" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="451.75" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">91</text>
+<g><title>gpt-5.6-luna, bank-account: 90</title><rect x="372.7" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
+<text x="398.39" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">90</text>
+<g><title>gpt-5.6-luna, financial: 63</title><rect x="426.07" y="229" width="51.37" height="28" rx="4" fill="#256abf"/></g>
+<text x="451.75" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">63</text>
 <g><title>gpt-5.6-luna, government-id: 100</title><rect x="479.44" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
 <text x="505.12" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>gpt-5.6-luna, customer-id: 97</title><rect x="532.8" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="558.49" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">97</text>
-<g><title>gpt-5.6-luna, person: 79</title><rect x="586.17" y="229" width="51.37" height="28" rx="4" fill="#1c5cab"/></g>
-<text x="611.85" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">79</text>
+<g><title>gpt-5.6-luna, customer-id: 90</title><rect x="532.8" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
+<text x="558.49" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">90</text>
+<g><title>gpt-5.6-luna, person: 94</title><rect x="586.17" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
+<text x="611.85" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">94</text>
 <g><title>gpt-5.6-luna, address: 76</title><rect x="639.54" y="229" width="51.37" height="28" rx="4" fill="#1c5cab"/></g>
 <text x="665.22" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">76</text>
-<g><title>gpt-5.6-luna, date-of-birth: 100</title><rect x="692.9" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="718.58" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>gpt-5.6-luna, confidential: 60</title><rect x="746.27" y="229" width="51.37" height="28" rx="4" fill="#2a78d6"/></g>
-<text x="771.95" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">60</text>
-<g><title>gpt-5.6-luna, other: 83</title><rect x="799.63" y="229" width="51.37" height="28" rx="4" fill="#184f95"/></g>
-<text x="825.32" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">83</text>
+<g><title>gpt-5.6-luna, date-of-birth: 91</title><rect x="692.9" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
+<text x="718.58" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">91</text>
+<g><title>gpt-5.6-luna, confidential: 50</title><rect x="746.27" y="229" width="51.37" height="28" rx="4" fill="#3987e5"/></g>
+<text x="771.95" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">50</text>
+<g><title>gpt-5.6-luna, other: 100</title><rect x="799.63" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
+<text x="825.32" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
 <text x="148.24" y="277" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-6-luna</text>
 <g><title>gpt-6-luna, email: 100</title><rect x="159.24" y="259" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
 <text x="184.92" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
 <g><title>gpt-6-luna, phone: 88</title><rect x="212.61" y="259" width="51.37" height="28" rx="4" fill="#104281"/></g>
 <text x="238.29" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">88</text>
-<g><title>gpt-6-luna, url: 100</title><rect x="265.97" y="259" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="291.66" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>gpt-6-luna, url: 80</title><rect x="265.97" y="259" width="51.37" height="28" rx="4" fill="#184f95"/></g>
+<text x="291.66" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">80</text>
 <g><title>gpt-6-luna, api-key: 100</title><rect x="319.34" y="259" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
 <text x="345.02" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>gpt-6-luna, bank-account: 95</title><rect x="372.7" y="259" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="398.39" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">95</text>
-<g><title>gpt-6-luna, financial: 78</title><rect x="426.07" y="259" width="51.37" height="28" rx="4" fill="#1c5cab"/></g>
-<text x="451.75" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">78</text>
-<g><title>gpt-6-luna, government-id: 89</title><rect x="479.44" y="259" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="505.12" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">89</text>
-<g><title>gpt-6-luna, customer-id: 97</title><rect x="532.8" y="259" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="558.49" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">97</text>
+<g><title>gpt-6-luna, bank-account: 90</title><rect x="372.7" y="259" width="51.37" height="28" rx="4" fill="#104281"/></g>
+<text x="398.39" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">90</text>
+<g><title>gpt-6-luna, financial: 50</title><rect x="426.07" y="259" width="51.37" height="28" rx="4" fill="#3987e5"/></g>
+<text x="451.75" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">50</text>
+<g><title>gpt-6-luna, government-id: 100</title><rect x="479.44" y="259" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
+<text x="505.12" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>gpt-6-luna, customer-id: 86</title><rect x="532.8" y="259" width="51.37" height="28" rx="4" fill="#184f95"/></g>
+<text x="558.49" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">86</text>
 <g><title>gpt-6-luna, person: 87</title><rect x="586.17" y="259" width="51.37" height="28" rx="4" fill="#184f95"/></g>
 <text x="611.85" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">87</text>
 <g><title>gpt-6-luna, address: 76</title><rect x="639.54" y="259" width="51.37" height="28" rx="4" fill="#1c5cab"/></g>
@@ -100,8 +100,8 @@
 <text x="718.58" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
 <g><title>gpt-6-luna, confidential: 50</title><rect x="746.27" y="259" width="51.37" height="28" rx="4" fill="#3987e5"/></g>
 <text x="771.95" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">50</text>
-<g><title>gpt-6-luna, other: 83</title><rect x="799.63" y="259" width="51.37" height="28" rx="4" fill="#184f95"/></g>
-<text x="825.32" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">83</text>
+<g><title>gpt-6-luna, other: 100</title><rect x="799.63" y="259" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
+<text x="825.32" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
 <text x="148.24" y="307" font-size="12" fill="#0b0b0b" text-anchor="end">zai/glm-5.3-flash</text>
 <g><title>zai/glm-5.3-flash, email: 100</title><rect x="159.24" y="289" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
 <text x="184.92" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
