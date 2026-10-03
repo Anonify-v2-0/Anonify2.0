@@ -892,8 +892,13 @@ audit of what is currently half-wired, and what the next phase of work is.
 
 The standing ask: **benchmark it**. The architecture claims that deterministic
 detection plus a narrow model pass costs far fewer tokens than sending documents
-to a model, at comparable quality. Nobody has measured that, and it could be
-wrong. CONTRIBUTING specifies what to measure and what to submit.
+to a model, at comparable quality. The first run measured it with three models
+on 25 documents, and so far it does not hold: the patterns first cost 8–16%
+more tokens, at slightly lower recall
+([what it found](benchmarks/README.md#what-the-first-run-found), [#207](https://github.com/Anonify-v2-0/Anonify2.0/issues/207)). That is
+one corpus and three models. More models, a size pair from one family, a local
+model, and a different corpus would each test the claim further: [#208](https://github.com/Anonify-v2-0/Anonify2.0/issues/208) lists
+them, and CONTRIBUTING says what to submit.
 
 There are no accounts and no auth, deliberately: you run this against your own
 database and your own storage. The hosted demo is anonymous so people can try

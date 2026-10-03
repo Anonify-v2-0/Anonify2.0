@@ -47,6 +47,23 @@ sixteen occurrences are found by a local string search. Occurrence 2..n costs a
 scan, not a request — and, just as importantly, cannot come back with a different
 answer than occurrence 1.
 
+### Measured
+
+Local expansion holds up: in the first benchmark, 11–16% of the labelled
+values found were found by the local search alone, every one an occurrence no
+model call had to find.
+
+The deterministic pass, so far, does not. Against the same model with the
+patterns switched off, running them first cost **8–16% more tokens**, and
+recall was 3–6 points lower. Verification (step 4) and the already-found list
+sent with each chunk cost more than the model saves by not repeating what the
+patterns found. Address lost the most: the pattern matches the street line, and
+the model then reports the rest as a separate span, or not at all. That run is
+three models on 25 mostly short documents, so it is a direction, not a
+verdict. The numbers, and what would change them, are in
+[benchmarks/README.md](../benchmarks/README.md#what-the-first-run-found) and
+[#207](https://github.com/Anonify-v2-0/Anonify2.0/issues/207).
+
 ---
 
 ## 2. Deterministic detectors
