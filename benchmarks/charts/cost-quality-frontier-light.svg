@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="546" viewBox="0 0 880 546" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">What each model buys: cost against F1</title>
-<desc id="d">What each model buys: cost against F1. gpt-5.6-luna: $0.0038, 68%; gpt-6-luna: $0.00096, 77% (frontier); zai/glm-5.3-flash: $0.0018, 86% (frontier).</desc>
+<desc id="d">What each model buys: cost against F1. gpt-5.6-luna: $0.003, 88% (frontier); gpt-6-luna: $0.00089, 88% (frontier); zai/glm-5.3-flash: $0.0018, 86%.</desc>
 <rect x="0.5" y="0.5" width="879" height="545" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#0b0b0b">What each model buys: cost against F1</text>
 <text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · deterministic-first · cost on a log scale</text>
@@ -31,12 +31,12 @@
 <text x="22" y="128" font-size="11.5" fill="#52514e">F1</text>
 <line x1="76" y1="409.36" x2="832" y2="409.36" stroke="#52514e" stroke-opacity="0.55"/>
 <text x="832" y="403.36" font-size="11" fill="#52514e" text-anchor="end">patterns alone, at $0: F1 33%</text>
-<polyline points="447.81,233.52 553.56,198.4" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-opacity="0.45"/>
-<g><title>gpt-6-luna: $0.00096 a document, F1 77%</title><circle cx="447.81" cy="233.52" r="12" fill="transparent"/><circle cx="447.81" cy="233.52" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<text x="457.81" y="237.52" font-size="11.5" font-weight="600" fill="#0b0b0b">gpt-6-luna</text>
-<g><title>zai/glm-5.3-flash: $0.0018 a document, F1 86%</title><circle cx="553.56" cy="198.4" r="12" fill="transparent"/><circle cx="553.56" cy="198.4" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<text x="563.56" y="202.4" font-size="11.5" font-weight="600" fill="#0b0b0b">zai/glm-5.3-flash</text>
-<g><title>gpt-5.6-luna: $0.0038 a document, F1 68%</title><circle cx="673.68" cy="270.32" r="12" fill="transparent"/><circle cx="673.68" cy="270.32" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/></g>
-<text x="683.68" y="274.32" font-size="11.5" fill="#52514e">gpt-5.6-luna</text>
+<polyline points="434.5,190.6 636.74,190" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-opacity="0.45"/>
+<g><title>gpt-6-luna: $0.00089 a document, F1 88%</title><circle cx="434.5" cy="190.6" r="12" fill="transparent"/><circle cx="434.5" cy="190.6" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<text x="444.5" y="194.6" font-size="11.5" font-weight="600" fill="#0b0b0b">gpt-6-luna</text>
+<g><title>zai/glm-5.3-flash: $0.0018 a document, F1 86%</title><circle cx="553.56" cy="198.4" r="12" fill="transparent"/><circle cx="553.56" cy="198.4" r="5" fill="#898781" stroke="#fcfcfb" stroke-width="2"/></g>
+<text x="563.56" y="216.4" font-size="11.5" fill="#52514e">zai/glm-5.3-flash</text>
+<g><title>gpt-5.6-luna: $0.003 a document, F1 88%</title><circle cx="636.74" cy="190" r="12" fill="transparent"/><circle cx="636.74" cy="190" r="5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<text x="646.74" y="194" font-size="11.5" font-weight="600" fill="#0b0b0b">gpt-5.6-luna</text>
 <text x="28" y="528" font-size="11" fill="#898781">F1 from covered recall and precision over every category.</text>
 </svg>
