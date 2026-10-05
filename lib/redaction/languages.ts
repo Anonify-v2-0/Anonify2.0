@@ -148,6 +148,11 @@ export type LabelVocabulary = {
   reference: string
   /** Government identity documents and numbers. */
   identity: string
+  /**
+   * A document's own number: an invoice, a transaction, a company's
+   * registration. What follows is not a person's, whatever its shape.
+   */
+  documentNumber: string
 }
 
 /**
@@ -170,18 +175,21 @@ export const LABELS: Record<Exclude<Language, "en">, LabelVocabulary> = {
     account: String.raw`konto\S*|bankverbindung|iban|blz`,
     reference: String.raw`kunden(?:nummer|nr\.?|-nr\.?|-id)|aktenzeichen|az\.|fall(?:nummer|-nr\.?)|patienten(?:nummer|-nr\.?|-id)|versicherten(?:nummer|-nr\.?)|mitglieds(?:nummer|-nr\.?)|vorgangs?(?:nummer|-nr\.?)`,
     identity: String.raw`(?:personal)?ausweis(?:nummer|-nr\.?)?|reisepass(?:nummer)?|pass(?:nummer|-nr\.?)|steuer-?id|identifikationsnummer|id-nr\.?|sozialversicherungsnummer|führerschein(?:nummer)?|gesundheitskarte|versicherten-?nr\.?`,
+    documentNumber: String.raw`rechnung\S*|referenz|buchung\S*|transaktion\S*|überweisung\S*|ust-?id\S*|handelsregister\S*`,
   },
   fr: {
     birthDate: String.raw`date de naissance|naissance|n[ée]\(?e?\)?\s+le|n[ée]e\s+le`,
     account: String.raw`compte|iban|rib|coordonn[ée]es bancaires`,
     reference: String.raw`client(?:e|es|s)?|patient(?:e|es|s)?|adh[ée]rent(?:e|es|s)?|dossier\s+(?:client|patient|salari[ée])e?|n[°o]\s*(?:de\s+)?police`,
     identity: String.raw`carte nationale d['’]identit[ée]|cni|passeport(?:\s+n°)?|pi[èe]ce d['’]identit[ée]|num[ée]ro fiscal|s[ée]curit[ée] sociale|nir|permis de conduire|id national`,
+    documentNumber: String.raw`r[ée]f\.?|r[ée]f[ée]rence|facture|op[ée]ration|transaction|tva|siret|siren`,
   },
   es: {
     birthDate: String.raw`fecha de nacimiento|nacimiento|nacid[oa](?:\s+el)?|f\.\s?nac\.?`,
     account: String.raw`cuenta|iban|ccc`,
     reference: String.raw`client[ea]s?|paciente|caso|p[óo]liza|socio`,
     identity: String.raw`dni|nie|nif|documento(?:\s+nacional)?\s+de\s+identidad|pasaporte|n[uú]mero de documento|permiso de conducir|tarjeta sanitaria|seguridad social`,
+    documentNumber: String.raw`factura|referencia|ref\.?|operaci[óo]n|transacci[óo]n|recibo|cif`,
   },
 }
 
