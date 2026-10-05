@@ -62,11 +62,13 @@ function* freeText(node: unknown, key = ""): Generator<string> {
  * A review of one document is read in that document's locale, so a phone
  * number quoted from it is judged as it is there. A file about no single
  * document has none: a number written nationally in it is reserved nowhere.
+ * A validator's reason may quote one of the document's labelled values, a
+ * generated national id say, which the document's own check has passed.
  */
 function checkReviews(
   files: Map<string, Buffer>,
   where: (file: string) => string,
-  locales: Map<string, Locale>,
+  documents: Map<string, { locale: Locale; labelled: Set<string> }>,
   problems: string[]
 ): number {
   let count = 0
@@ -81,10 +83,13 @@ function checkReviews(
       problems.push(`${where(file)}: not valid JSON`)
       continue
     }
-    const locale = locales.get(match[1]) ?? null
+    const document = documents.get(match[1])
     for (const text of freeText(review)) {
-      for (const finding of scanForIdentifiers(text, locale)) {
-        if (!finding.reserved) {
+      for (const finding of scanForIdentifiers(
+        text,
+        document?.locale ?? null
+      )) {
+        if (!finding.reserved && !document?.labelled.has(finding.value)) {
           problems.push(
             `${where(file)}: ${finding.kind} outside the reserved ranges: ${JSON.stringify(finding.value)}`
           )
@@ -140,7 +145,10 @@ async function main() {
       manifest = null
     }
 
-    const locales = new Map<string, Locale>()
+    const documents = new Map<
+      string,
+      { locale: Locale; labelled: Set<string> }
+    >()
     for (const [file, bytes] of corpus) {
       const match = /^(dev|test)\/[^/]+\.json$/.exec(file)
       if (!match) continue
@@ -152,7 +160,10 @@ async function main() {
         problems.push(`${where(file)}: not valid JSON`)
         continue
       }
-      locales.set(document.id, document.locale)
+      documents.set(document.id, {
+        locale: document.locale,
+        labelled: new Set((document.spans ?? []).map((span) => span.value)),
+      })
       for (const problem of checkDocument(document))
         problems.push(`${where(file)}: ${problem}`)
       if (document.split !== match[1])
@@ -174,7 +185,7 @@ async function main() {
           `${name}/manifest.json lists ${file}, which is not in the corpus — run \`pnpm corpus:generate --manifest\``
         )
     }
-    files += checkReviews(corpus, where, locales, problems)
+    files += checkReviews(corpus, where, documents, problems)
   }
 
   if (problems.length > 0) {
