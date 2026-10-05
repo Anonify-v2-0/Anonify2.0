@@ -3,7 +3,7 @@
 <desc id="d">What local expansion adds as values repeat. gpt-5.6-luna: none 1.5, 1–2 1.6, 2.5–5 7.2, 5–10 4.7, 10+ 36; gpt-6-luna: none 1.5, 1–2 1.0, 2.5–5 5.5, 5–10 5.7, 10+ 38; zai/glm-5.3-flash: none 1.5, 1–2 0.0, 2.5–5 4.8, 5–10 3.3, 10+ 37.</desc>
 <rect x="0.5" y="0.5" width="879" height="491" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#0b0b0b">What local expansion adds as values repeat</text>
-<text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · occurrences added per document, deterministic-first</text>
+<text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · 25 of 395 documents · occurrences added per document, deterministic-first</text>
 <line x1="28" y1="84" x2="40" y2="84" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/><circle cx="34" cy="84" r="3" fill="#2a78d6"/><text x="46" y="88" font-size="12" fill="#52514e">gpt-5.6-luna</text><line x1="144.64000000000001" y1="84" x2="156.64000000000001" y2="84" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="150.64000000000001" cy="84" r="3" fill="#eb6834"/><text x="162.64" y="88" font-size="12" fill="#52514e">gpt-6-luna</text><line x1="247.84000000000003" y1="84" x2="259.84000000000003" y2="84" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="253.84000000000003" cy="84" r="3" fill="#1baf7a"/><text x="265.84" y="88" font-size="12" fill="#52514e">zai/glm-5.3-flash</text>
 <line x1="80" y1="408" x2="702" y2="408" stroke="#c3c2b7"/>
 <text x="72" y="412" font-size="11" fill="#898781" text-anchor="end">0</text>

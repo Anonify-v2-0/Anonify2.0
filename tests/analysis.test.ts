@@ -5,6 +5,7 @@ import {
   buildEntities,
   dedupeDetections,
   findAllOccurrences,
+  joinAdjacent,
   locateInPage,
 } from "@/lib/redaction/entities"
 import type { NormalizedDocument } from "@/types/document"
@@ -93,7 +94,9 @@ describe("entities", () => {
       page(2, "Regards, John Smith"),
     ])
 
-    const found = findAllOccurrences(model, "John Smith", { category: "person" })
+    const found = findAllOccurrences(model, "John Smith", {
+      category: "person",
+    })
 
     expect(found).toHaveLength(3)
     expect(found.every((item) => item.global)).toBe(true)
@@ -122,7 +125,9 @@ describe("entities", () => {
       ],
     }
 
-    const found = findAllOccurrences(model, "John Smith", { category: "person" })
+    const found = findAllOccurrences(model, "John Smith", {
+      category: "person",
+    })
     expect(found).toHaveLength(1)
     expect(found[0].worksheet).toBe("Sheet1")
     expect(found[0].row).toBe(2)
@@ -138,6 +143,59 @@ describe("entities", () => {
     expect(deduped).toHaveLength(2)
     expect(deduped.find((item) => item.page === 1)?.confidence).toBe(0.9)
   })
+
+  it("folds a detection inside another of its category into it (#205)", () => {
+    const outer = detection({ text: "Priya Raman", page: 1, start: 5, end: 16 })
+    const deduped = dedupeDetections([
+      detection({ text: "Raman", page: 1, start: 11, end: 16 }),
+      outer,
+      // Inside one of another category, it is a different suggestion.
+      detection({
+        text: "Raman",
+        category: "other",
+        page: 1,
+        start: 12,
+        end: 16,
+      }),
+      // So is the same span on another page.
+      detection({ text: "Raman", page: 2, start: 11, end: 16 }),
+      // Cells carry no offsets and are left alone.
+      detection({ text: "Raman", worksheet: "Sheet1", row: 2, column: 1 }),
+    ])
+    expect(deduped).toHaveLength(4)
+    expect(deduped[0]).toBe(outer)
+    expect(
+      deduped.filter((d) => d.category === "person" && d.page === 1)
+    ).toEqual([outer])
+  })
+})
+
+describe("the local search after analysis (#205)", () => {
+  const text =
+    "Raman wrote from priya.raman@example.org, then Ramanathan and C-77104 called; NC-77104 is a batch. Maras Antrag und Raman."
+  const model = doc([page(1, text)])
+  const found = (value: string, standalone: boolean) =>
+    findAllOccurrences(model, value, { category: "person", standalone }).map(
+      (d) => text.slice(d.start, d.end)
+    )
+
+  it("finds a value only where it stands on its own", () => {
+    expect(found("Raman", true)).toEqual(["Raman", "Raman", "Raman"])
+    expect(
+      findAllOccurrences(model, "Raman", {
+        category: "person",
+        standalone: true,
+      }).map((d) => d.start)
+    ).toEqual([0, 47, text.lastIndexOf("Raman")])
+    expect(found("C-77104", true)).toEqual(["C-77104"])
+    // An ending is still the name: German writes a genitive without an apostrophe.
+    expect(found("Mara", true)).toEqual(["Mara"])
+  })
+
+  it("matches inside anything for a reviewer's rule", () => {
+    expect(found("Raman", false)).toHaveLength(4)
+    expect(found("C-77104", false)).toHaveLength(2)
+  })
 })
 
 describe("locating model output", () => {
@@ -149,9 +207,9 @@ describe("locating model output", () => {
   it("tolerates whitespace that extraction changed", () => {
     const located = locateInPage("Contact John   Smith today", "John Smith")
     expect(located).not.toBeNull()
-    expect("Contact John   Smith today".slice(located!.start, located!.end)).toBe(
-      "John   Smith"
-    )
+    expect(
+      "Contact John   Smith today".slice(located!.start, located!.end)
+    ).toBe("John   Smith")
   })
 
   it("returns null for a value the model invented", () => {
@@ -160,5 +218,81 @@ describe("locating model output", () => {
 
   it("does not treat the value as a regular expression", () => {
     expect(locateInPage("price is $5.00 (net)", "$5.00 (net)")).not.toBeNull()
+  })
+})
+
+describe("joining a pattern's value to the model's part of it (#207)", () => {
+  const text =
+    "Ship to 42 Larch Court, Flat 3, Stowmarket, IP14 2RN today. Priya Raman, John Smith signed. Also 42 Larch Court on its own."
+  const pages = new Map([[1, text]])
+  const span = (value: string, category: string, from = 0): Detection => {
+    const start = text.indexOf(value, from)
+    return {
+      text: value,
+      category,
+      confidence: 0.8,
+      page: 1,
+      start,
+      end: start + value.length,
+    }
+  }
+  const street = span("42 Larch Court", "address")
+  const rest = span("Flat 3, Stowmarket, IP14 2RN", "address")
+  const alone = span("42 Larch Court", "address", 60)
+  const priya = span("Priya Raman", "person")
+  const john = span("John Smith", "person")
+
+  it("joins a street line and the rest of its address into one suggestion", () => {
+    const joined = joinAdjacent(
+      [street, rest, priya, john, alone],
+      { patterns: [street, alone], model: [rest, priya, john] },
+      pages
+    )
+    expect(joined.map((d) => d.text)).toEqual([
+      "42 Larch Court, Flat 3, Stowmarket, IP14 2RN",
+      "Priya Raman",
+      "John Smith",
+      "42 Larch Court",
+    ])
+    expect(joined[0]).toMatchObject({ start: street.start, end: rest.end })
+  })
+
+  it("joins a value found in three pieces", () => {
+    const flat = span("Flat 3", "address")
+    const town = span("Stowmarket, IP14 2RN", "address")
+    const joined = joinAdjacent(
+      [street, flat, town],
+      { patterns: [flat], model: [street, town] },
+      pages
+    )
+    expect(joined.map((d) => d.text)).toEqual([
+      "42 Larch Court, Flat 3, Stowmarket, IP14 2RN",
+    ])
+  })
+
+  it("leaves apart two values the model found, another category, or more than a comma between", () => {
+    expect(
+      joinAdjacent(
+        [street, rest],
+        { patterns: [], model: [street, rest] },
+        pages
+      )
+    ).toHaveLength(2)
+    const phone = { ...rest, category: "phone" }
+    expect(
+      joinAdjacent(
+        [street, phone],
+        { patterns: [street], model: [phone] },
+        pages
+      )
+    ).toHaveLength(2)
+    const later = span("IP14 2RN", "address")
+    expect(
+      joinAdjacent(
+        [street, later],
+        { patterns: [street], model: [later] },
+        pages
+      )
+    ).toHaveLength(2)
   })
 })

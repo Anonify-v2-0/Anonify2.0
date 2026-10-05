@@ -32,15 +32,27 @@
   },
   "quality": {
     "labels": 460,
-    "detections": 509,
-    "precision": 0.947,
-    "precisionStrict": 0.9116,
+    "detections": 420,
+    "precision": 0.9357,
+    "precisionStrict": 0.931,
     "recall": 0.7891,
     "recallOverlap": 0.837,
     "recallStrict": 0.787,
-    "f1": 0.8609,
+    "f1": 0.8562,
     "falsePositives": 27,
     "negativeHits": 10,
+    "merged": 89,
+    "distinct": {
+      "detections": 339,
+      "precision": 0.9351
+    },
+    "byConfidence": null,
+    "interval": {
+      "precision": [0.9028, 0.9592],
+      "recall": [0.6885, 0.8939],
+      "f1": [0.789, 0.9191],
+      "resamples": 2000
+    },
     "unscored": {
       "health": 31
     },
@@ -50,9 +62,9 @@
         "recall": 0.8683,
         "recallOverlap": 0.8976,
         "recallStrict": 0.8683,
-        "detections": 274,
-        "precision": 0.9891,
-        "precisionStrict": 0.9343
+        "detections": 187,
+        "precision": 0.984,
+        "precisionStrict": 0.984
       },
       "address": {
         "labels": 25,
@@ -131,9 +143,9 @@
         "recall": 0.5,
         "recallOverlap": 1,
         "recallStrict": 0.5,
-        "detections": 21,
-        "precision": 0.6667,
-        "precisionStrict": 0.6667
+        "detections": 20,
+        "precision": 0.65,
+        "precisionStrict": 0.65
       },
       "api-key": {
         "labels": 13,
@@ -158,9 +170,9 @@
         "recall": 1,
         "recallOverlap": 1,
         "recallStrict": 1,
-        "detections": 8,
+        "detections": 7,
         "precision": 1,
-        "precisionStrict": 0.75
+        "precisionStrict": 0.8571
       }
     },
     "weightedCost": {
@@ -199,6 +211,16 @@
   },
   "runs": {
     "deterministic-first": {
+      "selection": {
+        "how": "first",
+        "documents": 25,
+        "of": 395
+      },
+      "fingerprint": {
+        "categories": "sha256:c24a923dac7487b0",
+        "detect": "sha256:b2ca4001cc8c034a",
+        "verify": "sha256:87914d1839f8c838"
+      },
       "mode": "deterministic-first",
       "commit": "77b8d5e",
       "createdAt": "2026-10-03T18:48:23.021Z",
@@ -256,15 +278,27 @@
       },
       "quality": {
         "labels": 460,
-        "detections": 509,
-        "precision": 0.947,
-        "precisionStrict": 0.9116,
+        "detections": 420,
+        "precision": 0.9357,
+        "precisionStrict": 0.931,
         "recall": 0.7891,
         "recallOverlap": 0.837,
         "recallStrict": 0.787,
-        "f1": 0.8609,
+        "f1": 0.8562,
         "falsePositives": 27,
         "negativeHits": 10,
+        "merged": 89,
+        "distinct": {
+          "detections": 339,
+          "precision": 0.9351
+        },
+        "byConfidence": null,
+        "interval": {
+          "precision": [0.9028, 0.9592],
+          "recall": [0.6885, 0.8939],
+          "f1": [0.789, 0.9191],
+          "resamples": 2000
+        },
         "unscored": {
           "health": 31
         },
@@ -274,9 +308,9 @@
             "recall": 0.8683,
             "recallOverlap": 0.8976,
             "recallStrict": 0.8683,
-            "detections": 274,
-            "precision": 0.9891,
-            "precisionStrict": 0.9343
+            "detections": 187,
+            "precision": 0.984,
+            "precisionStrict": 0.984
           },
           "address": {
             "labels": 25,
@@ -355,9 +389,9 @@
             "recall": 0.5,
             "recallOverlap": 1,
             "recallStrict": 0.5,
-            "detections": 21,
-            "precision": 0.6667,
-            "precisionStrict": 0.6667
+            "detections": 20,
+            "precision": 0.65,
+            "precisionStrict": 0.65
           },
           "api-key": {
             "labels": 13,
@@ -382,9 +416,9 @@
             "recall": 1,
             "recallOverlap": 1,
             "recallStrict": 1,
-            "detections": 8,
+            "detections": 7,
             "precision": 1,
-            "precisionStrict": 0.75
+            "precisionStrict": 0.8571
           }
         },
         "weightedCost": {
@@ -432,9 +466,9 @@
           "costPerDocumentUsd": 0.000944,
           "tokensPerDocument": 4845,
           "medianMs": 30071,
-          "precision": 0.96,
+          "precision": 0.9474,
           "recall": 0.8919,
-          "f1": 0.9247
+          "f1": 0.9188
         },
         "bank statement": {
           "documents": 4,
@@ -446,9 +480,9 @@
           "costPerDocumentUsd": 0.000665,
           "tokensPerDocument": 3431,
           "medianMs": 27632,
-          "precision": 0.8475,
+          "precision": 0.8421,
           "recall": 0.7069,
-          "f1": 0.7708
+          "f1": 0.7686
         },
         "contract": {
           "documents": 5,
@@ -460,9 +494,9 @@
           "costPerDocumentUsd": 0.000721,
           "tokensPerDocument": 4423,
           "medianMs": 22737,
-          "precision": 0.9118,
+          "precision": 0.9032,
           "recall": 0.8947,
-          "f1": 0.9032
+          "f1": 0.8989
         },
         "CV": {
           "documents": 1,
@@ -502,9 +536,9 @@
           "costPerDocumentUsd": 0.001145,
           "tokensPerDocument": 6197,
           "medianMs": 43872,
-          "precision": 0.96,
+          "precision": 0.9474,
           "recall": 0.8182,
-          "f1": 0.8834
+          "f1": 0.8781
         },
         "invoice": {
           "documents": 3,
@@ -516,9 +550,9 @@
           "costPerDocumentUsd": 0.000749,
           "tokensPerDocument": 3985,
           "medianMs": 25070,
-          "precision": 0.9483,
+          "precision": 0.94,
           "recall": 0.6333,
-          "f1": 0.7594
+          "f1": 0.7568
         },
         "medical referral": {
           "documents": 1,
@@ -530,9 +564,9 @@
           "costPerDocumentUsd": 0.001728,
           "tokensPerDocument": 8528,
           "medianMs": 24847,
-          "precision": 0.9524,
+          "precision": 0.9375,
           "recall": 0.8824,
-          "f1": 0.9161
+          "f1": 0.9091
         },
         "meeting minutes": {
           "documents": 2,
@@ -558,9 +592,9 @@
           "costPerDocumentUsd": 0.000971,
           "tokensPerDocument": 6285,
           "medianMs": 21305,
-          "precision": 0.9695,
+          "precision": 0.9627,
           "recall": 0.7702,
-          "f1": 0.8584
+          "f1": 0.8558
         }
       },
       "byLength": {
@@ -574,9 +608,9 @@
           "costPerDocumentUsd": 0.00057,
           "tokensPerDocument": 2664,
           "medianMs": 22737,
-          "precision": 0.9545,
+          "precision": 0.9463,
           "recall": 0.8396,
-          "f1": 0.8934
+          "f1": 0.8898
         },
         "medium": {
           "documents": 8,
@@ -588,9 +622,9 @@
           "costPerDocumentUsd": 0.001059,
           "tokensPerDocument": 6402,
           "medianMs": 24847,
-          "precision": 0.9375,
+          "precision": 0.9226,
           "recall": 0.8438,
-          "f1": 0.8882
+          "f1": 0.8814
         },
         "long": {
           "documents": 2,
@@ -602,9 +636,9 @@
           "costPerDocumentUsd": 0.002585,
           "tokensPerDocument": 19653,
           "medianMs": 42757,
-          "precision": 0.9467,
+          "precision": 0.9333,
           "recall": 0.5682,
-          "f1": 0.7102
+          "f1": 0.7064
         }
       },
       "byDensity": {
@@ -632,9 +666,9 @@
           "costPerDocumentUsd": 0.000766,
           "tokensPerDocument": 4886,
           "medianMs": 21305,
-          "precision": 0.9749,
+          "precision": 0.9667,
           "recall": 0.9597,
-          "f1": 0.9672
+          "f1": 0.9632
         },
         "medium": {
           "documents": 12,
@@ -646,9 +680,9 @@
           "costPerDocumentUsd": 0.001067,
           "tokensPerDocument": 5951,
           "medianMs": 27632,
-          "precision": 0.9498,
+          "precision": 0.9414,
           "recall": 0.7163,
-          "f1": 0.8167
+          "f1": 0.8136
         },
         "high": {
           "documents": 1,
@@ -676,9 +710,9 @@
           "costPerDocumentUsd": 0.000714,
           "tokensPerDocument": 3246,
           "medianMs": 37185,
-          "precision": 0.9762,
+          "precision": 0.9655,
           "recall": 0.7931,
-          "f1": 0.8752
+          "f1": 0.8708
         },
         "en-GB": {
           "documents": 4,
@@ -690,9 +724,9 @@
           "costPerDocumentUsd": 0.00113,
           "tokensPerDocument": 7597,
           "medianMs": 26141,
-          "precision": 0.9048,
+          "precision": 0.8961,
           "recall": 0.5487,
-          "f1": 0.6831
+          "f1": 0.6806
         },
         "en-IN": {
           "documents": 3,
@@ -704,9 +738,9 @@
           "costPerDocumentUsd": 0.001098,
           "tokensPerDocument": 7893,
           "medianMs": 21352,
-          "precision": 0.9592,
+          "precision": 0.9487,
           "recall": 0.8718,
-          "f1": 0.9134
+          "f1": 0.9086
         },
         "en-US": {
           "documents": 12,
@@ -718,9 +752,9 @@
           "costPerDocumentUsd": 0.000869,
           "tokensPerDocument": 4539,
           "medianMs": 25907,
-          "precision": 0.9495,
+          "precision": 0.9378,
           "recall": 0.869,
-          "f1": 0.9075
+          "f1": 0.9021
         },
         "es-ES": {
           "documents": 2,
@@ -732,9 +766,9 @@
           "costPerDocumentUsd": 0.000721,
           "tokensPerDocument": 5179,
           "medianMs": 13763,
-          "precision": 0.913,
+          "precision": 0.8947,
           "recall": 0.8421,
-          "f1": 0.8761
+          "f1": 0.8676
         },
         "fr-FR": {
           "documents": 2,
@@ -3490,6 +3524,16 @@
       ]
     },
     "model-only": {
+      "selection": {
+        "how": "first",
+        "documents": 25,
+        "of": 395
+      },
+      "fingerprint": {
+        "categories": "sha256:c24a923dac7487b0",
+        "detect": "sha256:b2ca4001cc8c034a",
+        "verify": "sha256:87914d1839f8c838"
+      },
       "mode": "model-only",
       "commit": "77b8d5e",
       "createdAt": "2026-10-03T18:51:10.912Z",
@@ -3541,15 +3585,27 @@
       },
       "quality": {
         "labels": 460,
-        "detections": 527,
-        "precision": 0.9583,
-        "precisionStrict": 0.9374,
+        "detections": 447,
+        "precision": 0.9508,
+        "precisionStrict": 0.9508,
         "recall": 0.9022,
         "recallOverlap": 0.9174,
         "recallStrict": 0.9022,
-        "f1": 0.9294,
+        "f1": 0.9259,
         "falsePositives": 22,
         "negativeHits": 3,
+        "merged": 80,
+        "distinct": {
+          "detections": 338,
+          "precision": 0.9438
+        },
+        "byConfidence": null,
+        "interval": {
+          "precision": [0.9129, 0.9815],
+          "recall": [0.855, 0.9381],
+          "f1": [0.8933, 0.9529],
+          "resamples": 2000
+        },
         "unscored": {
           "health": 18
         },
@@ -3559,9 +3615,9 @@
             "recall": 0.9073,
             "recallOverlap": 0.922,
             "recallStrict": 0.9073,
-            "detections": 271,
-            "precision": 0.9889,
-            "precisionStrict": 0.9483
+            "detections": 192,
+            "precision": 0.9844,
+            "precisionStrict": 0.9844
           },
           "address": {
             "labels": 25,
@@ -3640,9 +3696,9 @@
             "recall": 0.5,
             "recallOverlap": 0.9,
             "recallStrict": 0.5,
-            "detections": 15,
-            "precision": 0.8667,
-            "precisionStrict": 0.8667
+            "detections": 14,
+            "precision": 0.8571,
+            "precisionStrict": 0.8571
           },
           "api-key": {
             "labels": 13,
@@ -3714,9 +3770,9 @@
           "costPerDocumentUsd": 0.000849,
           "tokensPerDocument": 4404,
           "medianMs": 23891,
-          "precision": 0.8727,
+          "precision": 0.8333,
           "recall": 0.9189,
-          "f1": 0.8952
+          "f1": 0.874
         },
         "bank statement": {
           "documents": 4,
@@ -3728,9 +3784,9 @@
           "costPerDocumentUsd": 0.000625,
           "tokensPerDocument": 3060,
           "medianMs": 37668,
-          "precision": 0.8644,
+          "precision": 0.8596,
           "recall": 0.8103,
-          "f1": 0.8365
+          "f1": 0.8342
         },
         "contract": {
           "documents": 5,
@@ -3742,9 +3798,9 @@
           "costPerDocumentUsd": 0.000633,
           "tokensPerDocument": 3963,
           "medianMs": 18678,
-          "precision": 0.9333,
+          "precision": 0.9286,
           "recall": 0.8772,
-          "f1": 0.9044
+          "f1": 0.9022
         },
         "CV": {
           "documents": 1,
@@ -3784,9 +3840,9 @@
           "costPerDocumentUsd": 0.001072,
           "tokensPerDocument": 5804,
           "medianMs": 22157,
-          "precision": 0.9688,
+          "precision": 0.9524,
           "recall": 0.8636,
-          "f1": 0.9132
+          "f1": 0.9058
         },
         "invoice": {
           "documents": 3,
@@ -3812,9 +3868,9 @@
           "costPerDocumentUsd": 0.00149,
           "tokensPerDocument": 7736,
           "medianMs": 29914,
-          "precision": 0.9524,
+          "precision": 0.9412,
           "recall": 0.8824,
-          "f1": 0.9161
+          "f1": 0.9109
         },
         "meeting minutes": {
           "documents": 2,
@@ -3840,9 +3896,9 @@
           "costPerDocumentUsd": 0.001032,
           "tokensPerDocument": 6037,
           "medianMs": 24008,
-          "precision": 0.9945,
+          "precision": 0.9936,
           "recall": 0.9689,
-          "f1": 0.9815
+          "f1": 0.9811
         }
       },
       "byLength": {
@@ -3856,9 +3912,9 @@
           "costPerDocumentUsd": 0.000545,
           "tokensPerDocument": 2398,
           "medianMs": 21941,
-          "precision": 0.9574,
+          "precision": 0.9519,
           "recall": 0.9009,
-          "f1": 0.9283
+          "f1": 0.9257
         },
         "medium": {
           "documents": 8,
@@ -3870,9 +3926,9 @@
           "costPerDocumentUsd": 0.00097,
           "tokensPerDocument": 5910,
           "medianMs": 22157,
-          "precision": 0.9439,
+          "precision": 0.9286,
           "recall": 0.875,
-          "f1": 0.9081
+          "f1": 0.901
         },
         "long": {
           "documents": 2,
@@ -3884,9 +3940,9 @@
           "costPerDocumentUsd": 0.002558,
           "tokensPerDocument": 18545,
           "medianMs": 44302,
-          "precision": 0.9896,
+          "precision": 0.9882,
           "recall": 0.9545,
-          "f1": 0.9717
+          "f1": 0.9711
         }
       },
       "byDensity": {
@@ -3914,9 +3970,9 @@
           "costPerDocumentUsd": 0.000758,
           "tokensPerDocument": 4671,
           "medianMs": 26501,
-          "precision": 0.9894,
+          "precision": 0.9861,
           "recall": 0.953,
-          "f1": 0.9709
+          "f1": 0.9693
         },
         "medium": {
           "documents": 12,
@@ -3928,9 +3984,9 @@
           "costPerDocumentUsd": 0.000981,
           "tokensPerDocument": 5350,
           "medianMs": 22157,
-          "precision": 0.9604,
+          "precision": 0.9552,
           "recall": 0.8794,
-          "f1": 0.9181
+          "f1": 0.9157
         },
         "high": {
           "documents": 1,
@@ -3972,9 +4028,9 @@
           "costPerDocumentUsd": 0.001122,
           "tokensPerDocument": 7007,
           "medianMs": 44302,
-          "precision": 0.9528,
+          "precision": 0.9515,
           "recall": 0.8673,
-          "f1": 0.908
+          "f1": 0.9075
         },
         "en-IN": {
           "documents": 3,
@@ -4000,9 +4056,9 @@
           "costPerDocumentUsd": 0.000783,
           "tokensPerDocument": 4079,
           "medianMs": 27888,
-          "precision": 0.9399,
+          "precision": 0.9258,
           "recall": 0.9039,
-          "f1": 0.9215
+          "f1": 0.9147
         },
         "es-ES": {
           "documents": 2,
@@ -6723,7 +6779,7 @@
   },
   "notMeasured": ["Extraction and export: each document is analysed as one plain-text page, so the extract and export stages are not timed; see --format.", "Faces, handwriting, scanned noise and non-Latin scripts, which the corpus does not contain.", "Real-world prevalence: categories are over-represented on purpose, so precision here is not precision on real documents.", "Anything a person accepts or rejects in review: every proposal counts as a redaction, and the export stage exports all of them.", "Model calls saved by expansion are not observed directly: the pipeline never asks the model per occurrence, so the saving is counted as the occurrences the local search added that no model call found.", "Cost is tokens times the configured price; cached-input discounts, batch pricing and a subscription's flat fee are not modelled.", "Throughput depends on the provider, the plan's rate limits and the network at the time of the run; it is one afternoon, not a property of the model."],
   "rescored": {
-    "at": "2026-10-05T15:56:14.618Z",
+    "at": "2026-10-05T16:55:59.517Z",
     "detectedOn": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f"
   }
 }

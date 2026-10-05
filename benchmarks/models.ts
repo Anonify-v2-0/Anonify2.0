@@ -57,6 +57,7 @@ import {
   parseModels,
   resultsDirectory,
   serialise,
+  stratifiedSample,
   summarise,
   throughputPoint,
   toRecord,
@@ -67,8 +68,10 @@ import {
   type ModelEntry,
   type ModelResults,
   type RunSummary,
+  type Selection,
 } from "./lib/bench"
 import { corpusHash, gitCommit, loadCorpus, parseSplit } from "./lib/corpus"
+import { promptFingerprint } from "./lib/fingerprint"
 import { BenchDashboard, compact, pct } from "./lib/dashboard"
 import {
   benchEnvName,
@@ -121,7 +124,8 @@ provider:model elsewhere). A variable set in the shell overrides it.
                          or ${RENDER_FORMATS.join(", ")}: rendered, extracted, analysed and
                          exported, for the documents that list that format
   --ids <a,b,...>        only these documents
-  --limit <n>            only the first n documents
+  --limit <n>            a sample of n documents, stratified by document type
+  --seed <n>             which sample --limit draws (default 1)
   --concurrency <n>      documents analysed at once (default 4)
   --sweep <list>         concurrency levels for the throughput phase (default 1,2,4,8)
   --sweep-documents <n>  documents per level (default 24)
@@ -324,6 +328,18 @@ function printRun(run: RunSummary, c: Palette, baseline?: RunSummary) {
   const lines = [
     `${c.dim("documents")} ${run.documents}${run.failed.length ? c.yellow(`  (${run.failed.length} refused, left out)`) : ""}`,
     `${c.dim("recall")} ${c.bold(pct(q.recall))}  ${c.dim("precision")} ${c.bold(pct(q.precision))}  ${c.dim("F1")} ${c.bold(pct(q.f1))}  ${c.dim("weighted cost")} ${q.weightedCost.perDocument ?? "—"} ${c.dim("a document")}`,
+    ...(q.interval && run.selection?.how !== "all"
+      ? [
+          c.dim(
+            `95% interval over the ${run.documents} documents: precision ${pct(q.interval.precision?.[0] ?? null)}–${pct(q.interval.precision?.[1] ?? null)}, recall ${pct(q.interval.recall?.[0] ?? null)}–${pct(q.interval.recall?.[1] ?? null)}`
+          ),
+        ]
+      : []),
+    ...(q.distinct
+      ? [
+          `${c.dim("precision per distinct value")} ${pct(q.distinct.precision)}${q.byConfidence ? `  ${c.dim("at confidence")} ${q.byConfidence.map((at) => `≥${at.cutoff} ${pct(at.precision)}/${pct(at.recall)}`).join("  ")} ${c.dim("(precision/recall)")}` : ""}`,
+        ]
+      : []),
     `${c.dim("tokens")} ${compact(run.totals.inputTokens)} in · ${compact(run.totals.outputTokens)} out  ${c.dim(`(${compact(run.perDocument.inputTokens + run.perDocument.outputTokens)} a document, ${run.totals.calls} calls)`)}`,
     `${c.dim("cost")} ${run.totals.costUsd === null ? c.yellow("no price configured (AI_MODEL_PRICES)") : `$${run.totals.costUsd.toFixed(4)}  ${c.dim(`$${run.perDocument.costUsd?.toFixed(5)} a document`)}`}`,
     `${c.dim("time")} ${duration(run.totals.durationMs)}  ${c.dim(`median ${(run.perDocument.medianMs / 1000).toFixed(1)}s, p95 ${(run.perDocument.p95Ms / 1000).toFixed(1)}s a document, ${run.concurrency} at once`)}`,
@@ -492,6 +508,7 @@ async function main() {
       format: { type: "string", default: "text" },
       ids: { type: "string" },
       limit: { type: "string" },
+      seed: { type: "string", default: "1" },
       concurrency: { type: "string", default: "4" },
       sweep: { type: "string", default: "1,2,4,8" },
       "sweep-documents": { type: "string", default: "24" },
@@ -654,19 +671,27 @@ async function main() {
     documents = documents.filter((d) => d.split === options.split)
   if (format !== "text")
     documents = documents.filter((d) => d.render.includes(format))
+  const of = documents.length
+  const seed = int("seed", values.seed, 0)
   if (values.ids) {
     const wanted = new Set(values.ids.split(",").map((id) => id.trim()))
     documents = documents.filter((d) => wanted.has(d.id))
   }
   documents.sort((a, b) => a.id.localeCompare(b.id))
-  if (limit !== undefined) documents = documents.slice(0, limit)
+  const sampled = limit !== undefined && limit < documents.length
+  if (sampled) documents = stratifiedSample(documents, limit!, seed)
   if (documents.length === 0) throw new Error("no documents to run")
+  const selection: Selection = values.ids
+    ? { how: "ids", documents: documents.length, of }
+    : sampled
+      ? { how: "stratified", documents: documents.length, of, seed }
+      : { how: "all", documents: documents.length, of }
 
   const directory = path.join(
     RESULTS,
     resultsDirectory(corpus, options.split, format)
   )
-  const partial = values.ids !== undefined || limit !== undefined
+  const partial = selection.how !== "all"
 
   console.log(
     `\n${box(
@@ -678,7 +703,9 @@ async function main() {
         ...(partial
           ? [
               c.yellow(
-                "--ids or a limit: a partial run, written as the model's results all the same"
+                selection.how === "stratified"
+                  ? `a partial run: ${selection.documents} of ${selection.of}, stratified by document type (seed ${selection.seed})`
+                  : `a partial run: the ${selection.documents} of ${selection.of} documents --ids names`
               ),
             ]
           : []),
@@ -690,6 +717,7 @@ async function main() {
 
   const { aiConfigured, resolveModel } = await import("@/lib/ai/gateway")
   const { configuredRates } = await import("@/lib/ai/rates")
+  const fingerprint = await promptFingerprint()
 
   process.on("SIGINT", () => {
     if (stopping) process.exit(130)
@@ -870,9 +898,9 @@ async function main() {
           concurrency: options.concurrency,
           commit: gitCommit(),
         })
-        results.runs[phase] = summary
+        results.runs[phase] = { ...summary, selection, fingerprint }
         printRun(
-          summary,
+          results.runs[phase]!,
           c,
           phase === "model-only"
             ? results.runs["deterministic-first"]

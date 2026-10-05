@@ -310,6 +310,10 @@ function printQuality(quality: Quality, c: Palette) {
     .sort((a, b) => b[1] - a[1])
     .map(([category, n]) => `${category} ${n}`)
     .join(", ")
+  if (quality.distinct)
+    console.log(
+      `  ${c.bold("precision per distinct value")} ${percent(quality.distinct.precision).trim()} ${c.dim(`(${quality.distinct.detections} values; ${quality.merged ?? 0} detections inside another folded before counting)`)}`
+    )
   console.log(
     `  ${c.bold("weighted cost")} ${quality.weightedCost.total} ${c.dim(`(${quality.weightedCost.perDocument} a document; ${quality.falsePositives} false positives, ${quality.negativeHits} of them on hard negatives; missed: ${missed || "nothing"})`)}`
   )

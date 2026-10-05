@@ -7,13 +7,17 @@ import {
   BENCH_SCHEMA,
   costOf,
   expansionByRepeat,
+  fromStored,
   modelSlug,
   parseModels,
   repeatRate,
+  rescoreResults,
   serialise,
+  stratifiedSample,
   summarise,
   throughputPoint,
   toRecord,
+  toStored,
   type DocumentRecord,
   type ModelResults,
 } from "@/benchmarks/lib/bench"
@@ -21,6 +25,7 @@ import type { Passes } from "@/benchmarks/lib/pipeline"
 import {
   benchmarksMarkdown,
   buildReport,
+  headlineTable,
   MARKERS,
   money,
   replaceSection,
@@ -307,6 +312,85 @@ describe("the results file", () => {
     expect(text).toContain('[5, 16, "person"]')
     expect(JSON.parse(text)).toEqual(value)
   })
+
+  it("stores confidence and source with a run's detections, and reads old ones", () => {
+    const stored = toStored([
+      { ...NAME, confidence: 0.9, source: "model" },
+      { ...PHONE, confidence: 0.88 },
+    ])
+    expect(stored).toEqual([
+      [5, 16, "person", 0.9, "model"],
+      [20, 28, "phone", 0.88, null],
+    ])
+    expect(fromStored(stored)).toEqual([
+      { ...NAME, confidence: 0.9, source: "model" },
+      { ...PHONE, confidence: 0.88 },
+    ])
+    expect(fromStored([[5, 16, "person"]])).toEqual([NAME])
+  })
+
+  it("names the pass each detection came from, the first that has it", () => {
+    const passes: Passes = {
+      patterns: [PHONE],
+      rejected: 0,
+      model: [NAME],
+      expanded: [NAME, REPEAT],
+    }
+    const rec = toRecord(
+      document("s"),
+      {
+        detections: [
+          { ...PHONE, confidence: 0.88 },
+          { ...NAME, confidence: 0.9 },
+          { ...REPEAT, confidence: 0.9 },
+        ],
+        passes,
+        degraded: null,
+        timings: { extractMs: null, analyzeMs: 1, exportMs: null },
+      },
+      undefined
+    )
+    expect(rec.detections.map((d) => d[4])).toEqual([
+      "patterns",
+      "model",
+      "expansion",
+    ])
+    // The passes keep positions only.
+    expect(rec.passes.model).toEqual([[5, 16, "person"]])
+  })
+})
+
+describe("rescoring a results file (#202)", () => {
+  it("scores the stored detections against new labels, and says what it read", () => {
+    const before = results("m", "gateway:m", "2026-10-01")
+    const docs = [
+      document("m-1", {
+        spans: [{ ...NAME, category: "person", value: "Priya Raman" }],
+      }),
+    ]
+    const after = rescoreResults(before, docs, "sha256:y")
+    expect(after.corpusHash).toBe("sha256:y")
+    expect(after.rescored).toMatchObject({ detectedOn: "sha256:x" })
+    // The phone and the repeat are no longer labels.
+    expect(after.runs["deterministic-first"]!.quality.precision).toBeLessThan(
+      before.runs["deterministic-first"]!.quality.precision!
+    )
+    expect(after.quality).toEqual(after.runs["deterministic-first"]!.quality)
+    expect(after.runs["deterministic-first"]!.totals).toEqual(
+      before.runs["deterministic-first"]!.totals
+    )
+    // Rescored twice, it still names the corpus the model read.
+    expect(rescoreResults(after, docs, "sha256:z").rescored).toMatchObject({
+      detectedOn: "sha256:x",
+    })
+  })
+
+  it("refuses a document whose text changed", () => {
+    const before = results("m", "gateway:m", "2026-10-01")
+    expect(() =>
+      rescoreResults(before, [document("m-1", { words: 9 })], "sha256:y")
+    ).toThrow(/measure it again/)
+  })
 })
 
 // --- the charts ---------------------------------------------------------------
@@ -505,8 +589,71 @@ describe("the charts", () => {
     })
     expect(report.models).toEqual([])
     expect(report.excluded).toEqual([
-      { model: "Old", reason: expect.stringContaining("another version") },
+      {
+        model: "Old",
+        reason: expect.stringContaining("another version"),
+        stale: true,
+      },
     ])
+  })
+
+  it("leaves out a model told something other than today's prompts (#204)", () => {
+    const now = { categories: "a", detect: "b", verify: "c" }
+    const told = (fingerprint?: typeof now) => {
+      const r = results("M", "m/model", "2026-01-01")
+      for (const run of Object.values(r.runs))
+        if (run) run.fingerprint = fingerprint
+      return r
+    }
+    const current = buildReport({
+      results: [told(now)],
+      baseline: null,
+      corpusHash: "sha256:x",
+      context: "c",
+      fingerprint: now,
+    })
+    expect(current.excluded).toEqual([])
+    const changed = buildReport({
+      results: [told({ ...now, detect: "z" })],
+      baseline: null,
+      corpusHash: "sha256:x",
+      context: "c",
+      fingerprint: now,
+    })
+    expect(changed.models).toEqual([])
+    expect(changed.excluded[0]).toMatchObject({
+      reason: expect.stringContaining("detection prompts"),
+      stale: true,
+    })
+    const unrecorded = buildReport({
+      results: [told(undefined)],
+      baseline: null,
+      corpusHash: "sha256:x",
+      context: "c",
+      fingerprint: now,
+    })
+    expect(unrecorded.excluded[0].reason).toContain("cannot be shown current")
+  })
+
+  it("puts the documents, and a partial run's interval, beside each headline figure", () => {
+    const r = results("M", "m/model", "2026-01-01")
+    const run = r.runs["deterministic-first"]!
+    run.selection = { how: "stratified", documents: 1, of: 395, seed: 1 }
+    run.quality = {
+      ...run.quality,
+      precision: 0.9,
+      interval: {
+        precision: [0.85, 0.95],
+        recall: [0.7, 0.9],
+        f1: [0.8, 0.9],
+        resamples: 2000,
+      },
+      distinct: { detections: 10, precision: 0.8 },
+    }
+    const table = headlineTable([r])!
+    expect(table).toContain("1 of 395, stratified, seed 1")
+    expect(table).toContain("90.0% (85.0–95.0%)")
+    expect(table).toContain("80.0%")
   })
 
   it("finds the frontier: models nothing cheaper beats", () => {
@@ -562,5 +709,27 @@ describe("the README sections", () => {
     expect(rootMarkdown(report)).toContain(
       "benchmarks/charts/cost-quality-frontier-light.svg"
     )
+  })
+})
+
+describe("a stratified sample (#204)", () => {
+  const docs = Array.from({ length: 40 }, (_, i) =>
+    document(`syn-${String(i).padStart(3, "0")}`, {
+      docType: i < 30 ? "invoice" : i < 38 ? "contract" : "CV",
+    })
+  )
+
+  it("draws every type in proportion, the same for the same seed", () => {
+    const picked = stratifiedSample(docs, 10, 1)
+    expect(picked).toHaveLength(10)
+    const count = (type: string) =>
+      picked.filter((d) => d.docType === type).length
+    expect([count("invoice"), count("contract"), count("CV")]).toEqual([
+      7, 2, 1,
+    ])
+    expect(stratifiedSample(docs, 10, 1)).toEqual(picked)
+    expect(stratifiedSample(docs, 10, 2)).not.toEqual(picked)
+    expect(picked.map((d) => d.id)).toEqual([...picked.map((d) => d.id)].sort())
+    expect(stratifiedSample(docs, 99, 1)).toHaveLength(40)
   })
 })

@@ -3,7 +3,7 @@
 <desc id="d">Where the result comes from. gpt-5.6-luna patterns 93, model 225, local search 97, only together 0; gpt-6-luna patterns 92, model 203, local search 68, only together 0; zai/glm-5.3-flash patterns 90, model 237, local search 73, only together 0.</desc>
 <rect x="0.5" y="0.5" width="879" height="255" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">Where the result comes from</text>
-<text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · share of covered labels, deterministic-first</text>
+<text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · 25 of 395 documents · share of covered labels, deterministic-first</text>
 <rect x="28" y="78" width="12" height="12" rx="3" fill="#3987e5"/><text x="46" y="88" font-size="12" fill="#c3c2b7">patterns</text><rect x="117.76" y="78" width="12" height="12" rx="3" fill="#d95926"/><text x="135.76" y="88" font-size="12" fill="#c3c2b7">model</text><rect x="187.36" y="78" width="12" height="12" rx="3" fill="#199e70"/><text x="205.36" y="88" font-size="12" fill="#c3c2b7">local search</text>
 <text x="148.24" y="133" font-size="12" fill="#ffffff" text-anchor="end">gpt-5.6-luna</text>
 <g><title>gpt-5.6-luna, patterns: 93 (22%)</title><path d="M158.24 120H291.54V138H158.24Z" fill="#3987e5"/></g>

@@ -1,5 +1,7 @@
+import { createRng } from "../corpus/lib/random"
 import type { LabelledDocument } from "../corpus/lib/types"
 import { percentile } from "./corpus"
+import type { Fingerprint } from "./fingerprint"
 import type { Passes, TaskUsage, Usage } from "./pipeline"
 import {
   aggregate,
@@ -8,6 +10,7 @@ import {
   scoreDocument,
   type Detected,
   type Quality,
+  type Source,
 } from "./scoring"
 import type { ModelRates } from "@/lib/ai/usage-types"
 
@@ -30,15 +33,59 @@ export const BENCH_SCHEMA = 1
 export const MODES = ["deterministic-first", "model-only"] as const
 export type Mode = (typeof MODES)[number]
 
-/** `[start, end, category]`: detections are stored as offsets, never as text. */
-export type Stored = Array<[number, number, string]>
+/**
+ * Detections are stored as offsets, never as text: `[start, end, category]`,
+ * and for a run's final detections since #205 also the confidence the
+ * analysis gave and the pass that proposed it, `[start, end, category,
+ * confidence, source]`. Older files hold only the first three.
+ */
+export type Stored = Array<
+  [number, number, string] | [number, number, string, number, Source | null]
+>
 
 export function toStored(detections: Detected[]): Stored {
-  return detections.map((d) => [d.start, d.end, d.category])
+  return detections.map((d) =>
+    d.confidence === undefined
+      ? [d.start, d.end, d.category]
+      : [d.start, d.end, d.category, d.confidence, d.source ?? null]
+  )
 }
 
 export function fromStored(stored: Stored): Detected[] {
-  return stored.map(([start, end, category]) => ({ start, end, category }))
+  return stored.map(([start, end, category, confidence, source]) => ({
+    start,
+    end,
+    category,
+    ...(confidence !== undefined ? { confidence } : {}),
+    ...(source ? { source } : {}),
+  }))
+}
+
+/** Positions alone, for the passes: the final detections carry the rest. */
+function positions(detections: Detected[]): Stored {
+  return detections.map((d) => [d.start, d.end, d.category])
+}
+
+/**
+ * The pass each final detection came from, by position: the first that has
+ * it, in the order the analysis runs them.
+ */
+export function withSources(
+  detections: Detected[],
+  passes: Passes
+): Detected[] {
+  const from = new Map<string, Source>()
+  const runs: Array<[Source, Detected[]]> = [
+    ["expansion", passes.expanded],
+    ["model", passes.model],
+    ["patterns", passes.patterns],
+  ]
+  for (const [source, found] of runs)
+    for (const d of found) from.set(`${d.start}:${d.end}`, source)
+  return detections.map((d) => {
+    const source = from.get(`${d.start}:${d.end}`)
+    return source ? { ...d, source } : d
+  })
 }
 
 // --- per document -----------------------------------------------------------
@@ -112,12 +159,12 @@ export function toRecord(
     density: document.density,
     words: document.words,
     repeat: repeatRate(document),
-    detections: toStored(analysed.detections),
+    detections: toStored(withSources(analysed.detections, analysed.passes)),
     passes: {
-      patterns: toStored(analysed.passes.patterns),
+      patterns: positions(analysed.passes.patterns),
       rejected: analysed.passes.rejected,
-      model: toStored(analysed.passes.model),
-      expanded: toStored(analysed.passes.expanded),
+      model: positions(analysed.passes.model),
+      expanded: positions(analysed.passes.expanded),
     },
     usage: usage ?? {
       calls: 0,
@@ -215,9 +262,26 @@ export const REPEAT_BUCKETS: Array<[string, number, number]> = [
   ["10+", 10, Infinity],
 ]
 
+/**
+ * Which documents a run read, out of how many it could have (#204). A run of
+ * fewer than all of them is partial, and its figures carry an interval.
+ */
+export type Selection = {
+  how: "all" | "ids" | "first" | "stratified"
+  documents: number
+  /** In the split, and the format, the documents were chosen from. */
+  of: number
+  /** For a stratified sample: draw it again with `--seed`. */
+  seed?: number
+}
+
 export type RunSummary = {
   mode: Mode
   commit: string | null
+  /** Absent from runs measured before #204. */
+  selection?: Selection
+  /** What the model was told; see fingerprint.ts. Absent before #204. */
+  fingerprint?: Fingerprint
   createdAt: string
   documents: number
   failed: FailedDocument[]
@@ -519,7 +583,8 @@ export function summarise(input: {
     quality: aggregate(
       records.map((r) =>
         scoreDocument(byId.get(r.id)!, fromStored(r.detections))
-      )
+      ),
+      { interval: true }
     ),
     byDocType: groupBy(records, (r) => r.docType, byId, rates),
     byLength: groupBy(records, (r) => r.length, byId, rates, LENGTHS),
@@ -529,6 +594,54 @@ export function summarise(input: {
     expansion: expansionByRepeat(records, byId),
     records,
   }
+}
+
+/**
+ * `n` documents, drawn from each document type in proportion to its share
+ * of `documents`, so a small run still reads every kind of document rather
+ * than the first few by id. Seeded: the same seed draws the same sample, so
+ * an interrupted run resumes on the same documents. In id order.
+ */
+export function stratifiedSample(
+  documents: LabelledDocument[],
+  n: number,
+  seed: number
+): LabelledDocument[] {
+  if (n >= documents.length) return [...documents]
+  const byType = new Map<string, LabelledDocument[]>()
+  for (const document of [...documents].sort((a, b) =>
+    a.id.localeCompare(b.id)
+  ))
+    byType.set(document.docType, [
+      ...(byType.get(document.docType) ?? []),
+      document,
+    ])
+  const types = [...byType.keys()].sort()
+  // Largest remainder: each type its whole share, then the seats left to
+  // the types closest to earning another.
+  const share = types.map((type) => ({
+    type,
+    exact: (n * byType.get(type)!.length) / documents.length,
+  }))
+  const quota = new Map(share.map((s) => [s.type, Math.floor(s.exact)]))
+  let left = n - [...quota.values()].reduce((a, b) => a + b, 0)
+  for (const s of [...share].sort(
+    (a, b) =>
+      b.exact - Math.floor(b.exact) - (a.exact - Math.floor(a.exact)) ||
+      a.type.localeCompare(b.type)
+  )) {
+    if (left === 0) break
+    quota.set(s.type, quota.get(s.type)! + 1)
+    left--
+  }
+  return types
+    .flatMap((type) =>
+      createRng(seed, "sample", type).sample(
+        byType.get(type)!,
+        quota.get(type)!
+      )
+    )
+    .sort((a, b) => a.id.localeCompare(b.id))
 }
 
 // --- throughput -------------------------------------------------------------
@@ -672,6 +785,8 @@ export function rescoreResults(
         )
     }
     runs[mode] = {
+      selection: run.selection,
+      fingerprint: run.fingerprint,
       ...summarise({
         mode,
         records: run.records,

@@ -3,7 +3,7 @@
 <desc id="d">Recall by category. patterns alone: email 100, phone 93, url 21, api-key 33, bank-account 58, financial 9, government-id 25, customer-id 44, person 0, address 19, date-of-birth 68, confidential 0, other 0; gpt-5.6-luna: email 100, phone 88, url 100, api-key 100, bank-account 90, financial 63, government-id 100, customer-id 96, person 94, address 76, date-of-birth 91, confidential 50, other 100; gpt-6-luna: email 100, phone 88, url 80, api-key 100, bank-account 90, financial 50, government-id 100, customer-id 53, person 87, address 76, date-of-birth 100, confidential 50, other 100; zai/glm-5.3-flash: email 100, phone 92, url 100, api-key 100, bank-account 95, financial 41, government-id 100, customer-id 96, person 89, address 72, date-of-birth 91, confidential 50, other 100.</desc>
 <rect x="0.5" y="0.5" width="879" height="393" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">Recall by category</text>
-<text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · covered recall: every character of the value redacted</text>
+<text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · 25 of 395 documents · covered recall: every character of the value redacted</text>
 <line x1="161.24" y1="92" x2="582.17" y2="92" stroke="#383835" stroke-width="2" stroke-linecap="round"/>
 <text x="371.7" y="86" font-size="11.5" font-weight="600" fill="#c3c2b7" text-anchor="middle">structured</text>
 <line x1="588.17" y1="92" x2="849" y2="92" stroke="#383835" stroke-width="2" stroke-linecap="round"/>

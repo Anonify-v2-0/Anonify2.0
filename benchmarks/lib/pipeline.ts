@@ -208,7 +208,12 @@ function labelCharacters(document: LabelledDocument): number {
 function onText(detections: Detection[]): Detected[] {
   return detections
     .filter((d) => d.start !== undefined && d.end !== undefined)
-    .map((d) => ({ start: d.start!, end: d.end!, category: d.category }))
+    .map((d) => ({
+      start: d.start!,
+      end: d.end!,
+      category: d.category,
+      confidence: d.confidence,
+    }))
 }
 
 /**

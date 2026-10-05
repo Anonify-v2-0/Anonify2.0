@@ -17,10 +17,7 @@ import {
   CLASSIFY_SYSTEM,
   classifyPrompt,
 } from "@/lib/ai/prompts/classify-document"
-import {
-  DETECT_PII_SYSTEM,
-  detectPiiPrompt,
-} from "@/lib/ai/prompts/detect-pii"
+import { DETECT_PII_SYSTEM, detectPiiPrompt } from "@/lib/ai/prompts/detect-pii"
 import {
   VERIFY_SYSTEM,
   verifyDetectionPrompt,
@@ -50,6 +47,7 @@ import {
 import {
   dedupeDetections,
   findAllOccurrences,
+  joinAdjacent,
   locateInPage,
 } from "@/lib/redaction/entities"
 import { normalizeValue } from "@/lib/documents/shared/text"
@@ -160,12 +158,15 @@ async function mapWithConcurrency<T, R>(
   const results: R[] = new Array(items.length)
   let cursor = 0
 
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const index = cursor++
-      results[index] = await task(items[index], index)
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const index = cursor++
+        results[index] = await task(items[index], index)
+      }
     }
-  })
+  )
 
   await Promise.all(workers)
   return results
@@ -278,7 +279,9 @@ async function classify(
   const sample =
     model.pages[0]?.text.slice(0, CLASSIFY_SAMPLE) ??
     (model.sheets ?? [])
-      .map((sheet) => `${sheet.name}: ${sheet.headers.filter(Boolean).join(", ")}`)
+      .map(
+        (sheet) => `${sheet.name}: ${sheet.headers.filter(Boolean).join(", ")}`
+      )
       .join("\n")
       .slice(0, CLASSIFY_SAMPLE)
 
@@ -364,17 +367,19 @@ async function verifyCandidates(
 
   const pageText = new Map(model.pages.map((page) => [page.number, page.text]))
 
-  const payload: VerificationCandidate[] = candidates.map((candidate, index) => {
-    const text = pageText.get(candidate.page ?? 1) ?? ""
-    const start = Math.max(0, (candidate.start ?? 0) - CONTEXT_WINDOW)
-    const end = Math.min(text.length, (candidate.end ?? 0) + CONTEXT_WINDOW)
-    return {
-      index,
-      text: candidate.text,
-      category: candidate.category,
-      context: text.slice(start, end),
+  const payload: VerificationCandidate[] = candidates.map(
+    (candidate, index) => {
+      const text = pageText.get(candidate.page ?? 1) ?? ""
+      const start = Math.max(0, (candidate.start ?? 0) - CONTEXT_WINDOW)
+      const end = Math.min(text.length, (candidate.end ?? 0) + CONTEXT_WINDOW)
+      return {
+        index,
+        text: candidate.text,
+        category: candidate.category,
+        context: text.slice(start, end),
+      }
     }
-  })
+  )
 
   const { output, skipped } = await runStructured({
     task: "verify",
@@ -467,7 +472,9 @@ async function analyzeSheets(
       // it does not introduce it. Asked about a four-column sheet, one model
       // answered about columns 1-8, and those four phantoms became four
       // suggestions naming columns that do not exist.
-      const sample = columns.find((candidate) => candidate.index === column.index)
+      const sample = columns.find(
+        (candidate) => candidate.index === column.index
+      )
       if (!sample) continue
 
       sensitive.push({
@@ -649,25 +656,29 @@ export async function analyzeDocument(
   let completed = 0
 
   const contextual = (
-    await mapWithConcurrency(chunks, serviceLimits("ai").concurrency, async (chunk) => {
-      const found = await detectInChunk(
-        documentId,
-        chunk,
-        classification?.documentType,
-        promptLanguage,
-        alreadyFound,
-        preset,
-        tally
-      )
-      completed += 1
-      await onProgress?.({
-        stage: "detect",
-        completed,
-        total: chunks.length,
-        detections: deterministic.length + found.length,
-      })
-      return found
-    })
+    await mapWithConcurrency(
+      chunks,
+      serviceLimits("ai").concurrency,
+      async (chunk) => {
+        const found = await detectInChunk(
+          documentId,
+          chunk,
+          classification?.documentType,
+          promptLanguage,
+          alreadyFound,
+          preset,
+          tally
+        )
+        completed += 1
+        await onProgress?.({
+          stage: "detect",
+          completed,
+          total: chunks.length,
+          detections: deterministic.length + found.length,
+        })
+        return found
+      }
+    )
   ).flat()
 
   // 4. Second look at the deterministic hits that depend on context.
@@ -711,11 +722,16 @@ export async function analyzeDocument(
         category: detection.category,
         confidence: detection.confidence,
         reason: detection.reason,
+        standalone: true,
       })
     )
   }
 
-  const detections = dedupeDetections([...combined, ...expanded])
+  const detections = joinAdjacent(
+    dedupeDetections([...combined, ...expanded]),
+    { patterns: [...solid, ...verified], model: contextual },
+    new Map(model.pages.map((page) => [page.number, page.text]))
+  )
 
   return {
     detections,

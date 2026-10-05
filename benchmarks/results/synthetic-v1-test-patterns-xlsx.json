@@ -132,20 +132,20 @@
     "outsideDocument": 0,
     "substituted": 1
   },
-  "commit": "5ce9008",
-  "createdAt": "2026-10-05T15:57:14.867Z",
+  "commit": "b1a6e09",
+  "createdAt": "2026-10-05T17:08:45.098Z",
   "documents": 32,
   "deterministicFirst": true,
   "totals": {
     "calls": 0,
     "inputTokens": 0,
     "outputTokens": 0,
-    "durationMs": 729,
+    "durationMs": 650,
     "costUsd": 0
   },
   "perDocument": {
-    "medianMs": 19,
-    "p95Ms": 49,
+    "medianMs": 16,
+    "p95Ms": 44,
     "costUsd": 0
   },
   "degraded": {
@@ -154,15 +154,21 @@
   },
   "quality": {
     "labels": 1198,
-    "detections": 349,
-    "precision": 0.9771,
-    "precisionStrict": 0.9685,
+    "detections": 312,
+    "precision": 0.9744,
+    "precisionStrict": 0.9647,
     "recall": 0.3873,
     "recallOverlap": 0.4023,
     "recallStrict": 0.2738,
-    "f1": 0.5547,
+    "f1": 0.5543,
     "falsePositives": 8,
     "negativeHits": 2,
+    "merged": 37,
+    "distinct": {
+      "detections": 247,
+      "precision": 0.9717
+    },
+    "byConfidence": null,
     "unscored": {},
     "byCategory": {
       "person": {
@@ -179,18 +185,18 @@
         "recall": 0.5714,
         "recallOverlap": 0.7253,
         "recallStrict": 0.4835,
-        "detections": 59,
-        "precision": 0.9831,
-        "precisionStrict": 0.9831
+        "detections": 46,
+        "precision": 0.9783,
+        "precisionStrict": 0.9783
       },
       "phone": {
         "labels": 96,
         "recall": 1,
         "recallOverlap": 1,
         "recallStrict": 1,
-        "detections": 97,
-        "precision": 0.9897,
-        "precisionStrict": 0.9897
+        "detections": 84,
+        "precision": 0.9881,
+        "precisionStrict": 0.9881
       },
       "email": {
         "labels": 115,
@@ -215,7 +221,7 @@
         "recall": 0.725,
         "recallOverlap": 0.725,
         "recallStrict": 0.625,
-        "detections": 22,
+        "detections": 17,
         "precision": 1,
         "precisionStrict": 1
       },
@@ -233,7 +239,7 @@
         "recall": 0.2623,
         "recallOverlap": 0.2623,
         "recallStrict": 0.1803,
-        "detections": 10,
+        "detections": 8,
         "precision": 1,
         "precisionStrict": 1
       },
@@ -242,9 +248,9 @@
         "recall": 0.1847,
         "recallOverlap": 0.1847,
         "recallStrict": 0.1083,
-        "detections": 24,
-        "precision": 0.75,
-        "precisionStrict": 0.7083
+        "detections": 20,
+        "precision": 0.7,
+        "precisionStrict": 0.65
       },
       "confidential": {
         "labels": 12,
@@ -323,17 +329,17 @@
   "byDocType": {
     "bank statement": {
       "documents": 13,
-      "precision": 0.8837,
+      "precision": 0.881,
       "recall": 0.1992,
-      "f1": 0.3251,
+      "f1": 0.3249,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "tabular export": {
       "documents": 19,
-      "precision": 0.9902,
+      "precision": 0.9889,
       "recall": 0.4347,
-      "f1": 0.6042,
+      "f1": 0.6039,
       "inputTokens": 0,
       "outputTokens": 0
     }

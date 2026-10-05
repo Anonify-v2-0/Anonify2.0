@@ -16,20 +16,20 @@
     "outsideDocument": 0,
     "substituted": 0
   },
-  "commit": "5ce9008",
-  "createdAt": "2026-10-05T15:57:06.738Z",
+  "commit": "b1a6e09",
+  "createdAt": "2026-10-05T17:08:37.560Z",
   "documents": 31,
   "deterministicFirst": true,
   "totals": {
     "calls": 0,
     "inputTokens": 0,
     "outputTokens": 0,
-    "durationMs": 233,
+    "durationMs": 205,
     "costUsd": 0
   },
   "perDocument": {
-    "medianMs": 9,
-    "p95Ms": 50,
+    "medianMs": 8,
+    "p95Ms": 44,
     "costUsd": 0
   },
   "degraded": {
@@ -38,15 +38,21 @@
   },
   "quality": {
     "labels": 1169,
-    "detections": 361,
-    "precision": 0.9917,
-    "precisionStrict": 0.9861,
+    "detections": 322,
+    "precision": 0.9907,
+    "precisionStrict": 0.9845,
     "recall": 0.4192,
     "recallOverlap": 0.4363,
     "recallStrict": 0.2926,
-    "f1": 0.5893,
+    "f1": 0.5891,
     "falsePositives": 3,
     "negativeHits": 1,
+    "merged": 39,
+    "distinct": {
+      "detections": 255,
+      "precision": 0.9882
+    },
+    "byConfidence": null,
     "unscored": {},
     "byCategory": {
       "person": {
@@ -63,16 +69,16 @@
         "recall": 0.5604,
         "recallOverlap": 0.7363,
         "recallStrict": 0.4725,
-        "detections": 60,
-        "precision": 0.9833,
-        "precisionStrict": 0.9833
+        "detections": 47,
+        "precision": 0.9787,
+        "precisionStrict": 0.9787
       },
       "phone": {
         "labels": 108,
         "recall": 1,
         "recallOverlap": 1,
         "recallStrict": 1,
-        "detections": 108,
+        "detections": 93,
         "precision": 1,
         "precisionStrict": 1
       },
@@ -99,7 +105,7 @@
         "recall": 0.5946,
         "recallOverlap": 0.5946,
         "recallStrict": 0.5135,
-        "detections": 17,
+        "detections": 12,
         "precision": 1,
         "precisionStrict": 1
       },
@@ -117,7 +123,7 @@
         "recall": 0.2429,
         "recallOverlap": 0.2429,
         "recallStrict": 0.1429,
-        "detections": 10,
+        "detections": 8,
         "precision": 1,
         "precisionStrict": 1
       },
@@ -126,9 +132,9 @@
         "recall": 0.128,
         "recallOverlap": 0.128,
         "recallStrict": 0.0549,
-        "detections": 12,
-        "precision": 0.8333,
-        "precisionStrict": 0.75
+        "detections": 9,
+        "precision": 0.7778,
+        "precisionStrict": 0.6667
       },
       "confidential": {
         "labels": 16,
@@ -144,7 +150,7 @@
         "recall": 0.5333,
         "recallOverlap": 0.5333,
         "recallStrict": 0.4667,
-        "detections": 14,
+        "detections": 13,
         "precision": 1,
         "precisionStrict": 1
       },
@@ -207,9 +213,9 @@
   "byDocType": {
     "tabular export": {
       "documents": 31,
-      "precision": 0.9917,
+      "precision": 0.9907,
       "recall": 0.4192,
-      "f1": 0.5893,
+      "f1": 0.5891,
       "inputTokens": 0,
       "outputTokens": 0
     }

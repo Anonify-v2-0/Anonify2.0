@@ -16,6 +16,7 @@ import type { LabelledDocument } from "@/benchmarks/corpus/lib/types"
 import {
   agreement,
   aggregate,
+  bootstrap,
   covers,
   MISS_WEIGHTS,
   scoreDocument,
@@ -73,6 +74,82 @@ describe("corpus scoring", () => {
     expect(quality.negativeHits).toBe(1)
     expect(quality.weightedCost.total).toBe(MISS_WEIGHTS.person + 1)
     expect(quality.weightedCost.missed).toEqual({ person: 1 })
+  })
+
+  it("folds a detection inside another before counting precision (#205)", () => {
+    const score = scoreDocument(DOCUMENT, [
+      { start: 5, end: 16, category: "person" },
+      // "Raman" inside "Priya Raman": one region for a reviewer, not two.
+      { start: 11, end: 16, category: "person" },
+      { start: 35, end: 43, category: "customer-id" },
+    ])
+    expect(score.merged).toBe(1)
+    expect(score.detections).toHaveLength(2)
+    const quality = aggregate([score])
+    expect(quality.precision).toBe(0.5)
+    expect(quality.merged).toBe(1)
+    // Recall still reads every detection.
+    expect(quality.recall).toBe(0.5)
+  })
+
+  it("counts a value once per document in distinct precision", () => {
+    const text = "INV-2291 and INV-2291 again, then Priya Raman."
+    const document = {
+      ...DOCUMENT,
+      text,
+      spans: [{ start: 34, end: 45, category: "person", value: "Priya Raman" }],
+      negatives: [],
+    } as unknown as LabelledDocument
+    const quality = aggregate([
+      scoreDocument(document, [
+        { start: 0, end: 8, category: "customer-id" },
+        { start: 13, end: 21, category: "customer-id" },
+        { start: 34, end: 45, category: "person" },
+      ]),
+    ])
+    expect(quality.precision).toBe(0.3333)
+    expect(quality.distinct).toEqual({ detections: 2, precision: 0.5 })
+  })
+
+  it("reports precision and recall at confidence cut-offs, when it was recorded", () => {
+    const quality = aggregate([
+      scoreDocument(DOCUMENT, [
+        { start: 5, end: 16, category: "person", confidence: 0.95 },
+        { start: 20, end: 28, category: "phone", confidence: 0.6 },
+        { start: 35, end: 43, category: "customer-id", confidence: 0.75 },
+      ]),
+    ])
+    expect(quality.byConfidence).toEqual([
+      { cutoff: 0.5, detections: 3, precision: 0.6667, recall: 1 },
+      { cutoff: 0.7, detections: 2, precision: 0.5, recall: 0.5 },
+      { cutoff: 0.8, detections: 1, precision: 1, recall: 0.5 },
+      { cutoff: 0.9, detections: 1, precision: 1, recall: 0.5 },
+    ])
+    expect(
+      aggregate([
+        scoreDocument(DOCUMENT, [{ start: 5, end: 16, category: "person" }]),
+      ]).byConfidence
+    ).toBeNull()
+  })
+
+  it("bootstraps an interval over documents, the same each time", () => {
+    const right = scoreDocument(DOCUMENT, [
+      { start: 5, end: 16, category: "person" },
+      { start: 20, end: 28, category: "phone" },
+    ])
+    const wrong = scoreDocument(DOCUMENT, [
+      { start: 35, end: 43, category: "customer-id" },
+    ])
+    const scores = [right, right, wrong, right]
+    const interval = bootstrap(scores, 500)
+    expect(interval).toEqual(bootstrap(scores, 500))
+    expect(interval!.precision![0]).toBeLessThan(interval!.precision![1])
+    expect(interval!.precision![1]).toBeLessThanOrEqual(1)
+    expect(bootstrap([right])).toBeNull()
+    expect(aggregate(scores, { interval: true }).interval).toEqual(
+      bootstrap(scores)
+    )
+    expect(aggregate(scores).interval).toBeUndefined()
   })
 
   it("measures agreement between two runs on the same labels", () => {
