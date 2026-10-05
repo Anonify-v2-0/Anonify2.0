@@ -722,24 +722,36 @@ phase: `gpt-5.6-luna` and `gpt-6-luna` through a ChatGPT subscription, and
 #199. Twenty-five documents is a first look, not a sample (#204), so read every
 figure below as a direction rather than a measurement.
 
-- **Quality.** With the patterns first, gpt-5.6-luna reaches 87.0% precision,
-  89.0% recall and 88.0% F1. gpt-6-luna reaches 91.5%, 84.4% and 87.8%, and
-  glm-5.3-flash 86.4%, 85.4% and 85.9%. The patterns alone reach 33.2% F1.
-  gpt-6-luna does it for $0.00089 a document, the cheapest of the three by a
-  factor of two. Most of the remaining false positives are `customer-id`,
-  largely a column the corpus leaves unlabelled (#202), and `financial`.
+- **Quality.** With the patterns first, gpt-5.6-luna reaches 95.0% precision,
+  90.2% recall and 92.6% F1. gpt-6-luna reaches 93.6%, 78.9% and 85.6%, and
+  glm-5.3-flash 95.3%, 87.0% and 90.9%. The patterns alone reach 39.4% F1 over
+  the whole split. gpt-6-luna does it for $0.00089 a document, the cheapest of
+  the three by a factor of two, but it left the `customer_ref` column of
+  `syn-v1-0022` alone with the patterns first, so its `customer-id` recall is
+  53% against 96% for the other two. These are the stored detections rescored
+  after the corpus labelled that column (#202) and precision began counting a
+  redaction inside another once (#205); the runs were not repeated. When they
+  were first published, precision was 86–92%, and most of the difference was
+  that unlabelled column. The Headline figures table below gives each figure's
+  95% interval: over 25 documents, a model's precision is known to within
+  about ±4 points and its recall to within ±5 to ±10.
 - **Tokens.** The deterministic pass did **not** save tokens. Patterns first
   spent 8.7% more than model-only for gpt-5.6-luna, 8.4% more for gpt-6-luna
   and 16.1% more for glm-5.3-flash, and more on 29 of the 30 model and
   document-type pairs. The verification call and the already-found list cost
-  more than the model saves by not repeating the patterns.
+  more than the model saves by not repeating the patterns. Verification alone
+  is 19 calls and 9.4k–11.2k tokens a run, nearly all of the luna models'
+  overhead, and it rejected 1, 2 and 6 of the 109 pattern candidates: on this
+  sample it does not pay for itself.
 - **Comparable quality?** Not quite. Model-only scored higher F1 for all three
-  (89.8%, 88.6% and 88.2%), and higher recall by 3–6 points. Patterns first
-  was more precise only for gpt-6-luna. The clearest loss is address, at
-  72–76% recall with the patterns first and 100% without: the address pattern
-  matches the street line alone, and the model then reports the rest of the
-  address as a separate span, or not at all. [#207](https://github.com/Anonify-v2-0/Anonify2.0/issues/207) has the numbers and what
-  would settle it.
+  (94.3%, 92.6% and 93.4%), and higher recall by 2–11 points. The clearest loss
+  is address, at 72–76% recall with the patterns first and 100% without: the
+  address pattern matches the street line alone, and the model then reports
+  the rest of the address as a separate span, or not at all. A street line and
+  the rest of its address beside it are now joined into one suggestion (#207),
+  which these runs predate; an address the model leaves unfinished is not.
+  [#207](https://github.com/Anonify-v2-0/Anonify2.0/issues/207) has the
+  numbers and what would settle it.
 - **Structured against contextual.** The heatmap does not show the split the
   pipeline assumes. On contextual categories the three are close (person
   87–94%, address 72–76%, confidential 50%). The widest spread is `financial`,
