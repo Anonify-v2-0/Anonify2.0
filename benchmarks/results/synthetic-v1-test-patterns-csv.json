@@ -2,7 +2,7 @@
   "model": "none",
   "detector": "patterns",
   "corpus": "synthetic-v1",
-  "corpusHash": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f",
+  "corpusHash": "sha256:9c28f1c4781faa855b899263b69d510bd3be0e4dddb0fd7655401d6cfb4868e4",
   "split": "test",
   "format": "csv",
   "rendering": {
@@ -16,20 +16,20 @@
     "outsideDocument": 0,
     "substituted": 0
   },
-  "commit": "83b4a96",
-  "createdAt": "2026-09-28T14:10:50.409Z",
+  "commit": "5ce9008",
+  "createdAt": "2026-10-05T15:57:06.738Z",
   "documents": 31,
   "deterministicFirst": true,
   "totals": {
     "calls": 0,
     "inputTokens": 0,
     "outputTokens": 0,
-    "durationMs": 143,
+    "durationMs": 233,
     "costUsd": 0
   },
   "perDocument": {
-    "medianMs": 7,
-    "p95Ms": 34,
+    "medianMs": 9,
+    "p95Ms": 50,
     "costUsd": 0
   },
   "degraded": {
@@ -37,21 +37,22 @@
     "reasons": {}
   },
   "quality": {
-    "labels": 1113,
-    "detections": 340,
-    "precision": 0.9912,
-    "precisionStrict": 0.9824,
-    "recall": 0.4097,
-    "recallOverlap": 0.4241,
-    "recallStrict": 0.2929,
-    "f1": 0.5798,
+    "labels": 1169,
+    "detections": 361,
+    "precision": 0.9917,
+    "precisionStrict": 0.9861,
+    "recall": 0.4192,
+    "recallOverlap": 0.4363,
+    "recallStrict": 0.2926,
+    "f1": 0.5893,
     "falsePositives": 3,
     "negativeHits": 1,
+    "unscored": {},
     "byCategory": {
       "person": {
         "labels": 410,
-        "recall": 0.2268,
-        "recallOverlap": 0.2268,
+        "recall": 0.2512,
+        "recallOverlap": 0.2512,
         "recallStrict": 0,
         "detections": 0,
         "precision": null,
@@ -59,21 +60,21 @@
       },
       "address": {
         "labels": 91,
-        "recall": 0.5275,
-        "recallOverlap": 0.6593,
-        "recallStrict": 0.4505,
-        "detections": 52,
-        "precision": 0.9808,
-        "precisionStrict": 0.9808
+        "recall": 0.5604,
+        "recallOverlap": 0.7363,
+        "recallStrict": 0.4725,
+        "detections": 60,
+        "precision": 0.9833,
+        "precisionStrict": 0.9833
       },
       "phone": {
         "labels": 108,
-        "recall": 0.9907,
-        "recallOverlap": 0.9907,
-        "recallStrict": 0.9907,
-        "detections": 109,
+        "recall": 1,
+        "recallOverlap": 1,
+        "recallStrict": 1,
+        "detections": 108,
         "precision": 1,
-        "precisionStrict": 0.9817
+        "precisionStrict": 1
       },
       "email": {
         "labels": 133,
@@ -86,26 +87,26 @@
       },
       "government-id": {
         "labels": 19,
-        "recall": 0.0526,
-        "recallOverlap": 0.0526,
-        "recallStrict": 0,
-        "detections": 0,
-        "precision": null,
-        "precisionStrict": null
+        "recall": 0.1579,
+        "recallOverlap": 0.1579,
+        "recallStrict": 0.1053,
+        "detections": 2,
+        "precision": 1,
+        "precisionStrict": 1
       },
       "bank-account": {
         "labels": 37,
         "recall": 0.5946,
         "recallOverlap": 0.5946,
-        "recallStrict": 0.4595,
-        "detections": 15,
+        "recallStrict": 0.5135,
+        "detections": 17,
         "precision": 1,
         "precisionStrict": 1
       },
       "financial": {
         "labels": 30,
-        "recall": 0.0667,
-        "recallOverlap": 0.2,
+        "recall": 0.1,
+        "recallOverlap": 0.2333,
         "recallStrict": 0.0333,
         "detections": 2,
         "precision": 1,
@@ -113,21 +114,21 @@
       },
       "date-of-birth": {
         "labels": 70,
-        "recall": 0.2,
-        "recallOverlap": 0.2,
-        "recallStrict": 0.1143,
-        "detections": 8,
+        "recall": 0.2429,
+        "recallOverlap": 0.2429,
+        "recallStrict": 0.1429,
+        "detections": 10,
         "precision": 1,
         "precisionStrict": 1
       },
       "customer-id": {
-        "labels": 108,
-        "recall": 0.0833,
-        "recallOverlap": 0.0833,
-        "recallStrict": 0.0185,
-        "detections": 4,
-        "precision": 0.5,
-        "precisionStrict": 0.5
+        "labels": 164,
+        "recall": 0.128,
+        "recallOverlap": 0.128,
+        "recallStrict": 0.0549,
+        "detections": 12,
+        "precision": 0.8333,
+        "precisionStrict": 0.75
       },
       "confidential": {
         "labels": 16,
@@ -140,8 +141,8 @@
       },
       "api-key": {
         "labels": 30,
-        "recall": 0.4667,
-        "recallOverlap": 0.4667,
+        "recall": 0.5333,
+        "recallOverlap": 0.5333,
         "recallStrict": 0.4667,
         "detections": 14,
         "precision": 1,
@@ -167,21 +168,20 @@
       }
     },
     "weightedCost": {
-      "total": 3481,
-      "perDocument": 112.29,
+      "total": 3566,
+      "perDocument": 115.03,
       "missed": {
-        "customer-id": 99,
-        "person": 317,
+        "customer-id": 143,
+        "person": 307,
         "confidential": 14,
         "other": 28,
-        "government-id": 18,
-        "api-key": 16,
-        "address": 43,
+        "government-id": 16,
+        "api-key": 14,
         "url": 22,
-        "date-of-birth": 56,
-        "financial": 28,
-        "bank-account": 15,
-        "phone": 1
+        "address": 40,
+        "date-of-birth": 53,
+        "financial": 27,
+        "bank-account": 15
       },
       "falsePositives": 3,
       "weights": {
@@ -207,9 +207,9 @@
   "byDocType": {
     "tabular export": {
       "documents": 31,
-      "precision": 0.9912,
-      "recall": 0.4097,
-      "f1": 0.5798,
+      "precision": 0.9917,
+      "recall": 0.4192,
+      "f1": 0.5893,
       "inputTokens": 0,
       "outputTokens": 0
     }
@@ -333,9 +333,49 @@
         "bank-account"
       ],
       [
+        10343,
+        11586,
+        "customer-id"
+      ],
+      [
+        11692,
+        12968,
+        "customer-id"
+      ],
+      [
+        19802,
+        20982,
+        "customer-id"
+      ],
+      [
         24981,
         26167,
         "address"
+      ],
+      [
+        27587,
+        28856,
+        "date-of-birth"
+      ],
+      [
+        28959,
+        30155,
+        "customer-id"
+      ],
+      [
+        32653,
+        33809,
+        "customer-id"
+      ],
+      [
+        33905,
+        34905,
+        "customer-id"
+      ],
+      [
+        39533,
+        40415,
+        "customer-id"
       ],
       [
         17202,
@@ -422,7 +462,7 @@
       [
         481,
         508,
-        "phone"
+        "bank-account"
       ],
       [
         509,
@@ -687,6 +727,11 @@
     ],
     "syn-v1-0152": [
       [
+        186,
+        222,
+        "phone"
+      ],
+      [
         224,
         355,
         "email"
@@ -695,6 +740,16 @@
         224,
         355,
         "api-key"
+      ],
+      [
+        74,
+        186,
+        "date-of-birth"
+      ],
+      [
+        390,
+        468,
+        "address"
       ]
     ],
     "syn-v1-0177": [],
@@ -718,6 +773,16 @@
         527,
         548,
         "email"
+      ],
+      [
+        170,
+        187,
+        "address"
+      ],
+      [
+        461,
+        507,
+        "address"
       ]
     ],
     "syn-v1-0247": [
@@ -1380,6 +1445,11 @@
         "address"
       ],
       [
+        5204,
+        5575,
+        "customer-id"
+      ],
+      [
         5647,
         5969,
         "address"
@@ -1494,7 +1564,7 @@
       [
         212,
         239,
-        "phone"
+        "bank-account"
       ],
       [
         169,
@@ -1563,6 +1633,21 @@
         6799,
         7158,
         "bank-account"
+      ],
+      [
+        201,
+        316,
+        "address"
+      ],
+      [
+        4255,
+        4370,
+        "address"
+      ],
+      [
+        6212,
+        6269,
+        "address"
       ]
     ],
     "syn-v1-0383": [
@@ -1877,7 +1962,28 @@
         "bank-account"
       ]
     ],
-    "syn-v1-0582": [],
+    "syn-v1-0582": [
+      [
+        192,
+        282,
+        "government-id"
+      ],
+      [
+        357,
+        441,
+        "government-id"
+      ],
+      [
+        116,
+        190,
+        "address"
+      ],
+      [
+        283,
+        355,
+        "address"
+      ]
+    ],
     "syn-v1-0592": [
       [
         99,
@@ -1945,11 +2051,6 @@
         "email"
       ],
       [
-        10129,
-        11026,
-        "phone"
-      ],
-      [
         11106,
         11129,
         "email"
@@ -1978,6 +2079,11 @@
         7011,
         7953,
         "address"
+      ],
+      [
+        10129,
+        11026,
+        "phone"
       ]
     ]
   }

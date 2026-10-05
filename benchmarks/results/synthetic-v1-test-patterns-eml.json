@@ -2,7 +2,7 @@
   "model": "none",
   "detector": "patterns",
   "corpus": "synthetic-v1",
-  "corpusHash": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f",
+  "corpusHash": "sha256:9c28f1c4781faa855b899263b69d510bd3be0e4dddb0fd7655401d6cfb4868e4",
   "split": "test",
   "format": "eml",
   "rendering": {
@@ -11,20 +11,20 @@
     "outsideDocument": 105,
     "substituted": 0
   },
-  "commit": "83b4a96",
-  "createdAt": "2026-09-28T14:10:48.284Z",
+  "commit": "5ce9008",
+  "createdAt": "2026-10-05T15:57:08.932Z",
   "documents": 35,
   "deterministicFirst": true,
   "totals": {
     "calls": 0,
     "inputTokens": 0,
     "outputTokens": 0,
-    "durationMs": 134,
+    "durationMs": 266,
     "costUsd": 0
   },
   "perDocument": {
-    "medianMs": 4,
-    "p95Ms": 33,
+    "medianMs": 7,
+    "p95Ms": 99,
     "costUsd": 0
   },
   "degraded": {
@@ -33,15 +33,16 @@
   },
   "quality": {
     "labels": 749,
-    "detections": 248,
-    "precision": 0.9677,
-    "precisionStrict": 0.9234,
-    "recall": 0.2884,
-    "recallOverlap": 0.3178,
-    "recallStrict": 0.2884,
-    "f1": 0.4444,
+    "detections": 277,
+    "precision": 0.9711,
+    "precisionStrict": 0.9639,
+    "recall": 0.3445,
+    "recallOverlap": 0.3591,
+    "recallStrict": 0.3445,
+    "f1": 0.5086,
     "falsePositives": 8,
     "negativeHits": 6,
+    "unscored": {},
     "byCategory": {
       "person": {
         "labels": 376,
@@ -54,21 +55,21 @@
       },
       "address": {
         "labels": 32,
-        "recall": 0,
-        "recallOverlap": 0.1875,
-        "recallStrict": 0,
-        "detections": 6,
+        "recall": 0.3438,
+        "recallOverlap": 0.5313,
+        "recallStrict": 0.3438,
+        "detections": 17,
         "precision": 1,
         "precisionStrict": 1
       },
       "phone": {
         "labels": 25,
-        "recall": 0.76,
-        "recallOverlap": 0.92,
-        "recallStrict": 0.76,
-        "detections": 32,
+        "recall": 0.88,
+        "recallOverlap": 1,
+        "recallStrict": 0.88,
+        "detections": 25,
         "precision": 1,
-        "precisionStrict": 0.7188
+        "precisionStrict": 1
       },
       "email": {
         "labels": 161,
@@ -81,19 +82,19 @@
       },
       "government-id": {
         "labels": 8,
-        "recall": 0,
-        "recallOverlap": 0,
-        "recallStrict": 0,
-        "detections": 0,
-        "precision": null,
-        "precisionStrict": null
+        "recall": 0.625,
+        "recallOverlap": 0.625,
+        "recallStrict": 0.625,
+        "detections": 5,
+        "precision": 1,
+        "precisionStrict": 1
       },
       "bank-account": {
         "labels": 17,
-        "recall": 0.2353,
+        "recall": 0.6471,
         "recallOverlap": 0.7647,
-        "recallStrict": 0.2353,
-        "detections": 4,
+        "recallStrict": 0.6471,
+        "detections": 11,
         "precision": 1,
         "precisionStrict": 1
       },
@@ -108,21 +109,21 @@
       },
       "date-of-birth": {
         "labels": 16,
-        "recall": 0.3125,
-        "recallOverlap": 0.3125,
-        "recallStrict": 0.3125,
-        "detections": 5,
+        "recall": 0.75,
+        "recallOverlap": 0.75,
+        "recallStrict": 0.75,
+        "detections": 12,
         "precision": 1,
         "precisionStrict": 1
       },
       "customer-id": {
         "labels": 38,
-        "recall": 0.4474,
-        "recallOverlap": 0.5263,
-        "recallStrict": 0.4474,
-        "detections": 28,
-        "precision": 0.7143,
-        "precisionStrict": 0.7143
+        "recall": 0.6842,
+        "recallOverlap": 0.6842,
+        "recallStrict": 0.6842,
+        "detections": 34,
+        "precision": 0.7647,
+        "precisionStrict": 0.7647
       },
       "confidential": {
         "labels": 12,
@@ -162,21 +163,21 @@
       }
     },
     "weightedCost": {
-      "total": 2804,
-      "perDocument": 80.11,
+      "total": 2534,
+      "perDocument": 72.4,
       "missed": {
         "person": 376,
-        "bank-account": 13,
+        "bank-account": 6,
         "financial": 21,
         "api-key": 7,
         "other": 12,
-        "address": 32,
-        "date-of-birth": 11,
+        "address": 21,
+        "date-of-birth": 4,
         "url": 14,
         "confidential": 12,
-        "customer-id": 21,
-        "government-id": 8,
-        "phone": 6
+        "customer-id": 12,
+        "government-id": 3,
+        "phone": 3
       },
       "falsePositives": 8,
       "weights": {
@@ -202,9 +203,9 @@
   "byDocType": {
     "email thread": {
       "documents": 35,
-      "precision": 0.9677,
-      "recall": 0.2884,
-      "f1": 0.4444,
+      "precision": 0.9711,
+      "recall": 0.3445,
+      "f1": 0.5086,
       "inputTokens": 0,
       "outputTokens": 0
     }
@@ -305,9 +306,9 @@
         "email"
       ],
       [
-        265,
-        279,
-        "phone"
+        255,
+        282,
+        "bank-account"
       ],
       [
         37,
@@ -433,6 +434,11 @@
         "financial"
       ],
       [
+        1637,
+        1646,
+        "government-id"
+      ],
+      [
         2152,
         2167,
         "phone"
@@ -468,6 +474,11 @@
         "financial"
       ],
       [
+        5616,
+        5625,
+        "government-id"
+      ],
+      [
         6715,
         6739,
         "email"
@@ -488,14 +499,34 @@
         "phone"
       ],
       [
+        604,
+        619,
+        "customer-id"
+      ],
+      [
+        1588,
+        1609,
+        "date-of-birth"
+      ],
+      [
         1772,
         1845,
         "url"
       ],
       [
-        7164,
-        7173,
+        1966,
+        2008,
+        "address"
+      ],
+      [
+        7161,
+        7176,
         "customer-id"
+      ],
+      [
+        7707,
+        7749,
+        "address"
       ]
     ],
     "syn-v1-0117": [
@@ -505,9 +536,29 @@
         "email"
       ],
       [
+        333,
+        342,
+        "government-id"
+      ],
+      [
         422,
         454,
         "email"
+      ],
+      [
+        185,
+        193,
+        "customer-id"
+      ],
+      [
+        234,
+        278,
+        "address"
+      ],
+      [
+        306,
+        316,
+        "date-of-birth"
       ]
     ],
     "syn-v1-0153": [
@@ -552,6 +603,11 @@
         903,
         926,
         "email"
+      ],
+      [
+        256,
+        272,
+        "date-of-birth"
       ]
     ],
     "syn-v1-0203": [
@@ -573,9 +629,29 @@
         "email"
       ],
       [
+        329,
+        338,
+        "government-id"
+      ],
+      [
+        400,
+        417,
+        "phone"
+      ],
+      [
         149,
         157,
         "customer-id"
+      ],
+      [
+        227,
+        262,
+        "address"
+      ],
+      [
+        269,
+        279,
+        "date-of-birth"
       ]
     ],
     "syn-v1-0252": [],
@@ -601,6 +677,11 @@
         "email"
       ],
       [
+        252,
+        266,
+        "date-of-birth"
+      ],
+      [
         340,
         357,
         "address"
@@ -614,7 +695,7 @@
       ],
       [
         1829,
-        1836,
+        1840,
         "customer-id"
       ]
     ],
@@ -630,8 +711,18 @@
         "email"
       ],
       [
+        4082,
+        4092,
+        "customer-id"
+      ],
+      [
         5774,
         5783,
+        "customer-id"
+      ],
+      [
+        15080,
+        15090,
         "customer-id"
       ],
       [
@@ -850,6 +941,11 @@
         "email"
       ],
       [
+        144,
+        179,
+        "address"
+      ],
+      [
         205,
         213,
         "customer-id"
@@ -882,9 +978,9 @@
         "email"
       ],
       [
-        798,
-        812,
-        "phone"
+        788,
+        815,
+        "bank-account"
       ],
       [
         839,
@@ -951,9 +1047,9 @@
         "email"
       ],
       [
-        673,
-        687,
-        "phone"
+        663,
+        690,
+        "bank-account"
       ],
       [
         903,
@@ -1152,9 +1248,9 @@
         "email"
       ],
       [
-        6866,
-        6880,
-        "phone"
+        6856,
+        6883,
+        "bank-account"
       ],
       [
         7938,
@@ -1167,6 +1263,11 @@
         "email"
       ],
       [
+        3975,
+        3991,
+        "date-of-birth"
+      ],
+      [
         7014,
         7024,
         "customer-id"
@@ -1174,9 +1275,29 @@
     ],
     "syn-v1-0516": [
       [
-        240,
-        252,
+        192,
+        211,
         "phone"
+      ],
+      [
+        238,
+        265,
+        "bank-account"
+      ],
+      [
+        36,
+        44,
+        "customer-id"
+      ],
+      [
+        131,
+        167,
+        "address"
+      ],
+      [
+        171,
+        181,
+        "date-of-birth"
       ]
     ],
     "syn-v1-0524": [
@@ -1196,7 +1317,7 @@
         "financial"
       ],
       [
-        927,
+        926,
         938,
         "phone"
       ],
@@ -1251,7 +1372,7 @@
         "email"
       ],
       [
-        621,
+        618,
         630,
         "customer-id"
       ],
@@ -1360,6 +1481,16 @@
         "email"
       ],
       [
+        257,
+        289,
+        "address"
+      ],
+      [
+        363,
+        371,
+        "customer-id"
+      ],
+      [
         851,
         941,
         "url"
@@ -1375,6 +1506,11 @@
         147,
         178,
         "email"
+      ],
+      [
+        801,
+        810,
+        "government-id"
       ],
       [
         969,
@@ -1407,14 +1543,9 @@
         "email"
       ],
       [
-        2408,
-        2420,
-        "phone"
-      ],
-      [
-        2421,
+        2406,
         2435,
-        "phone"
+        "bank-account"
       ],
       [
         2815,
@@ -1437,14 +1568,9 @@
         "email"
       ],
       [
-        4161,
-        4173,
-        "phone"
-      ],
-      [
-        4174,
+        4159,
         4188,
-        "phone"
+        "bank-account"
       ],
       [
         4672,
@@ -1485,6 +1611,26 @@
         741,
         750,
         "customer-id"
+      ],
+      [
+        2503,
+        2542,
+        "address"
+      ],
+      [
+        3544,
+        3594,
+        "address"
+      ],
+      [
+        5886,
+        5925,
+        "address"
+      ],
+      [
+        6909,
+        6948,
+        "address"
       ]
     ],
     "syn-v1-0586": [

@@ -599,7 +599,14 @@ export type ModelResults = {
    */
   firstMeasuredAt: string
   corpus: string
+  /** The version of the corpus the numbers here are scored against. */
   corpusHash: string | null
+  /**
+   * Set when the stored detections were scored again (`pnpm corpus:score
+   * --rescore`): when, and the corpus version the model actually read. The
+   * texts are the same; only the labels moved.
+   */
+  rescored?: { at: string; detectedOn: string | null }
   split: string
   format: string
   /** Prices used for every cost here; null when none were configured. */
@@ -637,6 +644,61 @@ export function notMeasured(format: string): string[] {
       : `Other formats: this run renders to ${format} only, cleanly and without OCR; scanned pages have their own fixtures.`,
     ...NOT_MEASURED,
   ]
+}
+
+/**
+ * Scores the detections a results file already holds again, against the
+ * corpus as it is now and under today's scoring, without calling a model.
+ * Tokens, timings and what each pass found carry over: they are in the
+ * records. Only the labels may have changed since the run. A document whose
+ * text changed, which a different word count gives away, cannot be rescored,
+ * because its detections no longer point at the same characters.
+ */
+export function rescoreResults(
+  results: ModelResults,
+  documents: LabelledDocument[],
+  corpusHash: string | null
+): ModelResults {
+  const byId = new Map(documents.map((d) => [d.id, d]))
+  const runs: ModelResults["runs"] = {}
+  for (const [mode, run] of Object.entries(results.runs) as Array<
+    [Mode, RunSummary]
+  >) {
+    for (const record of run.records) {
+      const document = byId.get(record.id)
+      if (!document || document.words !== record.words)
+        throw new Error(
+          `${record.id} is not the document ${results.label}'s ${mode} run read; measure it again with --replace`
+        )
+    }
+    runs[mode] = {
+      ...summarise({
+        mode,
+        records: run.records,
+        failed: run.failed,
+        documents,
+        rates: results.rates,
+        durationMs: run.totals.durationMs,
+        concurrency: run.concurrency,
+        commit: run.commit,
+      }),
+      createdAt: run.createdAt,
+    }
+  }
+  const moved = results.corpusHash !== corpusHash
+  return withHeadline({
+    ...results,
+    corpusHash,
+    ...(moved || results.rescored
+      ? {
+          rescored: {
+            at: new Date().toISOString(),
+            detectedOn: results.rescored?.detectedOn ?? results.corpusHash,
+          },
+        }
+      : {}),
+    runs,
+  })
 }
 
 /** Fills the §4 fields from the deterministic-first run, when there is one. */

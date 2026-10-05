@@ -5,7 +5,7 @@
   "label": "gpt-6-luna",
   "firstMeasuredAt": "2026-10-01T04:27:48.707Z",
   "corpus": "synthetic-v1",
-  "corpusHash": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f",
+  "corpusHash": "sha256:9c28f1c4781faa855b899263b69d510bd3be0e4dddb0fd7655401d6cfb4868e4",
   "split": "dev",
   "format": "text",
   "rates": {
@@ -6657,5 +6657,9 @@
     "aiRequestsPerMinute": null,
     "aiMaxAttempts": null
   },
-  "notMeasured": ["Extraction and export: each document is analysed as one plain-text page, so the extract and export stages are not timed; see --format.", "Faces, handwriting, scanned noise and non-Latin scripts, which the corpus does not contain.", "Real-world prevalence: categories are over-represented on purpose, so precision here is not precision on real documents.", "Anything a person accepts or rejects in review: every proposal counts as a redaction, and the export stage exports all of them.", "Model calls saved by expansion are not observed directly: the pipeline never asks the model per occurrence, so the saving is counted as the occurrences the local search added that no model call found.", "Cost is tokens times the configured price; cached-input discounts, batch pricing and a subscription's flat fee are not modelled.", "Throughput depends on the provider, the plan's rate limits and the network at the time of the run; it is one afternoon, not a property of the model."]
+  "notMeasured": ["Extraction and export: each document is analysed as one plain-text page, so the extract and export stages are not timed; see --format.", "Faces, handwriting, scanned noise and non-Latin scripts, which the corpus does not contain.", "Real-world prevalence: categories are over-represented on purpose, so precision here is not precision on real documents.", "Anything a person accepts or rejects in review: every proposal counts as a redaction, and the export stage exports all of them.", "Model calls saved by expansion are not observed directly: the pipeline never asks the model per occurrence, so the saving is counted as the occurrences the local search added that no model call found.", "Cost is tokens times the configured price; cached-input discounts, batch pricing and a subscription's flat fee are not modelled.", "Throughput depends on the provider, the plan's rate limits and the network at the time of the run; it is one afternoon, not a property of the model."],
+  "rescored": {
+    "at": "2026-10-05T15:56:11.468Z",
+    "detectedOn": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f"
+  }
 }

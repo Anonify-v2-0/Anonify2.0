@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { unlabelledReferenceCells } from "./columns"
 import { inferEntity, repairMarkup, stripMarkup } from "./markup"
 import { findDenied, mask } from "./operator"
 import { createRng } from "./random"
@@ -217,6 +218,20 @@ export function buildDocument(
         )
         break
       }
+    }
+  }
+
+  // 3b. A column of references to people, such as customer_ref, that is
+  // bare. Step 3 cannot see a value that is never labelled (#202). A decoy in
+  // the column, a row id that is nobody's, passes once it is declared a
+  // negative.
+  if (spec.docType === "tabular export") {
+    const bare = unlabelledReferenceCells(text, spans, negatives)
+    for (const header of new Set(bare.map((cell) => cell.header))) {
+      const cells = bare.filter((cell) => cell.header === header)
+      reasons.push(
+        `${JSON.stringify(header)} names a reference to a person, but ${cells.length} of its values are unlabelled, such as ${JSON.stringify(cells[0].value)}`
+      )
     }
   }
 
