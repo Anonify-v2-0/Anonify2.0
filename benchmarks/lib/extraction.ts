@@ -264,17 +264,29 @@ export class SourceMap {
       const cell = this.cells.get(
         `${detection.worksheet}\u0000${detection.row}\u0000${detection.column}`
       )
-      return cell ? this.back(cell.start, cell.end, detection.category) : null
+      return cell
+        ? this.confident(
+            this.back(cell.start, cell.end, detection.category),
+            detection
+          )
+        : null
     }
     if (detection.start === undefined || detection.end === undefined)
       return null
     const base = this.pageStart.get(detection.page ?? 1)
     if (base === undefined) return null
-    return this.back(
-      base + detection.start,
-      base + detection.end,
-      detection.category
+    return this.confident(
+      this.back(
+        base + detection.start,
+        base + detection.end,
+        detection.category
+      ),
+      detection
     )
+  }
+
+  private confident(mapped: Detected | null, detection: Detection) {
+    return mapped && { ...mapped, confidence: detection.confidence }
   }
 
   /**

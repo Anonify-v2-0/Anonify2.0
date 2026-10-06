@@ -7,6 +7,16 @@
 > the rerun. This note explains the earlier figures. Its causes 2 to 5 still
 > apply, and the `customer_ref` column (#202) is now the largest share of the
 > false positives left.
+>
+> **Since then, causes 2 to 5 have been dealt with.** The `customer_ref`
+> columns are labelled (#202), the phone pattern no longer starts inside a
+> reference (#203), the results record what they were measured against and
+> how their documents were chosen, with an interval beside every partial
+> figure (#204), and precision folds a redaction inside another before
+> counting, with precision per distinct value beside it (#205). The stored
+> detections were rescored, not rerun: precision is now 95.0% (gpt-5.6-luna),
+> 93.6% (gpt-6-luna) and 95.3% (glm-5.3-flash), each about ±4 points over
+> these 25 documents. The figures below are as they were, for the record.
 
 The first test-split results (`openai-subscription_gpt-6-luna.json`,
 `openai-subscription_gpt-5.6-luna.json`, published in #201) report precision of

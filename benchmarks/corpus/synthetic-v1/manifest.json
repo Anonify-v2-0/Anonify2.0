@@ -1,5 +1,5 @@
 {
-  "corpus": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f",
+  "corpus": "sha256:9c28f1c4781faa855b899263b69d510bd3be0e4dddb0fd7655401d6cfb4868e4",
   "documents": {
     "total": 534,
     "bySplit": {
@@ -41,14 +41,14 @@
     }
   },
   "spans": {
-    "total": 11311,
+    "total": 11373,
     "byCategory": {
       "dev": {
         "address": 208,
         "api-key": 68,
         "bank-account": 186,
         "confidential": 84,
-        "customer-id": 305,
+        "customer-id": 311,
         "date-of-birth": 202,
         "email": 224,
         "financial": 152,
@@ -63,7 +63,7 @@
         "api-key": 239,
         "bank-account": 283,
         "confidential": 231,
-        "customer-id": 357,
+        "customer-id": 413,
         "date-of-birth": 297,
         "email": 661,
         "financial": 432,
@@ -74,7 +74,7 @@
         "url": 191
       }
     },
-    "negatives": 3520
+    "negatives": 3522
   },
   "targets": {
     "person": {
@@ -118,9 +118,9 @@
       "met": true
     },
     "customer-id": {
-      "test": 357,
+      "test": 413,
       "target": 400,
-      "met": false
+      "met": true
     },
     "confidential": {
       "test": 231,
@@ -282,7 +282,7 @@
     "dev/syn-v1-0565.json": "e0e4af1ad42fe1a3d5258ff94c55ab14005b74599e1a06ec25b047a7b5cbf8a1",
     "dev/syn-v1-0577.json": "2126c2220c9a2a29a704246b6f953bab7ac1df4c1ac198668601dcc3cf318f06",
     "dev/syn-v1-0578.json": "6c6e98e6271969bc29c7b36e516f03060f99ec38c7ed84ecae6e24a3dabf5fc2",
-    "dev/syn-v1-0579.json": "840d5585257b552b62796f92e7d67091b68375c0cee02544894ff5b9ffe4070c",
+    "dev/syn-v1-0579.json": "4f2f94fb0aad6ddd868d6186a32d8b08f31c5571cc924c55899cb74bf2e5eaa0",
     "dev/syn-v1-0585.json": "8a823e551e5c60f7f47dd17ea11f3d776052c15e144be75c31cfb6c2bbbf1b6e",
     "dev/syn-v1-0588.json": "7c5eab3171058f63aa4993f0a22a4d7d0df8ea058b576adbdcd8ff9e36027b07",
     "dev/syn-v1-0589.json": "e9899ad96a09d4a0b7359beb3d0fce9803bea31e849a25bbf7acf163964c6c41",
@@ -301,7 +301,7 @@
     "test/syn-v1-0019.json": "c1ca57b405c1b959f255d6910d4bbf2d1267149798978b4353d05c745c697f26",
     "test/syn-v1-0020.json": "6a9a822f95e723f652dfc383ef31adec48b7e3fc0ff890da39c4d1f0d3265ced",
     "test/syn-v1-0021.json": "62e02376f3a9c6adab7728c17fe9cdfcf5bbf284631df31e34277f08cedaaae4",
-    "test/syn-v1-0022.json": "18449ec91a904978c166f1720765a55a3927acf528dc930884437bb1eb931688",
+    "test/syn-v1-0022.json": "a4a4f1e65f8bffa62bb5b50659047b486480bde1f6e0daa27141366728331ee7",
     "test/syn-v1-0023.json": "18b1b0d844353a9ae72a983c98a04c3ea44d73d6523af469c0716648bae3666e",
     "test/syn-v1-0024.json": "754267a08137f4d68e22b486ce84f4615edd97dc261c99fa3a2772aab857a043",
     "test/syn-v1-0025.json": "b26b7b9953a8ec5337840b4445b423307b28458d1598d1c88d2502247db99657",
@@ -309,7 +309,7 @@
     "test/syn-v1-0028.json": "a6d36cde860f32e9e05295c70fe398f28cd10873977662f30207cc679f19bdb3",
     "test/syn-v1-0029.json": "1f820fb5765f8834529a6c2cd063ffd732c388802f97babf92b2eb5cd6692de5",
     "test/syn-v1-0030.json": "6c92309181fa82a3c9a4563e035e98258952b24273e18f2b6bad2ebb7b9cc50f",
-    "test/syn-v1-0033.json": "28eebcaa7c84311342ed6cf0532e03d89a53369d9c802589fd8b593de6691c34",
+    "test/syn-v1-0033.json": "35783937dd3ea04488f3b693b42bf8ba0fd487718db80b325d2e6604b50db62a",
     "test/syn-v1-0034.json": "bdfe77ad52b5497398c676286debaadbe0cf9a9b7c3d85668fd50bc72ad5e9fd",
     "test/syn-v1-0035.json": "33dd600b91f130c51f84217b1d10d8687207c383df740615e56ede052be1cefd",
     "test/syn-v1-0036.json": "16d3268f1d0457f7b0d23f4b54a90f298a860a6d0f45053366a6cdae563c1e8f",
@@ -458,7 +458,7 @@
     "test/syn-v1-0255.json": "cbf50f446b5a6e10e808d59536f9a7d8639b398a6b2433ead3c980035160694d",
     "test/syn-v1-0256.json": "c81bc41f8143324a36c1aaa693054b73a7960bb2b34f6d4bd3f7e05f682c8a42",
     "test/syn-v1-0257.json": "a7dabd5ca3ffea64e7dd632d6f4dbf747cf7a96b590617f159f638d5c170542c",
-    "test/syn-v1-0258.json": "72fedff6f5e02516978f30d634871885d53ce29079155b47d96b32739e488cde",
+    "test/syn-v1-0258.json": "1841f87a0af0b2993f3c64f54ab9403868337cc4c170883d58dad4dde4500ce1",
     "test/syn-v1-0259.json": "55a01a21d1b468d0adf3d264c20fc5bbac1ea957fbdbe40127e28c748d192474",
     "test/syn-v1-0260.json": "7c599bde88a29d45066d5f4c27956632374745be5df428e661e5430fb6cd33a1",
     "test/syn-v1-0262.json": "13727f1cec7b5fa769af1406a907949093e7e6845635d75f1fd31eb5489cf40b",
@@ -536,7 +536,7 @@
     "test/syn-v1-0375.json": "c025ecc2bd2ccc4e809f8d12966488ca7e7c11e77d5d65afc2bf0bc82d5429dc",
     "test/syn-v1-0377.json": "75dae193ec9f126708f6c87179eb021b978b6d4d601561473211159843d80272",
     "test/syn-v1-0378.json": "c523a0720717d46c0b97db307530775615a629ef1130b392686adc00c2c741bc",
-    "test/syn-v1-0379.json": "78c5daf3aa56aa9ba61a457cca0d38db104aaf39857122cc6f7b349b7fd73235",
+    "test/syn-v1-0379.json": "a7c4415064548cdeb54b88465f4127cf7ce93fc313102c25a0561de63bd195f7",
     "test/syn-v1-0381.json": "3f4f86d1b3bec8e3ef10d4ebbc75c7ab1f8c93ffeea5c5f4a044fd576b3b2fec",
     "test/syn-v1-0383.json": "bcb146aa484363e3b36ec9d66b55731d8a3d4b7bf4c12d16ddbbd0947029a81b",
     "test/syn-v1-0385.json": "eb284369704be8bd9e8a98c562425d1529ba8adf1ed00512e5fecd182d2405cf",

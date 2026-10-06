@@ -8,6 +8,11 @@ import { int } from "@/benchmarks/corpus/lib/args"
 import { createBackend } from "@/benchmarks/corpus/lib/backends"
 import { buildDocument, countWords } from "@/benchmarks/corpus/lib/build"
 import {
+  isPersonReferenceHeader,
+  tableColumns,
+  unlabelledReferenceCells,
+} from "@/benchmarks/corpus/lib/columns"
+import {
   readNodeWrapper,
   resolveLaunch,
   type Environment,
@@ -540,6 +545,112 @@ describe("corpus document builder", () => {
       expect(result.reasons.join("\n")).toContain(
         "email outside the reserved ranges"
       )
+  })
+})
+
+describe("corpus reference columns (#202)", () => {
+  it("names the headers of references tied to a person", () => {
+    for (const header of [
+      "customer_ref",
+      "Customer ID",
+      "client_id",
+      "member_no",
+      "Patient ID",
+      "employee_id",
+      "Kunden-ID",
+      "Mitgliedsnummer",
+      "N° adhérent",
+      "Número de cliente",
+    ])
+      expect(isPersonReferenceHeader(header), header).toBe(true)
+    for (const header of [
+      "ticket_id",
+      "plan_sku",
+      "Customer name",
+      "Member role not refreshed",
+      "Account number",
+      "Contact preference update",
+    ])
+      expect(isPersonReferenceHeader(header), header).toBe(false)
+  })
+
+  it("reads cells with their offsets, across quotes and delimiters", () => {
+    const text = [
+      "Export;28.09.2026",
+      "id;Name;Mitgliedsnummer",
+      'KD-1;"Veldt; Mara";MB-731904',
+      "KD-2;Kern;—",
+      "",
+    ].join("\n")
+    const column = tableColumns(text).find(
+      (c) => c.header === "Mitgliedsnummer"
+    )
+    expect(column?.cells.map((cell) => cell.value)).toEqual(["MB-731904", "—"])
+    const [cell] = column!.cells
+    expect(text.slice(cell.start, cell.end)).toBe("MB-731904")
+  })
+
+  it("finds the filled cells that are neither labelled nor a negative", () => {
+    const text = [
+      "ticket,customer_ref,notes",
+      'T-1,C-77104,"Called, then wrote"',
+      'T-2, "C-77105",n/a',
+      "T-3,,x",
+      "T-4,BATCH-9,export row",
+      "",
+    ].join("\n")
+    const at = (value: string) => ({
+      start: text.indexOf(value),
+      end: text.indexOf(value) + value.length,
+    })
+    expect(
+      unlabelledReferenceCells(text, [at("C-77104")], [at("BATCH-9")]).map(
+        (cell) => cell.value
+      )
+    ).toEqual(["C-77105"])
+  })
+
+  const table = (...rows: string[]) =>
+    [
+      "ticket,customer_ref,name,state",
+      ...rows,
+      "",
+      FILLER,
+      "Reply to [[email|{{EMAIL:p1}}]].",
+    ].join("\n")
+
+  it("rejects a tabular export whose reference column is bare", () => {
+    const result = buildDocument(
+      spec({ docType: "tabular export" }),
+      response(
+        table(
+          "T-1,C-4410,[[person|Priya Raman]],open",
+          "T-2,C-4410,[[person|Priya]],closed"
+        )
+      ),
+      GENERATOR
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok)
+      expect(result.reasons.join("\n")).toContain(
+        '"customer_ref" names a reference to a person, but 2 of its values are unlabelled'
+      )
+  })
+
+  it("accepts the column labelled, or a decoy in it declared a negative", () => {
+    const result = buildDocument(
+      spec({ docType: "tabular export" }),
+      response(
+        table(
+          "T-1,[[customer-id|C-4410]],[[person|Priya Raman]],open",
+          "T-2,[[customer-id|C-4410]],[[person|Priya]],closed",
+          "T-3,BATCH-SEP,export,closed"
+        ),
+        { negatives: ["BATCH-SEP"] }
+      ),
+      GENERATOR
+    )
+    expect(result.ok, JSON.stringify(result)).toBe(true)
   })
 })
 

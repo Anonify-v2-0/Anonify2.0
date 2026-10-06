@@ -3,7 +3,7 @@
 <desc id="d">Cost per document, by model. gpt-5.6-luna: short documents $0.0019, medium documents $0.0037, long documents $0.0087; gpt-6-luna: short documents $0.00057, medium documents $0.0011, long documents $0.0026; zai/glm-5.3-flash: short documents $0.0012, medium documents $0.002, long documents $0.0057.</desc>
 <rect x="0.5" y="0.5" width="879" height="373" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#0b0b0b">Cost per document, by model</text>
-<text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · deterministic-first · log scale</text>
+<text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · 25 of 395 documents · deterministic-first · log scale</text>
 <rect x="28" y="78" width="12" height="12" rx="3" fill="#2a78d6"/><text x="46" y="88" font-size="12" fill="#52514e">short documents</text><rect x="164.8" y="78" width="12" height="12" rx="3" fill="#eb6834"/><text x="182.8" y="88" font-size="12" fill="#52514e">medium documents</text><rect x="308.32000000000005" y="78" width="12" height="12" rx="3" fill="#1baf7a"/><text x="326.32" y="88" font-size="12" fill="#52514e">long documents</text>
 <line x1="158.24" y1="114" x2="158.24" y2="316" stroke="#e1e0d9"/>
 <text x="158.24" y="332" font-size="11" fill="#898781" text-anchor="middle">$0.0001</text>

@@ -4,6 +4,7 @@ import {
   type Category,
   type LabelledDocument,
 } from "../corpus/lib/types"
+import { createRng } from "../corpus/lib/random"
 
 /**
  * Scoring a detector against the labelled corpus, as issue #57 specifies it.
@@ -29,6 +30,17 @@ import {
  * left out of the score and counted on its own. The corpus cannot say whether
  * it is right, so counting it as a false positive would mark the app down for
  * the corpus's gap, and leaving it out silently would hide it (#197).
+ *
+ * Precision is counted once per region a reviewer would see (#205). A
+ * detection inside another, `Raman` inside `Priya Raman` or inside
+ * `priya.raman@example.org`, is folded into the one around it first, so it
+ * adds neither a correct detection nor a wrong one. Recall reads every
+ * detection: folding changes no character's coverage.
+ *
+ * Precision per occurrence is the headline. Beside it, precision per distinct
+ * value counts each (document, value, category) once, right if any of its
+ * occurrences is, so a wrong call the local search copied to every row
+ * counts as the one decision it was.
  */
 
 export const MISS_WEIGHTS: Record<Category, number> = {
@@ -49,8 +61,48 @@ export const MISS_WEIGHTS: Record<Category, number> = {
 
 export const FALSE_POSITIVE_WEIGHT = 1
 
+/** Which pass of the analysis proposed a detection. */
+export type Source = "patterns" | "model" | "expansion"
+
 /** A proposed redaction, by offset into the document's text. */
-export type Detected = { start: number; end: number; category: string }
+export type Detected = {
+  start: number
+  end: number
+  category: string
+  /** As the analysis reported it. Absent from runs measured before #205. */
+  confidence?: number
+  source?: Source
+}
+
+/** The confidences precision and recall are also reported at. */
+export const CONFIDENCE_CUTOFFS = [0.5, 0.7, 0.8, 0.9] as const
+
+/**
+ * Drops every detection that lies inside another: one region per redaction a
+ * reviewer would see. Of two over the same characters, the more confident
+ * one stays, then the first.
+ */
+export function foldContained<T extends Detected>(detections: T[]): T[] {
+  const ordered = detections
+    .map((detection, index) => ({ detection, index }))
+    .sort(
+      (a, b) =>
+        a.detection.start - b.detection.start ||
+        b.detection.end - a.detection.end ||
+        (b.detection.confidence ?? 0) - (a.detection.confidence ?? 0) ||
+        a.index - b.index
+    )
+  const kept: Array<{ detection: T; index: number }> = []
+  let reach = -Infinity
+  for (const entry of ordered) {
+    // By start, longest first: one that ends within the furthest reach so
+    // far starts and ends inside a detection already kept.
+    if (entry.detection.end <= reach) continue
+    kept.push(entry)
+    reach = entry.detection.end
+  }
+  return kept.sort((a, b) => a.index - b.index).map((entry) => entry.detection)
+}
 
 type Range = { start: number; end: number }
 
@@ -84,6 +136,9 @@ export type LabelResult = {
 
 export type DetectionResult = {
   category: string
+  /** The text it covers, normalised, for counting distinct values. */
+  value: string
+  confidence?: number
   /** Touches a labelled value of any category. */
   correct: boolean
   /** Touches a labelled value of its own category. */
@@ -99,30 +154,52 @@ export type DocumentScore = {
   detections: DetectionResult[]
   /** Categories of the detections left out because the corpus does not label them. */
   unscored?: string[]
+  /** Detections folded into one around them before counting. */
+  merged: number
+  /**
+   * At each of CONFIDENCE_CUTOFFS, from the detections at or above it: the
+   * labels they cover, and how many of them there are and are right. Absent
+   * when a detection carries no confidence.
+   */
+  atConfidence?: Array<{
+    cutoff: number
+    covered: number
+    detections: number
+    correct: number
+  }>
 }
 
 export function scoreDocument(
   document: LabelledDocument,
   all: Detected[]
 ): DocumentScore {
-  const detections = all.filter((detection) => isCategory(detection.category))
+  const scored = all.filter((detection) => isCategory(detection.category))
+  const detections = foldContained(scored)
   const unscored = all
     .filter((detection) => !isCategory(detection.category))
     .map((detection) => detection.category)
   const labels = document.spans.map((span) => ({
     category: span.category,
-    covered: covers(document.text, span, detections),
-    overlap: detections.some((detection) => overlaps(detection, span)),
+    covered: covers(document.text, span, scored),
+    overlap: scored.some((detection) => overlaps(detection, span)),
     strict: covers(
       document.text,
       span,
-      detections.filter((detection) => detection.category === span.category)
+      scored.filter((detection) => detection.category === span.category)
     ),
   }))
   const results = detections.map((detection) => {
     const touched = document.spans.filter((span) => overlaps(detection, span))
     return {
       category: detection.category,
+      value: document.text
+        .slice(detection.start, detection.end)
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase(),
+      ...(detection.confidence !== undefined
+        ? { confidence: detection.confidence }
+        : {}),
       correct: touched.length > 0,
       strict: touched.some((span) => span.category === detection.category),
       negative:
@@ -130,12 +207,32 @@ export function scoreDocument(
         document.negatives.some((negative) => overlaps(detection, negative)),
     }
   })
+  // A document with nothing detected has nothing unrecorded: it counts,
+  // or one empty document would hide the cut-offs for the whole run.
+  const confident = scored.every((d) => d.confidence !== undefined)
   return {
     id: document.id,
     docType: document.docType,
     labels,
     detections: results,
     ...(unscored.length > 0 ? { unscored } : {}),
+    merged: scored.length - detections.length,
+    ...(confident
+      ? {
+          atConfidence: CONFIDENCE_CUTOFFS.map((cutoff) => {
+            const above = scored.filter((d) => d.confidence! >= cutoff)
+            const kept = results.filter((d) => d.confidence! >= cutoff)
+            return {
+              cutoff,
+              covered: document.spans.filter((span) =>
+                covers(document.text, span, above)
+              ).length,
+              detections: kept.length,
+              correct: kept.filter((d) => d.correct).length,
+            }
+          }),
+        }
+      : {}),
   }
 }
 
@@ -166,6 +263,25 @@ export type Quality = {
   /** False positives that landed on a hard negative. */
   negativeHits: number
   /**
+   * Detections folded into one around them before counting precision.
+   * Absent from results scored before #205, as are the next three.
+   */
+  merged?: number
+  /** Each (document, value, category) counted once, right if any of its occurrences is. */
+  distinct?: { detections: number; precision: number | null }
+  /** From the detections at or above each confidence; null when the run recorded none. */
+  byConfidence?: Array<{
+    cutoff: number
+    detections: number
+    precision: number | null
+    recall: number | null
+  }> | null
+  /**
+   * 95% percentile bootstrap over the documents (#204), for a figure measured
+   * on a sample. Only on a whole run's quality, not on its groups.
+   */
+  interval?: Interval | null
+  /**
    * Detections in categories the corpus does not label, by category: not in
    * any figure above, because the corpus cannot judge them.
    */
@@ -189,7 +305,81 @@ export function round(value: number, places = 4): number {
   return Math.round(value * scale) / scale
 }
 
-export function aggregate(scores: DocumentScore[]): Quality {
+export type Interval = {
+  precision: [number, number] | null
+  recall: [number, number] | null
+  f1: [number, number] | null
+  resamples: number
+}
+
+export const RESAMPLES = 2000
+
+function f1Of(precision: number | null, recall: number | null): number | null {
+  return precision === null || recall === null || precision + recall === 0
+    ? null
+    : (2 * precision * recall) / (precision + recall)
+}
+
+/**
+ * The documents drawn again with replacement, `resamples` times, and the
+ * middle 95% of what each draw scores. Seeded, so the same results give the
+ * same interval and a redrawn README does not change by chance.
+ */
+export function bootstrap(
+  scores: DocumentScore[],
+  resamples = RESAMPLES
+): Interval | null {
+  if (scores.length < 2) return null
+  const counts = scores.map((score) => ({
+    labels: score.labels.length,
+    covered: score.labels.filter((l) => l.covered).length,
+    detections: score.detections.length,
+    correct: score.detections.filter((d) => d.correct).length,
+  }))
+  const rng = createRng(1, "bootstrap")
+  const draws = {
+    precision: [] as number[],
+    recall: [] as number[],
+    f1: [] as number[],
+  }
+  for (let i = 0; i < resamples; i++) {
+    let labels = 0
+    let covered = 0
+    let detections = 0
+    let correct = 0
+    for (let j = 0; j < counts.length; j++) {
+      const c = counts[rng.int(0, counts.length - 1)]
+      labels += c.labels
+      covered += c.covered
+      detections += c.detections
+      correct += c.correct
+    }
+    const precision = detections ? correct / detections : null
+    const recall = labels ? covered / labels : null
+    if (precision !== null) draws.precision.push(precision)
+    if (recall !== null) draws.recall.push(recall)
+    const f1 = f1Of(precision, recall)
+    if (f1 !== null) draws.f1.push(f1)
+  }
+  const middle = (values: number[]): [number, number] | null => {
+    if (values.length === 0) return null
+    const sorted = [...values].sort((a, b) => a - b)
+    const at = (p: number) =>
+      round(sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))])
+    return [at(0.025), at(0.975)]
+  }
+  return {
+    precision: middle(draws.precision),
+    recall: middle(draws.recall),
+    f1: middle(draws.f1),
+    resamples,
+  }
+}
+
+export function aggregate(
+  scores: DocumentScore[],
+  options: { interval?: boolean } = {}
+): Quality {
   const labels = scores.flatMap((score) => score.labels)
   const detections = scores.flatMap((score) => score.detections)
   const count = <T>(items: T[], test: (item: T) => boolean) =>
@@ -241,6 +431,32 @@ export function aggregate(scores: DocumentScore[]): Quality {
     count(detections, (d) => d.correct),
     detections.length
   )
+  const distinct = new Map<string, boolean>()
+  for (const score of scores)
+    for (const d of score.detections) {
+      const key = `${score.id}\u0000${d.category}\u0000${d.value}`
+      distinct.set(key, (distinct.get(key) ?? false) || d.correct)
+    }
+  const confident = scores.filter((score) => score.atConfidence)
+  const byConfidence =
+    scores.length > 0 && confident.length === scores.length
+      ? CONFIDENCE_CUTOFFS.map((cutoff, i) => {
+          const at = confident.map((score) => score.atConfidence![i])
+          const found = at.reduce((n, a) => n + a.detections, 0)
+          return {
+            cutoff,
+            detections: found,
+            precision: ratio(
+              at.reduce((n, a) => n + a.correct, 0),
+              found
+            ),
+            recall: ratio(
+              at.reduce((n, a) => n + a.covered, 0),
+              labels.length
+            ),
+          }
+        })
+      : null
   const recall = ratio(
     count(labels, (l) => l.covered),
     labels.length
@@ -268,6 +484,16 @@ export function aggregate(scores: DocumentScore[]): Quality {
         : round((2 * precision * recall) / (precision + recall)),
     falsePositives,
     negativeHits: count(detections, (d) => d.negative),
+    merged: scores.reduce((n, score) => n + (score.merged ?? 0), 0),
+    distinct: {
+      detections: distinct.size,
+      precision: ratio(
+        [...distinct.values()].filter(Boolean).length,
+        distinct.size
+      ),
+    },
+    byConfidence,
+    ...(options.interval ? { interval: bootstrap(scores) } : {}),
     unscored: unscoredCounts(scores),
     byCategory,
     weightedCost: {

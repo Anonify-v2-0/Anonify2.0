@@ -142,6 +142,8 @@ describe("corpus extraction round trip", () => {
       start: LETTER.spans[1].start,
       end: LETTER.spans[1].end,
       category: "email",
+      // Carried back with it, for the confidence cut-offs (#205).
+      confidence: 1,
     })
   })
 })

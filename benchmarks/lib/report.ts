@@ -1,5 +1,7 @@
 import type { ModelResults, RunSummary } from "./bench"
 import { REPEAT_BUCKETS } from "./bench"
+import { staleParts, type Fingerprint } from "./fingerprint"
+import type { Interval } from "./scoring"
 import {
   frontier,
   heatmap,
@@ -50,7 +52,8 @@ export type Report = {
   /** Charts that could not be drawn, and what they need. */
   missing: Array<{ title: string; needs: string }>
   models: ModelResults[]
-  excluded: Array<{ model: string; reason: string }>
+  /** Left out; `stale` when a rerun or a rescore would bring it back. */
+  excluded: Array<{ model: string; reason: string; stale?: boolean }>
   /** Runs whose numbers need a warning beside them. */
   caveats: string[]
 }
@@ -127,6 +130,8 @@ export function buildReport(input: {
   baseline: PatternsBaseline | null
   corpusHash: string | null
   context: string
+  /** What a model is told today; a result told something else is stale. */
+  fingerprint?: Fingerprint | null
 }): Report {
   const excluded: Report["excluded"] = []
   const models = input.results
@@ -135,7 +140,22 @@ export function buildReport(input: {
         excluded.push({
           model: r.label,
           reason:
-            "measured on another version of the corpus; rerun with --replace",
+            "measured on another version of the corpus; rescore it with pnpm corpus:score --rescore, or rerun with --replace",
+          stale: true,
+        })
+        return false
+      }
+      const run = r.runs["deterministic-first"] ?? r.runs["model-only"]
+      const stale = input.fingerprint
+        ? staleParts(run?.fingerprint, input.fingerprint)
+        : []
+      if (stale.length > 0) {
+        excluded.push({
+          model: r.label,
+          reason: stale.includes("unrecorded")
+            ? "measured before results recorded what the model was told, so it cannot be shown current; rerun with --replace"
+            : `measured against other ${stale.map((part) => FINGERPRINT_PARTS[part as keyof Fingerprint]).join(" and ")}; rerun with --replace`,
+          stale: true,
         })
         return false
       }
@@ -155,7 +175,8 @@ export function buildReport(input: {
   const charts: Chart[] = []
   const missing: Report["missing"] = []
   const first = (m: ModelResults) => m.runs["deterministic-first"]
-  const context = input.context
+  const sample = sampleNote(models)
+  const context = sample ? `${input.context} · ${sample}` : input.context
 
   // 1. Cost per document by model, page count held constant. A model that
   // cost nothing (a local server) has no place on a log scale; the tables
@@ -689,7 +710,9 @@ export function buildReport(input: {
       caveats.push(
         `${m.label}, ${run.mode}: ${unscored
           .map(([category, n]) => `${n} ${category}`)
-          .join(", ")} detections are not scored, because the corpus does not label that category`
+          .join(
+            ", "
+          )} detections are not scored, because the corpus does not label that category`
       )
     }
   }
@@ -863,6 +886,116 @@ function localeTable(models: ModelResults[]): string | null {
   )
 }
 
+const FINGERPRINT_PARTS: Record<keyof Fingerprint, string> = {
+  categories: "category definitions",
+  detect: "detection prompts",
+  verify: "verification prompts",
+}
+
+/** "25 of 395 documents", when every model read the same number; or null. */
+function sampleNote(models: ModelResults[]): string | null {
+  const runs = models.flatMap((m) =>
+    Object.values(m.runs).filter((r): r is RunSummary => Boolean(r))
+  )
+  const counts = new Set(runs.map((r) => r.documents))
+  if (counts.size !== 1) return null
+  const [documents] = counts
+  const of = runs.find((r) => r.selection)?.selection?.of
+  return of && of > documents
+    ? `${documents} of ${of} documents`
+    : `${documents} documents`
+}
+
+/** A figure with its interval, when it has one: "87.0% (80.1–92.3%)". */
+function withInterval(
+  value: number | null,
+  interval: [number, number] | null | undefined
+): string {
+  if (value === null) return "—"
+  if (!interval) return percent(value)
+  return `${percent(value)} (${(interval[0] * 100).toFixed(1)}–${percent(interval[1])})`
+}
+
+function documentsCell(run: RunSummary): string {
+  const selection = run.selection
+  if (!selection) return `${run.documents}`
+  if (selection.how === "all") return `${run.documents}, all`
+  const how =
+    selection.how === "stratified"
+      ? `stratified, seed ${selection.seed}`
+      : selection.how === "first"
+        ? "the first by id"
+        : "chosen by id"
+  return `${run.documents} of ${selection.of}, ${how}`
+}
+
+const partialRun = (run: RunSummary) =>
+  run.selection ? run.selection.how !== "all" : false
+
+/**
+ * Every run's headline figures, with how many documents they rest on (#204):
+ * a partial run's precision, recall and F1 carry a 95% interval, resampled
+ * over its documents. Precision per distinct value sits beside the headline,
+ * which counts occurrences (#205).
+ */
+export function headlineTable(models: ModelResults[]): string | null {
+  const rows = models.flatMap((m) =>
+    Object.values(m.runs)
+      .filter((r): r is RunSummary => Boolean(r))
+      .map((run) => {
+        const q = run.quality
+        const interval: Interval | null | undefined = partialRun(run)
+          ? q.interval
+          : null
+        return [
+          m.label,
+          run.mode,
+          documentsCell(run),
+          withInterval(q.precision, interval?.precision),
+          withInterval(q.recall, interval?.recall),
+          withInterval(q.f1, interval?.f1),
+          percent(q.distinct?.precision ?? null),
+        ]
+      })
+  )
+  if (rows.length === 0) return null
+  return table(
+    [
+      "Model",
+      "Run",
+      "Documents",
+      "Precision",
+      "Recall",
+      "F1",
+      "Precision, distinct values",
+    ],
+    rows
+  )
+}
+
+/** Precision and recall at each confidence cut-off, for runs that recorded confidence (#205). */
+export function confidenceTable(models: ModelResults[]): string | null {
+  const rows = models.flatMap((m) =>
+    Object.values(m.runs)
+      .filter((r): r is RunSummary => Boolean(r?.quality.byConfidence))
+      .flatMap((run) =>
+        run.quality.byConfidence!.map((at) => [
+          m.label,
+          run.mode,
+          `≥ ${at.cutoff}`,
+          String(at.detections),
+          percent(at.precision),
+          percent(at.recall),
+        ])
+      )
+  )
+  if (rows.length === 0) return null
+  return table(
+    ["Model", "Run", "Confidence", "Detections", "Precision", "Recall"],
+    rows
+  )
+}
+
 export const MARKERS = {
   start: "<!-- bench:results:start -->",
   end: "<!-- bench:results:end -->",
@@ -891,6 +1024,26 @@ export function benchmarksMarkdown(
     )
     if (report.caveats.length > 0)
       out.push("> [!WARNING]", ...report.caveats.map((c) => `> - ${c}.`), "")
+    const headline = headlineTable(report.models)
+    if (headline)
+      out.push(
+        "#### Headline figures",
+        "",
+        "Precision counts each region a reviewer would see once: a detection inside another is folded into it first. Precision per distinct value counts each value once per document, right if any of its occurrences is. A run of part of the split gives a 95% interval, from resampling its documents.",
+        "",
+        headline,
+        ""
+      )
+    const confidence = confidenceTable(report.models)
+    if (confidence)
+      out.push(
+        "#### At a confidence cut-off",
+        "",
+        "What a reviewer would get by hiding every suggestion below a confidence: precision and recall from the detections at or above it.",
+        "",
+        confidence,
+        ""
+      )
     for (const chart of report.charts) {
       out.push(
         `#### ${chart.title}`,

@@ -3,7 +3,7 @@
 <desc id="d">Tokens spent and what they cost. Deterministic-first: gpt-5.6-luna input tokens 107.6k, output tokens 45.5k; gpt-6-luna input tokens 107.6k, output tokens 22.9k; zai/glm-5.3-flash input tokens 97.5k, output tokens 62.4k. Model-only: gpt-5.6-luna input tokens 97.8k, output tokens 43.1k; gpt-6-luna input tokens 97.8k, output tokens 22.6k; zai/glm-5.3-flash input tokens 88.7k, output tokens 49.1k. Throughput sweep, every level: gpt-5.6-luna input tokens 411.0k, output tokens 158.9k; gpt-6-luna input tokens 411.0k, output tokens 93.1k; zai/glm-5.3-flash input tokens 367.8k, output tokens 199.7k.</desc>
 <rect x="0.5" y="0.5" width="879" height="574" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">Tokens spent and what they cost</text>
-<text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · every document of each phase, input and output</text>
+<text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · 25 of 395 documents · every document of each phase, input and output</text>
 <rect x="28" y="78" width="12" height="12" rx="3" fill="#3987e5"/><text x="46" y="88" font-size="12" fill="#c3c2b7">input tokens</text><rect x="144.64000000000001" y="78" width="12" height="12" rx="3" fill="#d95926"/><text x="162.64" y="88" font-size="12" fill="#c3c2b7">output tokens</text>
 <text x="28" y="132" font-size="12.5" font-weight="600" fill="#ffffff">Deterministic-first</text>
 <line x1="158.24" y1="140" x2="158.24" y2="220" stroke="#2c2c2a"/>

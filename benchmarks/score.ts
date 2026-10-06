@@ -38,7 +38,13 @@ import { int } from "./corpus/lib/args"
 import { isRenderFormat, RENDER_FORMATS } from "./corpus/lib/render"
 import { palette, progressBar, type Palette } from "./corpus/lib/tui"
 import type { LabelledDocument } from "./corpus/lib/types"
-import { parseModels, type ModelEntry } from "./lib/bench"
+import {
+  parseModels,
+  rescoreResults,
+  serialise,
+  type ModelEntry,
+  type ModelResults,
+} from "./lib/bench"
 import { corpusHash, gitCommit, loadCorpus, percentile } from "./lib/corpus"
 import {
   benchEnvName,
@@ -85,7 +91,8 @@ const USAGE = `Usage: pnpm corpus:score [options]
   --limit <n>           only the first n documents
   --concurrency <n>     documents analysed at once (default 2)
   --out <file>          results file (default benchmarks/results/<corpus>-<split>-<detector>.json)
-  --rescore <file>      score a results file's stored detections again; no detection runs
+  --rescore <file>      score a results file's stored detections again; no detection runs.
+                        Takes a bench:models file as well, and scores every run in it
   --compare <a> <b>     agreement between two results files
 `
 
@@ -303,6 +310,10 @@ function printQuality(quality: Quality, c: Palette) {
     .sort((a, b) => b[1] - a[1])
     .map(([category, n]) => `${category} ${n}`)
     .join(", ")
+  if (quality.distinct)
+    console.log(
+      `  ${c.bold("precision per distinct value")} ${percent(quality.distinct.precision).trim()} ${c.dim(`(${quality.distinct.detections} values; ${quality.merged ?? 0} detections inside another folded before counting)`)}`
+    )
   console.log(
     `  ${c.bold("weighted cost")} ${quality.weightedCost.total} ${c.dim(`(${quality.weightedCost.perDocument} a document; ${quality.falsePositives} false positives, ${quality.negativeHits} of them on hard negatives; missed: ${missed || "nothing"})`)}`
   )
@@ -570,7 +581,11 @@ async function readResults(file: string): Promise<Results> {
 /** Scores the detections a results file already holds, under today's rules. */
 async function rescore(file: string, corpus: string) {
   const c = palette()
-  const results = await readResults(file)
+  const raw = JSON.parse(await readFile(path.resolve(file), "utf8"))
+  const hash = await corpusHash(path.resolve(corpus))
+  if ("runs" in raw)
+    return rescoreModels(file, raw as ModelResults, corpus, hash)
+  const results = raw as Results
   const documents = await loadCorpus(path.resolve(corpus), results.split)
   const scored = documents.filter((d) => results.detections[d.id])
   const scores = scored.map((document) =>
@@ -587,8 +602,31 @@ async function rescore(file: string, corpus: string) {
   console.log(
     `${c.bold("Rescored")} ${results.detector} ${c.dim(`(${results.model})`)} on ${scores.length} documents`
   )
+  results.corpusHash = hash
   printQuality(results.quality, c)
   await writeResults(path.resolve(file), results)
+}
+
+/** The same for a `pnpm bench:models` file: every run in it, rescored. */
+async function rescoreModels(
+  file: string,
+  results: ModelResults,
+  corpus: string,
+  hash: string | null
+) {
+  const c = palette()
+  const documents = await loadCorpus(path.resolve(corpus), results.split)
+  const rescored = rescoreResults(results, documents, hash)
+  await writeFile(path.resolve(file), serialise(rescored))
+  console.log(
+    `${c.bold("Rescored")} ${rescored.label} ${c.dim(`(${rescored.model})`)}, ${Object.keys(rescored.runs).join(" and ")}`
+  )
+  for (const [mode, run] of Object.entries(rescored.runs)) {
+    const before = results.runs[mode as keyof typeof results.runs]!.quality
+    console.log(
+      `  ${mode.padEnd(20)} precision ${percent(before.precision).trim()} → ${percent(run.quality.precision).trim()}  recall ${percent(before.recall).trim()} → ${percent(run.quality.recall).trim()}  F1 ${percent(before.f1).trim()} → ${percent(run.quality.f1).trim()}`
+    )
+  }
 }
 
 async function compare(first: string, second: string, corpus: string) {

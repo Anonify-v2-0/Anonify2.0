@@ -50,6 +50,20 @@ export type PatternDetector = {
     index: number,
     languages: readonly Language[]
   ) => boolean
+  /**
+   * A lower confidence for a match whose context casts doubt on it. Set at
+   * or below `VERIFY_BELOW` in lib/ai/analyze.ts, so the model takes a second
+   * look at it instead of the pattern's word being final.
+   */
+  doubt?: {
+    confidence: number
+    test: (
+      value: string,
+      context: string,
+      index: number,
+      languages: readonly Language[]
+    ) => boolean
+  }
   /** Whether a match should be proposed for redaction everywhere it occurs. */
   global?: boolean
   reason: string
@@ -160,6 +174,10 @@ const ENGLISH_LABELS: Record<keyof LabelVocabulary, RegExp | null> = {
   reference:
     /(customer|client|member|policy|reference|case|patient)\s*(id|no|number|#)?[^\n]{0,10}$/i,
   identity: null,
+  // New with #203, so not one of the original labels: written like the
+  // other languages', with no digit between the label and the value.
+  documentNumber:
+    /\b(?:(?:ref|reference|invoice|inv|transaction|txn|receipt|registration|vat|ein)\b|order\s*(?:no\b|number\b|#))[^\n\d]{0,14}$/i,
 }
 
 /**
@@ -249,9 +267,20 @@ export const DETECTORS: PatternDetector[] = [
     // In order: French pairs (02 61 91 55 99, +33 1 99 00 15 77), a German
     // area code before a slash (040/66969201), an international number with
     // the trunk zero in brackets (+49 (0)40 66969 166), and the original shape.
+    // None starts inside a token: not after a letter or a digit, nor after a
+    // hyphen or slash that follows one, so the digit groups of TXN-0098-4412-7700
+    // or INV-000842-710395 are not read as a number to call (#203).
     pattern:
-      /(?:\+33[\s.]?|\b0)[1-9](?:[\s.]\d{2}){4}\b|\b0\d{2,4}\/\s?\d{4,9}\b|\+\d{1,3}\s?\(0\)\s?\d{2,4}[\s-]?\d{3,8}(?:[\s-]\d{1,5})?\b|(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)[\s.-]?|\d{2,4}[\s.-])\d{3,4}[\s.-]?\d{3,4}\b/g,
+      /(?<![A-Za-zÀ-ÖØ-öø-ÿ\d]|[A-Za-zÀ-ÖØ-öø-ÿ\d][-/])(?:(?:\+33[\s.]?|\b0)[1-9](?:[\s.]\d{2}){4}\b|\b0\d{2,4}\/\s?\d{4,9}\b|\+\d{1,3}\s?\(0\)\s?\d{2,4}[\s-]?\d{3,8}(?:[\s-]\d{1,5})?\b|(?:\+\d{1,3}[\s.-]?|1[\s.-])?(?:\(\d{2,4}\)[\s.-]?|\d{2,5}[\s.-])\d{3,4}[\s.-]?\d{3,4}\b)/g,
     validate: (value) => value.replace(/\D/g, "").length >= 9,
+    // An invoice or transaction number written in groups has a phone number's
+    // shape, and only the words around it tell them apart. After such a label
+    // the match is still proposed, but low enough that the model is asked.
+    doubt: {
+      confidence: 0.65,
+      test: (_value, context, index, languages) =>
+        labelledBy("documentNumber", context, index, languages),
+    },
     reason: "Matches a telephone number",
   },
   {
@@ -468,7 +497,9 @@ export function detectPatterns(
         found.push({
           text: value,
           category: detector.category,
-          confidence: detector.confidence,
+          confidence: detector.doubt?.test(value, text, match.index, languages)
+            ? detector.doubt.confidence
+            : detector.confidence,
           start: match.index + offset,
           end: match.index + value.length + offset,
           reason: detector.reason,

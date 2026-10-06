@@ -434,7 +434,23 @@ A detection is matched to a label by character overlap, as #57 specifies:
 - **Strict**: the value is covered by redactions of its own category, so the
   gap to covered recall is "found it, called it the wrong thing".
 - **Precision**: the share of redactions that touch a labelled value. One that
-  touches none is a false positive, and so is one over a hard negative.
+  touches none is a false positive, and so is one over a hard negative. It is
+  counted once per region a reviewer would see: a redaction that lies inside
+  another, `Raman` inside `Priya Raman` or inside `priya.raman@example.org`,
+  is folded into the one around it first, so it adds neither a right answer
+  nor a wrong one. Recall is read from every redaction; folding uncovers
+  nothing. **This, per occurrence, is the headline precision.**
+- **Precision per distinct value**, beside it: each (document, value,
+  category) counted once, right if any of its occurrences is. A wrong call the
+  local search copied to every row of a table is one decision here, and as
+  many false positives in the headline.
+- **At a confidence cut-off**: precision and recall from only the redactions
+  at or above 0.5, 0.7, 0.8 and 0.9, which is what a reviewer would get by
+  hiding the rest. Only for runs that recorded each detection's confidence,
+  which `bench:models` does since #205.
+- **Interval**: a run over part of the split gives a 95% interval for
+  precision, recall and F1, from resampling its documents 2,000 times with a
+  fixed seed, so the same results always give the same interval.
 - **Weighted cost**: a missed `government-id`, `bank-account`, `financial` or
   `api-key` costs 10; a missed `person`, `address`, `date-of-birth`, `email`,
   `phone` or `customer-id` costs 5; any other miss costs 2, and a false
@@ -448,6 +464,11 @@ in the shape CONTRIBUTING §4 asks for. Each file holds quality per category and
 document type, the number of documents where the model pass was cut short
 (`degraded`), what the run does not measure, and every detection as offsets and
 a category (never the text), so it can be rescored and compared later.
+`--rescore` also takes a `bench:models` results file and rescores every run in
+it from its stored detections, against the corpus as it is now. Only labels
+may have changed since: a document whose text changed is refused. The file
+then records, under `rescored.detectedOn`, the corpus version the model
+actually read.
 
 The deterministic baseline on the test split of the 534 documents is
 20.1% covered recall at 94.1% precision. It finds no names, which is the
@@ -587,7 +608,10 @@ export stages get timed.
 
 **What it costs.** Every model call goes through the provider's real API. Try
 `--limit 20` first: the summary prints the cost per document, and the full test
-split is about twenty times that per phase. The model-only phase costs more
+split is about twenty times that per phase. `--limit` draws a sample with
+every document type in proportion to the split, not the first documents by
+id; `--seed` picks another sample (default 1), and the results file records
+which. `--ids` still names a fixed set. The model-only phase costs more
 than the first, since that is the point of it. The throughput phase adds about
 four times its sample. Nothing is recorded against the instance's daily spend
 cap or written to its usage table.
@@ -617,7 +641,12 @@ Rerunning a model skips every phase it has already measured and runs only
 what is missing, so a model benchmarked without prices, or without the
 throughput phase, can be completed later; `--replace` measures a phase again.
 A model measured on an older version of the corpus is left out of the charts,
-and named, until it is measured again on this one.
+and named, until it is rescored (`pnpm corpus:score --rescore`) or measured
+again on this one. So is a model told something other than what the app tells
+a model today: each run records a hash of the category definitions and of the
+detection and verification prompts (`lib/fingerprint.ts`), and a run whose
+hashes differ, or that predates them, is stale. `pnpm bench:charts --check`
+fails while a stale result is committed.
 
 ```sh
 BENCH_MODELS=gateway:google/gemini-2.5-flash pnpm bench:models
@@ -635,10 +664,14 @@ The top level is the shape CONTRIBUTING §4 asks for (`model`, `corpus`,
 `quality`), taken from the deterministic-first run. Under `runs`, each phase
 holds its quality per category, per document type, per length and per PII
 density, tokens by task, timings by stage, the attribution and expansion
-figures below, the documents the app refused, and a record per document: its
-detections and each pass's detections as `[start, end, category]` offsets,
-never text, with its tokens and timings. The charts are drawn from these
-alone, so a later change to the scoring or to a chart needs no model call.
+figures below, the documents the app refused, which documents it read and out
+of how many (`selection`), the hashes of what the model was told
+(`fingerprint`), and a record per document: its detections as `[start, end,
+category, confidence, source]` and each pass's as `[start, end, category]`,
+offsets, never text, with its tokens and timings. Runs measured before #205
+hold only the first three for every detection. The charts are drawn from
+these alone, so a later change to the scoring or to a chart needs no model
+call.
 
 ### How each number is taken
 
@@ -689,24 +722,36 @@ phase: `gpt-5.6-luna` and `gpt-6-luna` through a ChatGPT subscription, and
 #199. Twenty-five documents is a first look, not a sample (#204), so read every
 figure below as a direction rather than a measurement.
 
-- **Quality.** With the patterns first, gpt-5.6-luna reaches 87.0% precision,
-  89.0% recall and 88.0% F1. gpt-6-luna reaches 91.5%, 84.4% and 87.8%, and
-  glm-5.3-flash 86.4%, 85.4% and 85.9%. The patterns alone reach 33.2% F1.
-  gpt-6-luna does it for $0.00089 a document, the cheapest of the three by a
-  factor of two. Most of the remaining false positives are `customer-id`,
-  largely a column the corpus leaves unlabelled (#202), and `financial`.
+- **Quality.** With the patterns first, gpt-5.6-luna reaches 95.0% precision,
+  90.2% recall and 92.6% F1. gpt-6-luna reaches 93.6%, 78.9% and 85.6%, and
+  glm-5.3-flash 95.3%, 87.0% and 90.9%. The patterns alone reach 39.4% F1 over
+  the whole split. gpt-6-luna does it for $0.00089 a document, the cheapest of
+  the three by a factor of two, but it left the `customer_ref` column of
+  `syn-v1-0022` alone with the patterns first, so its `customer-id` recall is
+  53% against 96% for the other two. These are the stored detections rescored
+  after the corpus labelled that column (#202) and precision began counting a
+  redaction inside another once (#205); the runs were not repeated. When they
+  were first published, precision was 86–92%, and most of the difference was
+  that unlabelled column. The Headline figures table below gives each figure's
+  95% interval: over 25 documents, a model's precision is known to within
+  about ±4 points and its recall to within ±5 to ±10.
 - **Tokens.** The deterministic pass did **not** save tokens. Patterns first
   spent 8.7% more than model-only for gpt-5.6-luna, 8.4% more for gpt-6-luna
   and 16.1% more for glm-5.3-flash, and more on 29 of the 30 model and
   document-type pairs. The verification call and the already-found list cost
-  more than the model saves by not repeating the patterns.
+  more than the model saves by not repeating the patterns. Verification alone
+  is 19 calls and 9.4k–11.2k tokens a run, nearly all of the luna models'
+  overhead, and it rejected 1, 2 and 6 of the 109 pattern candidates: on this
+  sample it does not pay for itself.
 - **Comparable quality?** Not quite. Model-only scored higher F1 for all three
-  (89.8%, 88.6% and 88.2%), and higher recall by 3–6 points. Patterns first
-  was more precise only for gpt-6-luna. The clearest loss is address, at
-  72–76% recall with the patterns first and 100% without: the address pattern
-  matches the street line alone, and the model then reports the rest of the
-  address as a separate span, or not at all. [#207](https://github.com/Anonify-v2-0/Anonify2.0/issues/207) has the numbers and what
-  would settle it.
+  (94.3%, 92.6% and 93.4%), and higher recall by 2–11 points. The clearest loss
+  is address, at 72–76% recall with the patterns first and 100% without: the
+  address pattern matches the street line alone, and the model then reports
+  the rest of the address as a separate span, or not at all. A street line and
+  the rest of its address beside it are now joined into one suggestion (#207),
+  which these runs predate; an address the model leaves unfinished is not.
+  [#207](https://github.com/Anonify-v2-0/Anonify2.0/issues/207) has the
+  numbers and what would settle it.
 - **Structured against contextual.** The heatmap does not show the split the
   pipeline assumes. On contextual categories the three are close (person
   87–94%, address 72–76%, confidential 50%). The widest spread is `financial`,
@@ -738,6 +783,19 @@ synthetic-v1, test split. 3 models: `openai-subscription:gpt-5.6-luna`, `openai-
 > - gpt-6-luna, model-only: 18 health detections are not scored, because the corpus does not label that category.
 > - zai/glm-5.3-flash, deterministic-first: 19 health detections are not scored, because the corpus does not label that category.
 > - zai/glm-5.3-flash, model-only: 25 health detections are not scored, because the corpus does not label that category.
+
+#### Headline figures
+
+Precision counts each region a reviewer would see once: a detection inside another is folded into it first. Precision per distinct value counts each value once per document, right if any of its occurrences is. A run of part of the split gives a 95% interval, from resampling its documents.
+
+| Model | Run | Documents | Precision | Recall | F1 | Precision, distinct values |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| gpt-5.6-luna | deterministic-first | 25 of 395, the first by id | 95.0% (90.9–97.7%) | 90.2% (84.9–94.3%) | 92.6% (88.8–95.4%) | 94.3% |
+| gpt-5.6-luna | model-only | 25 of 395, the first by id | 94.7% (91.4–97.6%) | 93.9% (89.6–97.1%) | 94.3% (91.6–96.4%) | 94.6% |
+| gpt-6-luna | deterministic-first | 25 of 395, the first by id | 93.6% (90.3–95.9%) | 78.9% (68.8–89.4%) | 85.6% (78.9–91.9%) | 93.5% |
+| gpt-6-luna | model-only | 25 of 395, the first by id | 95.1% (91.3–98.2%) | 90.2% (85.5–93.8%) | 92.6% (89.3–95.3%) | 94.4% |
+| zai/glm-5.3-flash | deterministic-first | 25 of 395, the first by id | 95.3% (91.3–98.2%) | 87.0% (80.3–91.8%) | 90.9% (86.6–94.1%) | 95.3% |
+| zai/glm-5.3-flash | model-only | 25 of 395, the first by id | 97.9% (95.7–99.4%) | 89.3% (82.9–94.3%) | 93.4% (89.6–96.4%) | 97.2% |
 
 #### Cost per document, by model
 
@@ -771,10 +829,10 @@ A model on the line is one no cheaper model beats; a point below and to the righ
 
 | Model | $ / document | F1 | Recall | Precision | Frontier |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| patterns alone | $0 | 33.2% | 20.1% | 94.1% |  |
-| gpt-5.6-luna | $0.003 | 88.0% | 89.0% | 87.0% | yes |
-| gpt-6-luna | $0.00089 | 87.8% | 84.4% | 91.5% | yes |
-| zai/glm-5.3-flash | $0.0018 | 85.9% | 85.4% | 86.4% |  |
+| patterns alone | $0 | 39.4% | 24.8% | 95.2% |  |
+| gpt-5.6-luna | $0.003 | 92.6% | 90.2% | 95.0% | yes |
+| gpt-6-luna | $0.00089 | 85.6% | 78.9% | 93.6% | yes |
+| zai/glm-5.3-flash | $0.0018 | 90.9% | 87.0% | 95.3% | yes |
 
 </details>
 
@@ -856,10 +914,10 @@ Darker is more of that category found in full. The premise is that a small model
 
 | Model | email | phone | url | api-key | bank-account | financial | government-id | customer-id | person | address | date-of-birth | confidential | other |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| patterns alone | 100% | 83% | 21% | 33% | 35% | 9% | 7% | 29% | 0% | 1% | 39% | 0% | 0% |
-| gpt-5.6-luna | 100% | 88% | 100% | 100% | 90% | 63% | 100% | 90% | 94% | 76% | 91% | 50% | 100% |
-| gpt-6-luna | 100% | 88% | 80% | 100% | 90% | 50% | 100% | 86% | 87% | 76% | 100% | 50% | 100% |
-| zai/glm-5.3-flash | 100% | 92% | 100% | 100% | 95% | 41% | 100% | 90% | 89% | 72% | 91% | 50% | 100% |
+| patterns alone | 100% | 93% | 21% | 33% | 58% | 9% | 25% | 44% | 0% | 19% | 68% | 0% | 0% |
+| gpt-5.6-luna | 100% | 88% | 100% | 100% | 90% | 63% | 100% | 96% | 94% | 76% | 91% | 50% | 100% |
+| gpt-6-luna | 100% | 88% | 80% | 100% | 90% | 50% | 100% | 53% | 87% | 76% | 100% | 50% | 100% |
+| zai/glm-5.3-flash | 100% | 92% | 100% | 100% | 95% | 41% | 100% | 96% | 89% | 72% | 91% | 50% | 100% |
 
 </details>
 
@@ -876,9 +934,9 @@ Each covered label is credited to the first pass that covers it alone, in the or
 
 | Model | Covered | Patterns | Model | Local search | Only together | Rejected by verification |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| gpt-5.6-luna | 366 of 411 | 25.4% | 59.0% | 15.6% | 0.0% | 1 |
-| gpt-6-luna | 347 of 411 | 26.5% | 58.2% | 15.3% | 0.0% | 2 |
-| zai/glm-5.3-flash | 351 of 411 | 25.6% | 63.2% | 11.1% | 0.0% | 6 |
+| gpt-5.6-luna | 415 of 460 | 22.4% | 54.2% | 23.4% | 0.0% | 1 |
+| gpt-6-luna | 363 of 460 | 25.3% | 55.9% | 18.7% | 0.0% | 2 |
+| zai/glm-5.3-flash | 400 of 460 | 22.5% | 59.3% | 18.3% | 0.0% | 6 |
 
 </details>
 
@@ -897,19 +955,19 @@ Each occurrence the local search adds is one the model did not have to find; the
 | --- | ---: | ---: | ---: | ---: | ---: |
 | gpt-5.6-luna | none | 2 | 3 | 1.50 | 0 |
 | gpt-5.6-luna | 1–2 | 5 | 8 | 1.60 | 7 |
-| gpt-5.6-luna | 2.5–5 | 14 | 101 | 7.21 | 33 |
+| gpt-5.6-luna | 2.5–5 | 14 | 101 | 7.21 | 59 |
 | gpt-5.6-luna | 5–10 | 3 | 14 | 4.67 | 8 |
-| gpt-5.6-luna | 10+ | 1 | 36 | 36.00 | 9 |
+| gpt-5.6-luna | 10+ | 1 | 36 | 36.00 | 23 |
 | gpt-6-luna | none | 2 | 3 | 1.50 | 0 |
 | gpt-6-luna | 1–2 | 5 | 5 | 1.00 | 3 |
 | gpt-6-luna | 2.5–5 | 14 | 77 | 5.50 | 32 |
 | gpt-6-luna | 5–10 | 3 | 17 | 5.67 | 9 |
-| gpt-6-luna | 10+ | 1 | 38 | 38.00 | 9 |
+| gpt-6-luna | 10+ | 1 | 38 | 38.00 | 24 |
 | zai/glm-5.3-flash | none | 2 | 3 | 1.50 | 0 |
 | zai/glm-5.3-flash | 1–2 | 5 | 0 | 0.00 | 0 |
-| zai/glm-5.3-flash | 2.5–5 | 14 | 67 | 4.79 | 24 |
+| zai/glm-5.3-flash | 2.5–5 | 14 | 67 | 4.79 | 44 |
 | zai/glm-5.3-flash | 5–10 | 3 | 10 | 3.33 | 6 |
-| zai/glm-5.3-flash | 10+ | 1 | 37 | 37.00 | 9 |
+| zai/glm-5.3-flash | 10+ | 1 | 37 | 37.00 | 23 |
 
 </details>
 
@@ -956,70 +1014,70 @@ Median and 95th percentile per document. Extraction and export are timed only wh
 | Model | Length | Documents | Words | Tokens / doc | $ / doc | Median time | Recall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | gpt-5.6-luna | short | 15 | 131 | 3.2k | $0.0019 | 34.3 s | 88.2% |
-| gpt-5.6-luna | medium | 8 | 1687 | 7.6k | $0.0037 | 41.8 s | 88.9% |
-| gpt-5.6-luna | long | 2 | 7203 | 22.3k | $0.0087 | 66.6 s | 92.7% |
+| gpt-5.6-luna | medium | 8 | 1687 | 7.6k | $0.0037 | 41.8 s | 90.0% |
+| gpt-5.6-luna | long | 2 | 7203 | 22.3k | $0.0087 | 66.6 s | 95.5% |
 | gpt-6-luna | short | 15 | 131 | 2.7k | $0.00057 | 22.7 s | 84.0% |
-| gpt-6-luna | medium | 8 | 1687 | 6.4k | $0.0011 | 24.8 s | 82.6% |
-| gpt-6-luna | long | 2 | 7203 | 19.7k | $0.0026 | 42.8 s | 90.9% |
+| gpt-6-luna | medium | 8 | 1687 | 6.4k | $0.0011 | 24.8 s | 84.4% |
+| gpt-6-luna | long | 2 | 7203 | 19.7k | $0.0026 | 42.8 s | 56.8% |
 | zai/glm-5.3-flash | short | 15 | 131 | 3.6k | $0.0012 | 12.4 s | 84.0% |
-| zai/glm-5.3-flash | medium | 8 | 1687 | 7.4k | $0.002 | 17.2 s | 84.7% |
-| zai/glm-5.3-flash | long | 2 | 7203 | 23.1k | $0.0057 | 42.6 s | 92.7% |
+| zai/glm-5.3-flash | medium | 8 | 1687 | 7.4k | $0.002 | 17.2 s | 86.3% |
+| zai/glm-5.3-flash | long | 2 | 7203 | 23.1k | $0.0057 | 42.6 s | 95.5% |
 
 #### How it scales with PII density
 
 | Model | PII density | Documents | Words | Tokens / doc | $ / doc | Median time | Recall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | gpt-5.6-luna | none | 2 | 771 | 3.3k | $0.0011 | 11.0 s | — |
-| gpt-5.6-luna | low | 10 | 1187 | 5.5k | $0.0025 | 34.2 s | 95.5% |
-| gpt-5.6-luna | medium | 12 | 1354 | 7.2k | $0.0038 | 41.8 s | 86.4% |
+| gpt-5.6-luna | low | 10 | 1187 | 5.5k | $0.0025 | 34.2 s | 96.0% |
+| gpt-5.6-luna | medium | 12 | 1354 | 7.2k | $0.0038 | 41.8 s | 87.9% |
 | gpt-5.6-luna | high | 1 | 202 | 5.2k | $0.0037 | 58.3 s | 82.8% |
 | gpt-6-luna | none | 2 | 771 | 3.2k | $0.00042 | 12.3 s | — |
-| gpt-6-luna | low | 10 | 1187 | 4.9k | $0.00077 | 21.3 s | 95.5% |
-| gpt-6-luna | medium | 12 | 1354 | 6.0k | $0.0011 | 27.6 s | 81.1% |
+| gpt-6-luna | low | 10 | 1187 | 4.9k | $0.00077 | 21.3 s | 96.0% |
+| gpt-6-luna | medium | 12 | 1354 | 6.0k | $0.0011 | 27.6 s | 71.6% |
 | gpt-6-luna | high | 1 | 202 | 3.8k | $0.00089 | 39.7 s | 62.1% |
 | zai/glm-5.3-flash | none | 2 | 771 | 3.1k | $0.00066 | 5.9 s | — |
-| zai/glm-5.3-flash | low | 10 | 1187 | 6.1k | $0.0017 | 13.1 s | 92.5% |
-| zai/glm-5.3-flash | medium | 12 | 1354 | 7.3k | $0.0021 | 17.2 s | 81.9% |
+| zai/glm-5.3-flash | low | 10 | 1187 | 6.1k | $0.0017 | 13.1 s | 93.3% |
+| zai/glm-5.3-flash | medium | 12 | 1354 | 7.3k | $0.0021 | 17.2 s | 84.0% |
 | zai/glm-5.3-flash | high | 1 | 202 | 5.6k | $0.002 | 17.9 s | 82.8% |
 
 #### By language
 
 | Model | Run | Locale | Documents | Precision | Recall | F1 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| gpt-5.6-luna | deterministic-first | de-DE | 2 | 96.7% | 89.7% | 93.0% |
-| gpt-5.6-luna | deterministic-first | en-GB | 4 | 68.4% | 82.5% | 74.8% |
-| gpt-5.6-luna | deterministic-first | en-IN | 3 | 98.2% | 87.2% | 92.3% |
-| gpt-5.6-luna | deterministic-first | en-US | 12 | 88.8% | 91.1% | 89.9% |
+| gpt-5.6-luna | deterministic-first | de-DE | 2 | 96.4% | 89.7% | 92.9% |
+| gpt-5.6-luna | deterministic-first | en-GB | 4 | 96.3% | 87.6% | 91.8% |
+| gpt-5.6-luna | deterministic-first | en-IN | 3 | 97.6% | 87.2% | 92.1% |
+| gpt-5.6-luna | deterministic-first | en-US | 12 | 92.9% | 91.7% | 92.3% |
 | gpt-5.6-luna | deterministic-first | es-ES | 2 | 100.0% | 94.7% | 97.3% |
 | gpt-5.6-luna | deterministic-first | fr-FR | 2 | 100.0% | 90.3% | 94.9% |
 | gpt-5.6-luna | model-only | de-DE | 2 | 100.0% | 96.5% | 98.2% |
-| gpt-5.6-luna | model-only | en-GB | 4 | 65.0% | 90.0% | 75.5% |
+| gpt-5.6-luna | model-only | en-GB | 4 | 92.9% | 92.9% | 92.9% |
 | gpt-5.6-luna | model-only | en-IN | 3 | 100.0% | 92.3% | 96.0% |
-| gpt-5.6-luna | model-only | en-US | 12 | 88.6% | 93.0% | 90.7% |
+| gpt-5.6-luna | model-only | en-US | 12 | 92.8% | 93.5% | 93.1% |
 | gpt-5.6-luna | model-only | es-ES | 2 | 100.0% | 100.0% | 100.0% |
 | gpt-5.6-luna | model-only | fr-FR | 2 | 100.0% | 96.8% | 98.4% |
-| gpt-6-luna | deterministic-first | de-DE | 2 | 97.6% | 79.3% | 87.5% |
-| gpt-6-luna | deterministic-first | en-GB | 4 | 90.5% | 77.5% | 83.5% |
-| gpt-6-luna | deterministic-first | en-IN | 3 | 95.9% | 87.2% | 91.3% |
-| gpt-6-luna | deterministic-first | en-US | 12 | 89.2% | 85.9% | 87.5% |
-| gpt-6-luna | deterministic-first | es-ES | 2 | 91.3% | 84.2% | 87.6% |
+| gpt-6-luna | deterministic-first | de-DE | 2 | 96.5% | 79.3% | 87.1% |
+| gpt-6-luna | deterministic-first | en-GB | 4 | 89.6% | 54.9% | 68.1% |
+| gpt-6-luna | deterministic-first | en-IN | 3 | 94.9% | 87.2% | 90.9% |
+| gpt-6-luna | deterministic-first | en-US | 12 | 93.8% | 86.9% | 90.2% |
+| gpt-6-luna | deterministic-first | es-ES | 2 | 89.5% | 84.2% | 86.8% |
 | gpt-6-luna | deterministic-first | fr-FR | 2 | 100.0% | 93.5% | 96.7% |
 | gpt-6-luna | model-only | de-DE | 2 | 100.0% | 93.1% | 96.4% |
-| gpt-6-luna | model-only | en-GB | 4 | 67.9% | 86.3% | 76.0% |
+| gpt-6-luna | model-only | en-GB | 4 | 95.2% | 86.7% | 90.8% |
 | gpt-6-luna | model-only | en-IN | 3 | 100.0% | 97.4% | 98.7% |
-| gpt-6-luna | model-only | en-US | 12 | 88.3% | 89.7% | 89.0% |
+| gpt-6-luna | model-only | en-US | 12 | 92.6% | 90.4% | 91.5% |
 | gpt-6-luna | model-only | es-ES | 2 | 100.0% | 89.5% | 94.4% |
 | gpt-6-luna | model-only | fr-FR | 2 | 100.0% | 90.3% | 94.9% |
-| zai/glm-5.3-flash | deterministic-first | de-DE | 2 | 97.4% | 89.7% | 93.4% |
-| zai/glm-5.3-flash | deterministic-first | en-GB | 4 | 66.1% | 80.0% | 72.4% |
+| zai/glm-5.3-flash | deterministic-first | de-DE | 2 | 96.5% | 89.7% | 93.0% |
+| zai/glm-5.3-flash | deterministic-first | en-GB | 4 | 95.4% | 85.8% | 90.4% |
 | zai/glm-5.3-flash | deterministic-first | en-IN | 3 | 100.0% | 89.7% | 94.6% |
-| zai/glm-5.3-flash | deterministic-first | en-US | 12 | 88.5% | 85.5% | 86.9% |
+| zai/glm-5.3-flash | deterministic-first | en-US | 12 | 93.2% | 86.5% | 89.7% |
 | zai/glm-5.3-flash | deterministic-first | es-ES | 2 | 100.0% | 84.2% | 91.4% |
 | zai/glm-5.3-flash | deterministic-first | fr-FR | 2 | 100.0% | 90.3% | 94.9% |
 | zai/glm-5.3-flash | model-only | de-DE | 2 | 100.0% | 79.3% | 88.5% |
-| zai/glm-5.3-flash | model-only | en-GB | 4 | 67.3% | 85.0% | 75.1% |
+| zai/glm-5.3-flash | model-only | en-GB | 4 | 97.1% | 89.4% | 93.1% |
 | zai/glm-5.3-flash | model-only | en-IN | 3 | 100.0% | 94.9% | 97.4% |
-| zai/glm-5.3-flash | model-only | en-US | 12 | 91.6% | 91.1% | 91.3% |
+| zai/glm-5.3-flash | model-only | en-US | 12 | 97.2% | 91.7% | 94.4% |
 | zai/glm-5.3-flash | model-only | es-ES | 2 | 100.0% | 79.0% | 88.2% |
 | zai/glm-5.3-flash | model-only | fr-FR | 2 | 100.0% | 80.7% | 89.3% |
 

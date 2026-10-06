@@ -97,7 +97,14 @@ async function main() {
     : null
 
   const context = `${corpus}, ${split} split${format === "text" ? "" : `, as ${format}`}`
-  const report = buildReport({ results, baseline, corpusHash: hash, context })
+  const { promptFingerprint } = await import("./lib/fingerprint")
+  const report = buildReport({
+    results,
+    baseline,
+    corpusHash: hash,
+    context,
+    fingerprint: await promptFingerprint(),
+  })
   const sources = `\`${path.relative(REPO, directory).replace(/\\/g, "/")}/\`${baseline ? ` and \`${path.relative(REPO, baselineFile).replace(/\\/g, "/")}\`` : ""}`
 
   const wanted = new Map<string, string>()
@@ -140,7 +147,19 @@ async function main() {
       stale.push(path.relative(REPO, d.file).replace(/\\/g, "/"))
 
   if (values.check) {
+    // A result the charts leave out because it is stale is as out of date as
+    // a chart: what it measured no longer holds (#204).
+    const outdated = report.excluded.filter((e) => e.stale)
+    if (outdated.length > 0) {
+      console.log(
+        c.red(
+          `✗ results measured against something that has changed since:\n${outdated.map((e) => `  ${e.model}: ${e.reason}`).join("\n")}`
+        )
+      )
+      process.exitCode = 1
+    }
     if (stale.length === 0) {
+      if (outdated.length > 0) return
       console.log(
         c.green("✓ the charts and README sections match the committed results")
       )

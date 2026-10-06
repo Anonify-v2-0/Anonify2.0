@@ -109,7 +109,7 @@ export async function askCorpus(
         : all
   say()
   note(
-    "Fewer documents is a cheaper, quicker look; the results file is still written, and says it is partial."
+    "Fewer documents is a cheaper, quicker look: a sample with every document type in proportion. The results file is still written, and says it is partial."
   )
   const wanted = await prompt.askInteger(
     `How many of the ${available} documents?`,

@@ -5,7 +5,7 @@
   "label": "gpt-6-luna",
   "firstMeasuredAt": "2026-10-01T04:27:48.707Z",
   "corpus": "synthetic-v1",
-  "corpusHash": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f",
+  "corpusHash": "sha256:9c28f1c4781faa855b899263b69d510bd3be0e4dddb0fd7655401d6cfb4868e4",
   "split": "dev",
   "format": "text",
   "rates": {
@@ -32,15 +32,27 @@
   },
   "quality": {
     "labels": 421,
-    "detections": 560,
-    "precision": 0.8857,
-    "precisionStrict": 0.8589,
+    "detections": 465,
+    "precision": 0.871,
+    "precisionStrict": 0.8624,
     "recall": 0.905,
     "recallOverlap": 0.9454,
     "recallStrict": 0.8979,
-    "f1": 0.8952,
-    "falsePositives": 64,
+    "f1": 0.8877,
+    "falsePositives": 60,
     "negativeHits": 5,
+    "merged": 95,
+    "distinct": {
+      "detections": 330,
+      "precision": 0.9333
+    },
+    "byConfidence": null,
+    "interval": {
+      "precision": [0.774, 0.9497],
+      "recall": [0.8726, 0.9354],
+      "f1": [0.8344, 0.9299],
+      "resamples": 2000
+    },
     "unscored": {
       "health": 76
     },
@@ -50,18 +62,18 @@
         "recall": 0.9658,
         "recallOverlap": 0.9658,
         "recallStrict": 0.9658,
-        "detections": 343,
-        "precision": 0.9038,
-        "precisionStrict": 0.8688
+        "detections": 256,
+        "precision": 0.8867,
+        "precisionStrict": 0.8828
       },
       "address": {
         "labels": 21,
         "recall": 0.7143,
         "recallOverlap": 0.9524,
         "recallStrict": 0.7143,
-        "detections": 35,
-        "precision": 0.9429,
-        "precisionStrict": 0.9429
+        "detections": 28,
+        "precision": 0.9286,
+        "precisionStrict": 0.9286
       },
       "phone": {
         "labels": 24,
@@ -95,7 +107,7 @@
         "recall": 0.8889,
         "recallOverlap": 0.8889,
         "recallStrict": 0.8889,
-        "detections": 17,
+        "detections": 16,
         "precision": 1,
         "precisionStrict": 1
       },
@@ -164,8 +176,8 @@
       }
     },
     "weightedCost": {
-      "total": 299,
-      "perDocument": 14.95,
+      "total": 295,
+      "perDocument": 14.75,
       "missed": {
         "confidential": 4,
         "person": 8,
@@ -178,7 +190,7 @@
         "date-of-birth": 1,
         "other": 1
       },
-      "falsePositives": 64,
+      "falsePositives": 60,
       "weights": {
         "missed": {
           "government-id": 10,
@@ -258,15 +270,27 @@
       },
       "quality": {
         "labels": 421,
-        "detections": 560,
-        "precision": 0.8857,
-        "precisionStrict": 0.8589,
+        "detections": 465,
+        "precision": 0.871,
+        "precisionStrict": 0.8624,
         "recall": 0.905,
         "recallOverlap": 0.9454,
         "recallStrict": 0.8979,
-        "f1": 0.8952,
-        "falsePositives": 64,
+        "f1": 0.8877,
+        "falsePositives": 60,
         "negativeHits": 5,
+        "merged": 95,
+        "distinct": {
+          "detections": 330,
+          "precision": 0.9333
+        },
+        "byConfidence": null,
+        "interval": {
+          "precision": [0.774, 0.9497],
+          "recall": [0.8726, 0.9354],
+          "f1": [0.8344, 0.9299],
+          "resamples": 2000
+        },
         "unscored": {
           "health": 76
         },
@@ -276,18 +300,18 @@
             "recall": 0.9658,
             "recallOverlap": 0.9658,
             "recallStrict": 0.9658,
-            "detections": 343,
-            "precision": 0.9038,
-            "precisionStrict": 0.8688
+            "detections": 256,
+            "precision": 0.8867,
+            "precisionStrict": 0.8828
           },
           "address": {
             "labels": 21,
             "recall": 0.7143,
             "recallOverlap": 0.9524,
             "recallStrict": 0.7143,
-            "detections": 35,
-            "precision": 0.9429,
-            "precisionStrict": 0.9429
+            "detections": 28,
+            "precision": 0.9286,
+            "precisionStrict": 0.9286
           },
           "phone": {
             "labels": 24,
@@ -321,7 +345,7 @@
             "recall": 0.8889,
             "recallOverlap": 0.8889,
             "recallStrict": 0.8889,
-            "detections": 17,
+            "detections": 16,
             "precision": 1,
             "precisionStrict": 1
           },
@@ -390,8 +414,8 @@
           }
         },
         "weightedCost": {
-          "total": 299,
-          "perDocument": 14.95,
+          "total": 295,
+          "perDocument": 14.75,
           "missed": {
             "confidential": 4,
             "person": 8,
@@ -404,7 +428,7 @@
             "date-of-birth": 1,
             "other": 1
           },
-          "falsePositives": 64,
+          "falsePositives": 60,
           "weights": {
             "missed": {
               "government-id": 10,
@@ -464,9 +488,9 @@
           "costPerDocumentUsd": 0.002548,
           "tokensPerDocument": 16877,
           "medianMs": 50092,
-          "precision": 0.9643,
+          "precision": 0.95,
           "recall": 0.825,
-          "f1": 0.8892
+          "f1": 0.8831
         },
         "CV": {
           "documents": 1,
@@ -492,9 +516,9 @@
           "costPerDocumentUsd": 0.001163,
           "tokensPerDocument": 7082,
           "medianMs": 33322,
-          "precision": 0.5714,
+          "precision": 0.5588,
           "recall": 0.95,
-          "f1": 0.7136
+          "f1": 0.7037
         },
         "incident report": {
           "documents": 5,
@@ -506,9 +530,9 @@
           "costPerDocumentUsd": 0.000836,
           "tokensPerDocument": 4874,
           "medianMs": 33028,
-          "precision": 0.9577,
+          "precision": 0.9571,
           "recall": 0.8857,
-          "f1": 0.9203
+          "f1": 0.92
         },
         "invoice": {
           "documents": 5,
@@ -520,9 +544,9 @@
           "costPerDocumentUsd": 0.000791,
           "tokensPerDocument": 4659,
           "medianMs": 29983,
-          "precision": 0.8016,
+          "precision": 0.7857,
           "recall": 0.9125,
-          "f1": 0.8535
+          "f1": 0.8444
         },
         "medical referral": {
           "documents": 3,
@@ -534,9 +558,9 @@
           "costPerDocumentUsd": 0.002149,
           "tokensPerDocument": 10752,
           "medianMs": 69273,
-          "precision": 0.9554,
+          "precision": 0.9444,
           "recall": 0.8934,
-          "f1": 0.9234
+          "f1": 0.9182
         },
         "meeting minutes": {
           "documents": 2,
@@ -564,9 +588,9 @@
           "costPerDocumentUsd": 0.000508,
           "tokensPerDocument": 2592,
           "medianMs": 29983,
-          "precision": 0.9252,
+          "precision": 0.9167,
           "recall": 0.914,
-          "f1": 0.9196
+          "f1": 0.9153
         },
         "medium": {
           "documents": 5,
@@ -578,9 +602,9 @@
           "costPerDocumentUsd": 0.001054,
           "tokensPerDocument": 6785,
           "medianMs": 33322,
-          "precision": 0.72,
+          "precision": 0.7172,
           "recall": 0.8919,
-          "f1": 0.7968
+          "f1": 0.7951
         },
         "long": {
           "documents": 6,
@@ -592,9 +616,9 @@
           "costPerDocumentUsd": 0.002559,
           "tokensPerDocument": 15955,
           "medianMs": 65929,
-          "precision": 0.9207,
+          "precision": 0.9111,
           "recall": 0.9055,
-          "f1": 0.913
+          "f1": 0.9083
         }
       },
       "byDensity": {
@@ -622,9 +646,9 @@
           "costPerDocumentUsd": 0.001175,
           "tokensPerDocument": 8014,
           "medianMs": 36065,
-          "precision": 0.9688,
+          "precision": 0.9649,
           "recall": 0.8871,
-          "f1": 0.9262
+          "f1": 0.9244
         },
         "medium": {
           "documents": 10,
@@ -636,9 +660,9 @@
           "costPerDocumentUsd": 0.001315,
           "tokensPerDocument": 8313,
           "medianMs": 38336,
-          "precision": 0.8313,
+          "precision": 0.8111,
           "recall": 0.917,
-          "f1": 0.872
+          "f1": 0.8608
         },
         "high": {
           "documents": 3,
@@ -650,9 +674,9 @@
           "costPerDocumentUsd": 0.002125,
           "tokensPerDocument": 9916,
           "medianMs": 53700,
-          "precision": 0.9645,
+          "precision": 0.9562,
           "recall": 0.8923,
-          "f1": 0.927
+          "f1": 0.9231
         }
       },
       "byLocale": {
@@ -680,9 +704,9 @@
           "costPerDocumentUsd": 0.001043,
           "tokensPerDocument": 5787,
           "medianMs": 33028,
-          "precision": 0.8559,
+          "precision": 0.8482,
           "recall": 0.8911,
-          "f1": 0.8731
+          "f1": 0.8691
         },
         "en-IN": {
           "documents": 2,
@@ -694,9 +718,9 @@
           "costPerDocumentUsd": 0.003291,
           "tokensPerDocument": 17411,
           "medianMs": 95431,
-          "precision": 0.9613,
+          "precision": 0.9478,
           "recall": 0.875,
-          "f1": 0.9161
+          "f1": 0.9099
         },
         "en-US": {
           "documents": 6,
@@ -708,9 +732,9 @@
           "costPerDocumentUsd": 0.000695,
           "tokensPerDocument": 4949,
           "medianMs": 29961,
-          "precision": 0.803,
+          "precision": 0.7759,
           "recall": 0.8958,
-          "f1": 0.8469
+          "f1": 0.8316
         },
         "es-ES": {
           "documents": 2,
@@ -722,9 +746,9 @@
           "costPerDocumentUsd": 0.001353,
           "tokensPerDocument": 8234,
           "medianMs": 53229,
-          "precision": 0.7553,
+          "precision": 0.7324,
           "recall": 0.9091,
-          "f1": 0.8251
+          "f1": 0.8112
         },
         "fr-FR": {
           "documents": 3,
@@ -736,9 +760,9 @@
           "costPerDocumentUsd": 0.001553,
           "tokensPerDocument": 10583,
           "medianMs": 65929,
-          "precision": 0.9756,
+          "precision": 0.9718,
           "recall": 0.9718,
-          "f1": 0.9737
+          "f1": 0.9718
         }
       },
       "attribution": {
@@ -3500,15 +3524,27 @@
       },
       "quality": {
         "labels": 421,
-        "detections": 544,
-        "precision": 0.8824,
-        "precisionStrict": 0.8603,
+        "detections": 465,
+        "precision": 0.8624,
+        "precisionStrict": 0.8602,
         "recall": 0.9335,
         "recallOverlap": 0.9501,
         "recallStrict": 0.9335,
-        "f1": 0.9072,
+        "f1": 0.8965,
         "falsePositives": 64,
         "negativeHits": 1,
+        "merged": 79,
+        "distinct": {
+          "detections": 350,
+          "precision": 0.8686
+        },
+        "byConfidence": null,
+        "interval": {
+          "precision": [0.6993, 0.9724],
+          "recall": [0.8989, 0.9571],
+          "f1": [0.7942, 0.9556],
+          "resamples": 2000
+        },
         "unscored": {
           "health": 96
         },
@@ -3518,9 +3554,9 @@
             "recall": 0.9487,
             "recallOverlap": 0.9573,
             "recallStrict": 0.9487,
-            "detections": 320,
-            "precision": 0.95,
-            "precisionStrict": 0.9125
+            "detections": 241,
+            "precision": 0.9336,
+            "precisionStrict": 0.9295
           },
           "address": {
             "labels": 21,
@@ -3717,9 +3753,9 @@
           "costPerDocumentUsd": 0.000603,
           "tokensPerDocument": 2649,
           "medianMs": 46928,
-          "precision": 0.9231,
+          "precision": 0.9167,
           "recall": 1,
-          "f1": 0.96
+          "f1": 0.9565
         },
         "HR note": {
           "documents": 1,
@@ -3731,9 +3767,9 @@
           "costPerDocumentUsd": 0.001143,
           "tokensPerDocument": 6719,
           "medianMs": 28831,
-          "precision": 0.5676,
+          "precision": 0.5556,
           "recall": 1,
-          "f1": 0.7242
+          "f1": 0.7143
         },
         "incident report": {
           "documents": 5,
@@ -3759,9 +3795,9 @@
           "costPerDocumentUsd": 0.000762,
           "tokensPerDocument": 4181,
           "medianMs": 40033,
-          "precision": 0.9596,
+          "precision": 0.95,
           "recall": 0.925,
-          "f1": 0.942
+          "f1": 0.9373
         },
         "medical referral": {
           "documents": 3,
@@ -3773,9 +3809,9 @@
           "costPerDocumentUsd": 0.002306,
           "tokensPerDocument": 10474,
           "medianMs": 63109,
-          "precision": 0.9487,
+          "precision": 0.936,
           "recall": 0.9344,
-          "f1": 0.9415
+          "f1": 0.9352
         },
         "meeting minutes": {
           "documents": 2,
@@ -3787,9 +3823,9 @@
           "costPerDocumentUsd": 0.002692,
           "tokensPerDocument": 17718,
           "medianMs": 73945,
-          "precision": 0.9877,
+          "precision": 0.9848,
           "recall": 0.9155,
-          "f1": 0.9502
+          "f1": 0.9489
         }
       },
       "byLength": {
@@ -3803,9 +3839,9 @@
           "costPerDocumentUsd": 0.000476,
           "tokensPerDocument": 2275,
           "medianMs": 37605,
-          "precision": 0.9505,
+          "precision": 0.9451,
           "recall": 0.8925,
-          "f1": 0.9206
+          "f1": 0.918
         },
         "medium": {
           "documents": 5,
@@ -3817,9 +3853,9 @@
           "costPerDocumentUsd": 0.0011,
           "tokensPerDocument": 6502,
           "medianMs": 28831,
-          "precision": 0.5902,
+          "precision": 0.5868,
           "recall": 0.9324,
-          "f1": 0.7228
+          "f1": 0.7203
         },
         "long": {
           "documents": 6,
@@ -3831,9 +3867,9 @@
           "costPerDocumentUsd": 0.002663,
           "tokensPerDocument": 15297,
           "medianMs": 63109,
-          "precision": 0.972,
+          "precision": 0.9644,
           "recall": 0.9488,
-          "f1": 0.9603
+          "f1": 0.9565
         }
       },
       "byDensity": {
@@ -3861,9 +3897,9 @@
           "costPerDocumentUsd": 0.001199,
           "tokensPerDocument": 7833,
           "medianMs": 63109,
-          "precision": 0.9688,
+          "precision": 0.9649,
           "recall": 0.8871,
-          "f1": 0.9262
+          "f1": 0.9244
         },
         "medium": {
           "documents": 10,
@@ -3875,9 +3911,9 @@
           "costPerDocumentUsd": 0.001342,
           "tokensPerDocument": 7781,
           "medianMs": 40659,
-          "precision": 0.8127,
+          "precision": 0.787,
           "recall": 0.9432,
-          "f1": 0.8731
+          "f1": 0.858
         },
         "high": {
           "documents": 3,
@@ -3889,9 +3925,9 @@
           "costPerDocumentUsd": 0.002205,
           "tokensPerDocument": 9233,
           "medianMs": 77475,
-          "precision": 0.9818,
+          "precision": 0.9771,
           "recall": 0.9385,
-          "f1": 0.9597
+          "f1": 0.9574
         }
       },
       "byLocale": {
@@ -3919,9 +3955,9 @@
           "costPerDocumentUsd": 0.000974,
           "tokensPerDocument": 5362,
           "medianMs": 37605,
-          "precision": 0.8512,
+          "precision": 0.8407,
           "recall": 0.9109,
-          "f1": 0.88
+          "f1": 0.8744
         },
         "en-IN": {
           "documents": 2,
@@ -3933,9 +3969,9 @@
           "costPerDocumentUsd": 0.003449,
           "tokensPerDocument": 16662,
           "medianMs": 79592,
-          "precision": 0.9825,
+          "precision": 0.9771,
           "recall": 0.9766,
-          "f1": 0.9795
+          "f1": 0.9768
         },
         "en-US": {
           "documents": 6,
@@ -3947,9 +3983,9 @@
           "costPerDocumentUsd": 0.000782,
           "tokensPerDocument": 4811,
           "medianMs": 40659,
-          "precision": 0.593,
+          "precision": 0.5513,
           "recall": 0.8958,
-          "f1": 0.7136
+          "f1": 0.6825
         },
         "es-ES": {
           "documents": 2,
@@ -3961,9 +3997,9 @@
           "costPerDocumentUsd": 0.001375,
           "tokensPerDocument": 7578,
           "medianMs": 70144,
-          "precision": 0.9444,
+          "precision": 0.9298,
           "recall": 0.9273,
-          "f1": 0.9358
+          "f1": 0.9285
         },
         "fr-FR": {
           "documents": 3,
@@ -3975,9 +4011,9 @@
           "costPerDocumentUsd": 0.001589,
           "tokensPerDocument": 10028,
           "medianMs": 23646,
-          "precision": 0.9481,
+          "precision": 0.942,
           "recall": 0.9155,
-          "f1": 0.9315
+          "f1": 0.9286
         }
       },
       "attribution": {
@@ -6657,5 +6693,9 @@
     "aiRequestsPerMinute": null,
     "aiMaxAttempts": null
   },
-  "notMeasured": ["Extraction and export: each document is analysed as one plain-text page, so the extract and export stages are not timed; see --format.", "Faces, handwriting, scanned noise and non-Latin scripts, which the corpus does not contain.", "Real-world prevalence: categories are over-represented on purpose, so precision here is not precision on real documents.", "Anything a person accepts or rejects in review: every proposal counts as a redaction, and the export stage exports all of them.", "Model calls saved by expansion are not observed directly: the pipeline never asks the model per occurrence, so the saving is counted as the occurrences the local search added that no model call found.", "Cost is tokens times the configured price; cached-input discounts, batch pricing and a subscription's flat fee are not modelled.", "Throughput depends on the provider, the plan's rate limits and the network at the time of the run; it is one afternoon, not a property of the model."]
+  "notMeasured": ["Extraction and export: each document is analysed as one plain-text page, so the extract and export stages are not timed; see --format.", "Faces, handwriting, scanned noise and non-Latin scripts, which the corpus does not contain.", "Real-world prevalence: categories are over-represented on purpose, so precision here is not precision on real documents.", "Anything a person accepts or rejects in review: every proposal counts as a redaction, and the export stage exports all of them.", "Model calls saved by expansion are not observed directly: the pipeline never asks the model per occurrence, so the saving is counted as the occurrences the local search added that no model call found.", "Cost is tokens times the configured price; cached-input discounts, batch pricing and a subscription's flat fee are not modelled.", "Throughput depends on the provider, the plan's rate limits and the network at the time of the run; it is one afternoon, not a property of the model."],
+  "rescored": {
+    "at": "2026-10-05T16:55:56.493Z",
+    "detectedOn": "sha256:eaa2291d6e8c6f672f11cf3f8c8226eaca84c650666256b8b87cdb528785e13f"
+  }
 }
