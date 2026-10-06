@@ -143,10 +143,17 @@ export type AnalysisPasses = {
   patterns: Detection[]
   /** Deterministic hits the verification call judged not sensitive. */
   rejected: number
+  /** Those hits themselves, so a benchmark can tell a wrong rejection from a right one. */
+  rejectedHits: Detection[]
   /** What the contextual pass proposed, located in the text. */
   model: Detection[]
   /** Occurrences the local search added for global values, before dedupe. */
   expanded: Detection[]
+}
+
+/** The same pattern hit, before and after verification gave it a new confidence. */
+function sameHit(a: Detection, b: Detection): boolean {
+  return a.page === b.page && a.start === b.start && a.end === b.end
 }
 
 /** Runs tasks with a ceiling on how many are in flight at once. */
@@ -630,7 +637,13 @@ export async function analyzeDocument(
       language,
       degraded: { reason: "budget", calls: 0 },
       sensitiveColumns: [],
-      passes: { patterns: deterministic, rejected: 0, model: [], expanded: [] },
+      passes: {
+        patterns: deterministic,
+        rejected: 0,
+        rejectedHits: [],
+        model: [],
+        expanded: [],
+      },
     }
   }
 
@@ -649,9 +662,20 @@ export async function analyzeDocument(
   //    rather than a detail: it used to be a constant applied per *document*,
   //    so six documents processing at once meant twenty-four concurrent calls
   //    and the number the provider actually saw was one nobody had chosen.
-  const alreadyFound = [
-    ...new Set(deterministic.map((detection) => detection.text)),
-  ]
+  //
+  //    The model is told what the patterns already settled, so it does not
+  //    spend output repeating it. Only the confident hits: a doubtful one is
+  //    judged by verification (step 4) at the same time, and if verification
+  //    rejected a value the model had been told was found, nothing would
+  //    suggest it, a real customer number included (#212). Left off the list,
+  //    the model judges it in full context, and a value either keeps stands.
+  const shaky = deterministic.filter(
+    (detection) => detection.confidence <= VERIFY_BELOW
+  )
+  const solid = deterministic.filter(
+    (detection) => detection.confidence > VERIFY_BELOW
+  )
+  const alreadyFound = [...new Set(solid.map((detection) => detection.text))]
   const chunks = chunkPages(model)
   let completed = 0
 
@@ -682,12 +706,6 @@ export async function analyzeDocument(
   ).flat()
 
   // 4. Second look at the deterministic hits that depend on context.
-  const shaky = deterministic.filter(
-    (detection) => detection.confidence <= VERIFY_BELOW
-  )
-  const solid = deterministic.filter(
-    (detection) => detection.confidence > VERIFY_BELOW
-  )
   const verified = await verifyCandidates(
     documentId,
     model,
@@ -742,6 +760,9 @@ export async function analyzeDocument(
     passes: {
       patterns: [...solid, ...verified],
       rejected: shaky.length - verified.length,
+      rejectedHits: shaky.filter(
+        (hit) => !verified.some((kept) => sameHit(kept, hit))
+      ),
       model: contextual,
       expanded,
     },

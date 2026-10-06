@@ -421,6 +421,41 @@ describe("verifying shaky pattern hits", () => {
     expect(scripted.callsFor("verify")[0].prompt).toContain("Ship to 12 Baker")
   })
 
+  it("does not tell the model a doubtful hit is found, so a wrong rejection is not final (#212)", async () => {
+    const ids = doc([page(1, "Customer ID: C-804193 called about the order.")])
+    scripted.setScript({
+      verify: {
+        verdicts: [
+          { index: 0, sensitive: false, confidence: 0.8, reason: "A code" },
+        ],
+      },
+      detect: reportMatches(/C-804193/g, { category: "customer-id" }),
+    })
+
+    const { detections, passes } = await analyzeDocument("doc_1", ids)
+
+    // The labelled id is doubtful (0.68), so it is left off the list.
+    expect(scripted.callsFor("detect")[0].prompt).not.toContain("- C-804193")
+    // Verification rejected it, and says which hit it rejected...
+    expect(passes.rejected).toBe(1)
+    expect(passes.rejectedHits.map((d) => d.text)).toEqual(["C-804193"])
+    // ...but the model found it in context, and that stands.
+    expect(
+      detections.filter((d) => d.text === "C-804193").map((d) => d.category)
+    ).toEqual(["customer-id"])
+  })
+
+  it("still tells the model about a confident hit", async () => {
+    scripted.setScript({ detect: { detections: [] } })
+    await analyzeDocument(
+      "doc_1",
+      doc([page(1, "Write to jane@example.com, Customer ID: C-804193.")])
+    )
+    const prompt = scripted.callsFor("detect")[0].prompt
+    expect(prompt).toContain("- jane@example.com")
+    expect(prompt).not.toContain("- C-804193")
+  })
+
   it("leaves the candidates as the detector reported them when verification fails", async () => {
     scripted.setScript({ fail: { verify: { status: 401 } } })
 

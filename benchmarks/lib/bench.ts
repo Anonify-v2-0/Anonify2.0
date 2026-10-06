@@ -102,6 +102,8 @@ export type DocumentRecord = {
   passes: {
     patterns: Stored
     rejected: number
+    /** Where those hits were. Absent from runs measured before #212. */
+    rejectedAt?: Stored
     model: Stored
     expanded: Stored
   }
@@ -163,6 +165,9 @@ export function toRecord(
     passes: {
       patterns: positions(analysed.passes.patterns),
       rejected: analysed.passes.rejected,
+      ...(analysed.passes.rejectedHits
+        ? { rejectedAt: positions(analysed.passes.rejectedHits) }
+        : {}),
       model: positions(analysed.passes.model),
       expanded: positions(analysed.passes.expanded),
     },
@@ -231,6 +236,11 @@ export type Attribution = {
     patterns: number
     /** Deterministic hits the verification call removed. */
     rejected: number
+    /**
+     * Of those, the ones over a labelled value: rejections that were wrong.
+     * Absent when a run did not record where its rejections were (#212).
+     */
+    rejectedLabelled?: number
     model: number
     expanded: number
     /** Expanded occurrences at a position no other pass had found. */
@@ -438,6 +448,16 @@ export function attribute(
     const expanded = fromStored(record.passes.expanded)
     out.detections.patterns += patterns.length
     out.detections.rejected += record.passes.rejected
+    if (record.passes.rejectedAt) {
+      out.detections.rejectedLabelled ??= 0
+      out.detections.rejectedLabelled += fromStored(
+        record.passes.rejectedAt
+      ).filter((hit) =>
+        document.spans.some(
+          (span) => hit.start < span.end && span.start < hit.end
+        )
+      ).length
+    }
     out.detections.model += model.length
     out.detections.expanded += expanded.length
     out.detections.expandedAdded += addedByExpansion(record)

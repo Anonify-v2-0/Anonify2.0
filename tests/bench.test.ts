@@ -189,6 +189,26 @@ describe("where the result comes from", () => {
     expect(addedByExpansion(r)).toBe(1)
   })
 
+  it("counts a rejection over a labelled value as a wrong one (#212)", () => {
+    const doc = document("w")
+    // The phone was a label; the other hit was nothing.
+    const r = record(doc, {
+      rejected: 2,
+      rejectedHits: [PHONE, { start: 0, end: 4, category: "phone" }],
+    })
+    expect(r.passes.rejectedAt).toEqual([
+      [20, 28, "phone"],
+      [0, 4, "phone"],
+    ])
+    const a = attribute([r], new Map([[doc.id, doc]]))
+    expect(a.detections).toMatchObject({ rejected: 2, rejectedLabelled: 1 })
+    // A run that did not record them says nothing either way.
+    const old = record(doc, { rejected: 2 })
+    expect(
+      attribute([old], new Map([[doc.id, doc]])).detections.rejectedLabelled
+    ).toBeUndefined()
+  })
+
   it("counts a value only the passes together cover as that", () => {
     const doc = document("b")
     const r = record(doc, {
