@@ -70,7 +70,7 @@ tokens, and 39–45% of what it rejects is still a real value. Beyond that, a
 reasoning model's output varies too much between runs to put one number on the
 difference: 13% more than model-only in one run, 39% in the next, from the
 same detection prompt. Whether verification earns its place is the open
-question in #214. This is two models and one synthetic corpus, so it is a
+question in [#217](https://github.com/Anonify-v2-0/Anonify2.0/issues/217). This is two models and one synthetic corpus, so it is a
 measurement of this corpus, not a verdict. The numbers are in
 [benchmarks/README.md](../benchmarks/README.md#what-the-100-document-run-found).
 

@@ -759,7 +759,8 @@ figure below is in the [Headline figures](#headline-figures) table with its
   this run's figure, 39% more than model-only, is mostly its reasoning output
   varying. Measured after #212 alone, the difference was 13%. Verification is
   the one cost the patterns add every time, and 39–45% of its rejections are
-  still wrong. Removing it is the open question in #214.
+  still wrong. Removing it is the open question in
+  [#217](https://github.com/Anonify-v2-0/Anonify2.0/issues/217).
 - **Confidence.** A cut-off buys precision for recall. At 0.8, glm-5.3-flash
   goes from 96.9% to 98.7% precision and pays 7 points of recall.
   deepseek-v4.1-flash goes from 95.3% to 97.0% for under 2.

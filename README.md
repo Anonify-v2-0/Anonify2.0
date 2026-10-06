@@ -896,7 +896,7 @@ to a model, at comparable quality. Measured on 100 test documents, the quality
 half now holds and the cost half does not. With glm-5.3-flash, the patterns
 first reach 95.0% F1 against 93.4% for the model alone, but they still cost
 more tokens, and the verification call is the cost they add every time
-([what it found](benchmarks/README.md#what-the-100-document-run-found), [#214](https://github.com/Anonify-v2-0/Anonify2.0/issues/214)). That is
+([what it found](benchmarks/README.md#what-the-100-document-run-found), [#217](https://github.com/Anonify-v2-0/Anonify2.0/issues/217)). That is
 one corpus and two models. More models, a size pair from one family, a local
 model, and a different corpus would each test the claim further: [#208](https://github.com/Anonify-v2-0/Anonify2.0/issues/208) lists
 them, and CONTRIBUTING says what to submit.
