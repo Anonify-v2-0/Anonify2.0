@@ -142,6 +142,13 @@ services:
       # so a .env written for host development still works unchanged.
       DATABASE_URL: postgresql://anonify:anonify@postgres:5432/anonify
       DATABASE_DRIVER: postgres
+      # The connection budget, stated so it is visible: one replica opens at
+      # most 10 + 10 + 1 of the bundled Postgres's 100. See
+      # docs/deploy/database.md before running several replicas.
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+      DATABASE_POOL_IDLE_TIMEOUT_MS: ${DATABASE_POOL_IDLE_TIMEOUT_MS:-10000}
+      WORKFLOW_POSTGRES_MAX_POOL_SIZE: ${WORKFLOW_POSTGRES_MAX_POOL_SIZE:-10}
+      WORKFLOW_POSTGRES_WORKER_CONCURRENCY: ${WORKFLOW_POSTGRES_WORKER_CONCURRENCY:-8}
       STORAGE_DRIVER: s3
       S3_ENDPOINT: http://rustfs:9000
       S3_BUCKET: ${S3_BUCKET:-anonify}

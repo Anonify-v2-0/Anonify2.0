@@ -3,6 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg"
 
 import type { PrismaClient as PrismaClientType } from "./generated/client"
 import { PrismaClient } from "./generated/client"
+import { databasePoolConfig } from "./pool-config"
 
 /**
  * The database client, created on first use rather than on import.
@@ -61,10 +62,14 @@ function createClient(): PrismaClientType {
   // Both adapters are thin wrappers, so both are imported and one is chosen.
   // The alternative — a dynamic import — would make client creation async, and
   // every call site synchronous today would have to change for no real gain.
+  //
+  // The pool is sized by DATABASE_POOL_MAX, so the connection budget across
+  // replicas is something an operator can set (#169).
+  const pool = databasePoolConfig()
   const adapter =
     driver === "neon"
-      ? new PrismaNeon({ connectionString })
-      : new PrismaPg({ connectionString })
+      ? new PrismaNeon({ connectionString, ...pool })
+      : new PrismaPg({ connectionString, ...pool })
 
   return new PrismaClient({ adapter, log })
 }
