@@ -15,7 +15,10 @@ import type { ReadableStream as WebReadableStream } from "node:stream/web"
 import { pipeline } from "node:stream/promises"
 
 import { chain, holdErrors } from "@/lib/storage/streams"
-import { perDocumentStreamBytes, streamingLimits } from "@/lib/storage/streaming"
+import {
+  perDocumentStreamBytes,
+  streamingLimits,
+} from "@/lib/storage/streaming"
 
 /**
  * Storage drivers.
@@ -90,7 +93,41 @@ export type StorageDriver = {
   /** The stored size in bytes, without reading the object. */
   size: (key: string) => Promise<number>
   delete: (key: string) => Promise<void>
+  /**
+   * Deletes several objects in as few requests as the backend allows (#170).
+   * Like `delete`, an object already gone counts as deleted; the keys that
+   * could not be deleted are returned, never thrown, so one failure does not
+   * hide which others succeeded.
+   */
+  deleteMany: (keys: string[]) => Promise<{ failed: string[] }>
   exists: (key: string) => Promise<boolean>
+  /**
+   * The cheapest call that proves the backend answers, for /api/ready
+   * (#167). Throws when it does not.
+   */
+  probe: () => Promise<void>
+}
+
+/** An error that means the object was already gone: a delete that succeeded. */
+export function isMissingObject(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /not found|404|NoSuchKey/i.test(message)
+}
+
+/** `delete` once per key, for a backend with no bulk call. */
+async function deleteEach(
+  driver: Pick<StorageDriver, "delete">,
+  keys: string[]
+): Promise<{ failed: string[] }> {
+  const failed: string[] = []
+  for (const key of keys) {
+    try {
+      await driver.delete(key)
+    } catch (error) {
+      if (!isMissingObject(error)) failed.push(key)
+    }
+  }
+  return { failed }
 }
 
 /** Counts what passes through, for a `StoredObject.size` nobody precomputed. */
@@ -155,7 +192,9 @@ const LOCAL_ROOT = path.join(
 )
 
 function localPath(key: string): string {
-  const relative = key.startsWith(LOCAL_PREFIX) ? key.slice(LOCAL_PREFIX.length) : key
+  const relative = key.startsWith(LOCAL_PREFIX)
+    ? key.slice(LOCAL_PREFIX.length)
+    : key
   // Keys are server-generated, but a traversal here would escape the store.
   const safe = relative.replace(/\.\./g, "").replace(/^[/\\]+/, "")
   return path.join(LOCAL_ROOT, safe)
@@ -239,6 +278,10 @@ export const localDriver: StorageDriver = {
     await rm(localPath(key), { force: true })
   },
 
+  async deleteMany(keys) {
+    return deleteEach(localDriver, keys)
+  },
+
   async exists(key) {
     try {
       await stat(localPath(key))
@@ -246,6 +289,12 @@ export const localDriver: StorageDriver = {
     } catch {
       return false
     }
+  },
+
+  async probe() {
+    // A fresh volume has no store yet; creating it is what a first write would do.
+    await mkdir(LOCAL_ROOT, { recursive: true })
+    await stat(LOCAL_ROOT)
   },
 }
 
@@ -373,7 +422,9 @@ export function createS3Driver(config: S3Config): StorageDriver {
 
     async put(key, data) {
       const { PutObjectCommand } = await import("@aws-sdk/client-s3")
-      await (await client).send(
+      await (
+        await client
+      ).send(
         new PutObjectCommand({
           Bucket: config.bucket,
           Key: objectPath(key),
@@ -386,7 +437,9 @@ export function createS3Driver(config: S3Config): StorageDriver {
 
     async get(key) {
       const { GetObjectCommand } = await import("@aws-sdk/client-s3")
-      const result = await (await client).send(
+      const result = await (
+        await client
+      ).send(
         new GetObjectCommand({ Bucket: config.bucket, Key: objectPath(key) })
       )
 
@@ -397,7 +450,9 @@ export function createS3Driver(config: S3Config): StorageDriver {
 
     async getStream(key) {
       const { GetObjectCommand } = await import("@aws-sdk/client-s3")
-      const result = await (await client).send(
+      const result = await (
+        await client
+      ).send(
         new GetObjectCommand({ Bucket: config.bucket, Key: objectPath(key) })
       )
       const body = result.Body
@@ -410,7 +465,9 @@ export function createS3Driver(config: S3Config): StorageDriver {
       assertRange(start, end)
       if (end === start) return Buffer.alloc(0)
       const { GetObjectCommand } = await import("@aws-sdk/client-s3")
-      const result = await (await client).send(
+      const result = await (
+        await client
+      ).send(
         new GetObjectCommand({
           Bucket: config.bucket,
           Key: objectPath(key),
@@ -453,7 +510,9 @@ export function createS3Driver(config: S3Config): StorageDriver {
 
     async size(key) {
       const { HeadObjectCommand } = await import("@aws-sdk/client-s3")
-      const result = await (await client).send(
+      const result = await (
+        await client
+      ).send(
         new HeadObjectCommand({ Bucket: config.bucket, Key: objectPath(key) })
       )
       if (typeof result.ContentLength !== "number") {
@@ -464,21 +523,63 @@ export function createS3Driver(config: S3Config): StorageDriver {
 
     async delete(key) {
       const { DeleteObjectCommand } = await import("@aws-sdk/client-s3")
-      await (await client).send(
+      await (
+        await client
+      ).send(
         new DeleteObjectCommand({ Bucket: config.bucket, Key: objectPath(key) })
       )
+    },
+
+    async deleteMany(keys) {
+      const { DeleteObjectsCommand } = await import("@aws-sdk/client-s3")
+      const failed: string[] = []
+      // One request takes at most 1000 keys.
+      for (let i = 0; i < keys.length; i += 1000) {
+        const batch = keys.slice(i, i + 1000)
+        const byPath = new Map(batch.map((key) => [objectPath(key), key]))
+        try {
+          const result = await (
+            await client
+          ).send(
+            new DeleteObjectsCommand({
+              Bucket: config.bucket,
+              Delete: {
+                Objects: [...byPath.keys()].map((Key) => ({ Key })),
+                Quiet: true,
+              },
+            })
+          )
+          // Quiet mode reports only the failures, one per key.
+          for (const error of result.Errors ?? []) {
+            if (error.Code === "NoSuchKey") continue
+            failed.push(byPath.get(error.Key ?? "") ?? error.Key ?? "")
+          }
+        } catch {
+          failed.push(...batch)
+        }
+      }
+      return { failed }
     },
 
     async exists(key) {
       const { HeadObjectCommand } = await import("@aws-sdk/client-s3")
       try {
-        await (await client).send(
+        await (
+          await client
+        ).send(
           new HeadObjectCommand({ Bucket: config.bucket, Key: objectPath(key) })
         )
         return true
       } catch {
         return false
       }
+    },
+
+    async probe() {
+      const { HeadBucketCommand } = await import("@aws-sdk/client-s3")
+      await (
+        await client
+      ).send(new HeadBucketCommand({ Bucket: config.bucket }))
     },
   }
 }
@@ -554,6 +655,18 @@ export const vercelBlobDriver: StorageDriver = {
     await del(key)
   },
 
+  async deleteMany(keys) {
+    if (keys.length === 0) return { failed: [] }
+    const { del } = await import("@vercel/blob")
+    try {
+      await del(keys)
+      return { failed: [] }
+    } catch {
+      // The bulk call does not say which key it failed on; one at a time does.
+      return deleteEach(vercelBlobDriver, keys)
+    }
+  },
+
   async exists(key) {
     const { head } = await import("@vercel/blob")
     try {
@@ -562,6 +675,11 @@ export const vercelBlobDriver: StorageDriver = {
     } catch {
       return false
     }
+  },
+
+  async probe() {
+    const { list } = await import("@vercel/blob")
+    await list({ limit: 1 })
   },
 }
 
@@ -592,9 +710,7 @@ export function selectStorageDriver(): StorageDriver {
 
   if (requested === "vercel-blob") {
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      throw new Error(
-        "STORAGE_DRIVER=vercel-blob needs BLOB_READ_WRITE_TOKEN."
-      )
+      throw new Error("STORAGE_DRIVER=vercel-blob needs BLOB_READ_WRITE_TOKEN.")
     }
     return vercelBlobDriver
   }

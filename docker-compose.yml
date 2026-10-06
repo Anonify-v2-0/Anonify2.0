@@ -128,9 +128,6 @@ services:
     build:
       context: .
       target: runner
-      args:
-        # Baked into the prerendered pages' link previews; see .env.example.
-        ANONIFY_PUBLIC_URL: ${ANONIFY_PUBLIC_URL:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -282,6 +279,21 @@ services:
       # that is 13 MB per language, every time.
       - tesseract-cache:/data/tesseract
     restart: unless-stopped
+    # Readiness, not the image's liveness check: `compose up --wait` and the
+    # scheduler's service_healthy then mean the database, storage and the
+    # workflow worker all answer, not just that the process is up (#167).
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 40s
+      retries: 10
 
   # Expiry sweep.
   #

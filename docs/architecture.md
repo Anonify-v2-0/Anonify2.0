@@ -341,3 +341,45 @@ after however many happened to be in flight. The width is read once, inside the
 planning step, and carried through the run — a workflow function replays, and
 configuration read there would let a value changed mid-run reshape the waves on
 the replay.
+
+## 9. Health checks
+
+Every orchestrator asks two questions, and they get separate answers (#167):
+
+- **`GET /api/health`: is the process alive?** Always 200
+  `{"status":"ok"}`, with no database, storage or network I/O. A probe that
+  fails this restarts the replica, so it must not fail because something else
+  is down; a database outage would otherwise restart every replica in a loop.
+- **`GET /api/ready`: can it take traffic and jobs right now?** It checks
+  the database (`SELECT 1`), the storage backend (its cheapest call:
+  `HeadBucket` on S3, `list` with a limit of one on Vercel Blob, the store's
+  directory locally) and, where the replica runs the workflow worker
+  (`WORKFLOW_TARGET_WORLD` is set), that the worker has started. A replica that
+  is draining answers 503 without checking anything. The answer is
+  `200 {"status":"ready","checks":{…ms each}}` or
+  `503 {"status":"not-ready","failed":["storage"]}`: names only, never a
+  connection string, a bucket or an error message. Those are logged, with
+  `context: "health.ready"`. Each check has `ANONIFY_READY_TIMEOUT_MS`
+  (default 2000), and the answer is kept for a second, so a burst of probes
+  is one round of queries.
+
+Both are unauthenticated: a probe has no session, and neither returns
+document data.
+
+The image's `HEALTHCHECK` uses `/api/health`, which is what Docker's own check
+means. The Compose `app` service overrides it with `/api/ready`, so
+`docker compose up --wait` and the scheduler's `service_healthy` mean ready.
+
+| Platform | Liveness | Readiness or startup |
+| --- | --- | --- |
+| Docker / Compose | image `HEALTHCHECK`, 15 s period, 5 retries | Compose `healthcheck` on `/api/ready`, 10 s period, 40 s start period |
+| Kubernetes | `livenessProbe` on `/api/health`, period 15 s, failure threshold 5 | `readinessProbe` on `/api/ready`, period 10 s, failure threshold 3; `startupProbe` on `/api/ready` with 30 × 5 s, while the OCR model and the worker start |
+| ECS / ALB | container `healthCheck` on `/api/health` | target group health check on `/api/ready`, healthy threshold 2, interval 10 s |
+| Cloud Run | liveness probe on `/api/health` | startup probe on `/api/ready`, period 5 s, failure threshold 24 |
+| Azure Container Apps | liveness probe on `/api/health` | readiness probe on `/api/ready`, period 10 s |
+
+The health state lives in `lib/health/state.ts`: `markWorldStarted()`, called
+from `instrumentation.ts` once the worker runs, and `markDraining()`, for the
+shutdown handler (#182) to call first, so a replica leaves the load balancer
+before it stops answering. When web and worker roles split (#179), only the
+worker role will wait on the worker.

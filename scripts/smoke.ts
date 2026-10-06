@@ -78,9 +78,8 @@ async function makePdf(): Promise<Uint8Array> {
  * header and a footer. Redacting `document.xml` alone leaves two of them.
  */
 async function makeDocx(): Promise<Uint8Array> {
-  const { Document, Footer, Header, Packer, Paragraph, TextRun } = await import(
-    "docx"
-  )
+  const { Document, Footer, Header, Packer, Paragraph, TextRun } =
+    await import("docx")
 
   const doc = new Document({
     creator: SENSITIVE.author,
@@ -135,7 +134,6 @@ async function makeXlsx(): Promise<Uint8Array> {
 
   return new Uint8Array(await workbook.xlsx.writeBuffer())
 }
-
 
 /** A CSV whose values sit in quoted fields, one holding a delimiter. */
 function makeCsv(): Uint8Array {
@@ -228,7 +226,6 @@ function makeEml(): Uint8Array {
   return new Uint8Array(Buffer.from(source, "latin1"))
 }
 
-
 /**
  * A deck, assembled part by part with fflate.
  *
@@ -244,7 +241,8 @@ async function makePptx(): Promise<Uint8Array> {
     'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ' +
     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ' +
     'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
-  const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+  const REL =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
   const paragraph = (runs: string[]) =>
     `<a:p>${runs
@@ -264,8 +262,9 @@ async function makePptx(): Promise<Uint8Array> {
   const rels = (entries: [string, string, string][]) =>
     `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
     entries
-      .map(([id, type, target]) =>
-        `<Relationship Id="${id}" Type="${REL}/${type}" Target="${target}"/>`
+      .map(
+        ([id, type, target]) =>
+          `<Relationship Id="${id}" Type="${REL}/${type}" Target="${target}"/>`
       )
       .join("") +
     "</Relationships>"
@@ -321,7 +320,11 @@ async function makePptx(): Promise<Uint8Array> {
         rels([["rId1", "slide", "../slides/slide1.xml"]])
       ),
       "ppt/slideLayouts/slideLayout1.xml": encode(
-        tree("sldLayout", [paragraph(["Prepared by the deck team"])], ' type="obj" preserve="1"')
+        tree(
+          "sldLayout",
+          [paragraph(["Prepared by the deck team"])],
+          ' type="obj" preserve="1"'
+        )
       ),
       "ppt/slideLayouts/_rels/slideLayout1.xml.rels": encode(
         rels([["rId1", "slideMaster", "../slideMasters/slideMaster1.xml"]])
@@ -422,9 +425,7 @@ type VerifyContext = {
 }
 
 /** Unzips an OOXML package and returns every text-bearing part. */
-async function packageParts(
-  artifact: Buffer
-): Promise<Record<string, string>> {
+async function packageParts(artifact: Buffer): Promise<Record<string, string>> {
   const { unzipSync } = await import("fflate")
   const files = unzipSync(new Uint8Array(artifact))
 
@@ -436,11 +437,7 @@ async function packageParts(
   return parts
 }
 
-function assertAbsent(
-  haystack: string,
-  values: string[],
-  where: string
-): void {
+function assertAbsent(haystack: string, values: string[], where: string): void {
   const survivors = [...new Set(values)].filter(
     (value) => value.trim().length > 2 && haystack.includes(value)
   )
@@ -461,11 +458,7 @@ function assertAbsent(
  */
 function pdfHaystacks(artifact: Buffer): string[] {
   const latin = artifact.toString("latin1")
-  return [
-    latin,
-    artifact.toString("utf8"),
-    latin.replace(/[\s()\\<>[\]]/g, ""),
-  ]
+  return [latin, artifact.toString("utf8"), latin.replace(/[\s()\\<>[\]]/g, "")]
 }
 
 // --- the cases --------------------------------------------------------------
@@ -568,7 +561,8 @@ const AI_CASES: SmokeCase[] = [
         }
       }
       const found = ["Maria Lopez", "22 Harbour Lane", "Sam Whitfield"].filter(
-        (value) => redactions.some((redaction) => redaction.text?.includes(value))
+        (value) =>
+          redactions.some((redaction) => redaction.text?.includes(value))
       )
       step(
         `contextual values proposed: ${found.length ? found.join(", ") : "none"} (informational)`
@@ -788,7 +782,9 @@ const CASES: SmokeCase[] = [
       // inside a quoted field shifts every field after it, and this is what
       // that failure looks like from the outside.
       if (rows.length !== 3) {
-        throw new Error(`expected 3 rows in the exported CSV, got ${rows.length}`)
+        throw new Error(
+          `expected 3 rows in the exported CSV, got ${rows.length}`
+        )
       }
       for (const row of rows) {
         const fields = splitCsvRow(row)
@@ -823,12 +819,16 @@ const CASES: SmokeCase[] = [
       const rows = text.trimEnd().split(/\r?\n/)
 
       if (rows.length !== 3) {
-        throw new Error(`expected 3 rows in the exported TSV, got ${rows.length}`)
+        throw new Error(
+          `expected 3 rows in the exported TSV, got ${rows.length}`
+        )
       }
       for (const row of rows) {
         const fields = row.split("\t")
         if (fields.length !== 3) {
-          throw new Error(`a row of the exported TSV has ${fields.length} fields`)
+          throw new Error(
+            `a row of the exported TSV has ${fields.length} fields`
+          )
         }
       }
 
@@ -903,13 +903,15 @@ const CASES: SmokeCase[] = [
       // Reparsed with an independent library: a message only our own parser
       // can read is not a message anybody received.
       const PostalMime = (await import("postal-mime")).default
-      const parsed = await PostalMime.parse(artifact).catch((error: unknown) => {
-        throw new Error(
-          `the exported message could not be reparsed: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        )
-      })
+      const parsed = await PostalMime.parse(artifact).catch(
+        (error: unknown) => {
+          throw new Error(
+            `the exported message could not be reparsed: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          )
+        }
+      )
 
       const readable = [
         parsed.subject ?? "",
@@ -1037,7 +1039,8 @@ function remember(response: Response): void {
   for (const header of response.headers.getSetCookie()) {
     const [pair] = header.split(";")
     const index = pair.indexOf("=")
-    if (index > 0) cookies.set(pair.slice(0, index).trim(), pair.slice(index + 1))
+    if (index > 0)
+      cookies.set(pair.slice(0, index).trim(), pair.slice(index + 1))
   }
 }
 
@@ -1085,7 +1088,11 @@ async function readLanded(handle: string): Promise<Buffer | null> {
   try {
     if (handle.startsWith("local:")) {
       return await readFile(
-        path.join(process.cwd(), ".anonify-storage", handle.slice("local:".length))
+        path.join(
+          process.cwd(),
+          ".anonify-storage",
+          handle.slice("local:".length)
+        )
       )
     }
     if (handle.startsWith("s3:")) {
@@ -1094,7 +1101,8 @@ async function readLanded(handle: string): Promise<Buffer | null> {
         region: process.env.S3_REGION ?? "us-east-1",
         endpoint: process.env.S3_ENDPOINT ?? "http://127.0.0.1:9000",
         accessKeyId: process.env.S3_ACCESS_KEY_ID ?? "anonify",
-        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? "anonify-dev-secret",
+        secretAccessKey:
+          process.env.S3_SECRET_ACCESS_KEY ?? "anonify-dev-secret",
         forcePathStyle: true,
       })
       return await driver.get(handle)
@@ -1259,7 +1267,9 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
     )
     if (summary.status === "ready") break
     if (summary.status === "failed") {
-      throw new Error(`processing failed: ${summary.error ?? "no reason given"}`)
+      throw new Error(
+        `processing failed: ${summary.error ?? "no reason given"}`
+      )
     }
     if (Date.now() > deadline) {
       throw new Error(
@@ -1292,11 +1302,7 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
       await call(`/api/documents/${reserved.id}/usage`),
       "usage"
     )
-    smokeCase.verifyAnalysis(
-      usage,
-      redactions,
-      new TextDecoder().decode(bytes)
-    )
+    smokeCase.verifyAnalysis(usage, redactions, new TextDecoder().decode(bytes))
   }
 
   // 5. A reviewer's own redactions, for formats where detection finds nothing
@@ -1358,7 +1364,9 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
     ...new Set(
       [...redactions, ...created]
         .map((redaction) => redaction.text)
-        .filter((text): text is string => Boolean(text && text.trim().length > 2))
+        .filter((text): text is string =>
+          Boolean(text && text.trim().length > 2)
+        )
     ),
   ]
 
@@ -1510,7 +1518,9 @@ async function runMailbox(): Promise<void> {
       throw new Error(`mailbox failed: ${summary.error ?? "no reason given"}`)
     }
     if (Date.now() > deadline) {
-      throw new Error(`mailbox still ${summary.status} after ${READY_TIMEOUT_MS / 1000}s`)
+      throw new Error(
+        `mailbox still ${summary.status} after ${READY_TIMEOUT_MS / 1000}s`
+      )
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
   }
@@ -1518,7 +1528,9 @@ async function runMailbox(): Promise<void> {
   const { documents } = await json<{
     documents: { id: string; batchId: string | null }[]
   }>(await call("/api/documents"), "list documents")
-  const batchId = documents.find((document) => document.id === reserved.id)?.batchId
+  const batchId = documents.find(
+    (document) => document.id === reserved.id
+  )?.batchId
   if (!batchId) throw new Error("the mailbox did not become a batch")
 
   const { batch } = await json<{
@@ -1529,7 +1541,9 @@ async function runMailbox(): Promise<void> {
     .sort((a, b) => a.originalName.localeCompare(b.originalName))
 
   if (children.length !== messages.length) {
-    throw new Error(`expected ${messages.length} messages, got ${children.length}`)
+    throw new Error(
+      `expected ${messages.length} messages, got ${children.length}`
+    )
   }
   step(`expanded into ${children.length} message(s)`)
 
@@ -1583,6 +1597,18 @@ async function main(): Promise<void> {
   // 0. The app is serving. A standalone build with a missing static chunk or a
   //    world that failed to load falls over right here.
   await expectOk(await call("/"), "GET /")
+
+  // 1. Ready: the database, storage and the workflow worker all answer. A
+  //    stack that serves pages but cannot reach its bucket fails here, by
+  //    name, rather than on the first upload (#167).
+  const health = await call("/api/health")
+  await expectOk(health, "GET /api/health")
+  const ready = await call("/api/ready")
+  if (!ready.ok)
+    throw new Error(
+      `GET /api/ready failed: ${ready.status} ${await ready.text().catch(() => "")}`
+    )
+  step("ready: database, storage and workflow worker answer")
 
   for (const smokeCase of selected) {
     await runCase(smokeCase)

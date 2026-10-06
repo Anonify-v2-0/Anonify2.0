@@ -2,6 +2,7 @@ import type { Readable } from "node:stream"
 
 import {
   driverForKey,
+  isMissingObject,
   selectStorageDriver,
   type ClientUploadMode,
   type PresignedUpload,
@@ -64,9 +65,44 @@ export async function deleteObject(key: string): Promise<void> {
   try {
     await driverForKey(key).delete(key)
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (!/not found|404|NoSuchKey/i.test(message)) throw error
+    if (!isMissingObject(error)) throw error
   }
+}
+
+/**
+ * Deletes several objects, each through the driver its handle names, in as
+ * few requests as each backend allows (#170). Idempotent like `deleteObject`;
+ * returns the keys that could not be deleted rather than throwing.
+ */
+export async function deleteObjects(
+  keys: string[]
+): Promise<{ failed: string[] }> {
+  const byDriver = new Map<string, string[]>()
+  const failed: string[] = []
+  for (const key of keys) {
+    let name: string
+    try {
+      name = driverForKey(key).name
+    } catch {
+      // A key whose backend is no longer configured cannot be deleted here.
+      failed.push(key)
+      continue
+    }
+    byDriver.set(name, [...(byDriver.get(name) ?? []), key])
+  }
+  for (const group of byDriver.values()) {
+    try {
+      failed.push(...(await driverForKey(group[0]).deleteMany(group)).failed)
+    } catch {
+      failed.push(...group)
+    }
+  }
+  return { failed }
+}
+
+/** Whether the configured backend answers; see `StorageDriver.probe`. */
+export async function probeStorage(): Promise<void> {
+  await selectStorageDriver().probe()
 }
 
 export async function objectExists(key: string): Promise<boolean> {

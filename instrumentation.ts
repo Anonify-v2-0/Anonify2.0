@@ -31,10 +31,19 @@ export async function register() {
 
   // And a misspelt ANONIFY_UPLOAD_ENCRYPTION, which would otherwise surface as
   // every upload failing at reservation.
-  const { uploadEncryptionPolicy } = await import(
-    "@/lib/storage/upload-encryption"
-  )
+  const { uploadEncryptionPolicy } =
+    await import("@/lib/storage/upload-encryption")
   uploadEncryptionPolicy()
+
+  // ANONIFY_PUBLIC_URL is read per request by the root layout. Read it once
+  // here too, so a malformed value stops the server now rather than failing
+  // every page view (#168).
+  const { publicUrl } = await import("@/lib/config/public-url")
+  publicUrl()
+
+  // The readiness probe's per-check timeout, if one is set (#167).
+  const { readyTimeoutMs } = await import("@/lib/health/ready")
+  readyTimeoutMs()
 
   // Unset on Vercel, where the platform's own world is selected for us. Calling
   // start() there is harmless, but skipping makes the intent explicit.
@@ -55,6 +64,11 @@ export async function register() {
 
   const { getWorld } = await import("workflow/runtime")
   await getWorld().start?.()
+
+  // /api/ready waits on this: until the worker runs, a replica that accepts
+  // documents would never process them (#167).
+  const { markWorldStarted } = await import("@/lib/health/state")
+  markWorldStarted()
 
   console.log(
     JSON.stringify({
