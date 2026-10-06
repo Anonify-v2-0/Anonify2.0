@@ -106,6 +106,17 @@ describe("readiness (#167)", () => {
   })
 })
 
+describe("the health state across bundles (#167)", () => {
+  it("is seen by a second copy of the module, as a route sees instrumentation's", async () => {
+    // Next.js gives instrumentation.ts and each route its own copy of a
+    // module; only the process is shared.
+    markWorldStarted()
+    vi.resetModules()
+    const fresh = await import("@/lib/health/state")
+    expect(fresh.healthState().worldStarted).toBe(true)
+  })
+})
+
 describe("GET /api/ready (#167)", () => {
   it("is 200 when the database and storage answer", async () => {
     vi.stubEnv("WORKFLOW_TARGET_WORLD", "")

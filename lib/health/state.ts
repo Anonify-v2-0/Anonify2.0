@@ -10,6 +10,12 @@
  *   would accept them and never run them.
  * - `markDraining`, from the shutdown handler (#182), so a replica that is
  *   going away stops being routed to before it stops answering.
+ *
+ * Kept on `globalThis`, not in a module variable. Next.js bundles
+ * instrumentation.ts and the route handlers separately, so each gets its own
+ * copy of this module: a flag set by one was never seen by the other, and a
+ * replica whose worker had started reported that it had not. The process is
+ * the one thing they share, as lib/database/prisma.ts relies on too.
  */
 
 type HealthState = {
@@ -18,27 +24,34 @@ type HealthState = {
   draining: boolean
 }
 
-const state: HealthState = {
-  startedAt: new Date(),
-  worldStarted: false,
-  draining: false,
+const shared = globalThis as unknown as { anonifyHealth?: HealthState }
+
+function state(): HealthState {
+  shared.anonifyHealth ??= {
+    startedAt: new Date(),
+    worldStarted: false,
+    draining: false,
+  }
+  return shared.anonifyHealth
 }
 
 export function markWorldStarted(): void {
-  state.worldStarted = true
+  state().worldStarted = true
 }
 
 export function markDraining(): void {
-  state.draining = true
+  state().draining = true
 }
 
 export function healthState(): Readonly<HealthState> {
-  return state
+  return state()
 }
 
 /** For tests: back to a freshly started process. */
 export function resetHealthState(): void {
-  state.startedAt = new Date()
-  state.worldStarted = false
-  state.draining = false
+  shared.anonifyHealth = {
+    startedAt: new Date(),
+    worldStarted: false,
+    draining: false,
+  }
 }
