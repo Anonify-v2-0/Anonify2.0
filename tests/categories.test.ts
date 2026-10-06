@@ -10,6 +10,7 @@ import {
 import { aggregate, scoreDocument } from "@/benchmarks/lib/scoring"
 import { ANALYZE_SPREADSHEET_SYSTEM } from "@/lib/ai/prompts/analyze-spreadsheet"
 import { DETECT_PII_SYSTEM, detectPiiPrompt } from "@/lib/ai/prompts/detect-pii"
+import { VERIFY_SYSTEM } from "@/lib/ai/prompts/verify-detection"
 import {
   CATEGORY_DEFINITIONS,
   categoryGuide,
@@ -72,6 +73,20 @@ describe("the detection prompt", () => {
     }
     // Faces are the vision pass's; the text pass cannot see one.
     expect(DETECT_PII_SYSTEM).not.toContain("- face:")
+  })
+
+  it("gives verification the same definitions (#214)", () => {
+    for (const category of REDACTION_CATEGORIES) {
+      if (category === "face") continue
+      expect(VERIFY_SYSTEM).toContain(
+        `- ${category}: ${categoryMeaning(category)}`
+      )
+    }
+    // A reference tied to a person is the category, not a mere reference.
+    expect(VERIFY_SYSTEM).toContain(
+      "a customer, member, patient or case number tied to a person is a customer-id"
+    )
+    expect(VERIFY_SYSTEM).not.toContain("genuinely sensitive")
   })
 
   it("no longer asks for every health or financial fact", () => {

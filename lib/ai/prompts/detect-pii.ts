@@ -17,7 +17,7 @@ import { REDACTION_CATEGORIES } from "@/types/redaction"
  * full, with what each is not: without the definitions the model filed every
  * amount as `financial` and every clinical detail as `confidential` (#197).
  */
-const TEXT_CATEGORIES = REDACTION_CATEGORIES.filter(
+export const TEXT_CATEGORIES = REDACTION_CATEGORIES.filter(
   (category) => category !== "face"
 )
 
