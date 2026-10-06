@@ -49,22 +49,29 @@ answer than occurrence 1.
 
 ### Measured
 
-Local expansion holds up: on 100 test documents, 17–19% of the labelled values
+Local expansion holds up: on 100 test documents, 16–18% of the labelled values
 found were found by the local search alone, every one an occurrence no model
 call had to find.
 
-The deterministic pass does not. Against the same model with the patterns
-switched off, running them first cost **8–10% more tokens**, on every document
-type, and recall was 1–4 points lower. Almost all of the extra tokens are
-verification (step 4): 85 calls a run, for 44–90 rejections out of 639
-candidates. The already-found list sent with each chunk costs 4–6% more input
-and saves about as much output. The recall goes in two places. Address: the
-pattern matches the street line, and the model reports the rest as a separate
-span, which is now joined to it, or not at all. And customer ids: a hit
-verification rejects has already been sent to the model as found, so nothing
-suggests it ([#212](https://github.com/Anonify-v2-0/Anonify2.0/issues/212)).
-That is three models and one synthetic corpus, so it is a measurement of this
-corpus, not a verdict. The numbers are in
+The deterministic pass now holds up on quality, and not on cost. Against the
+same model with the patterns switched off, glm-5.3-flash with the patterns
+first reaches 95.0% F1 against 93.4%. It matches or beats model-only on every
+category but `financial`. That took two fixes:
+
+- A doubtful hit is no longer sent to the model as already found, so a hit
+  verification wrongly rejects can still be suggested
+  ([#212](https://github.com/Anonify-v2-0/Anonify2.0/issues/212)).
+- Verification (step 4) is given the category definitions
+  ([#214](https://github.com/Anonify-v2-0/Anonify2.0/issues/214)), which cut
+  its wrong rejections from 71 of 93 to 18 of 40.
+
+It still costs more tokens. Verification is a fixed 85 calls a run, about 92k
+tokens, and 39–45% of what it rejects is still a real value. Beyond that, a
+reasoning model's output varies too much between runs to put one number on the
+difference: 13% more than model-only in one run, 39% in the next, from the
+same detection prompt. Whether verification earns its place is the open
+question in [#217](https://github.com/Anonify-v2-0/Anonify2.0/issues/217). This is two models and one synthetic corpus, so it is a
+measurement of this corpus, not a verdict. The numbers are in
 [benchmarks/README.md](../benchmarks/README.md#what-the-100-document-run-found).
 
 ---
@@ -172,13 +179,20 @@ duration, token counts and an error category — nothing else.
 | Task | Sees | Returns |
 | --- | --- | --- |
 | `classify` | ~2 KB opening sample | type, language, density |
-| `detect` | one ~6 KB chunk + values already found | verbatim spans, category, confidence, `global` |
-| `verify` | low-confidence candidates + 80 chars of context each | one verdict per candidate, batched |
+| `detect` | one ~6 KB chunk + the confident values already found, and every category defined | verbatim spans, category, confidence, `global` |
+| `verify` | low-confidence candidates + 80 chars of context each, and every category defined | one verdict per candidate, batched |
 | `columns` | headers + 5 sample values per column | which columns are sensitive, and why |
 | `image` | the pixels + OCR text for context | regions as whole numbers on a 0–1000 grid |
 
-Two prompt decisions worth calling out:
+Three prompt decisions worth calling out:
 
+- **Detection and verification judge by the same definitions.** Both prompts
+  carry every category, what it is and what it is not
+  (`lib/redaction/categories.ts`). Verification without them judged
+  "sensitive" by its own lights, and threw out three real values in four as
+  mere references, places and dates (#214). A doubtful pattern hit is not on
+  the already-found list, so the model judges it as well, and a value either
+  call keeps stands (#212).
 - **Spreadsheets are analyzed by column, not by cell.** Headers plus a handful of
   samples is enough to judge a column, and "this column is sensitive" is both far
   cheaper and closer to the decision a reviewer actually wants to make than ten

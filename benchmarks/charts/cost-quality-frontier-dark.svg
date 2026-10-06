@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="546" viewBox="0 0 880 546" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">What each model buys: cost against F1</title>
-<desc id="d">What each model buys: cost against F1. gpt-5.6-luna: $0.0032, 93%; gpt-6-luna: $0.00098, 92% (frontier); zai/glm-5.3-flash: $0.0018, 93% (frontier).</desc>
+<desc id="d">What each model buys: cost against F1. zai/glm-5.3-flash: $0.0025, 95% (frontier); deepseek/deepseek-v4.1-flash: $0.015, 95% (frontier).</desc>
 <rect x="0.5" y="0.5" width="879" height="545" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">What each model buys: cost against F1</text>
 <text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · 100 of 395 documents · deterministic-first · cost on a log scale</text>
@@ -21,20 +21,18 @@
 <text x="68" y="191.71" font-size="11" fill="#898781" text-anchor="end">90%</text>
 <line x1="76" y1="142" x2="832" y2="142" stroke="#2c2c2a"/>
 <text x="68" y="146" font-size="11" fill="#898781" text-anchor="end">100%</text>
-<text x="76" y="480" font-size="11" fill="#898781" text-anchor="middle">$0.0001</text>
-<text x="454" y="480" font-size="11" fill="#898781" text-anchor="middle">$0.001</text>
-<text x="832" y="480" font-size="11" fill="#898781" text-anchor="middle">$0.01</text>
+<text x="76" y="480" font-size="11" fill="#898781" text-anchor="middle">$0.001</text>
+<text x="454" y="480" font-size="11" fill="#898781" text-anchor="middle">$0.01</text>
+<text x="832" y="480" font-size="11" fill="#898781" text-anchor="middle">$0.10</text>
 <line x1="76" y1="462" x2="832" y2="462" stroke="#383835"/>
 <text x="454" y="500" font-size="11.5" fill="#c3c2b7" text-anchor="middle">dollars per document</text>
 <text x="22" y="128" font-size="11.5" fill="#c3c2b7">F1</text>
 <line x1="76" y1="419.03" x2="832" y2="419.03" stroke="#c3c2b7" stroke-opacity="0.55"/>
 <text x="832" y="413.03" font-size="11" fill="#c3c2b7" text-anchor="end">patterns alone, at $0: F1 39%</text>
-<polyline points="450.52,177.47 548.75,174" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-opacity="0.45"/>
-<g><title>gpt-6-luna: $0.00098 a document, F1 92%</title><circle cx="450.52" cy="177.47" r="12" fill="transparent"/><circle cx="450.52" cy="177.47" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/></g>
-<text x="460.52" y="181.47" font-size="11.5" font-weight="600" fill="#ffffff">gpt-6-luna</text>
-<g><title>zai/glm-5.3-flash: $0.0018 a document, F1 93%</title><circle cx="548.75" cy="174" r="12" fill="transparent"/><circle cx="548.75" cy="174" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/></g>
-<text x="558.75" y="206" font-size="11.5" font-weight="600" fill="#ffffff">zai/glm-5.3-flash</text>
-<g><title>gpt-5.6-luna: $0.0032 a document, F1 93%</title><circle cx="645.36" cy="175.19" r="12" fill="transparent"/><circle cx="645.36" cy="175.19" r="5" fill="#898781" stroke="#1a1a19" stroke-width="2"/></g>
-<text x="655.36" y="179.19" font-size="11.5" fill="#c3c2b7">gpt-5.6-luna</text>
+<polyline points="224.51,164.95 515.37,164.49" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke-opacity="0.45"/>
+<g><title>zai/glm-5.3-flash: $0.0025 a document, F1 95%</title><circle cx="224.51" cy="164.95" r="12" fill="transparent"/><circle cx="224.51" cy="164.95" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/></g>
+<text x="234.51" y="168.95" font-size="11.5" font-weight="600" fill="#ffffff">zai/glm-5.3-flash</text>
+<g><title>deepseek/deepseek-v4.1-flash: $0.015 a document, F1 95%</title><circle cx="515.37" cy="164.49" r="12" fill="transparent"/><circle cx="515.37" cy="164.49" r="5" fill="#3987e5" stroke="#1a1a19" stroke-width="2"/></g>
+<text x="525.37" y="168.49" font-size="11.5" font-weight="600" fill="#ffffff">deepseek/deepseek-v4.1-flash</text>
 <text x="28" y="528" font-size="11" fill="#898781">F1 from covered recall and precision over every category.</text>
 </svg>

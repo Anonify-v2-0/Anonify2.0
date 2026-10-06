@@ -21,7 +21,15 @@ export async function ensureVerified(
 ): Promise<boolean> {
   const { capabilityDeclaration, configuredCapabilities } =
     await import("@/lib/ai/providers/config")
-  if (configuredCapabilities().structuredOutput) return true
+  // Only a declaration for this very model counts. With none, the app assumes
+  // a Gateway model can answer in a schema, so an upgrade keeps working; a
+  // benchmark is there to find out, and two models that could not once ran
+  // 55 documents with every model pass cut short before anyone noticed.
+  if (
+    process.env.AI_MODEL_CAPABILITIES?.trim() &&
+    configuredCapabilities().structuredOutput
+  )
+    return true
   if (dryRun) {
     console.log(
       c.dim(

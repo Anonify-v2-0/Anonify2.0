@@ -23,6 +23,9 @@
 > precision 93.3% (gpt-5.6-luna), 94.9% (gpt-6-luna) and 97.3%
 > (glm-5.3-flash), each within about ±2–4 points, with recall of 89–92%. See
 > [What the 100-document run found](../../../README.md#what-the-100-document-run-found).
+> Those luna runs predate #212 and #214, and are now in `superseded/`. The
+> published results are glm-5.3-flash and deepseek-v4.1-flash, measured after
+> both, at 95.0% and 95.1% F1.
 > The figures below are as they were, for the record.
 
 The first test-split results (`openai-subscription_gpt-6-luna.json`,

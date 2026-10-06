@@ -1,148 +1,121 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="394" viewBox="0 0 880 394" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="364" viewBox="0 0 880 364" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Recall by category</title>
-<desc id="d">Recall by category. patterns alone: email 100, phone 93, url 21, api-key 33, bank-account 58, financial 9, government-id 25, customer-id 44, person 0, address 19, date-of-birth 68, confidential 0, other 0; gpt-5.6-luna: email 100, phone 97, url 94, api-key 100, bank-account 89, financial 91, government-id 97, customer-id 77, person 94, address 74, date-of-birth 93, confidential 82, other 97; gpt-6-luna: email 100, phone 95, url 94, api-key 92, bank-account 82, financial 80, government-id 94, customer-id 77, person 91, address 85, date-of-birth 86, confidential 74, other 89; zai/glm-5.3-flash: email 100, phone 99, url 88, api-key 100, bank-account 89, financial 73, government-id 100, customer-id 69, person 91, address 73, date-of-birth 85, confidential 83, other 92.</desc>
-<rect x="0.5" y="0.5" width="879" height="393" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
+<desc id="d">Recall by category. patterns alone: email 100, phone 93, url 21, api-key 33, bank-account 58, financial 9, government-id 25, customer-id 44, person 0, address 19, date-of-birth 68, confidential 0, other 0; zai/glm-5.3-flash: email 100, phone 98, url 100, api-key 100, bank-account 100, financial 70, government-id 100, customer-id 100, person 90, address 99, date-of-birth 100, confidential 78, other 97; deepseek/deepseek-v4.1-flash: email 100, phone 96, url 98, api-key 100, bank-account 95, financial 81, government-id 100, customer-id 99, person 94, address 98, date-of-birth 98, confidential 74, other 97.</desc>
+<rect x="0.5" y="0.5" width="879" height="363" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#0b0b0b">Recall by category</text>
 <text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · 100 of 395 documents · covered recall: every character of the value redacted</text>
-<line x1="161.24" y1="92" x2="582.17" y2="92" stroke="#c3c2b7" stroke-width="2" stroke-linecap="round"/>
-<text x="371.7" y="86" font-size="11.5" font-weight="600" fill="#52514e" text-anchor="middle">structured</text>
-<line x1="588.17" y1="92" x2="849" y2="92" stroke="#c3c2b7" stroke-width="2" stroke-linecap="round"/>
-<text x="718.58" y="86" font-size="11.5" font-weight="600" fill="#52514e" text-anchor="middle">contextual</text>
-<text x="184.92" y="188" font-size="11" fill="#52514e" transform="rotate(-45 184.92 188)">email</text>
-<text x="238.29" y="188" font-size="11" fill="#52514e" transform="rotate(-45 238.29 188)">phone</text>
-<text x="291.66" y="188" font-size="11" fill="#52514e" transform="rotate(-45 291.66 188)">url</text>
-<text x="345.02" y="188" font-size="11" fill="#52514e" transform="rotate(-45 345.02 188)">api-key</text>
-<text x="398.39" y="188" font-size="11" fill="#52514e" transform="rotate(-45 398.39 188)">bank-account</text>
-<text x="451.75" y="188" font-size="11" fill="#52514e" transform="rotate(-45 451.75 188)">financial</text>
-<text x="505.12" y="188" font-size="11" fill="#52514e" transform="rotate(-45 505.12 188)">government-id</text>
-<text x="558.49" y="188" font-size="11" fill="#52514e" transform="rotate(-45 558.49 188)">customer-id</text>
-<text x="611.85" y="188" font-size="11" fill="#52514e" transform="rotate(-45 611.85 188)">person</text>
-<text x="665.22" y="188" font-size="11" fill="#52514e" transform="rotate(-45 665.22 188)">address</text>
-<text x="718.58" y="188" font-size="11" fill="#52514e" transform="rotate(-45 718.58 188)">date-of-birth</text>
-<text x="771.95" y="188" font-size="11" fill="#52514e" transform="rotate(-45 771.95 188)">confidential</text>
-<text x="825.32" y="188" font-size="11" fill="#52514e" transform="rotate(-45 825.32 188)">other</text>
-<text x="148.24" y="217" font-size="12" fill="#0b0b0b" text-anchor="end">patterns alone</text>
-<g><title>patterns alone, email: 100</title><rect x="159.24" y="199" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="184.92" y="217" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>patterns alone, phone: 93</title><rect x="212.61" y="199" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="238.29" y="217" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">93</text>
-<g><title>patterns alone, url: 21</title><rect x="265.97" y="199" width="51.37" height="28" rx="4" fill="#86b6ef"/></g>
-<text x="291.66" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">21</text>
-<g><title>patterns alone, api-key: 33</title><rect x="319.34" y="199" width="51.37" height="28" rx="4" fill="#6da7ec"/></g>
-<text x="345.02" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">33</text>
-<g><title>patterns alone, bank-account: 58</title><rect x="372.7" y="199" width="51.37" height="28" rx="4" fill="#2a78d6"/></g>
-<text x="398.39" y="217" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">58</text>
-<g><title>patterns alone, financial: 9</title><rect x="426.07" y="199" width="51.37" height="28" rx="4" fill="#b7d3f6"/></g>
-<text x="451.75" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">9</text>
-<g><title>patterns alone, government-id: 25</title><rect x="479.44" y="199" width="51.37" height="28" rx="4" fill="#86b6ef"/></g>
-<text x="505.12" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">25</text>
-<g><title>patterns alone, customer-id: 44</title><rect x="532.8" y="199" width="51.37" height="28" rx="4" fill="#5598e7"/></g>
-<text x="558.49" y="217" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">44</text>
-<g><title>patterns alone, person: 0</title><rect x="586.17" y="199" width="51.37" height="28" rx="4" fill="#cde2fb"/></g>
-<text x="611.85" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">0</text>
-<g><title>patterns alone, address: 19</title><rect x="639.54" y="199" width="51.37" height="28" rx="4" fill="#9ec5f4"/></g>
-<text x="665.22" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">19</text>
-<g><title>patterns alone, date-of-birth: 68</title><rect x="692.9" y="199" width="51.37" height="28" rx="4" fill="#256abf"/></g>
-<text x="718.58" y="217" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">68</text>
-<g><title>patterns alone, confidential: 0</title><rect x="746.27" y="199" width="51.37" height="28" rx="4" fill="#cde2fb"/></g>
-<text x="771.95" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">0</text>
-<g><title>patterns alone, other: 0</title><rect x="799.63" y="199" width="51.37" height="28" rx="4" fill="#cde2fb"/></g>
-<text x="825.32" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">0</text>
-<text x="148.24" y="247" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-5.6-luna</text>
-<g><title>gpt-5.6-luna, email: 100</title><rect x="159.24" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="184.92" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>gpt-5.6-luna, phone: 97</title><rect x="212.61" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="238.29" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">97</text>
-<g><title>gpt-5.6-luna, url: 94</title><rect x="265.97" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="291.66" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">94</text>
-<g><title>gpt-5.6-luna, api-key: 100</title><rect x="319.34" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="345.02" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>gpt-5.6-luna, bank-account: 89</title><rect x="372.7" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="398.39" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">89</text>
-<g><title>gpt-5.6-luna, financial: 91</title><rect x="426.07" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="451.75" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">91</text>
-<g><title>gpt-5.6-luna, government-id: 97</title><rect x="479.44" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="505.12" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">97</text>
-<g><title>gpt-5.6-luna, customer-id: 77</title><rect x="532.8" y="229" width="51.37" height="28" rx="4" fill="#1c5cab"/></g>
-<text x="558.49" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">77</text>
-<g><title>gpt-5.6-luna, person: 94</title><rect x="586.17" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="611.85" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">94</text>
-<g><title>gpt-5.6-luna, address: 74</title><rect x="639.54" y="229" width="51.37" height="28" rx="4" fill="#1c5cab"/></g>
-<text x="665.22" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">74</text>
-<g><title>gpt-5.6-luna, date-of-birth: 93</title><rect x="692.9" y="229" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="718.58" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">93</text>
-<g><title>gpt-5.6-luna, confidential: 82</title><rect x="746.27" y="229" width="51.37" height="28" rx="4" fill="#184f95"/></g>
-<text x="771.95" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">82</text>
-<g><title>gpt-5.6-luna, other: 97</title><rect x="799.63" y="229" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="825.32" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">97</text>
-<text x="148.24" y="277" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-6-luna</text>
-<g><title>gpt-6-luna, email: 100</title><rect x="159.24" y="259" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="184.92" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>gpt-6-luna, phone: 95</title><rect x="212.61" y="259" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="238.29" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">95</text>
-<g><title>gpt-6-luna, url: 94</title><rect x="265.97" y="259" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="291.66" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">94</text>
-<g><title>gpt-6-luna, api-key: 92</title><rect x="319.34" y="259" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="345.02" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">92</text>
-<g><title>gpt-6-luna, bank-account: 82</title><rect x="372.7" y="259" width="51.37" height="28" rx="4" fill="#184f95"/></g>
-<text x="398.39" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">82</text>
-<g><title>gpt-6-luna, financial: 80</title><rect x="426.07" y="259" width="51.37" height="28" rx="4" fill="#184f95"/></g>
-<text x="451.75" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">80</text>
-<g><title>gpt-6-luna, government-id: 94</title><rect x="479.44" y="259" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="505.12" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">94</text>
-<g><title>gpt-6-luna, customer-id: 77</title><rect x="532.8" y="259" width="51.37" height="28" rx="4" fill="#1c5cab"/></g>
-<text x="558.49" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">77</text>
-<g><title>gpt-6-luna, person: 91</title><rect x="586.17" y="259" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="611.85" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">91</text>
-<g><title>gpt-6-luna, address: 85</title><rect x="639.54" y="259" width="51.37" height="28" rx="4" fill="#184f95"/></g>
-<text x="665.22" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">85</text>
-<g><title>gpt-6-luna, date-of-birth: 86</title><rect x="692.9" y="259" width="51.37" height="28" rx="4" fill="#184f95"/></g>
-<text x="718.58" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">86</text>
-<g><title>gpt-6-luna, confidential: 74</title><rect x="746.27" y="259" width="51.37" height="28" rx="4" fill="#1c5cab"/></g>
-<text x="771.95" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">74</text>
-<g><title>gpt-6-luna, other: 89</title><rect x="799.63" y="259" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="825.32" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">89</text>
-<text x="148.24" y="307" font-size="12" fill="#0b0b0b" text-anchor="end">zai/glm-5.3-flash</text>
-<g><title>zai/glm-5.3-flash, email: 100</title><rect x="159.24" y="289" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="184.92" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>zai/glm-5.3-flash, phone: 99</title><rect x="212.61" y="289" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="238.29" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">99</text>
-<g><title>zai/glm-5.3-flash, url: 88</title><rect x="265.97" y="289" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="291.66" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">88</text>
-<g><title>zai/glm-5.3-flash, api-key: 100</title><rect x="319.34" y="289" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="345.02" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>zai/glm-5.3-flash, bank-account: 89</title><rect x="372.7" y="289" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="398.39" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">89</text>
-<g><title>zai/glm-5.3-flash, financial: 73</title><rect x="426.07" y="289" width="51.37" height="28" rx="4" fill="#1c5cab"/></g>
-<text x="451.75" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">73</text>
-<g><title>zai/glm-5.3-flash, government-id: 100</title><rect x="479.44" y="289" width="51.37" height="28" rx="4" fill="#0d366b"/></g>
-<text x="505.12" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
-<g><title>zai/glm-5.3-flash, customer-id: 69</title><rect x="532.8" y="289" width="51.37" height="28" rx="4" fill="#256abf"/></g>
-<text x="558.49" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">69</text>
-<g><title>zai/glm-5.3-flash, person: 91</title><rect x="586.17" y="289" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="611.85" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">91</text>
-<g><title>zai/glm-5.3-flash, address: 73</title><rect x="639.54" y="289" width="51.37" height="28" rx="4" fill="#1c5cab"/></g>
-<text x="665.22" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">73</text>
-<g><title>zai/glm-5.3-flash, date-of-birth: 85</title><rect x="692.9" y="289" width="51.37" height="28" rx="4" fill="#184f95"/></g>
-<text x="718.58" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">85</text>
-<g><title>zai/glm-5.3-flash, confidential: 83</title><rect x="746.27" y="289" width="51.37" height="28" rx="4" fill="#184f95"/></g>
-<text x="771.95" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">83</text>
-<g><title>zai/glm-5.3-flash, other: 92</title><rect x="799.63" y="289" width="51.37" height="28" rx="4" fill="#104281"/></g>
-<text x="825.32" y="307" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">92</text>
-<rect x="158.24" y="338" width="14.35" height="8" fill="#cde2fb"/>
-<rect x="172.09" y="338" width="14.35" height="8" fill="#b7d3f6"/>
-<rect x="185.93" y="338" width="14.35" height="8" fill="#9ec5f4"/>
-<rect x="199.78" y="338" width="14.35" height="8" fill="#86b6ef"/>
-<rect x="213.62" y="338" width="14.35" height="8" fill="#6da7ec"/>
-<rect x="227.47" y="338" width="14.35" height="8" fill="#5598e7"/>
-<rect x="241.32" y="338" width="14.35" height="8" fill="#3987e5"/>
-<rect x="255.16" y="338" width="14.35" height="8" fill="#2a78d6"/>
-<rect x="269.01" y="338" width="14.35" height="8" fill="#256abf"/>
-<rect x="282.86" y="338" width="14.35" height="8" fill="#1c5cab"/>
-<rect x="296.7" y="338" width="14.35" height="8" fill="#184f95"/>
-<rect x="310.55" y="338" width="14.35" height="8" fill="#104281"/>
-<rect x="324.39" y="338" width="14.35" height="8" fill="#0d366b"/>
-<text x="152.24" y="346" font-size="10.5" fill="#898781" text-anchor="end">0</text>
-<text x="344.24" y="346" font-size="10.5" fill="#898781">100</text>
-<text x="28" y="376" font-size="11" fill="#898781">A partly covered value counts as missed, because what is left can be read.</text>
+<line x1="235.16" y1="92" x2="610.6" y2="92" stroke="#c3c2b7" stroke-width="2" stroke-linecap="round"/>
+<text x="422.88" y="86" font-size="11.5" font-weight="600" fill="#52514e" text-anchor="middle">structured</text>
+<line x1="616.6" y1="92" x2="849" y2="92" stroke="#c3c2b7" stroke-width="2" stroke-linecap="round"/>
+<text x="732.8" y="86" font-size="11.5" font-weight="600" fill="#52514e" text-anchor="middle">contextual</text>
+<text x="256" y="188" font-size="11" fill="#52514e" transform="rotate(-45 256 188)">email</text>
+<text x="303.68" y="188" font-size="11" fill="#52514e" transform="rotate(-45 303.68 188)">phone</text>
+<text x="351.36" y="188" font-size="11" fill="#52514e" transform="rotate(-45 351.36 188)">url</text>
+<text x="399.04" y="188" font-size="11" fill="#52514e" transform="rotate(-45 399.04 188)">api-key</text>
+<text x="446.72" y="188" font-size="11" fill="#52514e" transform="rotate(-45 446.72 188)">bank-account</text>
+<text x="494.4" y="188" font-size="11" fill="#52514e" transform="rotate(-45 494.4 188)">financial</text>
+<text x="542.08" y="188" font-size="11" fill="#52514e" transform="rotate(-45 542.08 188)">government-id</text>
+<text x="589.76" y="188" font-size="11" fill="#52514e" transform="rotate(-45 589.76 188)">customer-id</text>
+<text x="637.44" y="188" font-size="11" fill="#52514e" transform="rotate(-45 637.44 188)">person</text>
+<text x="685.12" y="188" font-size="11" fill="#52514e" transform="rotate(-45 685.12 188)">address</text>
+<text x="732.8" y="188" font-size="11" fill="#52514e" transform="rotate(-45 732.8 188)">date-of-birth</text>
+<text x="780.48" y="188" font-size="11" fill="#52514e" transform="rotate(-45 780.48 188)">confidential</text>
+<text x="828.16" y="188" font-size="11" fill="#52514e" transform="rotate(-45 828.16 188)">other</text>
+<text x="222.16" y="217" font-size="12" fill="#0b0b0b" text-anchor="end">patterns alone</text>
+<g><title>patterns alone, email: 100</title><rect x="233.16" y="199" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="256" y="217" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>patterns alone, phone: 93</title><rect x="280.84" y="199" width="45.68" height="28" rx="4" fill="#104281"/></g>
+<text x="303.68" y="217" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">93</text>
+<g><title>patterns alone, url: 21</title><rect x="328.52" y="199" width="45.68" height="28" rx="4" fill="#86b6ef"/></g>
+<text x="351.36" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">21</text>
+<g><title>patterns alone, api-key: 33</title><rect x="376.2" y="199" width="45.68" height="28" rx="4" fill="#6da7ec"/></g>
+<text x="399.04" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">33</text>
+<g><title>patterns alone, bank-account: 58</title><rect x="423.88" y="199" width="45.68" height="28" rx="4" fill="#2a78d6"/></g>
+<text x="446.72" y="217" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">58</text>
+<g><title>patterns alone, financial: 9</title><rect x="471.56" y="199" width="45.68" height="28" rx="4" fill="#b7d3f6"/></g>
+<text x="494.4" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">9</text>
+<g><title>patterns alone, government-id: 25</title><rect x="519.24" y="199" width="45.68" height="28" rx="4" fill="#86b6ef"/></g>
+<text x="542.08" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">25</text>
+<g><title>patterns alone, customer-id: 44</title><rect x="566.92" y="199" width="45.68" height="28" rx="4" fill="#5598e7"/></g>
+<text x="589.76" y="217" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">44</text>
+<g><title>patterns alone, person: 0</title><rect x="614.6" y="199" width="45.68" height="28" rx="4" fill="#cde2fb"/></g>
+<text x="637.44" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">0</text>
+<g><title>patterns alone, address: 19</title><rect x="662.28" y="199" width="45.68" height="28" rx="4" fill="#9ec5f4"/></g>
+<text x="685.12" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">19</text>
+<g><title>patterns alone, date-of-birth: 68</title><rect x="709.96" y="199" width="45.68" height="28" rx="4" fill="#256abf"/></g>
+<text x="732.8" y="217" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">68</text>
+<g><title>patterns alone, confidential: 0</title><rect x="757.64" y="199" width="45.68" height="28" rx="4" fill="#cde2fb"/></g>
+<text x="780.48" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">0</text>
+<g><title>patterns alone, other: 0</title><rect x="805.32" y="199" width="45.68" height="28" rx="4" fill="#cde2fb"/></g>
+<text x="828.16" y="217" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">0</text>
+<text x="222.16" y="247" font-size="12" fill="#0b0b0b" text-anchor="end">zai/glm-5.3-flash</text>
+<g><title>zai/glm-5.3-flash, email: 100</title><rect x="233.16" y="229" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="256" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>zai/glm-5.3-flash, phone: 98</title><rect x="280.84" y="229" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="303.68" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">98</text>
+<g><title>zai/glm-5.3-flash, url: 100</title><rect x="328.52" y="229" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="351.36" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>zai/glm-5.3-flash, api-key: 100</title><rect x="376.2" y="229" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="399.04" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>zai/glm-5.3-flash, bank-account: 100</title><rect x="423.88" y="229" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="446.72" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>zai/glm-5.3-flash, financial: 70</title><rect x="471.56" y="229" width="45.68" height="28" rx="4" fill="#256abf"/></g>
+<text x="494.4" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">70</text>
+<g><title>zai/glm-5.3-flash, government-id: 100</title><rect x="519.24" y="229" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="542.08" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>zai/glm-5.3-flash, customer-id: 100</title><rect x="566.92" y="229" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="589.76" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>zai/glm-5.3-flash, person: 90</title><rect x="614.6" y="229" width="45.68" height="28" rx="4" fill="#104281"/></g>
+<text x="637.44" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">90</text>
+<g><title>zai/glm-5.3-flash, address: 99</title><rect x="662.28" y="229" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="685.12" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">99</text>
+<g><title>zai/glm-5.3-flash, date-of-birth: 100</title><rect x="709.96" y="229" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="732.8" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>zai/glm-5.3-flash, confidential: 78</title><rect x="757.64" y="229" width="45.68" height="28" rx="4" fill="#1c5cab"/></g>
+<text x="780.48" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">78</text>
+<g><title>zai/glm-5.3-flash, other: 97</title><rect x="805.32" y="229" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="828.16" y="247" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">97</text>
+<text x="222.16" y="277" font-size="12" fill="#0b0b0b" text-anchor="end">deepseek/deepseek-v4.1-flash</text>
+<g><title>deepseek/deepseek-v4.1-flash, email: 100</title><rect x="233.16" y="259" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="256" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>deepseek/deepseek-v4.1-flash, phone: 96</title><rect x="280.84" y="259" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="303.68" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">96</text>
+<g><title>deepseek/deepseek-v4.1-flash, url: 98</title><rect x="328.52" y="259" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="351.36" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">98</text>
+<g><title>deepseek/deepseek-v4.1-flash, api-key: 100</title><rect x="376.2" y="259" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="399.04" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>deepseek/deepseek-v4.1-flash, bank-account: 95</title><rect x="423.88" y="259" width="45.68" height="28" rx="4" fill="#104281"/></g>
+<text x="446.72" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">95</text>
+<g><title>deepseek/deepseek-v4.1-flash, financial: 81</title><rect x="471.56" y="259" width="45.68" height="28" rx="4" fill="#184f95"/></g>
+<text x="494.4" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">81</text>
+<g><title>deepseek/deepseek-v4.1-flash, government-id: 100</title><rect x="519.24" y="259" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="542.08" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">100</text>
+<g><title>deepseek/deepseek-v4.1-flash, customer-id: 99</title><rect x="566.92" y="259" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="589.76" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">99</text>
+<g><title>deepseek/deepseek-v4.1-flash, person: 94</title><rect x="614.6" y="259" width="45.68" height="28" rx="4" fill="#104281"/></g>
+<text x="637.44" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">94</text>
+<g><title>deepseek/deepseek-v4.1-flash, address: 98</title><rect x="662.28" y="259" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="685.12" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">98</text>
+<g><title>deepseek/deepseek-v4.1-flash, date-of-birth: 98</title><rect x="709.96" y="259" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="732.8" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">98</text>
+<g><title>deepseek/deepseek-v4.1-flash, confidential: 74</title><rect x="757.64" y="259" width="45.68" height="28" rx="4" fill="#1c5cab"/></g>
+<text x="780.48" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">74</text>
+<g><title>deepseek/deepseek-v4.1-flash, other: 97</title><rect x="805.32" y="259" width="45.68" height="28" rx="4" fill="#0d366b"/></g>
+<text x="828.16" y="277" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">97</text>
+<rect x="232.16" y="308" width="14.35" height="8" fill="#cde2fb"/>
+<rect x="246.01" y="308" width="14.35" height="8" fill="#b7d3f6"/>
+<rect x="259.85" y="308" width="14.35" height="8" fill="#9ec5f4"/>
+<rect x="273.7" y="308" width="14.35" height="8" fill="#86b6ef"/>
+<rect x="287.54" y="308" width="14.35" height="8" fill="#6da7ec"/>
+<rect x="301.39" y="308" width="14.35" height="8" fill="#5598e7"/>
+<rect x="315.24" y="308" width="14.35" height="8" fill="#3987e5"/>
+<rect x="329.08" y="308" width="14.35" height="8" fill="#2a78d6"/>
+<rect x="342.93" y="308" width="14.35" height="8" fill="#256abf"/>
+<rect x="356.78" y="308" width="14.35" height="8" fill="#1c5cab"/>
+<rect x="370.62" y="308" width="14.35" height="8" fill="#184f95"/>
+<rect x="384.47" y="308" width="14.35" height="8" fill="#104281"/>
+<rect x="398.31" y="308" width="14.35" height="8" fill="#0d366b"/>
+<text x="226.16" y="316" font-size="10.5" fill="#898781" text-anchor="end">0</text>
+<text x="418.16" y="316" font-size="10.5" fill="#898781">100</text>
+<text x="28" y="346" font-size="11" fill="#898781">A partly covered value counts as missed, because what is left can be read.</text>
 </svg>
