@@ -125,7 +125,12 @@ async function main() {
     : []
   for (const [name, svg] of wanted) {
     const file = path.join(CHARTS, name)
-    if (!existsSync(file) || (await readFile(file, "utf8")) !== svg)
+    // A checkout with CRLF (git on Windows) is not "out of date" for being
+    // on Windows, as for the README sections below.
+    if (
+      !existsSync(file) ||
+      (await readFile(file, "utf8")).replace(/\r\n/g, "\n") !== svg
+    )
       stale.push(`benchmarks/charts/${name}`)
   }
   for (const name of existing)
