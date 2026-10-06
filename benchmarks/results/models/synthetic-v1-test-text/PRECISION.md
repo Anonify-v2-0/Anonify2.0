@@ -16,7 +16,14 @@
 > counting, with precision per distinct value beside it (#205). The stored
 > detections were rescored, not rerun: precision is now 95.0% (gpt-5.6-luna),
 > 93.6% (gpt-6-luna) and 95.3% (glm-5.3-flash), each about ±4 points over
-> these 25 documents. The figures below are as they were, for the record.
+> these 25 documents.
+>
+> **The results files now hold a 100-document run** (`--limit 100`, seed 1,
+> stratified by document type), measured at `34bacc1` with every fix above:
+> precision 93.3% (gpt-5.6-luna), 94.9% (gpt-6-luna) and 97.3%
+> (glm-5.3-flash), each within about ±2–4 points, with recall of 89–92%. See
+> [What the 100-document run found](../../../README.md#what-the-100-document-run-found).
+> The figures below are as they were, for the record.
 
 The first test-split results (`openai-subscription_gpt-6-luna.json`,
 `openai-subscription_gpt-5.6-luna.json`, published in #201) report precision of

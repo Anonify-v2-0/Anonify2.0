@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="575" viewBox="0 0 880 575" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Tokens spent and what they cost</title>
-<desc id="d">Tokens spent and what they cost. Deterministic-first: gpt-5.6-luna input tokens 107.6k, output tokens 45.5k; gpt-6-luna input tokens 107.6k, output tokens 22.9k; zai/glm-5.3-flash input tokens 97.5k, output tokens 62.4k. Model-only: gpt-5.6-luna input tokens 97.8k, output tokens 43.1k; gpt-6-luna input tokens 97.8k, output tokens 22.6k; zai/glm-5.3-flash input tokens 88.7k, output tokens 49.1k. Throughput sweep, every level: gpt-5.6-luna input tokens 411.0k, output tokens 158.9k; gpt-6-luna input tokens 411.0k, output tokens 93.1k; zai/glm-5.3-flash input tokens 367.8k, output tokens 199.7k.</desc>
+<desc id="d">Tokens spent and what they cost. Deterministic-first: gpt-5.6-luna input tokens 433.3k, output tokens 195.1k; gpt-6-luna input tokens 431.2k, output tokens 109.7k; zai/glm-5.3-flash input tokens 395.4k, output tokens 237.6k. Model-only: gpt-5.6-luna input tokens 384.7k, output tokens 194.5k; gpt-6-luna input tokens 384.7k, output tokens 108.2k; zai/glm-5.3-flash input tokens 348.4k, output tokens 226.3k. Throughput sweep, every level: gpt-5.6-luna input tokens 411.0k, output tokens 158.9k; gpt-6-luna input tokens 411.0k, output tokens 93.1k; zai/glm-5.3-flash input tokens 367.8k, output tokens 199.7k.</desc>
 <rect x="0.5" y="0.5" width="879" height="574" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#0b0b0b">Tokens spent and what they cost</text>
-<text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · 25 of 395 documents · every document of each phase, input and output</text>
+<text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · 100 of 395 documents · every document of each phase, input and output</text>
 <rect x="28" y="78" width="12" height="12" rx="3" fill="#2a78d6"/><text x="46" y="88" font-size="12" fill="#52514e">input tokens</text><rect x="144.64000000000001" y="78" width="12" height="12" rx="3" fill="#eb6834"/><text x="162.64" y="88" font-size="12" fill="#52514e">output tokens</text>
 <text x="28" y="132" font-size="12.5" font-weight="600" fill="#0b0b0b">Deterministic-first</text>
 <line x1="158.24" y1="140" x2="158.24" y2="220" stroke="#e1e0d9"/>
@@ -12,22 +12,22 @@
 <line x1="611.06" y1="140" x2="611.06" y2="220" stroke="#e1e0d9"/>
 <line x1="762" y1="140" x2="762" y2="220" stroke="#e1e0d9"/>
 <text x="148.24" y="155" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-5.6-luna</text>
-<g><title>gpt-5.6-luna, input tokens: 107.6k (70%)</title><path d="M158.24 142H264.56V160H158.24Z" fill="#2a78d6"/></g>
-<g><title>gpt-5.6-luna, output tokens: 45.5k (30%)</title><path d="M266.56 142H308.32Q312.32 142 312.32 146V156Q312.32 160 308.32 160H266.56Z" fill="#eb6834"/></g>
-<text x="320.32" y="155" font-size="10.5" fill="#52514e">153.1k · $0.076</text>
+<g><title>gpt-5.6-luna, input tokens: 433.3k (69%)</title><path d="M158.24 142H483.25V160H158.24Z" fill="#2a78d6"/></g>
+<g><title>gpt-5.6-luna, output tokens: 195.1k (31%)</title><path d="M485.25 142H628.52Q632.52 142 632.52 146V156Q632.52 160 628.52 160H485.25Z" fill="#eb6834"/></g>
+<text x="640.52" y="155" font-size="10.5" fill="#52514e">628.4k · $0.32</text>
 <text x="148.24" y="183" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-6-luna</text>
-<g><title>gpt-6-luna, input tokens: 107.6k (82%)</title><path d="M158.24 170H264.54V188H158.24Z" fill="#2a78d6"/></g>
-<g><title>gpt-6-luna, output tokens: 22.9k (18%)</title><path d="M266.54 170H285.54Q289.54 170 289.54 174V184Q289.54 188 285.54 188H266.54Z" fill="#eb6834"/></g>
-<text x="297.54" y="183" font-size="10.5" fill="#52514e">130.5k · $0.022</text>
+<g><title>gpt-6-luna, input tokens: 431.2k (80%)</title><path d="M158.24 170H481.67V188H158.24Z" fill="#2a78d6"/></g>
+<g><title>gpt-6-luna, output tokens: 109.7k (20%)</title><path d="M483.67 170H562.43Q566.43 170 566.43 174V184Q566.43 188 562.43 188H483.67Z" fill="#eb6834"/></g>
+<text x="574.43" y="183" font-size="10.5" fill="#52514e">540.9k · $0.098</text>
 <text x="148.24" y="211" font-size="12" fill="#0b0b0b" text-anchor="end">zai/glm-5.3-flash</text>
-<g><title>zai/glm-5.3-flash, input tokens: 97.5k (61%)</title><path d="M158.24 198H254.39V216H158.24Z" fill="#2a78d6"/></g>
-<g><title>zai/glm-5.3-flash, output tokens: 62.4k (39%)</title><path d="M256.39 198H315.23Q319.23 198 319.23 202V212Q319.23 216 315.23 216H256.39Z" fill="#eb6834"/></g>
-<text x="327.23" y="211" font-size="10.5" fill="#52514e">160.0k · $0.046</text>
+<g><title>zai/glm-5.3-flash, input tokens: 395.4k (62%)</title><path d="M158.24 198H454.61V216H158.24Z" fill="#2a78d6"/></g>
+<g><title>zai/glm-5.3-flash, output tokens: 237.6k (38%)</title><path d="M456.61 198H631.92Q635.92 198 635.92 202V212Q635.92 216 631.92 216H456.61Z" fill="#eb6834"/></g>
+<text x="643.92" y="211" font-size="10.5" fill="#52514e">632.9k · $0.18</text>
 <text x="158.24" y="234" font-size="10.5" fill="#898781" text-anchor="middle">0</text>
-<text x="309.18" y="234" font-size="10.5" fill="#898781" text-anchor="middle">150.0k</text>
-<text x="460.12" y="234" font-size="10.5" fill="#898781" text-anchor="middle">300.0k</text>
-<text x="611.06" y="234" font-size="10.5" fill="#898781" text-anchor="middle">450.0k</text>
-<text x="762" y="234" font-size="10.5" fill="#898781" text-anchor="middle">600.0k</text>
+<text x="309.18" y="234" font-size="10.5" fill="#898781" text-anchor="middle">200.0k</text>
+<text x="460.12" y="234" font-size="10.5" fill="#898781" text-anchor="middle">400.0k</text>
+<text x="611.06" y="234" font-size="10.5" fill="#898781" text-anchor="middle">600.0k</text>
+<text x="762" y="234" font-size="10.5" fill="#898781" text-anchor="middle">800.0k</text>
 <text x="28" y="264" font-size="12.5" font-weight="600" fill="#0b0b0b">Model-only</text>
 <line x1="158.24" y1="272" x2="158.24" y2="352" stroke="#e1e0d9"/>
 <line x1="309.18" y1="272" x2="309.18" y2="352" stroke="#e1e0d9"/>
@@ -35,22 +35,22 @@
 <line x1="611.06" y1="272" x2="611.06" y2="352" stroke="#e1e0d9"/>
 <line x1="762" y1="272" x2="762" y2="352" stroke="#e1e0d9"/>
 <text x="148.24" y="287" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-5.6-luna</text>
-<g><title>gpt-5.6-luna, input tokens: 97.8k (69%)</title><path d="M158.24 274H254.63V292H158.24Z" fill="#2a78d6"/></g>
-<g><title>gpt-5.6-luna, output tokens: 43.1k (31%)</title><path d="M256.63 274H296.01Q300.01 274 300.01 278V288Q300.01 292 296.01 292H256.63Z" fill="#eb6834"/></g>
-<text x="308.01" y="287" font-size="10.5" fill="#52514e">140.9k · $0.071</text>
+<g><title>gpt-5.6-luna, input tokens: 384.7k (66%)</title><path d="M158.24 274H446.57V292H158.24Z" fill="#2a78d6"/></g>
+<g><title>gpt-5.6-luna, output tokens: 194.5k (34%)</title><path d="M448.57 274H591.39Q595.39 274 595.39 278V288Q595.39 292 591.39 292H448.57Z" fill="#eb6834"/></g>
+<text x="603.39" y="287" font-size="10.5" fill="#52514e">579.2k · $0.31</text>
 <text x="148.24" y="315" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-6-luna</text>
-<g><title>gpt-6-luna, input tokens: 97.8k (81%)</title><path d="M158.24 302H254.63V320H158.24Z" fill="#2a78d6"/></g>
-<g><title>gpt-6-luna, output tokens: 22.6k (19%)</title><path d="M256.63 302H275.33Q279.33 302 279.33 306V316Q279.33 320 275.33 320H256.63Z" fill="#eb6834"/></g>
-<text x="287.33" y="315" font-size="10.5" fill="#52514e">120.3k · $0.021</text>
+<g><title>gpt-6-luna, input tokens: 384.7k (78%)</title><path d="M158.24 302H446.6V320H158.24Z" fill="#2a78d6"/></g>
+<g><title>gpt-6-luna, output tokens: 108.2k (22%)</title><path d="M448.6 302H526.26Q530.26 302 530.26 306V316Q530.26 320 526.26 320H448.6Z" fill="#eb6834"/></g>
+<text x="538.26" y="315" font-size="10.5" fill="#52514e">492.9k · $0.093</text>
 <text x="148.24" y="343" font-size="12" fill="#0b0b0b" text-anchor="end">zai/glm-5.3-flash</text>
-<g><title>zai/glm-5.3-flash, input tokens: 88.7k (64%)</title><path d="M158.24 330H245.46V348H158.24Z" fill="#2a78d6"/></g>
-<g><title>zai/glm-5.3-flash, output tokens: 49.1k (36%)</title><path d="M247.46 330H292.86Q296.86 330 296.86 334V344Q296.86 348 292.86 348H247.46Z" fill="#eb6834"/></g>
-<text x="304.86" y="343" font-size="10.5" fill="#52514e">137.8k · $0.038</text>
+<g><title>zai/glm-5.3-flash, input tokens: 348.4k (61%)</title><path d="M158.24 330H419.18V348H158.24Z" fill="#2a78d6"/></g>
+<g><title>zai/glm-5.3-flash, output tokens: 226.3k (39%)</title><path d="M421.18 330H587.94Q591.94 330 591.94 334V344Q591.94 348 587.94 348H421.18Z" fill="#eb6834"/></g>
+<text x="599.94" y="343" font-size="10.5" fill="#52514e">574.7k · $0.17</text>
 <text x="158.24" y="366" font-size="10.5" fill="#898781" text-anchor="middle">0</text>
-<text x="309.18" y="366" font-size="10.5" fill="#898781" text-anchor="middle">150.0k</text>
-<text x="460.12" y="366" font-size="10.5" fill="#898781" text-anchor="middle">300.0k</text>
-<text x="611.06" y="366" font-size="10.5" fill="#898781" text-anchor="middle">450.0k</text>
-<text x="762" y="366" font-size="10.5" fill="#898781" text-anchor="middle">600.0k</text>
+<text x="309.18" y="366" font-size="10.5" fill="#898781" text-anchor="middle">200.0k</text>
+<text x="460.12" y="366" font-size="10.5" fill="#898781" text-anchor="middle">400.0k</text>
+<text x="611.06" y="366" font-size="10.5" fill="#898781" text-anchor="middle">600.0k</text>
+<text x="762" y="366" font-size="10.5" fill="#898781" text-anchor="middle">800.0k</text>
 <text x="28" y="396" font-size="12.5" font-weight="600" fill="#0b0b0b">Throughput sweep, every level</text>
 <line x1="158.24" y1="404" x2="158.24" y2="484" stroke="#e1e0d9"/>
 <line x1="309.18" y1="404" x2="309.18" y2="484" stroke="#e1e0d9"/>
@@ -58,22 +58,22 @@
 <line x1="611.06" y1="404" x2="611.06" y2="484" stroke="#e1e0d9"/>
 <line x1="762" y1="404" x2="762" y2="484" stroke="#e1e0d9"/>
 <text x="148.24" y="419" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-5.6-luna</text>
-<g><title>gpt-5.6-luna, input tokens: 411.0k (72%)</title><path d="M158.24 406H569.84V424H158.24Z" fill="#2a78d6"/></g>
-<g><title>gpt-5.6-luna, output tokens: 158.9k (28%)</title><path d="M571.84 406H727.78Q731.78 406 731.78 410V420Q731.78 424 727.78 424H571.84Z" fill="#eb6834"/></g>
-<text x="739.78" y="419" font-size="10.5" fill="#52514e">570.0k · $0.27</text>
+<g><title>gpt-5.6-luna, input tokens: 411.0k (72%)</title><path d="M158.24 406H466.44V424H158.24Z" fill="#2a78d6"/></g>
+<g><title>gpt-5.6-luna, output tokens: 158.9k (28%)</title><path d="M468.44 406H584.4Q588.4 406 588.4 410V420Q588.4 424 584.4 424H468.44Z" fill="#eb6834"/></g>
+<text x="596.4" y="419" font-size="10.5" fill="#52514e">570.0k · $0.27</text>
 <text x="148.24" y="447" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-6-luna</text>
-<g><title>gpt-6-luna, input tokens: 411.0k (82%)</title><path d="M158.24 434H569.84V452H158.24Z" fill="#2a78d6"/></g>
-<g><title>gpt-6-luna, output tokens: 93.1k (18%)</title><path d="M571.84 434H661.5Q665.5 434 665.5 438V448Q665.5 452 661.5 452H571.84Z" fill="#eb6834"/></g>
-<text x="673.5" y="447" font-size="10.5" fill="#52514e">504.1k · $0.088</text>
+<g><title>gpt-6-luna, input tokens: 411.0k (82%)</title><path d="M158.24 434H466.44V452H158.24Z" fill="#2a78d6"/></g>
+<g><title>gpt-6-luna, output tokens: 93.1k (18%)</title><path d="M468.44 434H534.68Q538.68 434 538.68 438V448Q538.68 452 534.68 452H468.44Z" fill="#eb6834"/></g>
+<text x="546.68" y="447" font-size="10.5" fill="#52514e">504.1k · $0.088</text>
 <text x="148.24" y="475" font-size="12" fill="#0b0b0b" text-anchor="end">zai/glm-5.3-flash</text>
-<g><title>zai/glm-5.3-flash, input tokens: 367.8k (65%)</title><path d="M158.24 462H526.38V480H158.24Z" fill="#2a78d6"/></g>
-<g><title>zai/glm-5.3-flash, output tokens: 199.7k (35%)</title><path d="M528.38 462H725.33Q729.33 462 729.33 466V476Q729.33 480 725.33 480H528.38Z" fill="#eb6834"/></g>
-<text x="737.33" y="475" font-size="10.5" fill="#52514e">567.5k · $0.16</text>
+<g><title>zai/glm-5.3-flash, input tokens: 367.8k (65%)</title><path d="M158.24 462H433.85V480H158.24Z" fill="#2a78d6"/></g>
+<g><title>zai/glm-5.3-flash, output tokens: 199.7k (35%)</title><path d="M435.85 462H582.55Q586.55 462 586.55 466V476Q586.55 480 582.55 480H435.85Z" fill="#eb6834"/></g>
+<text x="594.55" y="475" font-size="10.5" fill="#52514e">567.5k · $0.16</text>
 <text x="158.24" y="498" font-size="10.5" fill="#898781" text-anchor="middle">0</text>
-<text x="309.18" y="498" font-size="10.5" fill="#898781" text-anchor="middle">150.0k</text>
-<text x="460.12" y="498" font-size="10.5" fill="#898781" text-anchor="middle">300.0k</text>
-<text x="611.06" y="498" font-size="10.5" fill="#898781" text-anchor="middle">450.0k</text>
-<text x="762" y="498" font-size="10.5" fill="#898781" text-anchor="middle">600.0k</text>
+<text x="309.18" y="498" font-size="10.5" fill="#898781" text-anchor="middle">200.0k</text>
+<text x="460.12" y="498" font-size="10.5" fill="#898781" text-anchor="middle">400.0k</text>
+<text x="611.06" y="498" font-size="10.5" fill="#898781" text-anchor="middle">600.0k</text>
+<text x="762" y="498" font-size="10.5" fill="#898781" text-anchor="middle">800.0k</text>
 <text x="28" y="542" font-size="11" fill="#898781">Cost is tokens times each model's configured price, as in the other charts. The two verification calls a model gets first are not</text>
 <text x="28" y="557" font-size="11" fill="#898781">counted.</text>
 </svg>

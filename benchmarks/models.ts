@@ -355,10 +355,13 @@ function printRun(run: RunSummary, c: Palette, baseline?: RunSummary) {
     const withTokens =
       baseline.totals.inputTokens + baseline.totals.outputTokens
     const without = run.totals.inputTokens + run.totals.outputTokens
-    if (without > 0)
+    if (without > 0) {
+      // Said the way round it came out: "-10.1% fewer" read as a double negative.
+      const saved = 1 - withTokens / without
       lines.push(
-        `${c.dim("deterministic-first spends")} ${c.bold(pct(without ? 1 - withTokens / without : null))} ${c.dim("fewer tokens than this, at recall")} ${pct(baseline.quality.recall)} ${c.dim("against")} ${pct(q.recall)}`
+        `${c.dim("deterministic-first spends")} ${c.bold(pct(Math.abs(saved)))} ${c.dim(`${saved >= 0 ? "fewer" : "more"} tokens than this, at recall`)} ${pct(baseline.quality.recall)} ${c.dim("against")} ${pct(q.recall)}`
       )
+    }
   }
   if (run.degraded.documents)
     lines.push(
