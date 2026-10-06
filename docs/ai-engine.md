@@ -179,13 +179,20 @@ duration, token counts and an error category — nothing else.
 | Task | Sees | Returns |
 | --- | --- | --- |
 | `classify` | ~2 KB opening sample | type, language, density |
-| `detect` | one ~6 KB chunk + values already found | verbatim spans, category, confidence, `global` |
-| `verify` | low-confidence candidates + 80 chars of context each | one verdict per candidate, batched |
+| `detect` | one ~6 KB chunk + the confident values already found, and every category defined | verbatim spans, category, confidence, `global` |
+| `verify` | low-confidence candidates + 80 chars of context each, and every category defined | one verdict per candidate, batched |
 | `columns` | headers + 5 sample values per column | which columns are sensitive, and why |
 | `image` | the pixels + OCR text for context | regions as whole numbers on a 0–1000 grid |
 
-Two prompt decisions worth calling out:
+Three prompt decisions worth calling out:
 
+- **Detection and verification judge by the same definitions.** Both prompts
+  carry every category, what it is and what it is not
+  (`lib/redaction/categories.ts`). Verification without them judged
+  "sensitive" by its own lights, and threw out three real values in four as
+  mere references, places and dates (#214). A doubtful pattern hit is not on
+  the already-found list, so the model judges it as well, and a value either
+  call keeps stands (#212).
 - **Spreadsheets are analyzed by column, not by cell.** Headers plus a handful of
   samples is enough to judge a column, and "this column is sensitive" is both far
   cheaper and closer to the decision a reviewer actually wants to make than ten
