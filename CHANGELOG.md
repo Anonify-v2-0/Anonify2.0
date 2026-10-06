@@ -14,6 +14,12 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.14.2] - 2026-10-06
+
+### Fixed
+
+- A customer number, or another value a pattern found but was unsure of, is no longer lost when the second-opinion check rejects it: the model now judges it in context too, and a value either one keeps is suggested. Before, such a value was never suggested anywhere in the document (#212)
+
 ## [1.14.1] - 2026-10-06
 
 ### Changed
