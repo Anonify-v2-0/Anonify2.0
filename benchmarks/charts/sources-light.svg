@@ -1,33 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="256" viewBox="0 0 880 256" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Where the result comes from</title>
-<desc id="d">Where the result comes from. gpt-5.6-luna patterns 93, model 225, local search 97, only together 0; gpt-6-luna patterns 92, model 203, local search 68, only together 0; zai/glm-5.3-flash patterns 90, model 237, local search 73, only together 0.</desc>
+<desc id="d">Where the result comes from. gpt-5.6-luna patterns 519, model 1041, local search 354, only together 20; gpt-6-luna patterns 514, model 992, local search 352, only together 26; zai/glm-5.3-flash patterns 491, model 1037, local search 325, only together 17.</desc>
 <rect x="0.5" y="0.5" width="879" height="255" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#0b0b0b">Where the result comes from</text>
-<text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · 25 of 395 documents · share of covered labels, deterministic-first</text>
-<rect x="28" y="78" width="12" height="12" rx="3" fill="#2a78d6"/><text x="46" y="88" font-size="12" fill="#52514e">patterns</text><rect x="117.76" y="78" width="12" height="12" rx="3" fill="#eb6834"/><text x="135.76" y="88" font-size="12" fill="#52514e">model</text><rect x="187.36" y="78" width="12" height="12" rx="3" fill="#1baf7a"/><text x="205.36" y="88" font-size="12" fill="#52514e">local search</text>
+<text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · 100 of 395 documents · share of covered labels, deterministic-first</text>
+<rect x="28" y="78" width="12" height="12" rx="3" fill="#2a78d6"/><text x="46" y="88" font-size="12" fill="#52514e">patterns</text><rect x="117.76" y="78" width="12" height="12" rx="3" fill="#eb6834"/><text x="135.76" y="88" font-size="12" fill="#52514e">model</text><rect x="187.36" y="78" width="12" height="12" rx="3" fill="#1baf7a"/><text x="205.36" y="88" font-size="12" fill="#52514e">local search</text><rect x="304" y="78" width="12" height="12" rx="3" fill="#eda100"/><text x="322" y="88" font-size="12" fill="#52514e">only together</text>
 <text x="148.24" y="133" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-5.6-luna</text>
-<g><title>gpt-5.6-luna, patterns: 93 (22%)</title><path d="M158.24 120H291.54V138H158.24Z" fill="#2a78d6"/></g>
-<text x="224.89" y="133" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">22%</text>
-<g><title>gpt-5.6-luna, model: 225 (54%)</title><path d="M293.54 120H618.88V138H293.54Z" fill="#eb6834"/></g>
-<text x="456.21" y="133" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">54%</text>
-<g><title>gpt-5.6-luna, local search: 97 (23%)</title><path d="M620.88 120H758Q762 120 762 124V134Q762 138 758 138H620.88Z" fill="#1baf7a"/></g>
-<text x="691.44" y="133" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">23%</text>
-<text x="770" y="133" font-size="10.5" fill="#52514e">415 of 460</text>
+<g><title>gpt-5.6-luna, patterns: 519 (27%)</title><path d="M158.24 120H318.26V138H158.24Z" fill="#2a78d6"/></g>
+<text x="238.25" y="133" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">27%</text>
+<g><title>gpt-5.6-luna, model: 1041 (54%)</title><path d="M320.26 120H643.24V138H320.26Z" fill="#eb6834"/></g>
+<text x="481.75" y="133" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">54%</text>
+<g><title>gpt-5.6-luna, local search: 354 (18%)</title><path d="M645.24 120H753.76V138H645.24Z" fill="#1baf7a"/></g>
+<text x="699.5" y="133" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">18%</text>
+<g><title>gpt-5.6-luna, only together: 20 (1%)</title><path d="M755.76 120H758Q762 120 762 124V134Q762 138 758 138H755.76Z" fill="#eda100"/></g>
+<text x="770" y="133" font-size="10.5" fill="#52514e">1934 of 2099</text>
 <text x="148.24" y="161" font-size="12" fill="#0b0b0b" text-anchor="end">gpt-6-luna</text>
-<g><title>gpt-6-luna, patterns: 92 (25%)</title><path d="M158.24 148H309.26V166H158.24Z" fill="#2a78d6"/></g>
-<text x="233.75" y="161" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">25%</text>
-<g><title>gpt-6-luna, model: 203 (56%)</title><path d="M311.26 148H646.9V166H311.26Z" fill="#eb6834"/></g>
-<text x="479.08" y="161" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">56%</text>
-<g><title>gpt-6-luna, local search: 68 (19%)</title><path d="M648.9 148H758Q762 148 762 152V162Q762 166 758 166H648.9Z" fill="#1baf7a"/></g>
-<text x="705.45" y="161" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">19%</text>
-<text x="770" y="161" font-size="10.5" fill="#52514e">363 of 460</text>
+<g><title>gpt-6-luna, patterns: 514 (27%)</title><path d="M158.24 148H320.96V166H158.24Z" fill="#2a78d6"/></g>
+<text x="239.6" y="161" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">27%</text>
+<g><title>gpt-6-luna, model: 992 (53%)</title><path d="M322.96 148H638.86V166H322.96Z" fill="#eb6834"/></g>
+<text x="480.91" y="161" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">53%</text>
+<g><title>gpt-6-luna, local search: 352 (19%)</title><path d="M640.86 148H751.67V166H640.86Z" fill="#1baf7a"/></g>
+<text x="696.27" y="161" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">19%</text>
+<g><title>gpt-6-luna, only together: 26 (1%)</title><path d="M753.67 148H758Q762 148 762 152V162Q762 166 758 166H753.67Z" fill="#eda100"/></g>
+<text x="770" y="161" font-size="10.5" fill="#52514e">1884 of 2099</text>
 <text x="148.24" y="189" font-size="12" fill="#0b0b0b" text-anchor="end">zai/glm-5.3-flash</text>
-<g><title>zai/glm-5.3-flash, patterns: 90 (23%)</title><path d="M158.24 176H292.09V194H158.24Z" fill="#2a78d6"/></g>
-<text x="225.16" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">23%</text>
-<g><title>zai/glm-5.3-flash, model: 237 (59%)</title><path d="M294.09 176H649.81V194H294.09Z" fill="#eb6834"/></g>
-<text x="471.95" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">59%</text>
-<g><title>zai/glm-5.3-flash, local search: 73 (18%)</title><path d="M651.81 176H758Q762 176 762 180V190Q762 194 758 194H651.81Z" fill="#1baf7a"/></g>
-<text x="706.91" y="189" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">18%</text>
-<text x="770" y="189" font-size="10.5" fill="#52514e">400 of 460</text>
+<g><title>zai/glm-5.3-flash, patterns: 491 (26%)</title><path d="M158.24 176H314.77V194H158.24Z" fill="#2a78d6"/></g>
+<text x="236.5" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">26%</text>
+<g><title>zai/glm-5.3-flash, model: 1037 (55%)</title><path d="M316.77 176H649.58V194H316.77Z" fill="#eb6834"/></g>
+<text x="483.17" y="189" font-size="10.5" font-weight="600" fill="#ffffff" text-anchor="middle">55%</text>
+<g><title>zai/glm-5.3-flash, local search: 325 (17%)</title><path d="M651.58 176H754.51V194H651.58Z" fill="#1baf7a"/></g>
+<text x="703.05" y="189" font-size="10.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">17%</text>
+<g><title>zai/glm-5.3-flash, only together: 17 (1%)</title><path d="M756.51 176H758Q762 176 762 180V190Q762 194 758 194H756.51Z" fill="#eda100"/></g>
+<text x="770" y="189" font-size="10.5" fill="#52514e">1870 of 2099</text>
 <text x="28" y="238" font-size="11" fill="#898781">Only together: a value no single pass covered in full, such as a name the model found half of.</text>
 </svg>

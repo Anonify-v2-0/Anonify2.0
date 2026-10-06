@@ -892,10 +892,10 @@ audit of what is currently half-wired, and what the next phase of work is.
 
 The standing ask: **benchmark it**. The architecture claims that deterministic
 detection plus a narrow model pass costs far fewer tokens than sending documents
-to a model, at comparable quality. The first run measured it with three models
-on 25 documents, and so far it does not hold: the patterns first cost 8–16%
-more tokens, at slightly lower recall
-([what it found](benchmarks/README.md#what-the-first-run-found), [#207](https://github.com/Anonify-v2-0/Anonify2.0/issues/207)). That is
+to a model, at comparable quality. Measured with three models on 100 test
+documents, it does not hold: the patterns first cost 8–10% more tokens, almost
+all of it the verification call, at 1–4 points lower recall
+([what it found](benchmarks/README.md#what-the-100-document-run-found), [#212](https://github.com/Anonify-v2-0/Anonify2.0/issues/212)). That is
 one corpus and three models. More models, a size pair from one family, a local
 model, and a different corpus would each test the claim further: [#208](https://github.com/Anonify-v2-0/Anonify2.0/issues/208) lists
 them, and CONTRIBUTING says what to submit.

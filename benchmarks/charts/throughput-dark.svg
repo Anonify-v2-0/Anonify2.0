@@ -3,7 +3,7 @@
 <desc id="d">Throughput against concurrency. gpt-5.6-luna: 1 1.6, 2 3.4, 4 6.1, 8 12; gpt-6-luna: 1 2.2, 2 4.5, 4 8.9, 8 17; zai/glm-5.3-flash: 1 3.0, 2 3.2, 4 8.3, 8 4.5.</desc>
 <rect x="0.5" y="0.5" width="879" height="506" rx="12" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#ffffff">Throughput against concurrency</text>
-<text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · 25 of 395 documents · the same sample of documents at each level</text>
+<text x="28" y="60" font-size="12.5" fill="#c3c2b7">synthetic-v1, test split · the same 24 documents at each level</text>
 <line x1="28" y1="84" x2="40" y2="84" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/><circle cx="34" cy="84" r="3" fill="#3987e5"/><text x="46" y="88" font-size="12" fill="#c3c2b7">gpt-5.6-luna</text><line x1="144.64000000000001" y1="84" x2="156.64000000000001" y2="84" stroke="#d95926" stroke-width="2" stroke-linecap="round"/><circle cx="150.64000000000001" cy="84" r="3" fill="#d95926"/><text x="162.64" y="88" font-size="12" fill="#c3c2b7">gpt-6-luna</text><line x1="247.84000000000003" y1="84" x2="259.84000000000003" y2="84" stroke="#199e70" stroke-width="2" stroke-linecap="round"/><circle cx="253.84000000000003" cy="84" r="3" fill="#199e70"/><text x="265.84" y="88" font-size="12" fill="#c3c2b7">zai/glm-5.3-flash</text>
 <line x1="80" y1="408" x2="702" y2="408" stroke="#383835"/>
 <text x="72" y="412" font-size="11" fill="#898781" text-anchor="end">0</text>

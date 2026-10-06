@@ -388,7 +388,9 @@ export function buildReport(input: {
       svg: both((theme) =>
         lines(theme, {
           title: "Throughput against concurrency",
-          subtitle: `${context} · the same sample of documents at each level`,
+          // The sweep reads its own sample, which a later run of the quality
+          // phases does not change: say its size, not theirs.
+          subtitle: `${input.context} · ${sweepNote(swept)} at each level`,
           note: "Concurrency is documents and model calls in flight at once (ANONIFY_AI_CONCURRENCY). One run, one afternoon, one network.",
           x: levels.map(String),
           xLabel: "in flight at once",
@@ -890,6 +892,17 @@ const FINGERPRINT_PARTS: Record<keyof Fingerprint, string> = {
   categories: "category definitions",
   detect: "detection prompts",
   verify: "verification prompts",
+}
+
+/** "the same 24 documents", or "the same sample of documents" when they differ. */
+function sweepNote(models: ModelResults[]): string {
+  const sizes = new Set(
+    models.map((m) => m.throughput?.points[0]?.documents ?? 0)
+  )
+  const [size] = sizes
+  return sizes.size === 1 && size > 0
+    ? `the same ${size} documents`
+    : "the same sample of documents"
 }
 
 /** "25 of 395 documents", when every model read the same number; or null. */

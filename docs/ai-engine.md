@@ -49,20 +49,23 @@ answer than occurrence 1.
 
 ### Measured
 
-Local expansion holds up: in the first benchmark, 11–16% of the labelled
-values found were found by the local search alone, every one an occurrence no
-model call had to find.
+Local expansion holds up: on 100 test documents, 17–19% of the labelled values
+found were found by the local search alone, every one an occurrence no model
+call had to find.
 
-The deterministic pass, so far, does not. Against the same model with the
-patterns switched off, running them first cost **8–16% more tokens**, and
-recall was 3–6 points lower. Verification (step 4) and the already-found list
-sent with each chunk cost more than the model saves by not repeating what the
-patterns found. Address lost the most: the pattern matches the street line, and
-the model then reports the rest as a separate span, or not at all. That run is
-three models on 25 mostly short documents, so it is a direction, not a
-verdict. The numbers, and what would change them, are in
-[benchmarks/README.md](../benchmarks/README.md#what-the-first-run-found) and
-[#207](https://github.com/Anonify-v2-0/Anonify2.0/issues/207).
+The deterministic pass does not. Against the same model with the patterns
+switched off, running them first cost **8–10% more tokens**, on every document
+type, and recall was 1–4 points lower. Almost all of the extra tokens are
+verification (step 4): 85 calls a run, for 44–90 rejections out of 639
+candidates. The already-found list sent with each chunk costs 4–6% more input
+and saves about as much output. The recall goes in two places. Address: the
+pattern matches the street line, and the model reports the rest as a separate
+span, which is now joined to it, or not at all. And customer ids: a hit
+verification rejects has already been sent to the model as found, so nothing
+suggests it ([#212](https://github.com/Anonify-v2-0/Anonify2.0/issues/212)).
+That is three models and one synthetic corpus, so it is a measurement of this
+corpus, not a verdict. The numbers are in
+[benchmarks/README.md](../benchmarks/README.md#what-the-100-document-run-found).
 
 ---
 

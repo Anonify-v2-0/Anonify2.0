@@ -360,11 +360,12 @@ specific, falsifiable claim:
 > detection quality.
 
 The harness and a labelled corpus now exist (`pnpm bench:models`, described in
-[benchmarks/README.md](benchmarks/README.md#benchmarking-models)), and the first
-run measured three models on 25 test documents. So far the claim does not hold:
-running the patterns first cost 8–16% more tokens than model-only, at slightly
-lower recall ([what it found](benchmarks/README.md#what-the-first-run-found),
-[#207](https://github.com/Anonify-v2-0/Anonify2.0/issues/207)). Three models and one corpus settle nothing, though. More data is one of
+[benchmarks/README.md](benchmarks/README.md#benchmarking-models)), and it has
+measured three models on 100 test documents. The claim does not hold there:
+running the patterns first cost 8–10% more tokens than model-only, almost all
+of it the verification call, at 1–4 points lower recall
+([what it found](benchmarks/README.md#what-the-100-document-run-found),
+[#212](https://github.com/Anonify-v2-0/Anonify2.0/issues/212)). Three models and one corpus settle nothing, though. More data is one of
 the most useful things anyone can contribute, and it does not require
 understanding the whole codebase:
 
