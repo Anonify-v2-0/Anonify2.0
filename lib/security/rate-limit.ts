@@ -5,9 +5,9 @@ import {
 } from "@/lib/security/rate-limit-config"
 import {
   bucketFor,
-  consume,
   freshState,
   refill,
+  type BucketConfig,
   type BucketState,
 } from "@/lib/security/token-bucket"
 
@@ -16,9 +16,14 @@ import {
  * control that actually holds.
  *
  * State is a token bucket per key, stored in Postgres so it is shared across
- * serverless instances. Read-modify-write is done inside a transaction: two
- * concurrent requests for the same key must not both read the same balance and
- * both decide they can spend it.
+ * serverless instances. It runs on nearly every API request, and the network
+ * keys are shared by everyone behind one address, so it is one statement and
+ * one round trip (#171): two concurrent requests for the same key must not
+ * both read the same balance and both decide they can spend it, and the row
+ * lock the statement takes is what stops them.
+ *
+ * The maths is token-bucket.ts's, written in SQL; that file stays the
+ * reference, and a test holds the two to the same answers.
  */
 
 export type RateLimitResult = {
@@ -28,47 +33,101 @@ export type RateLimitResult = {
   resetAt: Date
 }
 
+/**
+ * Spends one token, in one statement.
+ *
+ * The bucket is refilled for the time since it was last touched and spent
+ * only if that leaves at least one token: `ON CONFLICT … DO UPDATE … WHERE`.
+ * Postgres evaluates that condition against the row version it has locked,
+ * so it is atomic, and a row comes back exactly when the request is allowed.
+ * A key never seen before is inserted as a full bucket, less the token.
+ *
+ * A refused request writes nothing. That is the same as writing its refilled
+ * balance, as the reference does: below the cap, refilling from the old
+ * state at any later moment gives the same balance as refilling from one
+ * written now. The second sub-select reads that balance, for when to retry.
+ *
+ * Time is passed as epoch seconds and turned into UTC in SQL, because
+ * `updatedAt` is a timestamp without a zone, written as UTC, and comparing it
+ * with a zoned parameter would shift it by the session's offset.
+ */
 export async function consumeRateLimit(
   name: RateLimitName,
   identifier: string
 ): Promise<RateLimitResult> {
   const { limits } = await effectiveLimits()
   const { limit, windowSeconds } = limits[name]
-  const config = bucketFor(limit, windowSeconds)
-  const key = `${name}:${identifier}`
-  const now = new Date()
+  return spendToken(
+    `${name}:${identifier}`,
+    bucketFor(limit, windowSeconds),
+    new Date()
+  )
+}
 
-  const decision = await prisma.$transaction(async (tx) => {
-    const existing = await tx.rateLimit.findUnique({ where: { key } })
+/** `consumeRateLimit` for one key, bucket and moment; see above. */
+export async function spendToken(
+  key: string,
+  config: BucketConfig,
+  now: Date
+): Promise<RateLimitResult> {
+  const nowSeconds = now.getTime() / 1000
+  const burst = config.burst
+  const rate = config.refillPerSecond
 
-    const state: BucketState = existing
-      ? { tokens: existing.tokens, updatedAt: existing.updatedAt }
-      : freshState(config, now)
+  const [row] = await prisma.$queryRaw<
+    { spent: number | null; available: number | null }[]
+  >`
+    WITH spent AS (
+      INSERT INTO "RateLimit" ("key", "tokens", "updatedAt")
+      VALUES (
+        ${key},
+        ${burst}::float8 - 1,
+        to_timestamp(${nowSeconds}::float8) AT TIME ZONE 'UTC'
+      )
+      ON CONFLICT ("key") DO UPDATE SET
+        "tokens" = LEAST(
+          ${burst}::float8,
+          "RateLimit"."tokens" + GREATEST(
+            0,
+            ${nowSeconds}::float8 - EXTRACT(EPOCH FROM "RateLimit"."updatedAt")
+          ) * ${rate}::float8
+        ) - 1,
+        "updatedAt" = to_timestamp(${nowSeconds}::float8) AT TIME ZONE 'UTC'
+      WHERE LEAST(
+          ${burst}::float8,
+          "RateLimit"."tokens" + GREATEST(
+            0,
+            ${nowSeconds}::float8 - EXTRACT(EPOCH FROM "RateLimit"."updatedAt")
+          ) * ${rate}::float8
+        ) >= 1
+      RETURNING "tokens"
+    )
+    SELECT
+      (SELECT "tokens" FROM spent)::float8 AS spent,
+      (
+        SELECT LEAST(
+          ${burst}::float8,
+          "tokens" + GREATEST(
+            0,
+            ${nowSeconds}::float8 - EXTRACT(EPOCH FROM "updatedAt")
+          ) * ${rate}::float8
+        )
+        FROM "RateLimit"
+        WHERE "key" = ${key}
+      )::float8 AS available
+  `
 
-    const result = consume(state, config, now)
+  if (row && row.spent !== null) {
+    return { allowed: true, remaining: Math.floor(row.spent), resetAt: now }
+  }
 
-    // The state is written even when the request is refused, so the refill
-    // clock keeps advancing and a refused caller is not penalised twice.
-    await tx.rateLimit.upsert({
-      where: { key },
-      create: {
-        key,
-        tokens: result.state.tokens,
-        updatedAt: result.state.updatedAt,
-      },
-      update: {
-        tokens: result.state.tokens,
-        updatedAt: result.state.updatedAt,
-      },
-    })
-
-    return result
-  })
-
+  const available = Math.max(0, Math.min(1, row?.available ?? 0))
   return {
-    allowed: decision.allowed,
-    remaining: decision.remaining,
-    resetAt: new Date(now.getTime() + decision.retryAfterMs),
+    allowed: false,
+    remaining: 0,
+    resetAt: new Date(
+      now.getTime() + Math.ceil(((1 - available) / rate) * 1000)
+    ),
   }
 }
 

@@ -105,6 +105,11 @@ model Document {
   @@index([expiresAt])
   @@index([batchId])
   @@index([parentDocumentId])
+  /// The admission queue: queued documents with no workflow run, oldest first
+  /// per owner (#171). Partial in the database (WHERE status = 'queued' AND
+  /// "workflowRunId" IS NULL), which this schema cannot say; see the migration
+  /// 20261006120000_add_admission_queue_index.
+  @@index([userFingerprint, createdAt], map: "Document_admission_queue_idx")
   /// One child per part, enforced by the database rather than by the step that
   /// writes it. Expansion is retried like every other step and re-parses the
   /// message from scratch; this is what makes a second pass unable to produce
