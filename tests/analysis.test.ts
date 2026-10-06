@@ -257,6 +257,38 @@ describe("joining a pattern's value to the model's part of it (#207)", () => {
     expect(joined[0]).toMatchObject({ start: street.start, end: rest.end })
   })
 
+  it("joins the local search's copy of a value as the model's own", () => {
+    const twice =
+      "Visit 735 Meadowlark Avenue, Reno, NV 89509 or write to Reno, NV 89509. Again: 735 Meadowlark Avenue, Reno, NV 89509."
+    const at = (value: string, nth = 0): Detection => {
+      let start = twice.indexOf(value)
+      for (let i = 0; i < nth; i++) start = twice.indexOf(value, start + 1)
+      return {
+        text: value,
+        category: "address",
+        confidence: 0.8,
+        page: 1,
+        start,
+        end: start + value.length,
+      }
+    }
+    const street = at("735 Meadowlark Avenue")
+    const town = at("Reno, NV 89509", 1)
+    // The second occurrences are what the local search added.
+    const streetAgain = at("735 Meadowlark Avenue", 1)
+    const townAgain = at("Reno, NV 89509", 2)
+    const joined = joinAdjacent(
+      [street, at("Reno, NV 89509"), town, streetAgain, townAgain],
+      { patterns: [street], model: [town] },
+      new Map([[1, twice]])
+    )
+    expect(joined.map((d) => d.text)).toEqual([
+      "735 Meadowlark Avenue, Reno, NV 89509",
+      "Reno, NV 89509",
+      "735 Meadowlark Avenue, Reno, NV 89509",
+    ])
+  })
+
   it("joins a value found in three pieces", () => {
     const flat = span("Flat 3", "address")
     const town = span("Stowmarket, IP14 2RN", "address")

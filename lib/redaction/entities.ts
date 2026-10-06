@@ -245,12 +245,14 @@ const SEAM = /^[ \t]*,?[ \t]*\n?[ \t]*$/
  * address leave the comma between them, and score as a street and a town
  * rather than an address.
  *
- * So a text detection at a position the patterns proposed, and one beside it
- * at a position the model proposed, in the same category on the same page,
- * with nothing between but a comma and a space or a line break, become one
- * suggestion over both. A joined value can join again, so a flat, a street
- * and a town in three pieces are one. Two values the model found side by
- * side, two names in a list, stay two: each was a decision of its own.
+ * So a text detection of a value the patterns found, and one beside it of a
+ * value the model found, in the same category on the same page, with nothing
+ * between but a comma and a space or a line break, become one suggestion
+ * over both. Values, not positions: the local search's copy of the town
+ * beside a street line is as much the model's as the one it reported. A
+ * joined value can join again, so a flat, a street and a town in three
+ * pieces are one. Two values the model found side by side, two names in a
+ * list, stay two: each was a decision of its own.
  *
  * It runs after the local search, which looks for each part as it was
  * found: a street line elsewhere on its own is still found.
@@ -260,14 +262,14 @@ export function joinAdjacent(
   sources: { patterns: Detection[]; model: Detection[] },
   pages: Map<number, string>
 ): Detection[] {
-  const at = (d: Detection) => `${d.page ?? 1}:${d.start}:${d.end}`
-  const fromPatterns = new Set(sources.patterns.map(at))
-  const fromModel = new Set(sources.model.map(at))
+  const value = (d: Detection) => `${d.category}\u0000${normalizeValue(d.text)}`
+  const fromPatterns = new Set(sources.patterns.map(value))
+  const fromModel = new Set(sources.model.map(value))
   const origin = new Map<Detection, Set<"patterns" | "model">>()
   for (const d of detections) {
     const found = new Set<"patterns" | "model">()
-    if (fromPatterns.has(at(d))) found.add("patterns")
-    if (fromModel.has(at(d))) found.add("model")
+    if (fromPatterns.has(value(d))) found.add("patterns")
+    if (fromModel.has(value(d))) found.add("model")
     origin.set(d, found)
   }
 
