@@ -325,7 +325,13 @@ jobs:
           # the three can never reach main separately.
           git add package.json CHANGELOG.md
           git add --all changelog.d
-          git commit -m "chore(release): v$NEXT" -m "$WHY"
+          # `[skip ci]` here as well as in the squash title (#172). The pull
+          # request is merged seconds after it opens, and CI's run for it was
+          # queued against a merge ref that was gone by the time it started,
+          # so every bump showed a failed run with no jobs. A pull request
+          # whose head commit says `[skip ci]` creates no run at all, and
+          # nothing requires one: main has no required status checks.
+          git commit -m "chore(release): v$NEXT [skip ci]" -m "$WHY"
 
           # A run that failed between the push and the merge leaves this branch
           # behind, and a plain push then refuses every later attempt: the new
@@ -348,8 +354,10 @@ jobs:
 
           git push origin "$branch"
 
-          # A pull request opened with GITHUB_TOKEN starts no workflows, so this
-          # cannot trigger CI or a second release run.
+          # Opening this does queue a `pull_request` run of ci.yml, despite the
+          # GITHUB_TOKEN: the `[skip ci]` in the commit above is what stops it.
+          # A second release run cannot follow either: the release job ignores
+          # pull requests from release/ branches.
           body=$(cat <<BODY
           $WHY
 

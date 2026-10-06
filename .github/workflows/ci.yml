@@ -390,6 +390,10 @@ jobs:
       # above; this stack is destroyed at the end of the job.
       ENCRYPTION_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
       FINGERPRINT_SECRET: "feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface"
+      # The images built below, with cached layers, which compose then starts
+      # as they are instead of building again.
+      ANONIFY_IMAGE: anonify-app:ci
+      ANONIFY_MIGRATOR_IMAGE: anonify-migrator:ci
 
     steps:
       - uses: actions/checkout@v5
@@ -398,11 +402,52 @@ jobs:
       # the workspace. It does not need the app — that is running in a container.
       - uses: ./.github/actions/setup
 
-      - name: Build and start the stack
+      # The image build was most of this job, from scratch every time (#172).
+      # Buildx keeps every layer in the Actions cache, so a run whose lockfile
+      # has not changed reuses the dependency install, and one whose source has
+      # not changed reuses the build too. The runner's scope is `mode=max`, so
+      # the builder stage is cached as well as the final image; the migrator is
+      # FROM builder, so it reads that scope and adds only its own last layer.
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the app image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runner
+          load: true
+          tags: ${{ env.ANONIFY_IMAGE }}
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,scope=runner,mode=max
+
+      - name: Build the migrator image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migrator
+          load: true
+          tags: ${{ env.ANONIFY_MIGRATOR_IMAGE }}
+          cache-from: |
+            type=gha,scope=runner
+            type=gha,scope=migrator
+          cache-to: type=gha,scope=migrator
+
+      - name: Start the stack
         # --wait blocks until postgres and RustFS report healthy, the bucket and
-        # migration jobs have exited successfully, and the app's own healthcheck
-        # passes. Reaching the next step at all is most of the assertion.
-        run: docker compose up -d --build --wait
+        # migration jobs have exited successfully, and the app answers
+        # /api/ready: database, storage and workflow worker. Reaching the next
+        # step at all is most of the assertion.
+        run: docker compose up -d --wait
+
+      # ANONIFY_PUBLIC_URL is read per request, not baked at build (#168): the
+      # image above was built without it, and the page must still name it.
+      - name: Link previews use the address set at run time
+        env:
+          ANONIFY_PUBLIC_URL: https://anonify.ci.example
+        run: |
+          docker compose up -d --wait app
+          curl -fsS http://127.0.0.1:3000/ | grep -q 'content="https://anonify.ci.example/Anonify.jpeg"' \
+            || { echo "::error::The landing page does not resolve og:image against ANONIFY_PUBLIC_URL"; exit 1; }
 
       - name: Re-run bucket initialization
         run: docker compose run --rm rustfs-init

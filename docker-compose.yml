@@ -114,6 +114,9 @@ services:
   # Schema and workflow tables, then exits. The app waits for this to succeed,
   # so a fresh `up` migrates before it serves anything.
   migrate:
+    # Named so CI can build it ahead of time, with cached layers, and start the
+    # stack without rebuilding (#172). `up` builds it when it is not there yet.
+    image: ${ANONIFY_MIGRATOR_IMAGE:-anonify-migrator:local}
     build:
       context: .
       target: migrator
@@ -125,6 +128,7 @@ services:
     restart: "no"
 
   app:
+    image: ${ANONIFY_IMAGE:-anonify-app:local}
     build:
       context: .
       target: runner

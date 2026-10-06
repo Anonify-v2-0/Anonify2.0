@@ -39,7 +39,11 @@ ENV NEXT_OUTPUT=standalone
 # Selected at build time as well as at runtime: withWorkflow() falls back to the
 # local file-backed world when this is unset, and the build bakes that choice in.
 ENV WORKFLOW_TARGET_WORLD="@workflow/world-postgres"
-RUN pnpm run build
+# Turbopack's cache survives between builds on the same machine, so a rebuild
+# after a small change recompiles only what changed (#172). It is not part of
+# the image: the standalone output under .next/standalone is.
+RUN --mount=type=cache,id=next-cache,target=/app/.next/cache \
+    pnpm run build
 
 # ---- migrator ---------------------------------------------------------------
 # Applies the schema and creates the workflow tables, then exits. Kept separate
