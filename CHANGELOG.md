@@ -14,6 +14,12 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.14.3] - 2026-10-06
+
+### Fixed
+
+- The second-opinion check on uncertain pattern matches now knows what each category means, as the main detection already does. It had been throwing out real customer numbers, addresses and dates of birth as mere references, places and dates, three labelled values in four in the benchmark (#214)
+
 ## [1.14.2] - 2026-10-06
 
 ### Fixed
