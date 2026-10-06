@@ -130,6 +130,19 @@ describe("corpus scoring", () => {
         scoreDocument(DOCUMENT, [{ start: 5, end: 16, category: "person" }]),
       ]).byConfidence
     ).toBeNull()
+    // A document with nothing detected does not hide the rest.
+    const withEmpty = aggregate([
+      scoreDocument(DOCUMENT, [
+        { start: 5, end: 16, category: "person", confidence: 0.95 },
+      ]),
+      scoreDocument(DOCUMENT, []),
+    ]).byConfidence
+    expect(withEmpty?.[3]).toEqual({
+      cutoff: 0.9,
+      detections: 1,
+      precision: 1,
+      recall: 0.25,
+    })
   })
 
   it("bootstraps an interval over documents, the same each time", () => {

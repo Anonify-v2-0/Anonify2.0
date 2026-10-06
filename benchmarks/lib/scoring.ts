@@ -207,8 +207,9 @@ export function scoreDocument(
         document.negatives.some((negative) => overlaps(detection, negative)),
     }
   })
-  const confident =
-    scored.length > 0 && scored.every((d) => d.confidence !== undefined)
+  // A document with nothing detected has nothing unrecorded: it counts,
+  // or one empty document would hide the cut-offs for the whole run.
+  const confident = scored.every((d) => d.confidence !== undefined)
   return {
     id: document.id,
     docType: document.docType,
