@@ -1,0 +1,1 @@
+Dependencies updated to patched releases for 28 of the 29 advisories `pnpm audit` reported, among them proxy-addr (critical), undici, sharp, brace-expansion and http-cache-semantics. The one left, braces, has no patched release yet, and is reached only by developer tooling
