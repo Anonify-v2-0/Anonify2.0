@@ -14,6 +14,17 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.14.1] - 2026-10-06
+
+### Changed
+
+- Fewer duplicate suggestions: one that lies inside another of the same category, such as a surname inside the full name, is folded into it, and a value found once is no longer suggested again where it is only part of something longer, such as `raman` inside `priya.raman@example.org` or `C-77104` inside `NC-77104`. A rule you add to redact a value everywhere still matches inside anything (#205)
+- A value the patterns found in part and the model completed beside it is now one suggestion: an address's street line and the rest of it, `42 Larch Court, Flat 3, Stowmarket, IP14 2RN`, are joined instead of offered as two (#207)
+
+### Fixed
+
+- Invoice and transaction references such as `TXN-0098-4412-7700` or `INV-000842-710395` are no longer suggested as phone numbers. A number written right after an invoice, reference or registration label is now passed to the model to check, not accepted on its shape alone, and UK numbers with a five-digit area code (`01632 960612`) are now found whole (#203)
+
 ## [1.14.0] - 2026-10-01
 
 ### Added
