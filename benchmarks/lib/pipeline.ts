@@ -164,6 +164,8 @@ export type Passes = {
   patterns: Detected[]
   /** Deterministic hits the verification call removed. */
   rejected: number
+  /** Those hits, by position. Absent from runs measured before #212. */
+  rejectedHits?: Detected[]
   model: Detected[]
   expanded: Detected[]
 }
@@ -333,6 +335,7 @@ function mapPasses(
   return {
     patterns: carry(passes.patterns),
     rejected: passes.rejected,
+    rejectedHits: carry(passes.rejectedHits),
     model: [...carry(passes.model), ...columns],
     expanded: carry(passes.expanded),
   }

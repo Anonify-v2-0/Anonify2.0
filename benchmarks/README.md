@@ -631,7 +631,11 @@ past. Piped or in CI it prints a line per document instead. Every finished
 document is checkpointed under `benchmarks/results/.checkpoints/` (ignored by
 git), so ctrl+c, a dropped connection or a crash loses only the documents in
 flight: run the same command again and it resumes. `--fresh` starts a phase
-over.
+over. A provider's rate limit or usage quota, or a key it stops accepting,
+stops the run the same way: a document whose model pass it cut short says
+nothing about the model, so it is not recorded, and no results file is written
+until the phase finishes cleanly. Invalid output and timeouts are the model's
+own, and are recorded and reported.
 
 ### Adding a model later
 

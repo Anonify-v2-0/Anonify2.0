@@ -548,7 +548,10 @@ export function buildReport(input: {
             share(a.model),
             share(a.expansion),
             share(a.together),
-            String(a.detections.rejected),
+            // Wrong rejections, over a labelled value, once a run records them (#212).
+            a.detections.rejectedLabelled === undefined
+              ? String(a.detections.rejected)
+              : `${a.detections.rejected} (${a.detections.rejectedLabelled} of them labelled values)`,
           ]
         })
       ),

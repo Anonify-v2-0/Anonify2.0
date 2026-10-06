@@ -192,6 +192,17 @@ async function readCheckpoint(
 
 let stopping = false
 
+/**
+ * Cut-short reasons that are the account's limits, not the model's work: a
+ * provider's rate limit or usage quota, or a key it stopped accepting. A
+ * document cut short by one says nothing about the model, so it is not
+ * recorded, and the phase stops as ctrl+c stops it, to resume once the limit
+ * clears. Writing it would have put a run that was mostly the patterns alone
+ * over a measured one: 78 of 100 documents, the first time.
+ */
+const LIMITS = new Set(["rate-limit", "authorization"])
+let limitedBy: string | null = null
+
 async function runPhase(input: {
   mode: Mode
   documents: LabelledDocument[]
@@ -261,6 +272,15 @@ async function runPhase(input: {
         })
         const usage = input.usage.get(document.id)
         input.usage.delete(document.id)
+        if (analysed.degraded && LIMITS.has(analysed.degraded)) {
+          limitedBy ??= analysed.degraded
+          stopping = true
+          board.finish(slot, { failed: true })
+          board.log(
+            `  ${c.yellow("⚠")} ${c.bold(document.id)}  ${c.yellow(`model pass cut short: ${analysed.degraded}; not recorded, stopping after the documents in flight`)}`
+          )
+          continue
+        }
         const record = toRecord(document, analysed, usage)
         records.push(record)
         await append({ record })
@@ -926,7 +946,9 @@ async function main() {
   if (stopping) {
     console.log(
       c.yellow(
-        "\nStopped. Every finished document is checkpointed; run the same command again to resume."
+        limitedBy
+          ? `\nStopped: the provider cut the model pass short (${limitedBy}), so nothing more was recorded and no results file was written for this phase. Every finished document is checkpointed; run the same command again once the limit clears.`
+          : "\nStopped. Every finished document is checkpointed; run the same command again to resume."
       )
     )
     process.exitCode = 130
