@@ -49,22 +49,29 @@ answer than occurrence 1.
 
 ### Measured
 
-Local expansion holds up: on 100 test documents, 17–19% of the labelled values
+Local expansion holds up: on 100 test documents, 16–18% of the labelled values
 found were found by the local search alone, every one an occurrence no model
 call had to find.
 
-The deterministic pass does not. Against the same model with the patterns
-switched off, running them first cost **8–10% more tokens**, on every document
-type, and recall was 1–4 points lower. Almost all of the extra tokens are
-verification (step 4): 85 calls a run, for 44–90 rejections out of 639
-candidates. The already-found list sent with each chunk costs 4–6% more input
-and saves about as much output. The recall goes in two places. Address: the
-pattern matches the street line, and the model reports the rest as a separate
-span, which is now joined to it, or not at all. And customer ids: a hit
-verification rejects has already been sent to the model as found, so nothing
-suggests it ([#212](https://github.com/Anonify-v2-0/Anonify2.0/issues/212)).
-That is three models and one synthetic corpus, so it is a measurement of this
-corpus, not a verdict. The numbers are in
+The deterministic pass now holds up on quality, and not on cost. Against the
+same model with the patterns switched off, glm-5.3-flash with the patterns
+first reaches 95.0% F1 against 93.4%. It matches or beats model-only on every
+category but `financial`. That took two fixes:
+
+- A doubtful hit is no longer sent to the model as already found, so a hit
+  verification wrongly rejects can still be suggested
+  ([#212](https://github.com/Anonify-v2-0/Anonify2.0/issues/212)).
+- Verification (step 4) is given the category definitions
+  ([#214](https://github.com/Anonify-v2-0/Anonify2.0/issues/214)), which cut
+  its wrong rejections from 71 of 93 to 18 of 40.
+
+It still costs more tokens. Verification is a fixed 85 calls a run, about 92k
+tokens, and 39–45% of what it rejects is still a real value. Beyond that, a
+reasoning model's output varies too much between runs to put one number on the
+difference: 13% more than model-only in one run, 39% in the next, from the
+same detection prompt. Whether verification earns its place is the open
+question in #214. This is two models and one synthetic corpus, so it is a
+measurement of this corpus, not a verdict. The numbers are in
 [benchmarks/README.md](../benchmarks/README.md#what-the-100-document-run-found).
 
 ---

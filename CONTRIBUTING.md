@@ -361,11 +361,12 @@ specific, falsifiable claim:
 
 The harness and a labelled corpus now exist (`pnpm bench:models`, described in
 [benchmarks/README.md](benchmarks/README.md#benchmarking-models)), and it has
-measured three models on 100 test documents. The claim does not hold there:
-running the patterns first cost 8–10% more tokens than model-only, almost all
-of it the verification call, at 1–4 points lower recall
+measured models on 100 test documents. Half the claim holds there. Running
+the patterns first is now the more accurate pipeline: with glm-5.3-flash,
+95.0% F1 against 93.4% for the model alone. But it still costs more tokens,
+and the verification call is the cost it adds every time
 ([what it found](benchmarks/README.md#what-the-100-document-run-found),
-[#212](https://github.com/Anonify-v2-0/Anonify2.0/issues/212)). Three models and one corpus settle nothing, though. More data is one of
+[#214](https://github.com/Anonify-v2-0/Anonify2.0/issues/214)). Two models and one corpus settle nothing, though. More data is one of
 the most useful things anyone can contribute, and it does not require
 understanding the whole codebase:
 

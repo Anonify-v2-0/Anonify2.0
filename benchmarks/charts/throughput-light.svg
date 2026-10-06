@@ -1,46 +1,34 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="507" viewBox="0 0 880 507" role="img" aria-labelledby="t d" font-family='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'>
 <title id="t">Throughput against concurrency</title>
-<desc id="d">Throughput against concurrency. gpt-5.6-luna: 1 1.6, 2 3.4, 4 6.1, 8 12; gpt-6-luna: 1 2.2, 2 4.5, 4 8.9, 8 17; zai/glm-5.3-flash: 1 3.0, 2 3.2, 4 8.3, 8 4.5.</desc>
+<desc id="d">Throughput against concurrency. zai/glm-5.3-flash: 1 3.0, 2 3.2, 4 8.3, 8 4.5.</desc>
 <rect x="0.5" y="0.5" width="879" height="506" rx="12" fill="#fcfcfb" stroke="rgba(11,11,11,0.10)"/>
 <text x="28" y="38" font-size="17" font-weight="600" fill="#0b0b0b">Throughput against concurrency</text>
 <text x="28" y="60" font-size="12.5" fill="#52514e">synthetic-v1, test split · the same 24 documents at each level</text>
-<line x1="28" y1="84" x2="40" y2="84" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/><circle cx="34" cy="84" r="3" fill="#2a78d6"/><text x="46" y="88" font-size="12" fill="#52514e">gpt-5.6-luna</text><line x1="144.64000000000001" y1="84" x2="156.64000000000001" y2="84" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/><circle cx="150.64000000000001" cy="84" r="3" fill="#eb6834"/><text x="162.64" y="88" font-size="12" fill="#52514e">gpt-6-luna</text><line x1="247.84000000000003" y1="84" x2="259.84000000000003" y2="84" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/><circle cx="253.84000000000003" cy="84" r="3" fill="#1baf7a"/><text x="265.84" y="88" font-size="12" fill="#52514e">zai/glm-5.3-flash</text>
+<line x1="28" y1="84" x2="40" y2="84" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/><circle cx="34" cy="84" r="3" fill="#2a78d6"/><text x="46" y="88" font-size="12" fill="#52514e">zai/glm-5.3-flash</text>
 <line x1="80" y1="408" x2="702" y2="408" stroke="#c3c2b7"/>
 <text x="72" y="412" font-size="11" fill="#898781" text-anchor="end">0</text>
 <line x1="80" y1="352" x2="702" y2="352" stroke="#e1e0d9"/>
-<text x="72" y="356" font-size="11" fill="#898781" text-anchor="end">4</text>
+<text x="72" y="356" font-size="11" fill="#898781" text-anchor="end">2</text>
 <line x1="80" y1="296" x2="702" y2="296" stroke="#e1e0d9"/>
-<text x="72" y="300" font-size="11" fill="#898781" text-anchor="end">8</text>
+<text x="72" y="300" font-size="11" fill="#898781" text-anchor="end">4</text>
 <line x1="80" y1="240" x2="702" y2="240" stroke="#e1e0d9"/>
-<text x="72" y="244" font-size="11" fill="#898781" text-anchor="end">12</text>
+<text x="72" y="244" font-size="11" fill="#898781" text-anchor="end">6</text>
 <line x1="80" y1="184" x2="702" y2="184" stroke="#e1e0d9"/>
-<text x="72" y="188" font-size="11" fill="#898781" text-anchor="end">16</text>
+<text x="72" y="188" font-size="11" fill="#898781" text-anchor="end">8</text>
 <line x1="80" y1="128" x2="702" y2="128" stroke="#e1e0d9"/>
-<text x="72" y="132" font-size="11" fill="#898781" text-anchor="end">20</text>
+<text x="72" y="132" font-size="11" fill="#898781" text-anchor="end">10</text>
 <text x="80" y="426" font-size="11" fill="#898781" text-anchor="middle">1</text>
 <text x="287.33" y="426" font-size="11" fill="#898781" text-anchor="middle">2</text>
 <text x="494.67" y="426" font-size="11" fill="#898781" text-anchor="middle">4</text>
 <text x="702" y="426" font-size="11" fill="#898781" text-anchor="middle">8</text>
 <text x="391" y="446" font-size="11.5" fill="#52514e" text-anchor="middle">in flight at once</text>
 <text x="22" y="114" font-size="11.5" fill="#52514e">documents per minute</text>
-<polyline points="80,385.18 287.33,360.26 494.67,322.46 702,241.68" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<g><title>gpt-5.6-luna, 1: 1.6</title><circle cx="80" cy="385.18" r="12" fill="transparent"/><circle cx="80" cy="385.18" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-5.6-luna, 2: 3.4</title><circle cx="287.33" cy="360.26" r="12" fill="transparent"/><circle cx="287.33" cy="360.26" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-5.6-luna, 4: 6.1</title><circle cx="494.67" cy="322.46" r="12" fill="transparent"/><circle cx="494.67" cy="322.46" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-5.6-luna, 8: 12</title><circle cx="702" cy="241.68" r="12" fill="transparent"/><circle cx="702" cy="241.68" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
-<polyline points="80,377.06 287.33,345.14 494.67,283.96 702,174.9" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<g><title>gpt-6-luna, 1: 2.2</title><circle cx="80" cy="377.06" r="12" fill="transparent"/><circle cx="80" cy="377.06" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-6-luna, 2: 4.5</title><circle cx="287.33" cy="345.14" r="12" fill="transparent"/><circle cx="287.33" cy="345.14" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-6-luna, 4: 8.9</title><circle cx="494.67" cy="283.96" r="12" fill="transparent"/><circle cx="494.67" cy="283.96" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
-<g><title>gpt-6-luna, 8: 17</title><circle cx="702" cy="174.9" r="12" fill="transparent"/><circle cx="702" cy="174.9" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
-<polyline points="80,365.72 287.33,362.64 494.67,292.5 702,345.42" fill="none" stroke="#1baf7a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-<g><title>zai/glm-5.3-flash, 1: 3.0 (the model pass was cut short at this level)</title><circle cx="80" cy="365.72" r="12" fill="transparent"/><circle cx="80" cy="365.72" r="4" fill="#fcfcfb" stroke="#1baf7a" stroke-width="2"/></g>
-<g><title>zai/glm-5.3-flash, 2: 3.2 (the model pass was cut short at this level)</title><circle cx="287.33" cy="362.64" r="12" fill="transparent"/><circle cx="287.33" cy="362.64" r="4" fill="#fcfcfb" stroke="#1baf7a" stroke-width="2"/></g>
-<g><title>zai/glm-5.3-flash, 4: 8.3 (the model pass was cut short at this level)</title><circle cx="494.67" cy="292.5" r="12" fill="transparent"/><circle cx="494.67" cy="292.5" r="4" fill="#fcfcfb" stroke="#1baf7a" stroke-width="2"/></g>
-<g><title>zai/glm-5.3-flash, 8: 4.5 (the model pass was cut short at this level)</title><circle cx="702" cy="345.42" r="12" fill="transparent"/><circle cx="702" cy="345.42" r="4" fill="#fcfcfb" stroke="#1baf7a" stroke-width="2"/></g>
-<text x="712" y="178.9" font-size="11.5" fill="#0b0b0b">gpt-6-luna  17</text>
-<text x="712" y="245.68" font-size="11.5" fill="#0b0b0b">gpt-5.6-luna  12</text>
-<text x="712" y="349.42" font-size="11.5" fill="#0b0b0b">zai/glm-5.3-flash  4.5</text>
+<polyline points="80,323.44 287.33,317.28 494.67,177 702,282.84" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g><title>zai/glm-5.3-flash, 1: 3.0 (the model pass was cut short at this level)</title><circle cx="80" cy="323.44" r="12" fill="transparent"/><circle cx="80" cy="323.44" r="4" fill="#fcfcfb" stroke="#2a78d6" stroke-width="2"/></g>
+<g><title>zai/glm-5.3-flash, 2: 3.2 (the model pass was cut short at this level)</title><circle cx="287.33" cy="317.28" r="12" fill="transparent"/><circle cx="287.33" cy="317.28" r="4" fill="#fcfcfb" stroke="#2a78d6" stroke-width="2"/></g>
+<g><title>zai/glm-5.3-flash, 4: 8.3 (the model pass was cut short at this level)</title><circle cx="494.67" cy="177" r="12" fill="transparent"/><circle cx="494.67" cy="177" r="4" fill="#fcfcfb" stroke="#2a78d6" stroke-width="2"/></g>
+<g><title>zai/glm-5.3-flash, 8: 4.5 (the model pass was cut short at this level)</title><circle cx="702" cy="282.84" r="12" fill="transparent"/><circle cx="702" cy="282.84" r="4" fill="#fcfcfb" stroke="#2a78d6" stroke-width="2"/></g>
+<text x="712" y="286.84" font-size="11.5" fill="#0b0b0b">zai/glm-5.3-flash  4.5</text>
 <text x="28" y="474" font-size="11" fill="#898781">Hollow marker: the model pass was cut short at this level. Concurrency is documents and model calls in flight at once</text>
 <text x="28" y="489" font-size="11" fill="#898781">(ANONIFY_AI_CONCURRENCY). One run, one afternoon, one network.</text>
 </svg>
