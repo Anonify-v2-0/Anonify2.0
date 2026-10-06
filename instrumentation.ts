@@ -52,6 +52,10 @@ export async function register() {
   databasePoolConfig()
   assertWorkflowPoolSettings()
 
+  // The expiry sweep's time budget and concurrency (#170).
+  const { cleanupSettings } = await import("@/lib/workflows/cleanup")
+  cleanupSettings()
+
   // Unset on Vercel, where the platform's own world is selected for us. Calling
   // start() there is harmless, but skipping makes the intent explicit.
   if (!process.env.WORKFLOW_TARGET_WORLD) return

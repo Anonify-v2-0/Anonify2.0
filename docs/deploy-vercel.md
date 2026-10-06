@@ -214,8 +214,16 @@ GitHub Actions, free. Add two repository secrets to enable it:
 - `CRON_SECRET` — the same value as the deployment's
 
 Without both, the job exits quietly. The work is idempotent, so the daily Vercel
-cron and the 15-minute sweep running together is harmless. On Pro, delete the
-workflow and raise the schedule in `vercel.json` instead.
+cron and the 15-minute sweep running together is harmless, and only one sweep
+runs at a time: the other returns `skipped`. On Pro, delete the workflow and
+raise the schedule in `vercel.json` instead.
+
+Each run clears the whole backlog it can within `ANONIFY_CLEANUP_BUDGET_MS`
+(default 240 seconds, inside the 300-second limit), where it used to stop at 50
+documents. So even the once-a-day cron alone no longer leaves expired documents
+behind. On a test database with local storage, a run deleted 500 documents in
+22 seconds, about 23 a second, against 4 a second before (#170). Against Blob,
+each document's objects go in one request, so the gain there is larger.
 
 ### 3.4 Storage cannot fall back to the filesystem
 

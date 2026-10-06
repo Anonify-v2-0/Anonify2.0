@@ -1096,8 +1096,12 @@ service in `docker-compose.yml` (see [workflow.md](./workflow.md) §6).
   `CRON_SECRET` is unset, the endpoint allows the call only outside
   production (so local development does not require it).
 - **Params:** none
-- **Response `200`:** `{ marked, ...cleanupResult }` — the count of rows
-  marked expired and the result of deleting their artifacts.
+- **Response `200`:** `{ marked, ...cleanupResult, admitted }` — the count of
+  rows marked expired, the result of deleting their artifacts, and the queued
+  documents admitted. The sweep works through the whole backlog within
+  `ANONIFY_CLEANUP_BUDGET_MS`; `remaining: true` means it stopped with expired
+  documents left for the next run. When another sweep holds the lock it does
+  nothing and returns `skipped: "another sweep is running"`, still with a 200.
 - **Errors:** `401` unauthorized.
 
 > The route exports `GET`, matching the Vercel Cron convention. The issue

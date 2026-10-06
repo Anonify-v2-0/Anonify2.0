@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/database/prisma"
-import { deleteObject } from "@/lib/storage/blob"
+import { deleteObjects } from "@/lib/storage/blob"
 
 /**
  * Deleting everything a document produced.
@@ -56,7 +56,11 @@ export const PURGE_SELECT = {
   },
 } as const
 
-/** Removes the stored objects. Idempotent: an object already gone counts. */
+/**
+ * Removes the stored objects, in as few requests as the backend allows: one
+ * per hundred-odd keys on S3 and Vercel Blob, where it used to be one per
+ * object, waited on in turn (#170). Idempotent: an object already gone counts.
+ */
 export async function purgeStorage(
   document: PurgeableDocument
 ): Promise<PurgeResult> {
@@ -72,19 +76,13 @@ export async function purgeStorage(
     ]),
   ].filter((key): key is string => Boolean(key))
 
-  let objectsDeleted = 0
-  let storageCleared = true
+  if (keys.length === 0) return { objectsDeleted: 0, storageCleared: true }
 
-  for (const key of keys) {
-    try {
-      await deleteObject(key)
-      objectsDeleted += 1
-    } catch {
-      storageCleared = false
-    }
+  const { failed } = await deleteObjects(keys)
+  return {
+    objectsDeleted: keys.length - failed.length,
+    storageCleared: failed.length === 0,
   }
-
-  return { objectsDeleted, storageCleared }
 }
 
 /**
@@ -127,7 +125,12 @@ export async function purgeDocument(
   cleared = cleared && own.storageCleared
 
   if (!cleared) {
-    return { objectsDeleted, storageCleared: false, recordDeleted: false, deletedIds }
+    return {
+      objectsDeleted,
+      storageCleared: false,
+      recordDeleted: false,
+      deletedIds,
+    }
   }
 
   // Redactions, rules, events and exports cascade from the document.
