@@ -14,6 +14,13 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.16.2] - 2026-10-07
+
+### Fixed
+
+- The Docker Hub image is published for this release. v1.16.1 announced it,
+  but its image build failed and nothing was pushed (#180)
+
 ## [1.16.1] - 2026-10-07
 
 ### Added
