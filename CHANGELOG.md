@@ -14,6 +14,15 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.16.1] - 2026-10-07
+
+### Added
+
+- Every release is published to Docker Hub as `nabeelwasif/anonify2.0` for
+  amd64 and arm64, with build provenance, an SBOM and a GitHub attestation. Set
+  `ANONIFY_IMAGE=nabeelwasif/anonify2.0:<version>` in `.env` and pull it instead
+  of building from source (#180)
+
 ## [1.16.0] - 2026-10-07
 
 ### Added
