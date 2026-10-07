@@ -14,6 +14,33 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.16.0] - 2026-10-07
+
+### Added
+
+- `ANONIFY_SERVICE_LIMIT_SCOPE=cluster` makes the AI and OCR rate and concurrency
+  limits apply to the whole deployment rather than to each container, with the
+  shared state in Postgres (one new table, `ServiceLease`) or, optionally, Redis or
+  Valkey (`ANONIFY_RATE_STORE=redis`, `REDIS_URL`), which also takes over the
+  inbound rate limiter. If Redis is unreachable, documents keep processing on
+  per-container limits and `/api/ready` reports it as `degraded` instead of failing (#184)
+
+### Changed
+
+- Uploads through the app are streamed to storage instead of held in memory, so
+  large files no longer need a large web container. Direct-to-bucket uploads are
+  documented for each storage provider and recommended in production: when a
+  bucket's CORS rule would refuse the browser, `/api/ready` reports
+  `presigned-cors` as `degraded` with what is missing, and the upload falls back
+  through the app with a warning in the log instead of failing (#185)
+
+### Deprecated
+
+- `POST /api/upload/local` with a multipart body, for scripts that upload through
+  the API. `PUT` the file as the request body instead, with `?documentId=` and a
+  `Content-Length` (docs/api.md). The multipart form answers with a
+  `Deprecation` header until it is removed in 1.17.0 (#185)
+
 ## [1.15.0] - 2026-10-07
 
 ### Added
