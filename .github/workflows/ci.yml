@@ -421,10 +421,10 @@ jobs:
       # has not changed reuses the dependency install, and one whose source has
       # not changed reuses the build too. The runner's scope is `mode=max`, so
       # the builder stage is cached as well as the final image.
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Build the app image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: runner
