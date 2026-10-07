@@ -1,1 +1,1 @@
-Dependencies updated to patched releases for 28 of the 29 advisories `pnpm audit` reported, among them proxy-addr (critical), undici, sharp, brace-expansion and http-cache-semantics. The one left, braces, has no patched release yet, and is reached only by developer tooling
+Dependencies updated to patched releases for 29 of the 30 advisories `pnpm audit` reported, among them proxy-addr (critical), undici, sharp, brace-expansion, http-cache-semantics and the MCP TypeScript SDK. The one left, braces, has no patched release yet, and is reached only by developer tooling
