@@ -56,3 +56,44 @@ a document could not be fully purged, so a scheduler that reports failures
 reports that one. A scheduler that calls a URL can call
 `/api/cron/cleanup` instead, as the Compose `scheduler` service does.
 
+## Building and running it (#178)
+
+**Writable paths.** The image runs as a non-root user (`nextjs`, uid 1001) and
+needs only two writable paths, so it runs with a read-only root filesystem
+(`readOnlyRootFilesystem: true` on Kubernetes):
+
+| Path | What writes there |
+| --- | --- |
+| `/tmp` | Next.js's image-optimisation cache (`.next/cache` points here) and temporary files. A `tmpfs`, or an `emptyDir`, is enough. |
+| `/data` | The OCR model cache (`TESSERACT_CACHE_PATH=/data/tesseract`), only when the model needed is not the one baked in. A volume keeps it across restarts. |
+
+CI runs the whole stack this way (`docker-compose.readonly.yml`).
+
+**The OCR model is in the image.** The default model (English, `standard`)
+is fetched when the image is built, so scans are read with no outbound
+internet. A replica reads it where it is when it holds the configured
+language and variant. When more languages are configured, the baked ones are
+copied into the cache and only the rest are downloaded. To bake others in:
+
+```sh
+docker build --build-arg OCR_PRELOAD_LANGUAGES=eng+deu --build-arg OCR_PRELOAD_MODEL=standard -t anonify .
+```
+
+About 3 MB per language at `standard`, more at `best`.
+
+**PID 1 is tini.** It reaps zombie processes and forwards `SIGTERM` to the
+server, so a `docker stop` or a pod deletion stops it promptly.
+
+**Labels and build identity.** Build arguments the release job supplies:
+
+| Argument | Becomes |
+| --- | --- |
+| `ANONIFY_BUILD_ID` | `ENV ANONIFY_BUILD_ID`, the Next.js `deploymentId`, the `build` field of `/api/health` and of the startup log line. `dev` locally. |
+| `OCI_VERSION`, `OCI_REVISION`, `OCI_CREATED`, `OCI_SOURCE` | The `org.opencontainers.image.*` labels, with `licenses=Apache-2.0`, `title` and `description`. |
+
+The `deploymentId` matters during a rolling update: a browser that loaded one
+version and reaches a replica running another is reloaded rather than handed
+assets that replica does not have.
+
+**The base image is pinned by digest.** Rebuilding the same commit cannot
+silently change it; Dependabot opens a pull request when the digest moves.

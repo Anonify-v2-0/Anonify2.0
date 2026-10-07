@@ -37,10 +37,20 @@ describe("liveness (#167)", () => {
     query.mockRejectedValue(new Error("database is down"))
     const response = health()
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ status: "ok" })
+    expect(await response.json()).toEqual({ status: "ok", build: "dev" })
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(query).not.toHaveBeenCalled()
     expect(probe).not.toHaveBeenCalled()
+  })
+})
+
+describe("the build a replica runs (#178)", () => {
+  it("names the build the image was made from", async () => {
+    vi.stubEnv("ANONIFY_BUILD_ID", "v1.15.0-abc1234")
+    expect(await health().json()).toEqual({
+      status: "ok",
+      build: "v1.15.0-abc1234",
+    })
   })
 })
 

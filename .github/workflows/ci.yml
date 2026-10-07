@@ -393,6 +393,10 @@ jobs:
       # The images built below, with cached layers, which compose then starts
       # as they are instead of building again.
       ANONIFY_IMAGE: anonify-app:ci
+      # The app and its migrations on a read-only root filesystem, with only
+      # /tmp and /data writable (#178). Every `docker compose` below without
+      # its own -f list uses both files.
+      COMPOSE_FILE: docker-compose.yml:docker-compose.readonly.yml
 
     steps:
       - uses: actions/checkout@v5
@@ -432,6 +436,47 @@ jobs:
           docker run --rm "$ANONIFY_IMAGE" node -e "process.exit(0)" \
             || { echo "::error::a command naming a program did not run as given"; exit 1; }
           docker image inspect "$ANONIFY_IMAGE" --format 'image size: {{.Size}} bytes'
+
+      # The hardening (#178): tini as PID 1, a stop that is prompt, the labels,
+      # and the baked OCR model reading a scan with no network at all.
+      - name: The image is hardened
+        run: |
+          pid1=$(docker run --rm "$ANONIFY_IMAGE" sh -c 'cat /proc/1/comm')
+          [ "$pid1" = tini ] || { echo "::error::PID 1 is $pid1, not tini"; exit 1; }
+
+          docker run -d --name stop-check "$ANONIFY_IMAGE" node -e "setInterval(() => {}, 1000)"
+          started=$(date +%s)
+          docker stop -t 20 stop-check
+          took=$(( $(date +%s) - started ))
+          docker rm stop-check
+          [ "$took" -lt 5 ] || { echo "::error::SIGTERM took ${took}s to stop the container"; exit 1; }
+
+          licence=$(docker image inspect "$ANONIFY_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}')
+          [ "$licence" = Apache-2.0 ] || { echo "::error::the licence label is '$licence'"; exit 1; }
+
+          # A line of text, drawn here where there are fonts, read in there
+          # where there is no network.
+          node -e "
+            const { createCanvas } = require('@napi-rs/canvas')
+            const canvas = createCanvas(700, 140)
+            const context = canvas.getContext('2d')
+            context.fillStyle = '#fff'
+            context.fillRect(0, 0, 700, 140)
+            context.fillStyle = '#000'
+            context.font = '56px sans-serif'
+            context.fillText('OFFLINE SCAN 2026', 24, 92)
+            require('fs').writeFileSync('ocr-check.png', canvas.toBuffer('image/png'))"
+          docker run --rm --network none -v "$PWD/ocr-check.png:/tmp/ocr-check.png:ro" -w /app "$ANONIFY_IMAGE" node -e "
+            // From the store path the server itself loads it by: the top-level
+            // copy in the standalone tree cannot resolve its own dependencies.
+            const { createWorker } = require(require('fs').globSync('/app/node_modules/.pnpm/tesseract.js@*/node_modules/tesseract.js')[0])
+            ;(async () => {
+              const worker = await createWorker('eng', undefined, { cachePath: process.env.TESSERACT_BAKED_PATH })
+              const { data } = await worker.recognize('/tmp/ocr-check.png')
+              await worker.terminate()
+              console.log('read: ' + data.text.trim())
+              process.exit(/OFFLINE/.test(data.text) ? 0 : 1)
+            })().catch((error) => { console.error(error); process.exit(1) })"
 
       - name: Start the stack
         # --wait blocks until postgres and RustFS report healthy, the bucket and

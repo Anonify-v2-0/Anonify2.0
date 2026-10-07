@@ -28,6 +28,8 @@ command="${1:-serve}"
 
 case "$command" in
   serve)
+    # Where .next/cache points, so a read-only root filesystem still has one.
+    mkdir -p /tmp/next-cache
     cd /app
     exec node server.js "$@"
     ;;

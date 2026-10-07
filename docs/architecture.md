@@ -347,9 +347,11 @@ the replay.
 Every orchestrator asks two questions, and they get separate answers (#167):
 
 - **`GET /api/health`: is the process alive?** Always 200
-  `{"status":"ok"}`, with no database, storage or network I/O. A probe that
-  fails this restarts the replica, so it must not fail because something else
-  is down; a database outage would otherwise restart every replica in a loop.
+  `{"status":"ok","build":"…"}`, with no database, storage or network I/O.
+  The build is the image's `ANONIFY_BUILD_ID` (#178), so a rollout can be
+  watched replica by replica. A probe that fails this restarts the replica,
+  so it must not fail because something else is down; a database outage
+  would otherwise restart every replica in a loop.
 - **`GET /api/ready`: can it take traffic and jobs right now?** It checks
   the database (`SELECT 1`), the storage backend (its cheapest call:
   `HeadBucket` on S3, `list` with a limit of one on Vercel Blob, the store's

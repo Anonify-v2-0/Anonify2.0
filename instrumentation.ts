@@ -56,6 +56,17 @@ export async function register() {
   const { cleanupSettings } = await import("@/lib/workflows/cleanup")
   cleanupSettings()
 
+  // Which version this replica is, for whoever is watching a rollout (#178).
+  const { buildId } = await import("@/lib/config/build")
+  console.log(
+    JSON.stringify({
+      level: "info",
+      context: "server",
+      build: buildId(),
+      message: "server starting",
+    })
+  )
+
   // Unset on Vercel, where the platform's own world is selected for us. Calling
   // start() there is harmless, but skipping makes the intent explicit.
   if (!process.env.WORKFLOW_TARGET_WORLD) return
