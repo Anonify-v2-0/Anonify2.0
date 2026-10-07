@@ -393,7 +393,6 @@ jobs:
       # The images built below, with cached layers, which compose then starts
       # as they are instead of building again.
       ANONIFY_IMAGE: anonify-app:ci
-      ANONIFY_MIGRATOR_IMAGE: anonify-migrator:ci
 
     steps:
       - uses: actions/checkout@v5
@@ -406,8 +405,7 @@ jobs:
       # Buildx keeps every layer in the Actions cache, so a run whose lockfile
       # has not changed reuses the dependency install, and one whose source has
       # not changed reuses the build too. The runner's scope is `mode=max`, so
-      # the builder stage is cached as well as the final image; the migrator is
-      # FROM builder, so it reads that scope and adds only its own last layer.
+      # the builder stage is cached as well as the final image.
       - uses: docker/setup-buildx-action@v3
 
       - name: Build the app image
@@ -420,17 +418,20 @@ jobs:
           cache-from: type=gha,scope=runner
           cache-to: type=gha,scope=runner,mode=max
 
-      - name: Build the migrator image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: migrator
-          load: true
-          tags: ${{ env.ANONIFY_MIGRATOR_IMAGE }}
-          cache-from: |
-            type=gha,scope=runner
-            type=gha,scope=migrator
-          cache-to: type=gha,scope=migrator
+      # One image does every job (#175): the stack's `migrate` service is this
+      # image running `anonify migrate`.
+      - name: The image's commands
+        run: |
+          docker run --rm "$ANONIFY_IMAGE" help | grep -q "migrate" \
+            || { echo "::error::anonify help does not list its commands"; exit 1; }
+          set +e
+          docker run --rm "$ANONIFY_IMAGE" migrat
+          status=$?
+          set -e
+          [ "$status" = 64 ] || { echo "::error::an unknown command exited $status, not 64"; exit 1; }
+          docker run --rm "$ANONIFY_IMAGE" node -e "process.exit(0)" \
+            || { echo "::error::a command naming a program did not run as given"; exit 1; }
+          docker image inspect "$ANONIFY_IMAGE" --format 'image size: {{.Size}} bytes'
 
       - name: Start the stack
         # --wait blocks until postgres and RustFS report healthy, the bucket and
@@ -451,6 +452,15 @@ jobs:
 
       - name: Re-run bucket initialization
         run: docker compose run --rm rustfs-init
+
+      # Every deploy runs it, so a second run against a migrated database has
+      # to find nothing to do and say so with exit 0.
+      - name: Migrate again, as the next deploy would
+        run: docker compose run --rm migrate
+
+      # The sweep as a job, with the app's configuration and no server.
+      - name: Run the expiry sweep from the image
+        run: docker compose run --rm --no-deps app cleanup
 
       - name: Upload, download, list, presign and delete through RustFS
         run: pnpm smoke:storage http://127.0.0.1:9000

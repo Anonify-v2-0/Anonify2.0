@@ -1,0 +1,4 @@
+# Run inside Linux containers: a CRLF checkout on Windows would break the
+# shebang of a script copied into the image.
+docker/** text eol=lf
+*.sh text eol=lf

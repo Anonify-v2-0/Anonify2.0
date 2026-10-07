@@ -44,12 +44,40 @@ ENV WORKFLOW_TARGET_WORLD="@workflow/world-postgres"
 # the image: the standalone output under .next/standalone is.
 RUN --mount=type=cache,id=next-cache,target=/app/.next/cache \
     pnpm run build
+# `anonify cleanup`: the expiry sweep as one bundled file, since the image has
+# no tsx and no TypeScript sources to run scripts/cleanup.ts from (#175).
+RUN node scripts/build-cli.mjs
 
-# ---- migrator ---------------------------------------------------------------
-# Applies the schema and creates the workflow tables, then exits. Kept separate
-# from the runtime image so the server does not carry the Prisma CLI.
-FROM builder AS migrator
-CMD ["sh", "-c", "pnpm exec prisma migrate deploy && pnpm run workflow:bootstrap"]
+# ---- migrate ----------------------------------------------------------------
+# `anonify migrate` runs the Prisma CLI, and nothing else in the image does
+# (#175). It used to run from a stage built on the builder, 2 GB of dev
+# dependencies nobody should pull to apply a migration. Installed here on its
+# own like the world below, at the lockfile's version.
+#
+# Then pruned to what `migrate deploy` loads, found by deleting each piece
+# and applying every migration to an empty database without it: the CLI
+# requires Studio's data layer and `prisma dev`'s state module at start, but
+# not Studio's UI, the embedded Postgres `prisma dev` runs, the client query
+# compilers, the WebAssembly schema engine (the native one does the work),
+# React, lodash, mysql2, or any source map and type declaration. 240 MB
+# installed, about 70 MB kept. A Prisma upgrade that starts needing one of
+# them fails Compose's migrate step in CI, loudly, rather than shipping.
+FROM base AS migrate
+WORKDIR /opt/anonify/migrate
+RUN --mount=type=bind,from=builder,source=/app/node_modules,target=/deps \
+    V=$(node -p "require('/deps/prisma/package.json').version") \
+ && npm init -y > /dev/null \
+ && npm install --omit=dev --no-audit --no-fund "prisma@$V" \
+ && rm -f package.json package-lock.json \
+ && cd node_modules \
+ && rm -rf react react-dom @visx elkjs @electric-sql @types csstype effect/src \
+      lodash mysql2 @prisma/query-plan-executor @prisma/streams-local \
+      @prisma/studio-core/dist/ui @prisma/dev/dist/runtime-assets \
+ && rm -f @prisma/studio-core/dist/metafile-*.json prisma/build/query_compiler_* \
+      prisma/build/schema_engine_bg.wasm prisma/build/studio.* \
+ && find . -type f \( -name '*.map' -o -name '*.d.ts' -o -name '*.d.cts' -o -name '*.d.mts' \) -delete
+COPY prisma.config.ts ./
+COPY prisma ./prisma
 
 # ---- world ------------------------------------------------------------------
 # The workflow runtime loads its world with `require(WORKFLOW_TARGET_WORLD)` at
@@ -96,6 +124,14 @@ COPY --chown=nextjs:nodejs LICENSE NOTICE ./
 # shared dependencies like zod for a different copy.
 COPY --from=world --chown=nextjs:nodejs /world/node_modules /node_modules
 
+# One image, several jobs (#175): `anonify serve` (the default), `anonify
+# migrate` and `anonify cleanup`. Owned by root, so the server cannot rewrite
+# the tools that migrate its database.
+COPY --from=migrate /opt/anonify/migrate /opt/anonify/migrate
+COPY --from=builder /app/build/cli/cleanup.mjs /opt/anonify/bin/cleanup.mjs
+COPY docker/migrate.mjs /opt/anonify/bin/migrate.mjs
+COPY --chmod=755 docker/anonify /usr/local/bin/anonify
+
 USER nextjs
 EXPOSE 3000
 
@@ -105,4 +141,7 @@ EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
   CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "server.js"]
+# `docker run IMAGE` serves; `docker run IMAGE migrate` migrates. A command
+# that names a program, such as `node server.js`, still runs as given.
+ENTRYPOINT ["anonify"]
+CMD ["serve"]
