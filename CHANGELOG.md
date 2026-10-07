@@ -14,6 +14,22 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.14.4] - 2026-10-07
+
+### Added
+
+- Health endpoints for orchestrators: `/api/health` (liveness, no I/O) and `/api/ready` (database, storage and workflow worker readiness, 503 naming what failed). The container healthcheck uses `/api/health`, and the Compose `app` service waits on `/api/ready` (#167)
+- `DATABASE_POOL_MAX` and `DATABASE_POOL_IDLE_TIMEOUT_MS` size the app's Postgres pool, malformed pool settings (including the workflow world's) stop the server at start instead of being ignored, and `docs/deploy/database.md` explains the connection budget and how to put a connection pooler in front of the app while the job queue connects directly (#169)
+
+### Changed
+
+- Rate limiting takes one database statement per request instead of a transaction of three, and the processing queue is indexed, so a busy instance spends less time in Postgres. A database migration adds the index (#171)
+
+### Fixed
+
+- `ANONIFY_PUBLIC_URL` is read when a page is served, not when the image is built, so link previews use your address without rebuilding, and a malformed value stops the server at start (#168)
+- The expiry sweep clears its whole backlog on each run, within a time budget (`ANONIFY_CLEANUP_BUDGET_MS`), instead of stopping at 50 documents, so a once-a-day cron (Vercel Hobby) no longer leaves expired documents behind. It purges several documents at once and deletes each one's objects in a single request on S3 and Vercel Blob, and overlapping sweeps now skip instead of racing (#170)
+
 ## [1.14.3] - 2026-10-06
 
 ### Fixed
