@@ -266,7 +266,7 @@ function so there is one list of what a document owns.
 `clientUploadMode()` returns `"vercel-blob"`, `"s3-presigned"` or
 `"server-route"` by asking the configured driver. The upload panel reads it to
 decide whether to request a scoped Blob token and upload straight to Vercel,
-request a presigned PUT and upload straight to the bucket, or POST the bytes to
+request a presigned PUT and upload straight to the bucket, or PUT the bytes to
 our own route. See the upload path in [architecture.md](./architecture.md) §2.
 
 Whichever path is used, the handle `/process` is given has to be this
@@ -279,26 +279,147 @@ records it in production. Ingest reads that handle and then deletes it, so an
 unchecked one would let a caller point their document at another object and
 have it removed.
 
-### Direct uploads to S3
+### Through the app: `PUT /api/upload/local`
 
-With `S3_PRESIGNED_UPLOADS=true` the S3 driver's `clientUpload` is
-`s3-presigned`. `POST /api/upload/presign` then returns a PUT URL for the
-document's upload path that is valid for 15 minutes. The URL is issued only
-for a sealed upload, and its signature covers `Content-Length`, so the bucket
-refuses any other number of bytes. The server checks that number against the
-plaintext ceiling before signing. The server never handles the upload, not
-even as ciphertext.
+Without direct uploads, the browser PUTs the file to `/api/upload/local` as
+the raw request body with its `Content-Length`. The route checks the session,
+the document, and the declared length against the ceiling before it reads a
+byte, then streams the body into `putObjectStream` through a guard that fails
+the moment more bytes arrive than were declared, or the body ends with fewer.
+Memory per upload is the streaming chunk, not the file (#185).
 
-This path is opt-in because it needs two things only an operator can provide:
+A failed stream leaves nothing under the final key, on every driver: the local
+driver writes to a `.partial` file beside it and renames only on success, S3's
+multipart upload is aborted, and Azure never commits its block list. So a
+client that disconnects half-way leaves no object for ingest to find.
 
-- **an endpoint browsers can reach.** Set `S3_PUBLIC_ENDPOINT` when it
-  differs from `S3_ENDPOINT`: inside Docker Compose the app reaches RustFS at
-  `http://rustfs:9000`, and a browser reaches it at `http://localhost:9000`.
-- **CORS on the bucket** allowing `PUT` from the app's origin with the
-  `content-type` header.
+The multipart `POST` this replaced is kept for API scripts until 1.17.0, with a
+`Deprecation` header on every answer. It holds the whole file in memory first.
 
-A page that cannot seal (see *Sealed uploads*) falls back to
-`/api/upload/local`, which stays available either way.
+### Direct uploads
+
+With `S3_PRESIGNED_UPLOADS=true` (S3) or `AZURE_STORAGE_PRESIGNED_UPLOADS=true`
+(Azure), the driver's `clientUpload` is `s3-presigned`. `POST
+/api/upload/presign` then returns a PUT URL for the document's upload path,
+valid for 15 minutes. The URL is issued only for a sealed upload. On S3 its
+signature covers `Content-Length`, so the bucket refuses any other number of
+bytes; the server checks that number against the plaintext ceiling before
+signing. The server never handles the upload, not even as ciphertext.
+
+**Turn it on in production** where browsers can reach the bucket. The upload
+then costs the web tier nothing at all. Docker Compose keeps the default,
+uploads through the app, because CORS for `localhost` is fiddly and a laptop
+has bandwidth to spare.
+
+It needs two things only an operator can provide:
+
+- **an endpoint browsers can reach.** Set `S3_PUBLIC_ENDPOINT` (or
+  `AZURE_STORAGE_PUBLIC_ENDPOINT`) when it differs from the one the server
+  uses: inside Docker Compose the app reaches RustFS at `http://rustfs:9000`,
+  and a browser reaches it at `http://localhost:9000`. A managed service
+  (AWS, R2, GCS, Azure) has one public endpoint and needs neither.
+- **a CORS rule** allowing `PUT` from the app's origin, the origin of
+  `ANONIFY_PUBLIC_URL`, with the headers the URL is signed with. Below.
+
+**When it goes wrong, uploads still work.** A browser whose PUT to the bucket
+gets no answer, which is what a missing CORS rule looks like from a page,
+uploads once more through `PUT /api/upload/local` and says so. The server logs
+each one:
+
+```json
+{"level":"warn","context":"upload.presigned-fallback","reason":"presigned-network-error","origin":"https://redact.example.org","message":"A browser could not upload straight to the bucket and fell back to the app. ..."}
+```
+
+`/api/ready` reads the bucket's rules too, with presigned uploads on, and
+reports `presigned-cors` under `degraded` when no rule would let a browser at
+`ANONIFY_PUBLIC_URL` make the PUT. It stays 200: the replica works, through
+the fallback. The warning names what is missing, for example
+`The CORS rule for https://redact.example.org does not allow PUT.` The rules
+are read again every five minutes. Where they cannot be read (a service without
+the API, or credentials without permission to read them, which is how a
+least-privilege key should be), the check passes and logs a note once; the
+fallback log is then the signal.
+
+#### CORS, per provider
+
+Every example allows `https://redact.example.org`; use your
+`ANONIFY_PUBLIC_URL`'s origin, scheme and port included, with no path. `GET`
+is not needed: downloads go through the app.
+
+| Provider | Where the rule lives | Headers to allow | Readiness reads it |
+| --- | --- | --- | --- |
+| AWS S3 | the bucket | `content-type` | yes (`s3:GetBucketCORS`) |
+| Cloudflare R2 | the bucket | `content-type` | through its S3 API, where offered |
+| Google Cloud Storage (interop) | the bucket, set with `gcloud` | `content-type` | no: GCS answers in its own format, so the check is skipped |
+| RustFS | the bucket | `content-type` | yes |
+| Azure Blob Storage | the account's blob service | `content-type`, `x-ms-blob-type` | yes, with a key or a role that may read service properties |
+
+**AWS S3**, and any S3 API that takes `PutBucketCors`, with `cors.json`:
+
+```json
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["https://redact.example.org"],
+      "AllowedMethods": ["PUT"],
+      "AllowedHeaders": ["content-type"],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+}
+```
+
+```sh
+aws s3api put-bucket-cors --bucket anonify --cors-configuration file://cors.json
+```
+
+**Cloudflare R2**: the same file through R2's S3 endpoint.
+
+```sh
+aws s3api put-bucket-cors --bucket anonify --cors-configuration file://cors.json \
+  --endpoint-url https://<account-id>.r2.cloudflarestorage.com
+```
+
+**Google Cloud Storage** through the interoperability (HMAC) API: CORS is set
+with `gcloud`, in its own format, as `gcs-cors.json`:
+
+```json
+[
+  {
+    "origin": ["https://redact.example.org"],
+    "method": ["PUT"],
+    "responseHeader": ["content-type"],
+    "maxAgeSeconds": 3600
+  }
+]
+```
+
+```sh
+gcloud storage buckets update gs://anonify --cors-file=gcs-cors.json
+```
+
+**RustFS** takes the AWS file and command, at its own endpoint. For the
+Compose stack opened at `http://localhost:3000`, the origin is that:
+
+```sh
+aws s3api put-bucket-cors --bucket anonify --cors-configuration file://cors.json   --endpoint-url http://localhost:9000
+```
+
+Then set `S3_PRESIGNED_UPLOADS=true` in `.env` and recreate the app
+(`docker compose up -d app`). `S3_PUBLIC_ENDPOINT` already defaults to the
+published port.
+
+**Azure Blob Storage**: CORS is a property of the account's blob service, not
+of a container.
+
+```sh
+az storage cors add --services b --account-name anonifyprod \
+  --methods PUT --origins https://redact.example.org \
+  --allowed-headers content-type x-ms-blob-type --max-age 3600
+```
+
+A page that cannot seal (see *Sealed uploads*) uploads through the app either
+way.
 
 ---
 

@@ -982,8 +982,8 @@ a model.
 
 Three upload paths exist, selected by `uploadMode` in the reserve response:
 `vercel-blob` (a scoped token, straight to Blob), `s3-presigned` (a presigned
-PUT, straight to the bucket), and `server-route` (through
-`/api/upload/local`). Each path carries whatever the client sends, which is
+PUT, straight to the S3 bucket or Azure container), and `server-route`
+(through `PUT /api/upload/local`). Each path carries whatever the client sends, which is
 ciphertext when it asked for an upload key at reservation. Downstream (ingest,
 extraction, export) cannot tell the paths apart. Every size ceiling is on the
 plaintext, so a sealed upload may be larger than `MAX_UPLOAD_BYTES` by exactly
@@ -1007,26 +1007,52 @@ when Vercel Blob is configured.
   surfaced via the generic handler); the document is not in `uploading`
   state.
 
-### `POST /api/upload/local`
+### `PUT /api/upload/local`
 
-Browser uploads for every backend that is not Vercel Blob (S3, local
-filesystem). The bytes come through here and are written with the same storage
-abstraction everything else reads from. Self-hosted, so the ceiling is the
+Browser uploads for every backend that is not Vercel Blob, when the browser
+does not upload straight to the bucket (S3 or Azure without presigned uploads,
+or the local filesystem), and the fallback when it tried and the bucket gave
+no answer. The body is streamed to storage as it arrives, so memory per upload
+is the streaming chunk, not the file. Self-hosted, so the ceiling is the
 application's own `MAX_UPLOAD_BYTES` rather than a serverless body limit.
+
+Everything is checked before a byte of the body is read: the session, that the
+document is the caller's and still waiting for its bytes, and that the declared
+length is within the ceiling.
 
 - **Auth:** session
 - **Rate limit:** `upload`
-- **Body:** `multipart/form-data` with fields `documentId` and `file`. For a
-  document reserved with `uploadEncryption`, `file` is the sealed envelope and
-  is stored exactly as it arrived.
+- **Query:** `documentId`, the reserved document.
+- **Headers:** `Content-Length`, required. `Content-Type` is
+  `application/octet-stream` or absent. `X-Anonify-Upload-Fallback:
+  presigned-network-error` from a browser whose PUT straight to the bucket got
+  no answer; the server logs it as `upload.presigned-fallback`.
+- **Body:** the file's bytes and nothing else. For a document reserved with
+  `uploadEncryption`, the sealed envelope, stored exactly as it arrived.
 - **Response `201`:** `{ "url": "<storage key>", "size": 12345 }`. The route
   also records the key on the document, so the expiry sweep finds the upload
   even if `/process` is never called.
-- **Errors:** `400` expected multipart / missing document reference / no
-  file / empty file / not a sealed file (a size no sealer produces); `404`
-  document not found / foreign; `409` document has already been uploaded;
-  `413` file too large (its plaintext, for a sealed upload); `429` upload rate
-  limit.
+- **Errors:** `400` missing document reference / empty file / not a sealed
+  file (a size no sealer produces) / the body ended before its
+  `Content-Length`; `404` document not found / foreign; `409` document has
+  already been uploaded; `411` no `Content-Length`; `413` file too large (its
+  plaintext, for a sealed upload), or a body longer than its
+  `Content-Length`; `415` not `application/octet-stream`; `429` upload rate
+  limit. An upload that fails part-way leaves nothing under its key.
+
+```sh
+curl -X PUT "https://anonify.example/api/upload/local?documentId=doc_..."   -H "cookie: ..." -H "content-type: application/octet-stream"   --data-binary @report.pdf
+```
+
+### `POST /api/upload/local` (deprecated)
+
+The same upload as `multipart/form-data` with fields `documentId` and `file`.
+**Deprecated in 1.16.0 and removed in 1.17.0**: parsing the form holds the whole
+file in memory before any of it is written, which is what `PUT` exists to
+avoid. Every response carries a `Deprecation` header and a `Link` to the `PUT`
+above, and the server logs the use at most once an hour. Responses and errors
+are otherwise as for `PUT`, with `400` expected multipart / no file in place of
+the length errors.
 
 ### `POST /api/upload/presign`
 
@@ -1134,8 +1160,14 @@ for one second.
 
 - **Auth:** none
 - **Params:** none
-- **Response `200`:** `{ status: "ready", checks: { database, storage, world? } }`,
-  each the milliseconds the check took.
+- **Response `200`:** `{ status: "ready", checks: { database, storage, world? }, degraded? }`,
+  each the milliseconds the check took. `degraded` names the checks that
+  failed without making the replica unready: `redis`, with
+  `ANONIFY_RATE_STORE=redis`, which the replica works without (#184), and
+  `presigned-cors`, with presigned uploads on, when the bucket's CORS rules
+  would refuse a browser at `ANONIFY_PUBLIC_URL` (#185); browsers then fall
+  back to `PUT /api/upload/local`. It is absent when there are none, and each
+  one is logged as a warning saying what is missing.
 - **Response `503`:** `{ status: "not-ready", failed: [...] }`, the names of the
   checks that failed (`database`, `storage`, `world`, `draining`) and nothing
   else; the detail is logged with `context: "health.ready"`.

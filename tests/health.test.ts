@@ -2,12 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const query = vi.fn()
 const probe = vi.fn()
+const uploadMode = vi.fn()
+const probeCors = vi.fn()
 
 vi.mock("@/lib/database/prisma", () => ({
   prisma: { $queryRaw: (...args: unknown[]) => query(...args) },
 }))
 vi.mock("@/lib/storage/blob", () => ({
   probeStorage: () => probe(),
+  clientUploadMode: () => uploadMode(),
+  probeUploadCors: (origin: string) => probeCors(origin),
 }))
 
 const { GET: health } = await import("@/app/api/health/route")
@@ -24,6 +28,8 @@ beforeEach(() => {
   clearReadinessCache()
   query.mockReset().mockResolvedValue([{ "?column?": 1 }])
   probe.mockReset().mockResolvedValue(undefined)
+  uploadMode.mockReset().mockReturnValue("server-route")
+  probeCors.mockReset().mockResolvedValue("allowed")
   errors = vi.spyOn(console, "error").mockImplementation(() => {})
 })
 
@@ -152,5 +158,92 @@ describe("GET /api/ready (#167)", () => {
     clearReadinessCache()
     markWorldStarted()
     expect((await ready()).status).toBe(200)
+  })
+})
+
+describe("a bucket's CORS behind direct uploads (#185)", () => {
+  // The answer is kept for minutes, so each case gets a route of its own,
+  // and the refusal is the class that copy of the route knows.
+  let CorsRefusal: typeof import("@/lib/storage/cors").CorsRefusal
+  async function freshReady() {
+    vi.resetModules()
+    ;({ CorsRefusal } = await import("@/lib/storage/cors"))
+    const { GET } = await import("@/app/api/ready/route")
+    const health = await import("@/lib/health/ready")
+    // Past the second-long cache of the whole answer, every time.
+    return () => {
+      health.clearReadinessCache()
+      return GET()
+    }
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("WORKFLOW_TARGET_WORLD", "")
+    vi.stubEnv("ANONIFY_PUBLIC_URL", "https://redact.example.org/app")
+  })
+
+  it("is not checked when browsers upload through the app", async () => {
+    const answer = await (await (await freshReady())()).json()
+    expect(Object.keys(answer.checks)).not.toContain("presigned-cors")
+    expect(probeCors).not.toHaveBeenCalled()
+  })
+
+  it("is checked for the public origin when they upload straight to the bucket", async () => {
+    uploadMode.mockReturnValue("s3-presigned")
+    const answer = await (await (await freshReady())()).json()
+    expect(answer.checks).toHaveProperty("presigned-cors")
+    expect(probeCors).toHaveBeenCalledWith("https://redact.example.org")
+  })
+
+  it("is degraded, not unready, when the rules would refuse a browser", async () => {
+    const warns = vi.spyOn(console, "warn").mockImplementation(() => {})
+    uploadMode.mockReturnValue("s3-presigned")
+    const get = await freshReady()
+    probeCors.mockRejectedValue(
+      new CorsRefusal(
+        "No CORS rule allows the origin https://redact.example.org."
+      )
+    )
+    const response = await get()
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      status: "ready",
+      degraded: ["presigned-cors"],
+    })
+    const logged = warns.mock.calls.map(([line]) => String(line)).join(" ")
+    expect(logged).toContain("No CORS rule allows the origin")
+    expect(logged).toContain("fall back to uploading through the app")
+  })
+
+  it("asks the bucket again only after a while", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    uploadMode.mockReturnValue("s3-presigned")
+    const get = await freshReady()
+    probeCors.mockRejectedValue(new CorsRefusal("No CORS rules."))
+    await get()
+    await get()
+    expect(probeCors).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not keep a bucket that did not answer", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    uploadMode.mockReturnValue("s3-presigned")
+    probeCors.mockRejectedValueOnce(new Error("socket hang up"))
+    const get = await freshReady()
+    expect((await (await get()).json()).degraded).toEqual(["presigned-cors"])
+    expect((await (await get()).json()).degraded).toBeUndefined()
+    expect(probeCors).toHaveBeenCalledTimes(2)
+  })
+
+  it("passes, with a note once, when the rules cannot be read", async () => {
+    const infos = vi.spyOn(console, "info").mockImplementation(() => {})
+    uploadMode.mockReturnValue("s3-presigned")
+    probeCors.mockResolvedValue("unreadable")
+    const get = await freshReady()
+    expect((await get()).status).toBe(200)
+    expect(infos).toHaveBeenCalledTimes(1)
+    expect(String(infos.mock.calls[0][0])).toContain(
+      "upload.presigned-fallback"
+    )
   })
 })

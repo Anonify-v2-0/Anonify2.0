@@ -105,6 +105,21 @@ export async function probeStorage(): Promise<void> {
   await selectStorageDriver().probe()
 }
 
+/**
+ * When browsers upload straight to the bucket, whether its CORS rules let
+ * them (#185); see `StorageDriver.probeUploadCors`. `skipped` when they do
+ * not upload straight to it, or the driver cannot tell.
+ */
+export async function probeUploadCors(
+  origin: string
+): Promise<"allowed" | "unreadable" | "skipped"> {
+  const driver = selectStorageDriver()
+  if (driver.clientUpload !== "s3-presigned" || !driver.probeUploadCors) {
+    return "skipped"
+  }
+  return driver.probeUploadCors(origin)
+}
+
 export async function objectExists(key: string): Promise<boolean> {
   try {
     return await driverForKey(key).exists(key)

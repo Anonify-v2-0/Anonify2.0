@@ -88,6 +88,7 @@
     "fast-xml-parser": "^5.11.1",
     "fflate": "^0.8.3",
     "google-auth-library": "^11.0.2",
+    "ioredis": "^6.0.0",
     "lucide-react": "^1.39.0",
     "next": "16.3.6",
     "next-themes": "^0.4.6",

@@ -364,6 +364,12 @@ Every orchestrator asks two questions, and they get separate answers (#167):
   `context: "health.ready"`. Each check has `ANONIFY_READY_TIMEOUT_MS`
   (default 2000), and the answer is kept for a second, so a burst of probes
   is one round of queries.
+- **Degraded is not unready.** A check for something the replica works
+  without, less well, is reported under `degraded` in a 200 and logged as a
+  warning: Redis, with `ANONIFY_RATE_STORE=redis` (#184), behind which the AI
+  and OCR pacing falls back to each process and the inbound limiter to
+  Postgres. Taking a replica out of rotation for it would turn a warning
+  into an outage.
 
 Both are unauthenticated: a probe has no session, and neither returns
 document data.

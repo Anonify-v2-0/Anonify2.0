@@ -618,6 +618,40 @@ than looking finished. Without `AI_PRICE_*` no spend can be estimated, and the
 app says that in the log rather than pretending to enforce a cap it cannot
 compute.
 
+#### Several replicas: one budget
+
+By default these limits are **per process**, which is the whole deployment
+when there is one container. Four workers each allowed four calls send sixteen
+at an account that allows four, and the provider answers with 429s. With
+`ANONIFY_SERVICE_LIMIT_SCOPE=cluster` the numbers above mean the **whole
+deployment**, whatever the replica count:
+
+| Variable | What it does | Default |
+| --- | --- | --- |
+| `ANONIFY_SERVICE_LIMIT_SCOPE` | `process`, or `cluster` to share the AI and OCR limits between replicas | `process` |
+| `ANONIFY_RATE_STORE` | Where the shared state lives: `postgres`, or `redis` | `postgres` |
+| `REDIS_URL` | `redis://` or `rediss://`, with `ANONIFY_RATE_STORE=redis` | unset |
+| `REDIS_KEY_PREFIX` | Prefix for every key written | `anonify:` |
+| `REDIS_CLUSTER` | `true` for a cluster-mode endpoint | `false` |
+
+- **Postgres** needs nothing new: one statement per request for the rate and
+  one per call for the concurrency slot. That is comfortable up to a few
+  hundred provider calls a second across the deployment, far above what any
+  provider allows.
+- **Redis or Valkey** is for very high request rates, or a deployment that
+  already runs one: Redis 6 or later, Valkey, ElastiCache, MemoryDB,
+  Memorystore, Azure Cache for Redis, Upstash. Every operation is a single-key
+  script, so cluster mode needs nothing beyond `REDIS_CLUSTER=true`.
+  `ANONIFY_RATE_STORE=redis` moves the inbound rate limiter's buckets there
+  too, which takes the busiest write off Postgres.
+- **When the store is unreachable**, documents keep processing: outbound calls
+  fall back to each process's own limits, which is less precise, and the
+  inbound limiter falls back to Postgres. A warning is logged every 30 seconds
+  while it lasts, and `/api/ready` lists `redis` under `degraded` without
+  taking the replica out of rotation.
+- A provider's `Retry-After` holds every replica back, not just the one that
+  got the 429, when a rate is configured for that service.
+
 ### Test database
 
 `TEST_DATABASE_URL` points the database-backed integration suites

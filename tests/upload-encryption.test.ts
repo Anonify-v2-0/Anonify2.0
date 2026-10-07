@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto"
-import { readFile, rm, stat } from "node:fs/promises"
+import { readdir, readFile, rm, stat } from "node:fs/promises"
 import path from "node:path"
 
 import { FatalError } from "workflow"
@@ -757,6 +757,251 @@ describe("/api/upload/local", { timeout: 30_000 }, () => {
       (await postLocal(doc.id, new Blob([new Uint8Array(sealed)]))).status
     ).toBe(201)
     expect(await getObject(`local:${doc.pathname}`)).toEqual(sealed)
+  })
+})
+
+describe("the multipart POST, deprecated (#185)", () => {
+  it("still works, and says when it goes and what replaces it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const doc = reserve("notes.txt")
+    const response = await postLocal(
+      doc.id,
+      new Blob([new Uint8Array(uploads.sealedUploadBytes(100))])
+    )
+    expect(response.status).toBe(201)
+    expect(response.headers.get("deprecation")).toMatch(/^@\d+$/)
+    expect(response.headers.get("link")).toContain('rel="deprecation"')
+    // Even a refusal carries it: a script reads its errors more than its 201s.
+    const refused = await postLocal("doc_nonexistent", new Blob(["x"]))
+    expect(refused.status).toBe(404)
+    expect(refused.headers.get("deprecation")).not.toBeNull()
+    warn.mockRestore()
+  })
+})
+
+// --- the streaming PUT (#185) ------------------------------------------------------
+
+/**
+ * A body made on demand, `chunk` bytes per pull, that notes whether anything
+ * was ever read from it.
+ */
+function pulledBody(total: number, chunk = 64 * 1024) {
+  let produced = 0
+  const state = {
+    read: false,
+    produced: () => produced,
+    onPull: (() => {}) as (produced: number) => void | Promise<void>,
+  }
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        state.read = true
+        if (produced >= total) {
+          controller.close()
+          return
+        }
+        const size = Math.min(chunk, total - produced)
+        produced += size
+        await state.onPull(produced)
+        controller.enqueue(new Uint8Array(size))
+      },
+      // Nothing queued ahead, so a pull is a read and not the stream filling up.
+    },
+    { highWaterMark: 0 }
+  )
+  return { stream, state }
+}
+
+async function putLocal(
+  id: string,
+  body: ReadableStream<Uint8Array> | Uint8Array,
+  options: { length?: number | null; headers?: Record<string, string> } = {}
+): Promise<Response> {
+  const headers = new Headers({
+    "content-type": "application/octet-stream",
+    ...options.headers,
+  })
+  const length =
+    options.length !== undefined
+      ? options.length
+      : body instanceof Uint8Array
+        ? body.byteLength
+        : null
+  if (length !== null) headers.set("content-length", String(length))
+  return localRoute.PUT(
+    new Request(
+      `http://localhost/api/upload/local?documentId=${encodeURIComponent(id)}`,
+      { method: "PUT", body, headers, duplex: "half" } as RequestInit
+    )
+  )
+}
+
+/** Whatever is in the document's upload directory: the object, or debris. */
+async function uploadDebris(pathname: string): Promise<string[]> {
+  try {
+    return await readdir(path.dirname(path.join(STORE, pathname)))
+  } catch {
+    return []
+  }
+}
+
+describe("PUT /api/upload/local (#185)", { timeout: 60_000 }, () => {
+  it("streams a sealed upload of exactly the plaintext ceiling", async () => {
+    const doc = reserve("big.txt")
+    const total = uploads.sealedUploadBytes(MAX_UPLOAD_BYTES)
+    const { stream, state } = pulledBody(total)
+
+    // How far ahead of the disk the route ever gets. Holding the file would
+    // be all of it; streaming is a few chunks.
+    let ahead = 0
+    state.onPull = async (produced) => {
+      if (produced % (4 * 1024 * 1024) !== 0) return
+      const directory = path.dirname(path.join(STORE, doc.pathname))
+      const partial = (await readdir(directory).catch(() => [])).find((name) =>
+        name.endsWith(".partial")
+      )
+      if (!partial) return
+      const written = (await stat(path.join(directory, partial))).size
+      ahead = Math.max(ahead, produced - written)
+    }
+
+    const response = await putLocal(doc.id, stream, { length: total })
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({
+      url: `local:${doc.pathname}`,
+      size: total,
+    })
+    expect(doc.row().uploadBlobKey).toBe(`local:${doc.pathname}`)
+    expect((await stat(path.join(STORE, doc.pathname))).size).toBe(total)
+    expect(ahead).toBeGreaterThan(0)
+    expect(ahead).toBeLessThan(8 * 1024 * 1024)
+  })
+
+  it("stores the ciphertext exactly as it arrived", async () => {
+    const doc = reserve("notes.txt")
+    const sealed = await sealWeb(
+      textFile(3000),
+      doc.key!,
+      doc.pathname,
+      uploads.UPLOAD_CHUNK_SHIFT
+    )
+    expect((await putLocal(doc.id, new Uint8Array(sealed))).status).toBe(201)
+    expect(await getObject(`local:${doc.pathname}`)).toEqual(sealed)
+  })
+
+  it("asks for a length, and reads nothing without one", async () => {
+    const doc = reserve("notes.txt")
+    const { stream, state } = pulledBody(1000)
+    const response = await putLocal(doc.id, stream, { length: null })
+    expect(response.status).toBe(411)
+    expect(state.read).toBe(false)
+  })
+
+  it("refuses a declared length over the ceiling before reading it", async () => {
+    const doc = reserve("big.txt")
+    const { stream, state } = pulledBody(1000)
+    const response = await putLocal(doc.id, stream, {
+      length: uploads.sealedUploadBytes(MAX_UPLOAD_BYTES + 1),
+    })
+    expect(response.status).toBe(413)
+    expect(state.read).toBe(false)
+  })
+
+  it("answers 404 for someone else's document without reading the body", async () => {
+    const doc = reserve("secret.txt")
+    doc.row().userFingerprint = "someone_else"
+    const size = uploads.sealedUploadBytes(100)
+    const { stream, state } = pulledBody(size)
+    const response = await putLocal(doc.id, stream, { length: size })
+    expect(response.status).toBe(404)
+    expect(state.read).toBe(false)
+    expect(doc.row().uploadBlobKey).toBeNull()
+  })
+
+  it("refuses a document already uploaded, and a size no sealer produces", async () => {
+    const done = reserve("done.txt")
+    done.row().status = "queued"
+    const body = new Uint8Array(uploads.sealedUploadBytes(10))
+    expect((await putLocal(done.id, body)).status).toBe(409)
+
+    const odd = reserve("odd.txt")
+    expect((await putLocal(odd.id, new Uint8Array(20))).status).toBe(400)
+  })
+
+  it("takes only the raw bytes", async () => {
+    const doc = reserve("notes.txt")
+    const response = await putLocal(
+      doc.id,
+      new Uint8Array(uploads.sealedUploadBytes(10)),
+      { headers: { "content-type": "multipart/form-data; boundary=x" } }
+    )
+    expect(response.status).toBe(415)
+  })
+
+  it("refuses a body longer than it declared, and leaves nothing behind", async () => {
+    const doc = reserve("long.txt")
+    const declared = uploads.sealedUploadBytes(200_000)
+    const { stream } = pulledBody(declared + 10)
+    const response = await putLocal(doc.id, stream, { length: declared })
+    expect(response.status).toBe(413)
+    expect(await uploadDebris(doc.pathname)).toEqual([])
+    expect(doc.row().uploadBlobKey).toBeNull()
+  })
+
+  it("leaves nothing under the final key when the client goes away half-way", async () => {
+    const doc = reserve("cut.txt")
+    const declared = uploads.sealedUploadBytes(2_000_000)
+    let sent = 0
+    // The connection dropping: the body errors partway through.
+    const dropped = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent > declared / 2) {
+          controller.error(new Error("aborted"))
+          return
+        }
+        sent += 64 * 1024
+        controller.enqueue(new Uint8Array(64 * 1024))
+      },
+    })
+    const response = await putLocal(doc.id, dropped, { length: declared })
+    // Not a server error: nothing went wrong here.
+    expect(response.status).toBe(400)
+    expect(await uploadDebris(doc.pathname)).toEqual([])
+    expect(doc.row().uploadBlobKey).toBeNull()
+  })
+
+  it("fails a body that ends short of its length", async () => {
+    const doc = reserve("short.txt")
+    const declared = uploads.sealedUploadBytes(200_000)
+    const { stream } = pulledBody(declared - 1000)
+    const response = await putLocal(doc.id, stream, { length: declared })
+    expect(response.status).toBe(400)
+    expect(await uploadDebris(doc.pathname)).toEqual([])
+  })
+
+  it("logs a browser that fell back from the bucket, and nothing it made up", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const first = reserve("a.txt")
+    const body = () => new Uint8Array(uploads.sealedUploadBytes(10))
+    await putLocal(first.id, body(), {
+      headers: {
+        "x-anonify-upload-fallback": "presigned-network-error",
+        origin: "https://anonify.example",
+      },
+    })
+    const second = reserve("b.txt")
+    await putLocal(second.id, body(), {
+      headers: { "x-anonify-upload-fallback": "<script>" },
+    })
+    const lines = warn.mock.calls.map(([line]) => JSON.parse(String(line)))
+    expect(lines).toEqual([
+      expect.objectContaining({
+        context: "upload.presigned-fallback",
+        reason: "presigned-network-error",
+        origin: "https://anonify.example",
+      }),
+    ])
+    warn.mockRestore()
   })
 })
 

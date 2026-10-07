@@ -28,6 +28,7 @@ import {
   isMissingObject,
   sliceIfWhole,
 } from "@/lib/storage/driver-utils"
+import { CorsRefusal, corsRefusal, type CorsRule } from "@/lib/storage/cors"
 import { holdErrors } from "@/lib/storage/streams"
 import {
   perDocumentStreamBytes,
@@ -88,6 +89,13 @@ export type StorageDriver = {
    * whose `clientUpload` is `s3-presigned`.
    */
   presignUpload?: (key: string, size: number) => Promise<PresignedUpload>
+  /**
+   * Whether the bucket's CORS rules let a browser at `origin` make the PUT
+   * `presignUpload` signs (#185), for /api/ready. Throws, saying what no
+   * rule allows, when they would refuse it; `unreadable` when the service or
+   * these credentials cannot read the rules, which is no evidence either way.
+   */
+  probeUploadCors?: (origin: string) => Promise<"allowed" | "unreadable">
   put: (key: string, data: Uint8Array) => Promise<StoredObject>
   get: (key: string) => Promise<Buffer>
   /**
@@ -367,6 +375,46 @@ export function createS3Driver(config: S3Config): StorageDriver {
         handle: `${S3_PREFIX}${key}`,
         expiresAt: new Date(Date.now() + PRESIGNED_UPLOAD_SECONDS * 1000),
       }
+    },
+
+    async probeUploadCors(origin) {
+      // GCS answers `?cors` in its own XML, which the SDK would read as no
+      // rules at all: a warning about a bucket that may be fine.
+      if (
+        config.endpoint &&
+        /(^|\.)googleapis\.com$/i.test(new URL(config.endpoint).hostname)
+      )
+        return "unreadable"
+      const { GetBucketCorsCommand } = await import("@aws-sdk/client-s3")
+      let rules: CorsRule[]
+      try {
+        const result = await (
+          await client
+        ).send(new GetBucketCorsCommand({ Bucket: config.bucket }))
+        rules = (result.CORSRules ?? []).map((rule) => ({
+          origins: rule.AllowedOrigins ?? [],
+          methods: rule.AllowedMethods ?? [],
+          headers: rule.AllowedHeaders ?? [],
+        }))
+      } catch (error) {
+        const name = (error as { name?: string }).name
+        const status = (error as { $metadata?: { httpStatusCode?: number } })
+          .$metadata?.httpStatusCode
+        if (name === "NoSuchCORSConfiguration") rules = []
+        // A service without the API, or a key without s3:GetBucketCORS:
+        // least-privilege credentials should not read as a broken bucket.
+        else if (
+          name === "NotImplemented" ||
+          name === "AccessDenied" ||
+          status === 501 ||
+          status === 403
+        )
+          return "unreadable"
+        else throw error
+      }
+      const refusal = corsRefusal(rules, origin, ["content-type"])
+      if (refusal) throw new CorsRefusal(refusal)
+      return "allowed"
     },
 
     async put(key, data) {
