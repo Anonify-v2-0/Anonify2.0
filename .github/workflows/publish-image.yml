@@ -316,19 +316,16 @@ jobs:
       # without it leaves the page as it was and says so, rather than failing a
       # release that has already been published.
       #
-      # The release's own copy of the page, or main's for a release older than
-      # the page.
+      # Always main's copy, not the release's. There is one page for every tag,
+      # so it describes the project as it is now; re-publishing an old version
+      # by hand must not put that version's older page back.
       - name: Find the Docker Hub page
         id: page
         continue-on-error: true
         run: |
           set -euo pipefail
           page="$RUNNER_TEMP/docker-hub.md"
-          if [ -f docs/docker-hub.md ]; then
-            cp docs/docker-hub.md "$page"
-          else
-            git show origin/main:docs/docker-hub.md > "$page"
-          fi
+          git show origin/main:docs/docker-hub.md > "$page"
           echo "path=$page" >> "$GITHUB_OUTPUT"
 
       - name: Update the Docker Hub page
