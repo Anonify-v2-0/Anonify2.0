@@ -219,7 +219,11 @@ retry reads it back before deciding. See `chargeDocumentUsage`.
 Runs the detection pipeline in [ai-engine.md](./ai-engine.md), streaming progress
 as it goes, and writes every result as a row with `status: "suggested"`.
 
-For images it additionally runs a vision pass over the actual pixels.
+For images it additionally runs a vision pass over the actual pixels, and for a
+PDF over each page that paints an image (the first 20 of them). A PDF's pages
+are rendered one at a time and sent to the model as each is drawn, up to
+`ANONIFY_AI_CONCURRENCY` at once, so at most that many page images are held in
+memory. Their suggestions are collected in page order however the calls finish.
 
 For spreadsheets, a column the model judges sensitive is written as **one
 column-level suggestion** rather than one per cell — because that is the decision

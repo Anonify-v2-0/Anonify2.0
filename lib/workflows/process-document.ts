@@ -23,8 +23,8 @@ import { extractPdf } from "@/lib/documents/pdf/extract"
 import { extractPptx, extractPptxPackage } from "@/lib/documents/pptx/extract"
 import { extractImage } from "@/lib/documents/image/extract"
 import {
+  analyzePagesForVision,
   MAX_VISION_PAGES,
-  renderPagesForVision,
 } from "@/lib/documents/pdf/page-images"
 import { emlDocument, extractEml } from "@/lib/documents/eml/extract"
 import type { ParsedMessage } from "@/lib/documents/eml/parse"
@@ -59,6 +59,7 @@ import { carryOwnerRules } from "@/lib/redaction/owner-rules"
 import { PatternBudgetError, PatternError } from "@/lib/redaction/patterns"
 import { carryBatchRules } from "@/lib/redaction/rules"
 import { chargeDocumentUsage, quotaMessage } from "@/lib/security/usage"
+import { serviceLimits } from "@/lib/services/limits"
 import { sourceKey } from "@/lib/storage/blob"
 import { checksumMatches, sha256 } from "@/lib/storage/integrity"
 import {
@@ -914,15 +915,43 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
         ),
         streamingLimits().chunkBytes
       )
-      const rendered = await renderPagesForVision(source, imagePages)
+      // As many pages at once as the text pass sends chunks (#173), paced by
+      // the same process-wide throttle. Progress counts pages as they finish,
+      // in whatever order that is.
+      let completed = 0
+      let found = 0
+      const pages = await analyzePagesForVision(
+        source,
+        imagePages,
+        async ({ page, png }) => {
+          const analysis = await analyzeImageRegions(
+            documentId,
+            model,
+            { data: png, mediaType: "image/png" },
+            page
+          )
+          completed += 1
+          found += analysis.regions.filter((detection) =>
+            categoryAllowed(preset, detection.category)
+          ).length
+          await emit(documentId, "document.ai.progress", {
+            status: "analyzing",
+            payload: {
+              stage: "image",
+              completed,
+              total: imagePages.length,
+              suggestions: detections.length + found,
+            },
+          })
+          return analysis
+        },
+        { concurrency: serviceLimits("ai").concurrency }
+      )
 
-      for (const [index, { page, png }] of rendered.entries()) {
-        const analysis = await analyzeImageRegions(
-          documentId,
-          model,
-          { data: png, mediaType: "image/png" },
-          page
-        )
+      // Taken in page order, not finishing order, so the suggestions, their
+      // order and the skip reported are the same however the calls raced:
+      // the first page to lose its call is the one named.
+      for (const { result: analysis } of pages) {
         lostVisionCalls += analysis.skipped ? 1 : 0
         visionSkip ??= analysis.skipped
         detections.push(
@@ -930,15 +959,6 @@ async function runAnalyze(documentId: string): Promise<{ suggestions: number }> 
             categoryAllowed(preset, detection.category)
           )
         )
-        await emit(documentId, "document.ai.progress", {
-          status: "analyzing",
-          payload: {
-            stage: "image",
-            completed: index + 1,
-            total: rendered.length,
-            suggestions: detections.length,
-          },
-        })
       }
     }
   }
