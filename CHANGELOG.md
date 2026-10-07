@@ -14,6 +14,12 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.14.5] - 2026-10-07
+
+### Security
+
+- Dependencies updated to patched releases for 29 of the 30 advisories `pnpm audit` reported, among them proxy-addr (critical), undici, sharp, brace-expansion, http-cache-semantics and the MCP TypeScript SDK. The one left, braces, has no patched release yet, and is reached only by developer tooling (#222)
+
 ## [1.14.4] - 2026-10-07
 
 ### Added
