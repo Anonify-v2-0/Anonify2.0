@@ -49,6 +49,52 @@ env:
   VERSION: ${{ inputs.version }}
 
 jobs:
+  # `X.Y.Z` never moves once it is published: someone may have pulled it, and a
+  # rebuild of the same commit is not byte-identical, so it would be a new
+  # digest under an old name. A re-run for a version that is already on Docker
+  # Hub therefore builds nothing. It reuses that image for the floating tags,
+  # the attestation, the release notes and the verification, which is what a
+  # re-run is usually for.
+  existing:
+    name: Already published?
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    outputs:
+      digest: ${{ steps.look.outputs.digest }}
+
+    steps:
+      # A version that is not a plain release would publish nothing sensible.
+      - name: Check the version
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$VERSION' is not a plain major.minor.patch. Give the version without the v."
+            exit 1
+          fi
+
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Only "not found" means build. Any other failure to ask stops the run,
+      # rather than rebuilding over an image that may well be there.
+      - name: Look for docker.io/${{ env.IMAGE }}:${{ inputs.version }}
+        id: look
+        run: |
+          set -euo pipefail
+          if found=$(docker buildx imagetools inspect "docker.io/$IMAGE:$VERSION" --format '{{json .Manifest}}' 2> "$RUNNER_TEMP/err"); then
+            digest=$(printf '%s' "$found" | jq -r .digest)
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+            echo "::notice::$VERSION is already published as $digest; building nothing."
+          elif grep -q 'not found' "$RUNNER_TEMP/err"; then
+            echo "$VERSION is not published yet."
+          else
+            cat "$RUNNER_TEMP/err"
+            exit 1
+          fi
+
   # One image per architecture, each on a runner of that architecture. No QEMU:
   # emulated, the Next.js build alone takes the better part of an hour, and the
   # lockfile already resolves sharp's and canvas's native arm64 packages.
@@ -58,6 +104,8 @@ jobs:
   # publishes an amd64-only `latest`.
   build:
     name: Build (${{ matrix.arch }})
+    needs: existing
+    if: needs.existing.outputs.digest == ''
     strategy:
       fail-fast: true
       matrix:
@@ -70,16 +118,6 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      # Before anything is built: a version that is not a plain release, or a
-      # tag that does not exist, would publish an image of the wrong tree.
-      - name: Check the version
-        run: |
-          set -euo pipefail
-          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::'$VERSION' is not a plain major.minor.patch. Give the version without the v."
-            exit 1
-          fi
-
       # The tag, never a branch. Whatever main holds by now, the image is the
       # tree that was released.
       - uses: actions/checkout@v5
@@ -158,7 +196,11 @@ jobs:
   # The two images become one index, which is what every tag points at.
   manifest:
     name: Tag, attest and announce
-    needs: build
+    needs: [existing, build]
+    # After a build, or in place of one when the version is already published.
+    if: >-
+      !cancelled() && needs.existing.result == 'success' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -207,6 +249,7 @@ jobs:
           echo "::notice::Tags: ${tags[*]}"
 
       - uses: actions/download-artifact@v8
+        if: needs.existing.outputs.digest == ''
         with:
           path: ${{ runner.temp }}/digests
           pattern: digest-*
@@ -219,25 +262,44 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # A fresh build: the two digests become one index under every tag. An
+      # existing version: its index is copied as it is to the other tags, and
+      # `X.Y.Z` itself is not written at all.
       - name: Create the multi-arch index
         id: index
-        working-directory: ${{ runner.temp }}/digests
         env:
           TAGS: ${{ steps.tags.outputs.tags }}
+          EXISTING: ${{ needs.existing.outputs.digest }}
         run: |
           set -euo pipefail
 
           args=()
-          for tag in $TAGS; do args+=(-t "docker.io/$IMAGE:$tag"); done
+          for tag in $TAGS; do
+            [ -n "$EXISTING" ] && [ "$tag" = "$VERSION" ] && continue
+            args+=(-t "docker.io/$IMAGE:$tag")
+          done
 
-          docker buildx imagetools create "${args[@]}" \
-            $(printf "docker.io/$IMAGE@sha256:%s " *)
+          if [ -n "$EXISTING" ]; then
+            docker buildx imagetools create --prefer-index=false "${args[@]}" "docker.io/$IMAGE@$EXISTING"
+          else
+            cd "$RUNNER_TEMP/digests"
+            docker buildx imagetools create "${args[@]}" \
+              $(printf "docker.io/$IMAGE@sha256:%s " *)
+          fi
 
           docker buildx imagetools inspect "docker.io/$IMAGE:$VERSION"
 
           digest=$(docker buildx imagetools inspect "docker.io/$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           echo "::notice::docker.io/$IMAGE:$VERSION is $digest"
+
+          # The copy is meant to be exact. If it was not, the floating tags hold
+          # an equivalent index under another digest; say so rather than hide it.
+          for tag in "${args[@]}"; do
+            [ "$tag" = -t ] && continue
+            other=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' | jq -r .digest)
+            [ "$other" = "$digest" ] || echo "::warning::$tag is $other, not $digest"
+          done
 
       # Verifiable with `gh attestation verify oci://docker.io/IMAGE:VERSION
       # --repo OWNER/REPO`: proof that this repository's workflow built the
@@ -333,6 +395,8 @@ jobs:
   verify:
     name: Verify (${{ matrix.arch }})
     needs: manifest
+    # Explicit, because a skipped `build` upstream would otherwise skip this too.
+    if: ${{ !cancelled() && needs.manifest.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -350,7 +414,10 @@ jobs:
 
     env:
       ANONIFY_IMAGE: docker.io/${{ vars.DOCKERHUB_REPOSITORY || 'nabeelwasif/anonify2.0' }}@${{ needs.manifest.outputs.digest }}
-      # Placeholders; this stack is destroyed with the runner.
+      # Placeholders; this stack is destroyed with the runner. DATABASE_URL is
+      # for the workspace install, whose postinstall runs `prisma generate` and
+      # refuses to load the Prisma config without one; the stack sets its own.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
       ENCRYPTION_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
       FINGERPRINT_SECRET: "feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface"
       COMPOSE_FILE: docker-compose.yml:docker-compose.readonly.yml
