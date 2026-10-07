@@ -1,44 +1,46 @@
 # Anonify
 
-Self-hosted document redaction. Upload a PDF, Word document, spreadsheet,
-deck, email, mailbox, CSV, text file or image; Anonify proposes what looks like
-personal data; you decide; the export removes it, and is re-opened and checked
-before it is handed back.
+**Self-hosted, AI-assisted document redaction.** Upload a PDF, Word document,
+spreadsheet, deck, email, mailbox, CSV, text file or image. Anonify proposes
+what looks like personal data; a person decides; the export removes it. Then
+it re-opens the export and reads it the way an adversary would, and a value
+that survived fails the export rather than shipping.
+
+> AI proposes, the application applies, and only what a person accepted is
+> removed. A black rectangle over text that is still in the file is not a
+> redaction.
 
 Source, documentation and issues:
-[github.com/Anonify-v2-0/Anonify2.0](https://github.com/Anonify-v2-0/Anonify2.0).
+[github.com/Anonify-v2-0/Anonify2.0](https://github.com/Anonify-v2-0/Anonify2.0)
 
-## Tags
+## What it redacts
 
-Every release is published for `linux/amd64` and `linux/arm64`.
-
-| Tag | Points at |
+| Format | What is removed |
 | --- | --- |
-| `1.16.0` | That release, and never moves |
-| `1.16` | The newest `1.16.x` |
-| `1` | The newest `1.x.y` |
-| `latest` | The newest release |
-| `sha-<commit>` | The release built from that commit |
+| PDF | Text on any page. Scanned pages are read with OCR so they can be reviewed. |
+| Word (.docx) | Text in place, including headers, footers, footnotes and comments. |
+| Excel (.xlsx) | Cells, hidden sheets included. Formulas that still reference a redacted cell are dropped. |
+| PowerPoint (.pptx) | Slides, speaker notes, layouts and the master. |
+| Email (.eml) | Headers, every body part, quoted replies and attachment names. Supported attachments become documents of their own. |
+| Mailbox (.mbox) | Split into one document per message, and rebuilt as a mailbox on export. |
+| CSV, TSV | Cells, parsed as a grid. |
+| Text (.txt), Rich text (.rtf) | Text, with RTF parsed rather than searched. |
+| Images (PNG, JPEG, WebP) | Pixels, re-encoded, with EXIF and GPS metadata removed. |
 
-For anything you deploy, use a full version, or better its digest, which is in
-each [release's notes](https://github.com/Anonify-v2-0/Anonify2.0/releases).
+It looks for names, addresses, phone numbers, email addresses, government IDs,
+bank and financial details, dates of birth, customer and case numbers,
+credentials, faces, health information and anything else that identifies a
+person. Pattern detection, manual redaction and export work with no AI
+provider at all; a model (OpenAI, Anthropic, Google, Bedrock, Azure, Ollama and
+others) adds a contextual pass when one is configured.
 
-## Running it
+## Quick start
 
-One image does every job. What it does is the command:
-
-```sh
-docker run IMAGE            # serve on :3000 (the default)
-docker run IMAGE migrate    # apply database migrations, then exit
-docker run IMAGE cleanup    # run the expiry sweep once, then exit
-docker run IMAGE help
-```
-
-It needs Postgres and S3-compatible storage (or Azure Blob Storage). The
-repository's Compose file starts both alongside it. To run it from this image
-rather than building from source, clone the repository and:
+It needs Postgres and S3-compatible storage. The repository's Compose file
+runs both alongside the app, with local OCR, and needs no accounts anywhere.
 
 ```sh
+git clone https://github.com/Anonify-v2-0/Anonify2.0.git && cd Anonify2.0
 cat > .env <<EOF
 ANONIFY_IMAGE=nabeelwasif/anonify2.0:1
 ENCRYPTION_KEY=$(openssl rand -hex 32)
@@ -48,20 +50,68 @@ docker compose pull
 docker compose up -d --no-build
 ```
 
-Then open <http://localhost:3000>. `ENCRYPTION_KEY` encrypts every stored
-document: keep it, because a new one cannot read what the old one wrote.
+Then open <http://localhost:3000>. This starts Postgres, RustFS (S3), creates
+the bucket, applies the migrations and starts Anonify. Every port is bound to
+localhost.
 
-The image runs as a non-root user and works on a read-only root filesystem,
-with `/tmp` and `/data` writable. Configuration, platforms and migrations:
+**Keep `ENCRYPTION_KEY`.** It encrypts every stored document, and a new key
+cannot read what the old one wrote.
+
+## One image, several jobs
+
+```sh
+docker run IMAGE            # serve on :3000 (the default)
+docker run IMAGE migrate    # apply database migrations, then exit
+docker run IMAGE cleanup    # run the expiry sweep once, then exit
+docker run IMAGE help
+```
+
+Run `migrate` with the image you are about to deploy, before rolling it out.
+It is idempotent and takes a Postgres advisory lock, so it is safe on every
+deploy and from several replicas at once.
+
+## Running it in production
+
+- **Storage:** any S3-compatible service (AWS S3, RustFS, Cloudflare R2, …) or
+  Azure Blob Storage. Browsers can upload straight to the bucket.
+- **Database:** Postgres. It also holds the durable processing queue, so there
+  is no separate worker service to run unless you want one.
+- **OCR:** Tesseract inside the image, with the English model baked in, so
+  scans are read with no outbound internet. Mistral OCR is an option.
+- **Hardened:** runs as a non-root user, works on a read-only root filesystem
+  with `/tmp` and `/data` writable, and runs under `tini` as PID 1.
+- **Health:** `/api/health` for liveness, `/api/ready` for readiness (database,
+  storage and worker).
+- **Scaling:** several replicas share one database and bucket; AI and OCR
+  budgets can be shared through Postgres or Redis/Valkey.
+
+Configuration, platforms and migrations:
 [docs/deploy/image.md](https://github.com/Anonify-v2-0/Anonify2.0/blob/main/docs/deploy/image.md).
+Every setting:
+[.env.example](https://github.com/Anonify-v2-0/Anonify2.0/blob/main/.env.example).
+
+## Tags
+
+Every release is published for `linux/amd64` and `linux/arm64`.
+
+| Tag | Points at |
+| --- | --- |
+| `X.Y.Z` | That release. Never moves. |
+| `X.Y` | The newest `X.Y.z` |
+| `X` | The newest `X.y.z` |
+| `latest` | The newest release |
+| `sha-<commit>` | The release built from that commit |
+
+For anything you deploy, pin a full version, or better its digest, which is in
+each [release's notes](https://github.com/Anonify-v2-0/Anonify2.0/releases).
 
 ## Verifying an image
 
 Each image carries build provenance and an SBOM, and a signed attestation that
-it was built by this repository's release workflow:
+this repository's release workflow built it:
 
 ```sh
-gh attestation verify oci://docker.io/nabeelwasif/anonify2.0:1.16.0 --repo Anonify-v2-0/Anonify2.0
+gh attestation verify oci://docker.io/nabeelwasif/anonify2.0:X.Y.Z --repo Anonify-v2-0/Anonify2.0
 ```
 
 ## Licence
