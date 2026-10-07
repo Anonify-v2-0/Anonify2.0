@@ -117,6 +117,10 @@ page has accepted redactions?
             → rebuild the page from that image
 ```
 
+The untouched pages are copied in one pass, so a font or an image every page
+shares goes into the export once. The redacted page's pixels go in as one
+deflated RGB image: lossless, and the boxes were painted before it was made.
+
 The characters are gone because the text objects are gone. There is nothing left
 to un-cover.
 
