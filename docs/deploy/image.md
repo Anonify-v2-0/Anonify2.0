@@ -20,6 +20,44 @@ A command that names a program runs as given, so `docker run IMAGE node
 server.js` still starts the server. A misspelt command exits with status 64
 and the list above.
 
+## The published image
+
+Every release is published to Docker Hub as
+[`nabeelwasif/anonify2.0`](https://hub.docker.com/r/nabeelwasif/anonify2.0),
+for `linux/amd64` and `linux/arm64` (#180):
+
+| Tag | Points at |
+| --- | --- |
+| `X.Y.Z` | That release. Never moves. |
+| `X.Y`, `X` | The newest release in that line. |
+| `latest` | The newest release. |
+| `sha-<commit>` | The release built from that commit. |
+
+Each release's notes give its index digest. Deploy by digest, or at least by
+`X.Y.Z`: a floating tag changes what a restart runs. With Compose, set
+`ANONIFY_IMAGE=nabeelwasif/anonify2.0:X.Y.Z` in `.env`, then
+`docker compose pull` and `docker compose up -d --no-build`.
+
+Each image carries BuildKit's provenance (`mode=max`) and an SBOM per
+architecture, and the index has a signed GitHub attestation, so you can check
+it was built by this repository's release workflow and from which commit:
+
+```sh
+gh attestation verify oci://docker.io/nabeelwasif/anonify2.0:X.Y.Z --repo Anonify-v2-0/Anonify2.0
+docker buildx imagetools inspect nabeelwasif/anonify2.0:X.Y.Z --format '{{json .Provenance}}'
+```
+
+`.github/workflows/publish-image.yml` builds it. Each architecture builds on
+a native runner and is pushed by digest; the tags move only once both exist;
+then each architecture pulls the image back by digest and runs the Compose
+stack and the smoke test against it. A failure there opens an issue and moves
+no tag, since the image may already have been pulled. A publish that failed
+can be re-run from the Actions tab ("Publish image", with the version) without
+cutting a new release; re-publishing an older version does not move `latest`.
+
+Release builds pass `ANONIFY_BUILD_ID=X.Y.Z-<short commit>` and the
+`OCI_*` labels described below.
+
 ## Migrations
 
 Run `migrate`, with the image you are about to deploy, **before** rolling it
