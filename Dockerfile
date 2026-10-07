@@ -8,7 +8,7 @@
 # Pinned by digest, so rebuilding the same commit cannot silently change the
 # base (#178). Dependabot moves the pin (.github/dependabot.yml), and each move
 # goes through the Compose job in CI like any other change.
-FROM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS base
+FROM node:25-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
 # The version comes from package.json's packageManager field, so the image and a
