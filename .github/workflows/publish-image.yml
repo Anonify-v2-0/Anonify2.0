@@ -112,10 +112,14 @@ jobs:
       # Provenance and an SBOM are attached to each architecture's image here,
       # and travel into the multi-arch index `manifest` assembles.
       #
-      # The cache: release runs are triggered by a pull request closing, and an
-      # Actions cache written from a pull request's ref can be read by nothing
-      # after it. What a release can read is main's, so amd64 also starts from
-      # the layers CI's Compose job leaves under `runner` on every push to main.
+      # The cache is read, never written. A release run is triggered by a pull
+      # request closing, and an Actions cache written from a pull request's ref
+      # can be read by nothing after it, so writing one only evicted CI's. It
+      # also failed the v1.16.2 publish after both images had been pushed: the
+      # two architectures share layers whose cache keys are the same blob, both
+      # jobs tried to reserve them at once, and one got "failed to reserve
+      # cache". What a release can read is main's, so amd64 starts from the
+      # layers CI's Compose job leaves under `runner` on every push to main.
       # arm64 has no such neighbour and builds most of the way from scratch.
       - name: Build and push by digest
         id: build
@@ -133,10 +137,7 @@ jobs:
             OCI_SOURCE=${{ github.server_url }}/${{ github.repository }}
           provenance: mode=max
           sbom: true
-          cache-from: |
-            type=gha,scope=release-${{ matrix.arch }}
-            ${{ matrix.arch == 'amd64' && 'type=gha,scope=runner' || '' }}
-          cache-to: type=gha,scope=release-${{ matrix.arch }},mode=max
+          cache-from: ${{ matrix.arch == 'amd64' && 'type=gha,scope=runner' || '' }}
 
       - name: Keep the digest for the manifest
         env:
