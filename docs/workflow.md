@@ -76,6 +76,11 @@ Two details are easy to get wrong and both fail quietly:
   is unset it defaults to `postgres://world:world@localhost:5432/world` rather
   than failing. `instrumentation.ts` therefore defaults it from `DATABASE_URL`,
   so one connection string configures both.
+- **Only a process that runs steps starts the worker.** With `ANONIFY_ROLE=web`
+  a process starts runs and reads their streams, and its runner never starts;
+  with `worker` or `all` it does, and delivers each step through a loopback
+  relay that proxy.ts checks for (#179). See
+  [architecture.md §10](./architecture.md#10-process-roles).
 
 ### Startup sequence
 
@@ -219,7 +224,11 @@ retry reads it back before deciding. See `chargeDocumentUsage`.
 Runs the detection pipeline in [ai-engine.md](./ai-engine.md), streaming progress
 as it goes, and writes every result as a row with `status: "suggested"`.
 
-For images it additionally runs a vision pass over the actual pixels.
+For images it additionally runs a vision pass over the actual pixels, and for a
+PDF over each page that paints an image (the first 20 of them). A PDF's pages
+are rendered one at a time and sent to the model as each is drawn, up to
+`ANONIFY_AI_CONCURRENCY` at once, so at most that many page images are held in
+memory. Their suggestions are collected in page order however the calls finish.
 
 For spreadsheets, a column the model judges sensitive is written as **one
 column-level suggestion** rather than one per cell — because that is the decision

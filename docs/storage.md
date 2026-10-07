@@ -66,6 +66,7 @@ A stored key is either an absolute URL (Vercel Blob hands one back) or a
 | --- | --- |
 | `local:<path>` | `localDriver` |
 | `s3:<path>` | `createS3Driver(config)` |
+| `azure:<path>` | `createAzureDriver(config)` |
 | anything else (a URL) | `vercelBlobDriver` |
 
 Writes go to the configured driver (`selectStorageDriver`); reads go to the
@@ -74,8 +75,8 @@ backend change safe: a document written to disk stays readable after the
 deployment moves to S3, because the read picks the driver from the key's own
 prefix rather than from the current global config.
 
-`driverForKey` will throw if the key says S3 but S3 is no longer configured —
-the one case where a configuration change can make a document unreachable. A
+`driverForKey` will throw if the key says S3 or Azure but that backend is no
+longer configured — the one case where a configuration change can make a document unreachable. A
 document stored on the local filesystem or in Blob has no such failure mode:
 the local driver always exists, and a Blob URL is fetched over HTTP.
 
@@ -85,7 +86,7 @@ backend.
 
 ---
 
-## 3. The three drivers
+## 3. The four drivers
 
 ### `localDriver` — `lib/storage/drivers.ts:53`
 
@@ -121,6 +122,56 @@ off (`requestChecksumCalculation: "WHEN_REQUIRED"`). Otherwise the SDK signs a
 CRC32 of the empty body the URL was made from, and the browser's real PUT
 fails it.
 
+### Azure Blob Storage — `createAzureDriver` (`lib/storage/azure.ts`)
+
+Azure Blob Storage does not speak the S3 API, so before this driver an Azure
+deployment needed an S3 gateway in front of it (#176). Handles are
+`azure:<path>`.
+
+| Setting | Meaning |
+| --- | --- |
+| `AZURE_STORAGE_ACCOUNT` | The storage account. Required unless a connection string names it. |
+| `AZURE_STORAGE_CONTAINER` | The container. Required. |
+| `AZURE_STORAGE_CONNECTION_STRING` | Credential, first choice. |
+| `AZURE_STORAGE_ACCOUNT_KEY` | Credential, second choice. |
+| `AZURE_STORAGE_ENDPOINT` | Overrides `https://<account>.blob.core.windows.net`: Azurite, sovereign clouds. |
+| `AZURE_STORAGE_PRESIGNED_UPLOADS` | `true` lets browsers PUT straight to the container with a SAS. |
+| `AZURE_STORAGE_PUBLIC_ENDPOINT` | The endpoint as a browser reaches it, when that differs. |
+
+With neither a connection string nor a key, the driver authenticates with
+`DefaultAzureCredential`: a managed identity on Container Apps, workload
+identity on AKS. That needs no secret at all, and is the recommended path in
+production. Give the identity the **Storage Blob Data Contributor** role on
+the container (or the account). With browser uploads on, the SAS is a user
+delegation SAS, which needs the same role; with a key it is a service SAS.
+
+Each method maps onto one SDK call: `put` is `uploadData`, `getStream` is
+`download(0)`, `getRange(start, end)` is `download(start, end - start)` (an
+offset and a count), `size` is `getProperties`, `delete` is `deleteIfExists`,
+`exists` is `exists`, `deleteMany` is a blob batch of up to 256 deletes per
+request, and `probe` (for `/api/ready`) is the container's `getProperties`.
+`putStream` is `uploadStream` in blocks of the streaming chunk size, with as
+many in flight as one document's share of the streaming budget holds (§8).
+
+**Browser uploads and exact length.** A presigned S3 PUT signs
+`Content-Length`, so the bucket refuses any other number of bytes. A SAS
+cannot sign a length. The SAS allows create and write on one blob for 15
+minutes and requires `x-ms-blob-type: BlockBlob`; the length is held by
+ingest instead, which refuses an upload whose stored size is not the size the
+document was reserved with (`lib/documents/ingest.ts`). That check runs for
+every backend. The account needs a CORS rule allowing `PUT` from the app's
+origin with the `content-type` and `x-ms-blob-type` headers.
+
+**Turn lifecycle management off for the container.** Anonify deletes its own
+objects when a document expires, and a lifecycle rule could delete a source
+that is still inside its retention window.
+
+The container is the operator's to create; the app never creates one.
+`pnpm smoke:driver` runs the driver through every method, a SAS upload
+included. CI runs it against Azurite, the official emulator, and then runs the
+whole app on it (`docker-compose.azure.yml`). Managed identity is not covered
+by CI, because the emulator has none.
+
 ### `vercelBlobDriver` — `lib/storage/drivers.ts:188`
 
 `put` calls `@vercel/blob` `put` with `addRandomSuffix: true`, so the returned
@@ -148,6 +199,8 @@ the bundle:
 
 - `createS3Driver` does `import("@aws-sdk/client-s3")` inside the factory and
   again inside each method (`PutObjectCommand`, `GetObjectCommand`, …).
+- `createAzureDriver` does `import("@azure/storage-blob")`, and
+  `import("@azure/identity")` only for the default credential.
 - `vercelBlobDriver` does `import("@vercel/blob")` inside `put` / `delete` /
   `exists`.
 - `localDriver` uses only `node:fs/promises`, so there is nothing to lazy-load.
@@ -164,13 +217,17 @@ self-hosted install on RustFS never pulls in `@vercel/blob`.
 The driver for **new** objects is chosen once, at write time. Inference order:
 
 1. **Explicit `STORAGE_DRIVER`.** If set, it must be one of `vercel-blob`,
-   `s3`, `local` (`configuredDriverName`, `drivers.ts:229`); anything else
+   `s3`, `azure-blob`, `local` (`configuredDriverName`, `drivers.ts:229`); anything else
    throws. Each value is then validated against its own env —
-   `vercel-blob` needs `BLOB_READ_WRITE_TOKEN`, `s3` needs the three S3 vars.
+   `vercel-blob` needs `BLOB_READ_WRITE_TOKEN`, `s3` needs the three S3 vars,
+   `azure-blob` needs a container and an account or connection string.
 2. **Blob token present.** `BLOB_READ_WRITE_TOKEN` selects `vercelBlobDriver`.
 3. **S3 config present.** `s3ConfigFromEnv()` returning non-null selects
    `createS3Driver`.
-4. **Otherwise `localDriver`.** A fresh clone with nothing configured at all
+4. **Azure config present.** `AZURE_STORAGE_CONTAINER` with an account or a
+   connection string selects `createAzureDriver`. After S3, so an install that
+   has both keeps the backend it had.
+5. **Otherwise `localDriver`.** A fresh clone with nothing configured at all
    still works — on the filesystem.
 
 `configuredDriverName()` is the small helper that parses and validates

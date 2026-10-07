@@ -80,13 +80,20 @@ const OCR_ASSETS = [
  * because the default is a clone that should read a scan without an account.
  */
 const bundlesTesseract =
-  (process.env.OCR_PROVIDER?.trim().toLowerCase() || "tesseract") === "tesseract"
+  (process.env.OCR_PROVIDER?.trim().toLowerCase() || "tesseract") ===
+  "tesseract"
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
   // Emits a self-contained server with only the traced dependencies, so the
   // container does not ship a 2 GB node_modules.
   output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
+
+  // The image's build (#178): the release version and commit, or `dev`. With
+  // it, a browser that loaded one version and reaches a replica running
+  // another reloads instead of asking for assets that replica does not have.
+  // Unset elsewhere, so Vercel keeps its own skew protection.
+  deploymentId: process.env.ANONIFY_BUILD_ID?.trim() || undefined,
 
   /**
    * Which bundle gets which assets.

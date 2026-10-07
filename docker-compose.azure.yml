@@ -1,0 +1,36 @@
+# The stack on Azure Blob Storage instead of RustFS (#176), with Azurite, the
+# official emulator, standing in for a storage account.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.azure.yml up -d azurite
+#   STORAGE_DRIVER=azure-blob AZURE_STORAGE_CONTAINER=anonify \
+#     AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;" \
+#     pnpm smoke:driver --create-container
+#   docker compose -f docker-compose.yml -f docker-compose.azure.yml up -d --wait
+#
+# The account and key are Azurite's published development defaults, not a
+# secret. The container is created by the smoke run, as an operator creates
+# theirs: Anonify never creates its own. See docs/storage.md for a real
+# account, managed identity included.
+
+x-azurite-connection: &azurite-connection "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
+
+services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.37.0
+    command:
+      ["azurite-blob", "--blobHost", "0.0.0.0", "--skipApiVersionCheck", "--loose"]
+    ports:
+      - "127.0.0.1:${AZURITE_PORT:-10000}:10000"
+
+  app:
+    depends_on:
+      azurite:
+        condition: service_started
+    environment:
+      STORAGE_DRIVER: azure-blob
+      AZURE_STORAGE_CONNECTION_STRING: *azurite-connection
+      AZURE_STORAGE_CONTAINER: ${AZURE_STORAGE_CONTAINER:-anonify}
+      # Browsers, and the smoke run, PUT straight to the emulator with a SAS,
+      # which is the path where ingest holds the upload to its reserved size.
+      AZURE_STORAGE_PRESIGNED_UPLOADS: "true"
+      AZURE_STORAGE_PUBLIC_ENDPOINT: http://localhost:${AZURITE_PORT:-10000}

@@ -1,0 +1,17 @@
+# The Dockerfile's base image is pinned by digest (#178), so a rebuild cannot
+# silently change it. This is what moves the pin: a pull request per new
+# digest, which CI's Compose job builds and smoke-tests like any other change.
+#
+# No labels: a base image bump on its own releases nothing (see the release
+# label table in CONTRIBUTING.md) and ships with the next release. One that
+# fixes a vulnerability worth a release of its own gets `security` and a
+# changelog fragment by hand.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    labels: []
+    commit-message:
+      prefix: "Base image"

@@ -393,7 +393,10 @@ jobs:
       # The images built below, with cached layers, which compose then starts
       # as they are instead of building again.
       ANONIFY_IMAGE: anonify-app:ci
-      ANONIFY_MIGRATOR_IMAGE: anonify-migrator:ci
+      # The app and its migrations on a read-only root filesystem, with only
+      # /tmp and /data writable (#178). Every `docker compose` below without
+      # its own -f list uses both files.
+      COMPOSE_FILE: docker-compose.yml:docker-compose.readonly.yml
 
     steps:
       - uses: actions/checkout@v5
@@ -406,8 +409,7 @@ jobs:
       # Buildx keeps every layer in the Actions cache, so a run whose lockfile
       # has not changed reuses the dependency install, and one whose source has
       # not changed reuses the build too. The runner's scope is `mode=max`, so
-      # the builder stage is cached as well as the final image; the migrator is
-      # FROM builder, so it reads that scope and adds only its own last layer.
+      # the builder stage is cached as well as the final image.
       - uses: docker/setup-buildx-action@v3
 
       - name: Build the app image
@@ -420,17 +422,61 @@ jobs:
           cache-from: type=gha,scope=runner
           cache-to: type=gha,scope=runner,mode=max
 
-      - name: Build the migrator image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: migrator
-          load: true
-          tags: ${{ env.ANONIFY_MIGRATOR_IMAGE }}
-          cache-from: |
-            type=gha,scope=runner
-            type=gha,scope=migrator
-          cache-to: type=gha,scope=migrator
+      # One image does every job (#175): the stack's `migrate` service is this
+      # image running `anonify migrate`.
+      - name: The image's commands
+        run: |
+          docker run --rm "$ANONIFY_IMAGE" help | grep -q "migrate" \
+            || { echo "::error::anonify help does not list its commands"; exit 1; }
+          set +e
+          docker run --rm "$ANONIFY_IMAGE" migrat
+          status=$?
+          set -e
+          [ "$status" = 64 ] || { echo "::error::an unknown command exited $status, not 64"; exit 1; }
+          docker run --rm "$ANONIFY_IMAGE" node -e "process.exit(0)" \
+            || { echo "::error::a command naming a program did not run as given"; exit 1; }
+          docker image inspect "$ANONIFY_IMAGE" --format 'image size: {{.Size}} bytes'
+
+      # The hardening (#178): tini as PID 1, a stop that is prompt, the labels,
+      # and the baked OCR model reading a scan with no network at all.
+      - name: The image is hardened
+        run: |
+          pid1=$(docker run --rm "$ANONIFY_IMAGE" sh -c 'cat /proc/1/comm')
+          [ "$pid1" = tini ] || { echo "::error::PID 1 is $pid1, not tini"; exit 1; }
+
+          docker run -d --name stop-check "$ANONIFY_IMAGE" node -e "setInterval(() => {}, 1000)"
+          started=$(date +%s)
+          docker stop -t 20 stop-check
+          took=$(( $(date +%s) - started ))
+          docker rm stop-check
+          [ "$took" -lt 5 ] || { echo "::error::SIGTERM took ${took}s to stop the container"; exit 1; }
+
+          licence=$(docker image inspect "$ANONIFY_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}')
+          [ "$licence" = Apache-2.0 ] || { echo "::error::the licence label is '$licence'"; exit 1; }
+
+          # A line of text, drawn here where there are fonts, read in there
+          # where there is no network.
+          node -e "
+            const { createCanvas } = require('@napi-rs/canvas')
+            const canvas = createCanvas(700, 140)
+            const context = canvas.getContext('2d')
+            context.fillStyle = '#fff'
+            context.fillRect(0, 0, 700, 140)
+            context.fillStyle = '#000'
+            context.font = '56px sans-serif'
+            context.fillText('OFFLINE SCAN 2026', 24, 92)
+            require('fs').writeFileSync('ocr-check.png', canvas.toBuffer('image/png'))"
+          docker run --rm --network none -v "$PWD/ocr-check.png:/tmp/ocr-check.png:ro" -w /app "$ANONIFY_IMAGE" node -e "
+            // From the store path the server itself loads it by: the top-level
+            // copy in the standalone tree cannot resolve its own dependencies.
+            const { createWorker } = require(require('fs').globSync('/app/node_modules/.pnpm/tesseract.js@*/node_modules/tesseract.js')[0])
+            ;(async () => {
+              const worker = await createWorker('eng', undefined, { cachePath: process.env.TESSERACT_BAKED_PATH })
+              const { data } = await worker.recognize('/tmp/ocr-check.png')
+              await worker.terminate()
+              console.log('read: ' + data.text.trim())
+              process.exit(/OFFLINE/.test(data.text) ? 0 : 1)
+            })().catch((error) => { console.error(error); process.exit(1) })"
 
       - name: Start the stack
         # --wait blocks until postgres and RustFS report healthy, the bucket and
@@ -452,6 +498,15 @@ jobs:
       - name: Re-run bucket initialization
         run: docker compose run --rm rustfs-init
 
+      # Every deploy runs it, so a second run against a migrated database has
+      # to find nothing to do and say so with exit 0.
+      - name: Migrate again, as the next deploy would
+        run: docker compose run --rm migrate
+
+      # The sweep as a job, with the app's configuration and no server.
+      - name: Run the expiry sweep from the image
+        run: docker compose run --rm --no-deps app cleanup
+
       - name: Upload, download, list, presign and delete through RustFS
         run: pnpm smoke:storage http://127.0.0.1:9000
 
@@ -463,13 +518,91 @@ jobs:
       - name: Upload, process, export, download — every format
         run: pnpm smoke http://127.0.0.1:3000
 
+      # The runner delivers steps through a relay inside the process, with a
+      # token nobody outside it knows (#179). A delivery posted to the port,
+      # however well-formed, is a route that does not exist.
+      - name: Workflow routes refuse deliveries from outside the process
+        run: |
+          for route in step flow; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+              -H 'content-type: application/json' \
+              -H "x-vqs-queue-name: __wkf_${route}_smoke" \
+              -H 'x-vqs-message-id: msg_smoke' \
+              -H 'x-vqs-message-attempt: 1' \
+              --data '{}' "http://127.0.0.1:3000/.well-known/workflow/v1/${route}")
+            [ "$code" = 404 ] || { echo "::error::POST /.well-known/workflow/v1/${route} from outside answered $code"; exit 1; }
+          done
+
+      # Serving and processing in separate containers (#179): the app as the
+      # web role, and two workers with no published port.
+      - name: Split roles, one web and two workers
+        run: |
+          split="-f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.split.yml"
+          docker compose $split up -d --wait
+          docker compose $split logs app | grep -q '"worker":false' \
+            || { echo "::error::the web container did not report its role"; exit 1; }
+          started=$(docker compose $split logs worker | grep -c '"worker":true')
+          [ "$started" = 2 ] || { echo "::error::$started of 2 workers started their runner"; exit 1; }
+
+          # The web container executes no step. With the workers stopped, a
+          # document it accepts stays queued; started again, they finish it.
+          latest() {
+            docker compose $split exec -T postgres psql -U anonify -d anonify -tAc \
+              'select status from "Document" order by "createdAt" desc limit 1'
+          }
+          docker compose $split stop worker
+          timeout 45 pnpm smoke http://127.0.0.1:3000 --only=txt || true
+          status=$(latest)
+          [ "$status" = queued ] || { echo "::error::with no worker running, a document went to '$status'"; exit 1; }
+          docker compose $split start worker
+          for attempt in $(seq 1 60); do
+            status=$(latest)
+            [ "$status" = ready ] && break
+            sleep 2
+          done
+          [ "$status" = ready ] || { echo "::error::the workers left the queued document '$status'"; exit 1; }
+
+          pnpm smoke http://127.0.0.1:3000
+
+          # A worker serves its probes and nothing a person would ask for.
+          for container in $(docker compose $split ps -q worker); do
+            docker exec "$container" node -e "
+              const get = (path) => fetch('http://127.0.0.1:3000' + path).then((r) => r.status)
+              Promise.all(['/', '/api/documents', '/api/health'].map(get)).then((codes) => {
+                console.log(codes.join(' '))
+                process.exit(codes.join() === '404,404,200' ? 0 : 1)
+              })"
+          done
+
+      # The same stack on Azure Blob Storage, with Azurite (#176): the driver's
+      # own smoke from the host, which also creates the container, then every
+      # format through the app with browser uploads going to a SAS URL.
+      - name: Azure Blob Storage, through Azurite
+        env:
+          STORAGE_DRIVER: azure-blob
+          AZURE_STORAGE_CONTAINER: anonify
+          AZURE_STORAGE_PRESIGNED_UPLOADS: "true"
+          AZURE_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
+        run: |
+          azure="-f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.azure.yml"
+          docker compose $azure up -d azurite
+          for attempt in $(seq 1 30); do
+            curl -s -o /dev/null http://127.0.0.1:10000/ && break
+            sleep 1
+          done
+          pnpm smoke:driver --create-container
+          # Back to one app container, on Azure; the split's workers go.
+          docker compose $azure up -d --wait --remove-orphans
+          pnpm smoke http://127.0.0.1:3000
+
       - name: Show what the containers said
         if: failure()
-        run: docker compose logs --no-color --timestamps
+        # The overrides name the workers and Azurite too, whether or not they ran.
+        run: docker compose -f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.split.yml -f docker-compose.azure.yml logs --no-color --timestamps
 
       - name: Tear down
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: docker compose -f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.split.yml -f docker-compose.azure.yml down --volumes --remove-orphans
 
   # A pull request that moves the version owes a line saying what moved.
   #

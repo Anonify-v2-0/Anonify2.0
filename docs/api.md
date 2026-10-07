@@ -82,7 +82,11 @@ or rate-limit work.
 
 - **Auth:** session (optional; absent ⇒ empty list)
 - **Params:** none
-- **Response `200`:** `{ documents: DocumentSummary[] }`
+- **Response `200`:** `{ documents: DocumentSummary[] }`, with a weak `ETag`
+- **Response `304`:** the request's `If-None-Match` names the current `ETag`.
+  No body. The tag is a hash of the body, so it changes with anything the list
+  shows, including redaction counts. The request still spends from the `read`
+  bucket.
 
 ### `POST /api/documents`
 
@@ -700,7 +704,10 @@ batch view polls this while anything is still processing.
 - **Auth:** session
 - **Rate limit:** `read`
 - **Path params:** `id`
-- **Response `200`:** `{ "batch": BatchOverview }`
+- **Response `200`:** `{ "batch": BatchOverview }`, with a weak `ETag`
+- **Response `304`:** `If-None-Match` names the current `ETag`, as for
+  `GET /api/documents`. Ownership is checked first, so a tag never turns a
+  `404` into a `304`.
 - **Errors:** `404` not found / foreign (batches use the same 404-not-403
   rule as documents).
 

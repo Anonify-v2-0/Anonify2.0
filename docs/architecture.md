@@ -347,9 +347,11 @@ the replay.
 Every orchestrator asks two questions, and they get separate answers (#167):
 
 - **`GET /api/health`: is the process alive?** Always 200
-  `{"status":"ok"}`, with no database, storage or network I/O. A probe that
-  fails this restarts the replica, so it must not fail because something else
-  is down; a database outage would otherwise restart every replica in a loop.
+  `{"status":"ok","build":"…"}`, with no database, storage or network I/O.
+  The build is the image's `ANONIFY_BUILD_ID` (#178), so a rollout can be
+  watched replica by replica. A probe that fails this restarts the replica,
+  so it must not fail because something else is down; a database outage
+  would otherwise restart every replica in a loop.
 - **`GET /api/ready`: can it take traffic and jobs right now?** It checks
   the database (`SELECT 1`), the storage backend (its cheapest call:
   `HeadBucket` on S3, `list` with a limit of one on Vercel Blob, the store's
@@ -381,5 +383,89 @@ means. The Compose `app` service overrides it with `/api/ready`, so
 The health state lives in `lib/health/state.ts`: `markWorldStarted()`, called
 from `instrumentation.ts` once the worker runs, and `markDraining()`, for the
 shutdown handler (#182) to call first, so a replica leaves the load balancer
-before it stops answering. When web and worker roles split (#179), only the
-worker role will wait on the worker.
+before it stops answering. A replica with `ANONIFY_ROLE=web` (see §10) runs no
+worker and does not wait on one.
+
+## 10. Process roles
+
+Every process used to be both the website and the document processor. The
+Postgres world's job runner started in each one, and it executes a step by
+posting it back to the same server, so rasterising a burst of scanned PDFs ran
+on the event loop that serves the UI, the API, the progress streams and the
+health check. `ANONIFY_ROLE` separates them (#179):
+
+| Role | Serves people | Runs steps | Notes |
+| --- | --- | --- | --- |
+| `all` (default) | yes | yes | Exactly as before. |
+| `web` | yes | no | Starting a run only inserts a job, so it accepts documents. |
+| `worker` | no | yes | Still runs the Next server for its runner; give it no ingress. |
+
+```
+                  ┌──────────── web (ANONIFY_ROLE=web) ────────────┐
+ browser ────────►│ pages, /api/**, progress streams, export       │
+                  │ start() inserts a job; no runner               │
+                  └───────────────┬────────────────────────────────┘
+                                  │
+            Postgres: app rows, runs, steps, streams, the job queue
+                                  │
+     ┌──────────── worker (ANONIFY_ROLE=worker) × N ────────────────┐
+     │ graphile-worker runner ─► relay on 127.0.0.1:<ephemeral>     │
+     │   ─► /.well-known/workflow/v1/{flow,step} on the same server │
+     │ pdf.js, canvas, OCR, export; 404 to everything else          │
+     └──────────────────────────────────────────────────────────────┘
+                                  │
+                    S3-compatible storage or Vercel Blob
+```
+
+- **Scaling.** Workers scale with the backlog, web replicas with traffic, and
+  each can have the CPU and memory its work needs. Web can scale to zero while
+  workers drain a queue.
+- **Workers serve no people.** A worker answers its runner's routes,
+  `/api/health`, `/api/ready` and `/api/metrics`, and 404 to everything else,
+  before Next.js sees the request. That is defence in depth: on every platform,
+  give a worker no public port or ingress at all.
+- **A web process never runs a step.** `@workflow/world-postgres` 4.x starts
+  its runner from inside `queue()`, the first time a run is started, and has
+  no setting against it. It does wait for the address it delivers to accept a
+  connection before it starts, so a web process points that address at a
+  loopback port nothing in the container can listen on, and its runner waits
+  for good. CI's split-roles job stops the workers, uploads through the web
+  container, and checks the document stays queued until they are back.
+- **Storage must be shared.** A split deployment on the `local` driver is
+  refused at start: an upload accepted by a web process would be on a disk no
+  worker can read.
+- **Readiness follows the role.** `/api/ready` waits for the runner only where
+  there is one.
+- **Pools follow the role.** Unless `WORKFLOW_POSTGRES_MAX_POOL_SIZE` is set, a
+  web process's workflow pool is 4 connections, and a worker's is its job
+  concurrency plus 2. See [deploy/database.md](./deploy/database.md).
+
+The startup log says which role a process took:
+
+```json
+{"level":"info","context":"workflow.world","world":"@workflow/world-postgres","role":"worker","worker":true,"message":"workflow worker started"}
+```
+
+Compose runs `all`. `docker-compose.split.yml` turns the same stack into one
+web container and two workers:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.split.yml up -d
+```
+
+### Who may deliver a step
+
+The runner's deliveries carry nothing a route could check: with the Postgres
+world, `/.well-known/workflow/v1/{flow,step}` run whatever well-formed message
+arrives (Vercel's queue signs its own, so this is about every other
+platform). "It came from localhost" is not an answer either, because a reverse
+proxy on the same machine or a service mesh's sidecar delivers outside
+requests over loopback too.
+
+So a worker's runner delivers through a relay: `instrumentation.ts` starts it
+on an ephemeral port on 127.0.0.1 and points the world at it with
+`WORKFLOW_LOCAL_BASE_URL`. The relay adds a token minted for that process and
+forwards to the server, and `proxy.ts` answers 404 to a workflow route that
+does not carry it. Nobody outside the process knows the token, and a process
+that never started a relay (a web process) admits no deliveries at all. See
+`lib/security/workflow-guard.ts` and [security-internals.md](./security-internals.md).

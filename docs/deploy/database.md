@@ -24,6 +24,21 @@ connection is kept, so a quiet replica gives its connections back.
 A malformed value in any of these stops the server at start. A limit that
 looks set and is not in force is worse than no limit.
 
+### Per role
+
+With `ANONIFY_ROLE` set (see [architecture.md §10](../architecture.md#10-process-roles)),
+the world's pool defaults to what the role uses, unless
+`WORKFLOW_POSTGRES_MAX_POOL_SIZE` is set:
+
+| Role | World pool default | Why |
+| --- | --- | --- |
+| `all` | 10 (the world's own) | As before. |
+| `web` | 4 | It only inserts jobs and reads run streams. |
+| `worker` | `WORKFLOW_POSTGRES_WORKER_CONCURRENCY` + 2 (12) | One per running job, and two for the queue's bookkeeping. |
+
+So splitting does not have to cost connections: a web replica opens at most
+`DATABASE_POOL_MAX` + 4 + 1.
+
 ## The budget
 
 Per replica, at most:

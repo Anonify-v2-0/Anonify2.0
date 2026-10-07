@@ -46,6 +46,7 @@ export async function runIngest(
     select: {
       id: true,
       originalName: true,
+      size: true,
       uploadBlobKey: true,
       uploadEncryptionKey: true,
       uploadFormat: true,
@@ -85,6 +86,13 @@ export async function runIngest(
   if (declared === 0) throw new FatalError("Uploaded file is empty")
   if (declared > MAX_UPLOAD_BYTES) {
     throw new FatalError("Uploaded file is too large")
+  }
+  // The size reserved is the size checked against the quota and the ceiling,
+  // so an upload of any other length is not the one that was allowed. S3
+  // refuses it at the PUT, because the length is in the signature; an Azure
+  // SAS cannot sign a length (#176), and this is what holds it there.
+  if (declared !== document.size) {
+    throw new FatalError("Uploaded file is not the size that was reserved")
   }
 
   const uploadBlobKey = document.uploadBlobKey

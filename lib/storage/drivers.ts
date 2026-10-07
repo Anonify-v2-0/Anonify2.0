@@ -10,11 +10,25 @@ import {
   writeFile,
 } from "node:fs/promises"
 import path from "node:path"
-import { Readable, Transform } from "node:stream"
+import { Readable } from "node:stream"
 import type { ReadableStream as WebReadableStream } from "node:stream/web"
 import { pipeline } from "node:stream/promises"
 
-import { chain, holdErrors } from "@/lib/storage/streams"
+import {
+  AZURE_PREFIX,
+  azureConfigFromEnv,
+  azureConfigured,
+  createAzureDriver,
+} from "@/lib/storage/azure"
+import {
+  assertRange,
+  ByteCounter,
+  counted,
+  deleteEach,
+  isMissingObject,
+  sliceIfWhole,
+} from "@/lib/storage/driver-utils"
+import { holdErrors } from "@/lib/storage/streams"
 import {
   perDocumentStreamBytes,
   streamingLimits,
@@ -23,9 +37,9 @@ import {
 /**
  * Storage drivers.
  *
- * Three backends, one interface: Vercel Blob for the deployed demo, S3-compatible
- * storage for a self-hosted install, and the filesystem for a clone with
- * nothing configured at all. Everything above this file works in stored keys
+ * Four backends, one interface: Vercel Blob for the deployed demo, S3-compatible
+ * storage or Azure Blob Storage for a self-hosted install, and the filesystem
+ * for a clone with nothing configured at all. Everything above this file works in stored keys
  * and never learns which one answered.
  *
  * A stored key is either an absolute URL (Vercel Blob hands one back) or a
@@ -34,7 +48,12 @@ import {
  * changes — the driver is chosen per key on read, not globally.
  */
 
-export const STORAGE_DRIVERS = ["vercel-blob", "s3", "local"] as const
+export const STORAGE_DRIVERS = [
+  "vercel-blob",
+  "s3",
+  "azure-blob",
+  "local",
+] as const
 
 export type StorageDriverName = (typeof STORAGE_DRIVERS)[number]
 
@@ -108,77 +127,7 @@ export type StorageDriver = {
   probe: () => Promise<void>
 }
 
-/** An error that means the object was already gone: a delete that succeeded. */
-export function isMissingObject(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return /not found|404|NoSuchKey/i.test(message)
-}
-
-/** `delete` once per key, for a backend with no bulk call. */
-async function deleteEach(
-  driver: Pick<StorageDriver, "delete">,
-  keys: string[]
-): Promise<{ failed: string[] }> {
-  const failed: string[] = []
-  for (const key of keys) {
-    try {
-      await driver.delete(key)
-    } catch (error) {
-      if (!isMissingObject(error)) failed.push(key)
-    }
-  }
-  return { failed }
-}
-
-/** Counts what passes through, for a `StoredObject.size` nobody precomputed. */
-class ByteCounter extends Transform {
-  bytes = 0
-
-  override _transform(
-    chunk: Buffer,
-    _encoding: BufferEncoding,
-    callback: (error?: Error | null, data?: Buffer) => void
-  ): void {
-    this.bytes += chunk.byteLength
-    callback(null, chunk)
-  }
-}
-
-/** Pipes a body through a counter; see `chain` for why not plain `pipe`. */
-function counted(body: Readable): ByteCounter {
-  return chain(body, new ByteCounter())
-}
-
-/**
- * The requested slice of a response that may or may not have honoured the
- * range. A backend that ignored it sent the whole object, which is still an
- * answer — just a more expensive one.
- */
-function sliceIfWhole(
-  bytes: Buffer,
-  honoured: boolean,
-  start: number,
-  end: number
-): Buffer {
-  const slice = honoured ? bytes : bytes.subarray(start, end)
-  if (slice.byteLength !== end - start) {
-    throw new Error(
-      `Ranged read returned ${slice.byteLength} bytes, expected ${end - start}`
-    )
-  }
-  return slice
-}
-
-function assertRange(start: number, end: number): void {
-  if (
-    !Number.isInteger(start) ||
-    !Number.isInteger(end) ||
-    start < 0 ||
-    end < start
-  ) {
-    throw new RangeError(`Invalid byte range ${start}-${end}`)
-  }
-}
+export { isMissingObject }
 
 // --- local filesystem ------------------------------------------------------
 
@@ -725,6 +674,16 @@ export function selectStorageDriver(): StorageDriver {
     return createS3Driver(config)
   }
 
+  if (requested === "azure-blob") {
+    const config = azureConfigFromEnv()
+    if (!config) {
+      throw new Error(
+        "STORAGE_DRIVER=azure-blob needs AZURE_STORAGE_CONTAINER, and AZURE_STORAGE_ACCOUNT or AZURE_STORAGE_CONNECTION_STRING."
+      )
+    }
+    return createAzureDriver(config)
+  }
+
   if (requested === "local") {
     refuseLocalOnVercel()
     return localDriver
@@ -734,6 +693,9 @@ export function selectStorageDriver(): StorageDriver {
 
   const s3 = s3ConfigFromEnv()
   if (s3) return createS3Driver(s3)
+
+  // After S3: an install with both configured keeps the backend it had.
+  if (azureConfigured()) return createAzureDriver(azureConfigFromEnv()!)
 
   refuseLocalOnVercel()
   return localDriver
@@ -778,6 +740,15 @@ export function driverForKey(key: string): StorageDriver {
       )
     }
     return createS3Driver(config)
+  }
+  if (key.startsWith(AZURE_PREFIX)) {
+    const config = azureConfigFromEnv()
+    if (!config) {
+      throw new Error(
+        "This document is stored in Azure Blob Storage, but Azure is no longer configured."
+      )
+    }
+    return createAzureDriver(config)
   }
   return vercelBlobDriver
 }

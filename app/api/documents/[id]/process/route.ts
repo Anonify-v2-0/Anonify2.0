@@ -20,15 +20,15 @@ export const maxDuration = 300
 
 /**
  * A stored handle is either an absolute URL (Vercel Blob) or a `driver:path`
- * key (S3, local filesystem). Both shapes are accepted explicitly rather than
- * relying on `.url()` happening to allow custom schemes.
+ * key (S3, Azure, local filesystem). Both shapes are accepted explicitly
+ * rather than relying on `.url()` happening to allow custom schemes.
  */
 const storedHandle = z
   .string()
   .min(1)
   .max(2000)
   .refine(
-    (value) => /^https?:\/\//.test(value) || /^(local|s3):/.test(value),
+    (value) => /^https?:\/\//.test(value) || /^(local|s3|azure):/.test(value),
     "Not a recognised storage handle"
   )
 

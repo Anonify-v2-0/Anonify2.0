@@ -323,6 +323,7 @@ describe("isUploadHandleFor", () => {
   it.each([
     [`local:documents/${id}/upload/${name}`],
     [`s3:documents/${id}/upload/${name}`],
+    [`azure:documents/${id}/upload/${name}`],
     [
       `https://store.public.blob.vercel-storage.com/documents/${id}/upload/${name}`,
     ],
@@ -401,7 +402,16 @@ async function land(
   bytes: Uint8Array
 ): Promise<string> {
   const stored = await putObject(uploadKey(id, name), bytes)
-  rows.get(id)!.uploadBlobKey = stored.key
+  const row = rows.get(id)!
+  row.uploadBlobKey = stored.key
+  // What the browser would have reserved: the file's own size, which for a
+  // sealed upload is the plaintext inside it. A test about a size mismatch
+  // sets it before landing.
+  if (row.size === 0) {
+    row.size = row.uploadFormat
+      ? (uploads.sealedUploadPlaintextBytes(bytes.byteLength) ?? 0)
+      : bytes.byteLength
+  }
   return stored.key
 }
 
@@ -633,6 +643,31 @@ describe("ingesting a plaintext upload", () => {
     await expect(runIngest(doc.id)).resolves.toEqual({ kind: "txt" })
     expect(doc.row().size).toBe(plaintext.byteLength)
     expect(doc.row().uploadBlobKey).toBeNull()
+  })
+
+  // An Azure SAS cannot sign a length the way S3 does, so ingest is what
+  // holds an upload to the size it reserved (#176).
+  it("refuses an upload that is not the size it reserved", async () => {
+    const plain = reserve("short.txt", { sealed: false })
+    plain.row().size = 1000
+    await land(plain.id, "short.txt", textFile(3000))
+    expect(await ingestFailure(plain.id)).toMatch(
+      /not the size that was reserved/
+    )
+    expect(await sourceExists(plain.id)).toBe(false)
+
+    const sealed = reserve("sealed.txt")
+    sealed.row().size = 10
+    const bytes = await sealWeb(
+      textFile(3000),
+      sealed.key!,
+      sealed.pathname,
+      uploads.UPLOAD_CHUNK_SHIFT
+    )
+    await land(sealed.id, "sealed.txt", bytes)
+    expect(await ingestFailure(sealed.id)).toMatch(
+      /not the size that was reserved/
+    )
   })
 })
 

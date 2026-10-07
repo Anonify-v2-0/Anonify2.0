@@ -1,0 +1,30 @@
+# Serving and processing in separate containers (#179).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.split.yml up -d
+#
+# `app` becomes the web role: it serves the app and the API on :3000 and
+# starts runs, but executes no step. Two `worker` containers run the job
+# queue: each still runs the Next server, because the runner delivers steps
+# to it over localhost, but publishes no port and answers 404 to anything but
+# its runner and its probes. Scale them on their own:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.split.yml up -d --scale worker=4
+#
+# Storage has to be shared, as it is here (RustFS): a split deployment refuses
+# to start on the local disk. See docs/architecture.md, "Process roles".
+
+services:
+  app:
+    environment:
+      ANONIFY_ROLE: web
+
+  worker:
+    extends:
+      file: docker-compose.yml
+      service: app
+    environment:
+      ANONIFY_ROLE: worker
+    # No ingress: the runner reaches its own server over localhost.
+    ports: !reset []
+    deploy:
+      replicas: 2

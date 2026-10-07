@@ -1,3 +1,4 @@
+import { runsWorker } from "@/lib/config/role"
 import { prisma } from "@/lib/database/prisma"
 import { cachedReadiness, type ReadinessCheck } from "@/lib/health/ready"
 import { healthState } from "@/lib/health/state"
@@ -22,9 +23,9 @@ function checks(): Record<string, ReadinessCheck> {
     storage: probeStorage,
   }
   // A replica that runs the workflow worker is not ready until it has
-  // started; one that does not (Vercel) has nothing to wait for. Once roles
-  // split (#179), only the worker role will.
-  if (process.env.WORKFLOW_TARGET_WORLD) {
+  // started. One that does not, on Vercel or with ANONIFY_ROLE=web (#179),
+  // has nothing to wait for.
+  if (process.env.WORKFLOW_TARGET_WORLD && runsWorker()) {
     all.world = async () => {
       if (!healthState().worldStarted)
         throw new Error("the workflow worker has not started")

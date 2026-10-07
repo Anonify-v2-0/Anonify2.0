@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from "@/lib/concurrency"
 import {
   loadPdfjsForRender,
   openPdfDocument,
@@ -40,42 +41,92 @@ export type RenderedPageImage = {
   png: Buffer
 }
 
-export async function renderPagesForVision(
+/**
+ * Renders the given pages and hands each to `analyze` as soon as it is drawn,
+ * with at most `concurrency` pages between the two at once (#173).
+ *
+ * The vision pass used to render every page first and then send them to the
+ * model one after another, so a scanned document waited for twenty model
+ * round trips in a row, holding twenty PNGs while it did. Here the model
+ * calls overlap, and a page's PNG lives from its render until its call
+ * returns, so at most `concurrency` of them are alive.
+ *
+ * Rendering itself takes turns. pdf.js renders on this thread whatever the
+ * slots, so running two at once gains nothing, and one at a time keeps the
+ * document proxy away from concurrent use it was never promised to survive.
+ * The overlap that pays is page two rendering while page one's call is out.
+ *
+ * Results come back in the order of `pageNumbers`, whatever order they
+ * finished in, so nothing downstream depends on timing. Pages outside the
+ * document are left out.
+ */
+export async function analyzePagesForVision<R>(
   /**
    * The file's bytes, or ranged reads of it. By ranges, rendering the image
    * pages of a long document reads its index and those pages, not the file.
    */
   source: PdfSource,
   pageNumbers: number[],
-  scale = VISION_SCALE
-): Promise<RenderedPageImage[]> {
+  analyze: (image: RenderedPageImage) => Promise<R>,
+  {
+    concurrency = 1,
+    scale = VISION_SCALE,
+  }: { concurrency?: number; scale?: number } = {}
+): Promise<{ page: number; result: R }[]> {
   if (pageNumbers.length === 0) return []
 
   const pdfjs = await loadPdfjsForRender()
   const { task, guard } = await openPdfDocument(pdfjs, source)
-  const rendered: RenderedPageImage[] = []
+  let turn: Promise<unknown> = Promise.resolve()
 
-  const render = async () => {
+  const run = async () => {
     const pdf = await task.promise
-    for (const pageNumber of pageNumbers) {
-      if (pageNumber < 1 || pageNumber > pdf.numPages) continue
+    const wanted = pageNumbers.filter(
+      (pageNumber) => pageNumber >= 1 && pageNumber <= pdf.numPages
+    )
 
+    const draw = async (pageNumber: number): Promise<Buffer> => {
       const page = await pdf.getPage(pageNumber)
       try {
         const { canvas } = await renderPage(page, scale)
-        rendered.push({ page: pageNumber, png: canvas.toBuffer("image/png") })
+        return canvas.toBuffer("image/png")
       } finally {
         page.cleanup()
       }
     }
+
+    return mapWithConcurrency(wanted, concurrency, async (pageNumber) => {
+      const drawn = turn.then(() => draw(pageNumber))
+      // The next render waits for this one whether it worked or not; a
+      // failure is this task's to report.
+      turn = drawn.catch(() => {})
+      const png = await drawn
+      return {
+        page: pageNumber,
+        result: await analyze({ page: pageNumber, png }),
+      }
+    })
   }
 
   try {
-    await guard(render())
+    return await guard(run())
   } finally {
     // The loading task owns the worker; destroying it is what releases both.
     await task.destroy()
   }
+}
 
-  return rendered
+/** The pages as PNGs, rendered one at a time. */
+export async function renderPagesForVision(
+  source: PdfSource,
+  pageNumbers: number[],
+  scale = VISION_SCALE
+): Promise<RenderedPageImage[]> {
+  const rendered = await analyzePagesForVision(
+    source,
+    pageNumbers,
+    async (image) => image,
+    { scale }
+  )
+  return rendered.map(({ result }) => result)
 }

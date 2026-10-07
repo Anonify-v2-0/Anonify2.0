@@ -1,0 +1,54 @@
+#!/bin/sh
+# The container's entrypoint: one image, several jobs (#175).
+#
+#   docker run IMAGE            serves the app (the default command)
+#   docker run IMAGE migrate    applies the schema and the workflow tables
+#   docker run IMAGE cleanup    runs the expiry sweep once
+#   docker run IMAGE help
+#
+# Anything else that names a program on the PATH runs as given, so a command
+# written for the image before this existed, `node server.js`, still works.
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: anonify <command>
+
+Commands:
+  serve     Start the web server (the default)
+  migrate   Apply database migrations and the workflow schema, then exit.
+            Safe to run on every deploy and from several replicas at once.
+  cleanup   Run the expiry sweep once, then exit
+  help      Show this message
+EOF
+}
+
+command="${1:-serve}"
+[ "$#" -gt 0 ] && shift
+
+case "$command" in
+  serve)
+    # Where .next/cache points, so a read-only root filesystem still has one.
+    mkdir -p /tmp/next-cache
+    cd /app
+    exec node server.js "$@"
+    ;;
+  migrate)
+    exec node /opt/anonify/bin/migrate.mjs "$@"
+    ;;
+  cleanup)
+    exec node /opt/anonify/bin/cleanup.mjs "$@"
+    ;;
+  help | -h | --help)
+    usage
+    ;;
+  *)
+    if command -v "$command" >/dev/null 2>&1; then
+      exec "$command" "$@"
+    fi
+    echo "anonify: unknown command: $command" >&2
+    usage >&2
+    # EX_USAGE
+    exit 64
+    ;;
+esac

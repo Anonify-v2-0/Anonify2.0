@@ -407,7 +407,7 @@ What `docker compose up -d` starts:
 | Postgres 17 | 5432 | `anonify` / `anonify` | The database, in place of Neon |
 | RustFS | 9000 (API), 9001 (console) | `anonify` / `anonify-dev-secret` | S3-compatible storage, in place of Vercel Blob |
 | `rustfs-init` | — | — | Idempotently creates the `anonify` bucket, then exits |
-| `migrate` | — | — | Applies migrations and the workflow schema, then exits |
+| `migrate` | — | — | The app image running `anonify migrate`: migrations and the workflow schema, then exits |
 | `scheduler` | — | — | Opt-in expiry sweep; see [Scheduled cleanup](#scheduled-cleanup) |
 
 Every published port binds to `127.0.0.1` only, and the data lives in named
@@ -420,7 +420,10 @@ are fixed and unaffected.
 The app starts only after `migrate` exits successfully, so a fresh `up` never
 serves against a schema that has not been applied. The container image is a
 Next.js standalone build on `node:22-slim` — Debian rather than Alpine, because
-sharp, `@napi-rs/canvas` and the pdf.js renderer all ship native binaries.
+sharp, `@napi-rs/canvas` and the pdf.js renderer all ship native binaries. The
+same image migrates its own database (`docker run IMAGE migrate`) and runs the
+expiry sweep (`docker run IMAGE cleanup`); see
+[docs/deploy/image.md](docs/deploy/image.md).
 
 Durable runs need somewhere to live. On Vercel that is provided; in the
 container it is Postgres, through `@workflow/world-postgres`, and
@@ -490,10 +493,11 @@ clone works before anything is decided.
 | | Options | Default |
 | --- | --- | --- |
 | `DATABASE_DRIVER` | `postgres`, `neon` | Inferred from the connection string |
-| `STORAGE_DRIVER` | `s3`, `vercel-blob`, `local` | Inferred from what is configured |
+| `STORAGE_DRIVER` | `s3`, `azure-blob`, `vercel-blob`, `local` | Inferred from what is configured |
 | `OCR_PROVIDER` | `tesseract`, `mistral` | `tesseract` — local, no account |
 | `ANONIFY_PROFILE` | `self-hosted`, `demo` | `self-hosted` |
 | `ANONIFY_PUBLIC_URL` | The address people reach the instance at | Vercel's own on Vercel; `http://localhost:3000` elsewhere |
+| `ANONIFY_ROLE` | `all`, `web` (serves, runs no step), `worker` (runs steps, serves no one) | `all`; see [Process roles](docs/architecture.md#10-process-roles) |
 
 `ANONIFY_PUBLIC_URL` is used only for absolute URLs in link previews. Set it on
 a self-hosted instance whose links get shared. It is read when a page is

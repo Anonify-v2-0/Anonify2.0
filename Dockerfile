@@ -5,13 +5,18 @@
 # "works on my machine, segfaults in the container".
 
 # ---- base -------------------------------------------------------------------
-FROM node:22-slim AS base
+# Pinned by digest, so rebuilding the same commit cannot silently change the
+# base (#178). Dependabot moves the pin (.github/dependabot.yml), and each move
+# goes through the Compose job in CI like any other change.
+FROM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
 # The version comes from package.json's packageManager field, so the image and a
 # developer's machine install with the same pnpm.
 # Prisma's migration engine links against OpenSSL, which node:*-slim omits.
-RUN apt-get update  && apt-get install -y --no-install-recommends openssl  && rm -rf /var/lib/apt/lists/*  && corepack enable
+# tini is PID 1 in the image (#178): it reaps zombies and forwards signals, so
+# SIGTERM reaches node on purpose rather than by Node's own PID 1 behaviour.
+RUN apt-get update  && apt-get install -y --no-install-recommends openssl tini  && rm -rf /var/lib/apt/lists/*  && corepack enable
 WORKDIR /app
 
 # ---- dependencies -----------------------------------------------------------
@@ -39,17 +44,72 @@ ENV NEXT_OUTPUT=standalone
 # Selected at build time as well as at runtime: withWorkflow() falls back to the
 # local file-backed world when this is unset, and the build bakes that choice in.
 ENV WORKFLOW_TARGET_WORLD="@workflow/world-postgres"
+# Which build this is: the release version and short commit for a published
+# image, `dev` for a local one (#178). next.config.ts makes it the Next.js
+# deploymentId, so a browser that loaded one version and reaches a replica
+# running another reloads instead of asking for assets that replica lacks.
+ARG ANONIFY_BUILD_ID=dev
+ENV ANONIFY_BUILD_ID=$ANONIFY_BUILD_ID
 # Turbopack's cache survives between builds on the same machine, so a rebuild
 # after a small change recompiles only what changed (#172). It is not part of
 # the image: the standalone output under .next/standalone is.
 RUN --mount=type=cache,id=next-cache,target=/app/.next/cache \
     pnpm run build
+# `anonify cleanup`: the expiry sweep as one bundled file, since the image has
+# no tsx and no TypeScript sources to run scripts/cleanup.ts from (#175).
+RUN node scripts/build-cli.mjs
 
-# ---- migrator ---------------------------------------------------------------
-# Applies the schema and creates the workflow tables, then exits. Kept separate
-# from the runtime image so the server does not carry the Prisma CLI.
-FROM builder AS migrator
-CMD ["sh", "-c", "pnpm exec prisma migrate deploy && pnpm run workflow:bootstrap"]
+# ---- migrate ----------------------------------------------------------------
+# `anonify migrate` runs the Prisma CLI, and nothing else in the image does
+# (#175). It used to run from a stage built on the builder, 2 GB of dev
+# dependencies nobody should pull to apply a migration. Installed here on its
+# own like the world below, at the lockfile's version.
+#
+# Then pruned to what `migrate deploy` loads, found by deleting each piece
+# and applying every migration to an empty database without it: the CLI
+# requires Studio's data layer and `prisma dev`'s state module at start, but
+# not Studio's UI, the embedded Postgres `prisma dev` runs, the client query
+# compilers, the WebAssembly schema engine (the native one does the work),
+# React, lodash, mysql2, or any source map and type declaration. 240 MB
+# installed, about 70 MB kept. A Prisma upgrade that starts needing one of
+# them fails Compose's migrate step in CI, loudly, rather than shipping.
+FROM base AS migrate
+WORKDIR /opt/anonify/migrate
+RUN --mount=type=bind,from=builder,source=/app/node_modules,target=/deps \
+    V=$(node -p "require('/deps/prisma/package.json').version") \
+ && npm init -y > /dev/null \
+ && npm install --omit=dev --no-audit --no-fund "prisma@$V" \
+ && rm -f package.json package-lock.json \
+ && cd node_modules \
+ && rm -rf react react-dom @visx elkjs @electric-sql @types csstype effect/src \
+      lodash mysql2 @prisma/query-plan-executor @prisma/streams-local \
+      @prisma/studio-core/dist/ui @prisma/dev/dist/runtime-assets \
+ && rm -f @prisma/studio-core/dist/metafile-*.json prisma/build/query_compiler_* \
+      prisma/build/schema_engine_bg.wasm prisma/build/studio.* \
+ && find . -type f \( -name '*.map' -o -name '*.d.ts' -o -name '*.d.cts' -o -name '*.d.mts' \) -delete
+COPY prisma.config.ts ./
+COPY prisma ./prisma
+
+# ---- ocr --------------------------------------------------------------------
+# The default OCR model, fetched once at build time (#178). Without it every new
+# replica downloaded it from a CDN on its first scanned page, and a cluster
+# with no outbound internet could not read a scan at all. Building for other
+# languages or a larger variant:
+#
+#   docker build --build-arg OCR_PRELOAD_LANGUAGES=eng+deu --build-arg OCR_PRELOAD_MODEL=best .
+#
+# About 3 MB per language at the standard variant. Laid out like the runtime
+# cache, one directory per variant, so lib/ocr/tesseract.ts never reads a
+# model of the wrong one.
+FROM deps AS ocr
+ARG OCR_PRELOAD_LANGUAGES=eng
+ARG OCR_PRELOAD_MODEL=standard
+COPY tsconfig.json ./
+COPY lib ./lib
+COPY types ./types
+RUN TESSERACT_CACHE_PATH=/opt/anonify/tessdata OCR_PROVIDER=tesseract \
+    OCR_TESSERACT_LANGUAGE="$OCR_PRELOAD_LANGUAGES" OCR_TESSERACT_MODEL="$OCR_PRELOAD_MODEL" \
+    pnpm run ocr:warm
 
 # ---- world ------------------------------------------------------------------
 # The workflow runtime loads its world with `require(WORKFLOW_TARGET_WORLD)` at
@@ -65,6 +125,24 @@ RUN --mount=type=bind,from=builder,source=/app/node_modules,target=/deps     V=$
 
 # ---- runtime ----------------------------------------------------------------
 FROM base AS runner
+
+# Supplied by the release job (#180); a local build says what it is.
+ARG ANONIFY_BUILD_ID=dev
+ARG OCI_VERSION=dev
+ARG OCI_REVISION=unknown
+ARG OCI_CREATED=unknown
+ARG OCI_SOURCE=https://github.com/Anonify-v2-0/Anonify2.0
+LABEL org.opencontainers.image.title="Anonify" \
+      org.opencontainers.image.description="Self-hosted document redaction: find personal data in PDFs, Office files, email and images, review it, and export it removed." \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.source="$OCI_SOURCE" \
+      org.opencontainers.image.url="$OCI_SOURCE" \
+      org.opencontainers.image.documentation="$OCI_SOURCE/blob/main/docs/deploy/image.md" \
+      org.opencontainers.image.version="$OCI_VERSION" \
+      org.opencontainers.image.revision="$OCI_REVISION" \
+      org.opencontainers.image.created="$OCI_CREATED"
+ENV ANONIFY_BUILD_ID=$ANONIFY_BUILD_ID
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
@@ -74,6 +152,9 @@ ENV HOSTNAME=0.0.0.0
 ENV WORKFLOW_TARGET_WORLD="@workflow/world-postgres"
 # Written to on first OCR use; a volume keeps the ~5 MB across restarts.
 ENV TESSERACT_CACHE_PATH=/data/tesseract
+# The model baked in above. Read in place when it holds what is configured,
+# so the default needs neither the network nor a writable cache.
+ENV TESSERACT_BAKED_PATH=/opt/anonify/tessdata
 
 RUN groupadd --system --gid 1001 nodejs \
  && useradd --system --uid 1001 --gid nodejs nextjs \
@@ -96,6 +177,20 @@ COPY --chown=nextjs:nodejs LICENSE NOTICE ./
 # shared dependencies like zod for a different copy.
 COPY --from=world --chown=nextjs:nodejs /world/node_modules /node_modules
 
+# One image, several jobs (#175): `anonify serve` (the default), `anonify
+# migrate` and `anonify cleanup`. Owned by root, so the server cannot rewrite
+# the tools that migrate its database.
+COPY --from=migrate /opt/anonify/migrate /opt/anonify/migrate
+COPY --from=builder /app/build/cli/cleanup.mjs /opt/anonify/bin/cleanup.mjs
+COPY docker/migrate.mjs /opt/anonify/bin/migrate.mjs
+COPY --chmod=755 docker/anonify /usr/local/bin/anonify
+COPY --from=ocr /opt/anonify/tessdata /opt/anonify/tessdata
+
+# A read-only root filesystem leaves /tmp and /data writable (#178). Next.js
+# keeps its image-optimisation cache under .next/cache, so that points into
+# /tmp; `anonify serve` creates the target.
+RUN rm -rf /app/.next/cache && ln -s /tmp/next-cache /app/.next/cache
+
 USER nextjs
 EXPOSE 3000
 
@@ -105,4 +200,8 @@ EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
   CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "server.js"]
+# `docker run IMAGE` serves; `docker run IMAGE migrate` migrates. A command
+# that names a program, such as `node server.js`, still runs as given. tini
+# runs first, as PID 1, and forwards signals to whatever that is (#178).
+ENTRYPOINT ["/usr/bin/tini", "--", "anonify"]
+CMD ["serve"]

@@ -1,0 +1,18 @@
+# The app and its migrations on a read-only root filesystem (#178), as many
+# Kubernetes clusters enforce with `readOnlyRootFilesystem: true`.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.readonly.yml up -d
+#
+# The only writable paths the image needs are /tmp (here a tmpfs) and /data
+# (the OCR cache volume, already mounted). CI runs the stack this way.
+
+services:
+  migrate:
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  app:
+    read_only: true
+    tmpfs:
+      - /tmp

@@ -390,3 +390,27 @@ whole life; these are the lines that matter for security:
 `ANONIFY_UPLOAD_ENCRYPTION=required` turns the plaintext path off at
 reservation. It is `optional` by default because a page served over plain HTTP
 (other than localhost) has no WebCrypto and cannot seal.
+
+## 10. Workflow deliveries — `lib/security/workflow-guard.ts`, `lib/security/workflow-relay.ts`, `proxy.ts`
+
+The workflow runner executes each step by posting it to
+`/.well-known/workflow/v1/{flow,step}` on the same server. On Vercel the
+platform's queue signs those deliveries. With `@workflow/world-postgres`, the
+handlers check nothing: a POST carrying `x-vqs-queue-name`,
+`x-vqs-message-id`, `x-vqs-message-attempt` and a well-formed body runs. The
+body names a run and a step, whose input the runtime then reads from the
+database, so a forged delivery cannot hand a step new input. It can, given a
+run's id and a step's, mark that step failed (an attempt count above the
+delivery limit does exactly that), or replay a workflow. That was reachable by
+anyone who could reach the server's port (#179).
+
+| Mechanism | Where | Why it is there |
+| --- | --- | --- |
+| A relay on loopback | `startWorkflowRelay` | The runner delivers to `WORKFLOW_LOCAL_BASE_URL`, which `instrumentation.ts` points at a relay on an ephemeral 127.0.0.1 port. Nothing off the machine can reach it. |
+| A token per process | `setRelayToken` | 24 random bytes, minted when the relay starts, held on `globalThis` and nowhere else. The relay adds it as `x-anonify-workflow-relay`. |
+| Checked before the route | `proxy.ts`, `cameThroughRelay` | A workflow route without the token is a 404, wherever `WORKFLOW_TARGET_WORLD` is set. The comparison does not stop at the first differing character. |
+| Not "from localhost" | | A reverse proxy on the same host, or a mesh sidecar, sends outside requests over loopback. The token is the only thing that tells the runner from them. |
+| Fails closed | | A process that started no relay (`ANONIFY_ROLE=web`, or a worker that failed to start) has no token, and admits no delivery at all. |
+
+CI posts a well-formed delivery to both routes from outside the container and
+expects 404.

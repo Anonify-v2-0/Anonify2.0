@@ -9,6 +9,9 @@
  * Without this, a self-hosted deployment accepts uploads and never processes
  * them: the run is created and nothing ever picks it up.
  */
+/** Where a web process's idle job runner is told to deliver; see below. */
+const WEB_ROLE_EXECUTOR = "http://127.0.0.1:1"
+
 export async function register() {
   // The edge runtime has no long-lived process to poll from.
   if (process.env.NEXT_RUNTIME === "edge") return
@@ -56,9 +59,42 @@ export async function register() {
   const { cleanupSettings } = await import("@/lib/workflows/cleanup")
   cleanupSettings()
 
+  // Which version this replica is, for whoever is watching a rollout (#178).
+  const { buildId } = await import("@/lib/config/build")
+  console.log(
+    JSON.stringify({
+      level: "info",
+      context: "server",
+      build: buildId(),
+      message: "server starting",
+    })
+  )
+
+  // What this process is for (#179). A misspelt role stops it here, and a
+  // split deployment on one machine's disk is refused before it accepts a
+  // document its workers could never read.
+  const { anonifyRole, assertRoleStorage, runsWorker, workflowPoolDefault } =
+    await import("@/lib/config/role")
+  const role = anonifyRole()
+  if (role !== "all") {
+    const { storageDriverName } = await import("@/lib/storage/blob")
+    assertRoleStorage(storageDriverName())
+  }
+  // A worker answers its runner and its probes, and 404s everything else.
+  if (role === "worker") {
+    const { installWorkerGate } = await import("@/lib/config/worker-gate")
+    installWorkerGate()
+  }
+
   // Unset on Vercel, where the platform's own world is selected for us. Calling
   // start() there is harmless, but skipping makes the intent explicit.
   if (!process.env.WORKFLOW_TARGET_WORLD) return
+
+  // The world's pool, sized for the role unless it was set (#179).
+  const poolDefault = workflowPoolDefault()
+  if (poolDefault !== undefined) {
+    process.env.WORKFLOW_POSTGRES_MAX_POOL_SIZE ||= String(poolDefault)
+  }
 
   // The Postgres world reads its own connection string and, when that is unset,
   // silently falls back to postgres://world:world@localhost:5432/world — which
@@ -88,7 +124,57 @@ export async function register() {
   // puts the package — and its Postgres driver — into the standalone build's
   // traced dependencies; without it the container starts and then cannot load
   // its own world.
+  //
+  // Kept in every role: it is there for the bundler, and a web process still
+  // needs the world to start runs, which only inserts a job.
   await import("@workflow/world-postgres")
+
+  // A web process starts runs and reads their streams, and never executes a
+  // step: no runner, and no relay for one (#179).
+  //
+  // Not starting the world is not enough. @workflow/world-postgres 4.x has no
+  // setting for "enqueue only": its queue() starts the job runner itself, the
+  // first time a run is started. What it does have is patience: it starts the
+  // runner only once the address it delivers steps to accepts a connection,
+  // and checks again every 50 ms until then. So the web process gives it a
+  // loopback port nothing in this container can listen on (a port below 1024,
+  // and the image runs as a user that cannot bind one), and the runner waits
+  // for good. CI's split-roles job proves it: with the workers stopped, a
+  // document uploaded through the web container is not processed at all.
+  if (!runsWorker()) {
+    process.env.WORKFLOW_LOCAL_BASE_URL = WEB_ROLE_EXECUTOR
+    console.log(
+      JSON.stringify({
+        level: "info",
+        context: "workflow.world",
+        world: process.env.WORKFLOW_TARGET_WORLD,
+        role,
+        worker: false,
+        message:
+          "workflow worker not started: this process serves traffic only",
+      })
+    )
+    return
+  }
+
+  // The runner delivers each step over HTTP to this server. It does so
+  // through a loopback relay that adds this process's token, and proxy.ts
+  // refuses a workflow route without it: the Postgres world's deliveries
+  // carry nothing else to check (#179, lib/security/workflow-guard.ts).
+  const { startWorkflowRelay } = await import("@/lib/security/workflow-relay")
+  if (process.env.WORKFLOW_LOCAL_BASE_URL) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        context: "workflow.relay",
+        message:
+          "WORKFLOW_LOCAL_BASE_URL is set and is being replaced: the workflow runner has to deliver through this process's relay.",
+      })
+    )
+  }
+  process.env.WORKFLOW_LOCAL_BASE_URL = await startWorkflowRelay(
+    Number(process.env.PORT) || 3000
+  )
 
   const { getWorld } = await import("workflow/runtime")
   await getWorld().start?.()
@@ -103,6 +189,8 @@ export async function register() {
       level: "info",
       context: "workflow.world",
       world: process.env.WORKFLOW_TARGET_WORLD,
+      role,
+      worker: true,
       message: "workflow worker started",
     })
   )

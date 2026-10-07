@@ -1,9 +1,11 @@
-import { mkdir } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import { copyFile, mkdir } from "node:fs/promises"
 import path from "node:path"
 
 import {
   tesseractLangPath,
   tesseractLanguage,
+  tesseractLanguageCodes,
   tesseractModel,
 } from "@/lib/ocr/models"
 import type {
@@ -68,7 +70,10 @@ export function cachePath(): string {
  * install does not re-download 3 MB for a directory rename.
  */
 export function cacheDirectory(): string {
-  const base = cachePath()
+  return variantDirectory(cachePath())
+}
+
+function variantDirectory(base: string): string {
   const variant = tesseractModel()
   // A download cache, not something to ship: without the ignore, Turbopack
   // cannot resolve the path and traces the whole project into the output.
@@ -80,6 +85,54 @@ export function cacheDirectory(): string {
 /** Where a given language's model lands on disk, for `pnpm ocr:warm`. */
 export function modelPath(language: string): string {
   return path.join(cacheDirectory(), `${language}.traineddata`)
+}
+
+/**
+ * The directory to read models from, seeded from the image's baked copy.
+ *
+ * The container image carries the default model, laid out like the cache, in
+ * `TESSERACT_BAKED_PATH` (#178). Without it, every new replica fetched the
+ * model from a CDN on its first scanned page, and a cluster with no outbound
+ * internet could not read a scan at all.
+ *
+ * - The baked directory holds every configured language for the configured
+ *   variant: read from it in place. It is read-only, and needs to be nothing
+ *   else, so this works on a read-only root filesystem with no volume.
+ * - It holds some of them: copy those into the cache, which then downloads
+ *   only the rest.
+ * - It holds none, or there is none: the cache, as before.
+ *
+ * Per variant, like the cache: a `best` model is never read from where the
+ * `standard` one is kept.
+ */
+export async function modelDirectory(): Promise<string> {
+  const cache = cacheDirectory()
+  const bakedBase = process.env.TESSERACT_BAKED_PATH?.trim()
+  if (!bakedBase) return cache
+
+  const baked = variantDirectory(bakedBase)
+  const languages = tesseractLanguageCodes()
+  const present = languages.filter((language) =>
+    existsSync(
+      path.join(/* turbopackIgnore: true */ baked, `${language}.traineddata`)
+    )
+  )
+  if (present.length === languages.length) return baked
+
+  for (const language of present) {
+    const target = path.join(
+      /* turbopackIgnore: true */ cache,
+      `${language}.traineddata`
+    )
+    if (existsSync(target)) continue
+    await mkdir(cache, { recursive: true }).catch(() => undefined)
+    const source = path.join(
+      /* turbopackIgnore: true */ baked,
+      `${language}.traineddata`
+    )
+    await copyFile(source, target).catch(() => undefined)
+  }
+  return cache
 }
 
 type Recognizer = {
@@ -133,14 +186,16 @@ export const tesseractProvider: OcrProvider = {
 
   async start(): Promise<OcrSession> {
     const { createWorker } = await import("tesseract.js")
-    const directory = cacheDirectory()
+    const directory = await modelDirectory()
     const language = tesseractLanguage()
     const langPath = tesseractLangPath()
 
     // tesseract.js writes the model with a plain writeFile and does not create
     // the directory first. The failure is swallowed by its own logger, so the
     // only symptom is the 5 MB being re-downloaded on every single run.
-    await mkdir(directory, { recursive: true }).catch(() => undefined)
+    if (directory === cacheDirectory()) {
+      await mkdir(directory, { recursive: true }).catch(() => undefined)
+    }
 
     const worker = (await createWorker(language, undefined, {
       cachePath: directory,

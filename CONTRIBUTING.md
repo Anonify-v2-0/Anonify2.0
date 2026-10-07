@@ -131,9 +131,9 @@ anywhere.
 - [x] ~~**A `docker compose` for the dependencies.**~~ Postgres and RustFS, with
       health checks, named volumes and automatic bucket creation.
 - [x] ~~**A container image for the app itself.**~~ A standalone Next.js build on
-      `node:22-slim`, with a separate migrator stage that runs before the app
-      starts, and durable runs backed by `@workflow/world-postgres` rather than
-      Vercel's world.
+      `node:22-slim` that also migrates its own database (`anonify migrate`)
+      before the app starts, and durable runs backed by
+      `@workflow/world-postgres` rather than Vercel's world.
 - [x] ~~**`engines` and `packageManager`.**~~ Node 22+, pnpm 11+, enforced by
       `engine-strict`.
 - [x] ~~**Verify the compose stack in CI.**~~ A `Compose stack` job builds the
@@ -547,6 +547,23 @@ accepted ranges onto source positions, and applying edits to a string — and
 neither shows up in a unit test, because unit fixtures are small. Run it after
 touching a parser or an exporter. A row that suddenly takes ten times longer is
 the signal.
+
+### Migrations
+
+A migration is forward-only, and it must not break the release before it.
+During a rollout the old and the new version run side by side against the
+migrated schema, because `anonify migrate` runs before the new image takes
+traffic (see [docs/deploy/image.md](docs/deploy/image.md)). So a change that
+removes or renames something takes two releases:
+
+1. **Expand.** Add the new column or table, nullable or with a default, and
+   write to both while reading the new one. The previous release ignores what
+   it does not know about.
+2. **Contract.** In a later release, once no supported version reads the old
+   one, drop it.
+
+Never rename a column in place, and never add a `NOT NULL` column without a
+default.
 
 `pnpm typecheck` runs `next typegen` first. `RouteContext` and `PageProps` are
 globals Next generates into `.next/types/`, so type checking a fresh clone
