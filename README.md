@@ -496,8 +496,9 @@ clone works before anything is decided.
 | `ANONIFY_PUBLIC_URL` | The address people reach the instance at | Vercel's own on Vercel; `http://localhost:3000` elsewhere |
 
 `ANONIFY_PUBLIC_URL` is used only for absolute URLs in link previews. Set it on
-a self-hosted instance whose links get shared, and rebuild the image after
-changing it, because prerendered pages resolve it at build time.
+a self-hosted instance whose links get shared. It is read when a page is
+served, so a published image works at any address without a rebuild; a
+malformed value stops the server at start.
 
 Reads pick their driver from the stored key rather than the current setting, so
 changing backends does not orphan documents that are already stored.

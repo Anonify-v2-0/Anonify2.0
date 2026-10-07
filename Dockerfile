@@ -34,14 +34,16 @@ ENV ENCRYPTION_KEY="000000000000000000000000000000000000000000000000000000000000
 ENV FINGERPRINT_SECRET="1111111111111111111111111111111111111111111111111111111111111111"
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_OUTPUT=standalone
-# Prerendered pages resolve link-preview URLs at build time, so the public
-# address has to be known here as well as at run time. Optional.
-ARG ANONIFY_PUBLIC_URL=""
-ENV ANONIFY_PUBLIC_URL=$ANONIFY_PUBLIC_URL
+# ANONIFY_PUBLIC_URL is not needed here: the root layout reads it per request,
+# so one image serves whatever address it is run at.
 # Selected at build time as well as at runtime: withWorkflow() falls back to the
 # local file-backed world when this is unset, and the build bakes that choice in.
 ENV WORKFLOW_TARGET_WORLD="@workflow/world-postgres"
-RUN pnpm run build
+# Turbopack's cache survives between builds on the same machine, so a rebuild
+# after a small change recompiles only what changed (#172). It is not part of
+# the image: the standalone output under .next/standalone is.
+RUN --mount=type=cache,id=next-cache,target=/app/.next/cache \
+    pnpm run build
 
 # ---- migrator ---------------------------------------------------------------
 # Applies the schema and creates the workflow tables, then exits. Kept separate
@@ -97,7 +99,10 @@ COPY --from=world --chown=nextjs:nodejs /world/node_modules /node_modules
 USER nextjs
 EXPOSE 3000
 
+# Liveness, as Docker means it: is the process answering? /api/health touches
+# no database or storage, so an outage elsewhere does not restart the
+# container in a loop. Orchestrators that route traffic use /api/ready (#167).
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
-  CMD node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "server.js"]

@@ -17,6 +17,17 @@ vi.mock("@/lib/documents/purge", () => ({
   purgeDocument: (...args: unknown[]) => purgeDocument(...args),
 }))
 vi.mock("@/lib/documents/batches", () => ({ pruneEmptyBatches: async () => 0 }))
+// The lock is Postgres's; tests/integration/cleanup.integration.test.ts has it.
+vi.mock("@/lib/database/locks", () => ({
+  withAdvisoryLock: async (
+    _name: string,
+    _hold: number,
+    work: () => unknown
+  ) => ({
+    acquired: true,
+    result: await work(),
+  }),
+}))
 vi.mock("@/lib/security/rate-limit", () => ({ pruneRateLimits: async () => 0 }))
 
 const { cleanupExpired } = await import("@/lib/workflows/cleanup")

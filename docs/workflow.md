@@ -451,9 +451,28 @@ opt-in `scheduler` service in `docker-compose.yml`. Either way:
    — then the row.
 3. Prune empty batches and stale rate-limit windows.
 
-A single run is **bounded to `BATCH_SIZE = 50` documents** (`take: BATCH_SIZE`
-on the expiry query), so the sweep cannot exceed its function's time budget. A
-backlog is worked down over successive runs rather than in one.
+A single run is **bounded by time, not by a count** (#170). It reads expired
+documents 50 at a time and keeps going until there are none, or until
+`ANONIFY_CLEANUP_BUDGET_MS` (default 240000, inside the cron route's 300
+seconds) is spent, and reports `remaining: true` when it stopped with some
+left. `pnpm cleanup` has no function limit, so it runs without a budget. It
+used to stop at 50 documents a run, which on a once-a-day cron meant at most 50
+a day were ever deleted.
+
+Within a page, `ANONIFY_CLEANUP_CONCURRENCY` (default 8) documents are purged at
+once, and each document's objects are deleted in one request where the backend
+allows it (`DeleteObjects` on S3, `del` with a list on Vercel Blob). A message
+and its attachments on the same page are purged by the message alone, so no two
+workers touch the same rows.
+
+**One sweep at a time.** A cron, the Compose scheduler, `pnpm cleanup` and a
+slow run overlapping the next tick can all start a sweep. Each takes
+`pg_try_advisory_xact_lock(hashtext('anonify.cleanup'))` in a transaction held
+open for the run (`lib/database/locks.ts`). One that does not get it returns
+`{ skipped: "another sweep is running" }` with a 200 and does nothing. The lock
+is the transaction's, so it is released however the sweep ends, and it holds
+through a transaction pooler. With `DATABASE_POOL_MAX=1` the sweep runs without
+it, since the lock would hold the only connection the sweep has.
 
 **Order matters.** The row is the only thing that knows where the bytes are, so
 it is deleted last and only if storage cleared. A document whose storage failed

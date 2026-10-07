@@ -31,10 +31,30 @@ export async function register() {
 
   // And a misspelt ANONIFY_UPLOAD_ENCRYPTION, which would otherwise surface as
   // every upload failing at reservation.
-  const { uploadEncryptionPolicy } = await import(
-    "@/lib/storage/upload-encryption"
-  )
+  const { uploadEncryptionPolicy } =
+    await import("@/lib/storage/upload-encryption")
   uploadEncryptionPolicy()
+
+  // ANONIFY_PUBLIC_URL is read per request by the root layout. Read it once
+  // here too, so a malformed value stops the server now rather than failing
+  // every page view (#168).
+  const { publicUrl } = await import("@/lib/config/public-url")
+  publicUrl()
+
+  // The readiness probe's per-check timeout, if one is set (#167).
+  const { readyTimeoutMs } = await import("@/lib/health/ready")
+  readyTimeoutMs()
+
+  // The connection budget: the app's pool, and the world's own settings,
+  // which the world itself would ignore if malformed (#169).
+  const { assertWorkflowPoolSettings, databasePoolConfig, looksLikePooler } =
+    await import("@/lib/database/pool-config")
+  databasePoolConfig()
+  assertWorkflowPoolSettings()
+
+  // The expiry sweep's time budget and concurrency (#170).
+  const { cleanupSettings } = await import("@/lib/workflows/cleanup")
+  cleanupSettings()
 
   // Unset on Vercel, where the platform's own world is selected for us. Calling
   // start() there is harmless, but skipping makes the intent explicit.
@@ -44,6 +64,23 @@ export async function register() {
   // silently falls back to postgres://world:world@localhost:5432/world — which
   // on a self-hosted install means a worker that connects to nothing. One
   // database is the normal case, so default it from the one already configured.
+  //
+  // Through a transaction pooler that default cannot work: the job queue
+  // needs LISTEN/NOTIFY and session locks. Say so, rather than leave a worker
+  // that never hears about a job (#169).
+  if (
+    !process.env.WORKFLOW_POSTGRES_URL &&
+    looksLikePooler(process.env.DATABASE_URL)
+  ) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        context: "database.pool",
+        message:
+          "DATABASE_URL looks like a transaction pooler, and WORKFLOW_POSTGRES_URL is unset, so the job queue will use it too. The queue needs a direct or session-mode connection: set WORKFLOW_POSTGRES_URL. See docs/deploy/database.md.",
+      })
+    )
+  }
   process.env.WORKFLOW_POSTGRES_URL ||= process.env.DATABASE_URL
 
   // The world is chosen by WORKFLOW_TARGET_WORLD and loaded with a dynamic
@@ -55,6 +92,11 @@ export async function register() {
 
   const { getWorld } = await import("workflow/runtime")
   await getWorld().start?.()
+
+  // /api/ready waits on this: until the worker runs, a replica that accepts
+  // documents would never process them (#167).
+  const { markWorldStarted } = await import("@/lib/health/state")
+  markWorldStarted()
 
   console.log(
     JSON.stringify({

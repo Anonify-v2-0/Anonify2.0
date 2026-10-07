@@ -16,10 +16,11 @@
  * better on its own; otherwise the local address Next.js would assume anyway,
  * stated rather than guessed.
  *
- * Read at build time for the pages Next.js prerenders, and at request time for
- * the rest, so a container image needs it at both (the Dockerfile takes it as
- * a build argument). A malformed value throws: a setting that looks configured
- * and is not in force is the failure this codebase refuses everywhere else.
+ * Read per request, by the root layout's `generateMetadata`, so an image
+ * built once serves any address (#168), and once at start-up by
+ * instrumentation.ts. A malformed value throws there, stopping the server: a
+ * setting that looks configured and is not in force is the failure this
+ * codebase refuses everywhere else.
  */
 export function publicUrl(
   env: Record<string, string | undefined> = process.env

@@ -114,6 +114,9 @@ services:
   # Schema and workflow tables, then exits. The app waits for this to succeed,
   # so a fresh `up` migrates before it serves anything.
   migrate:
+    # Named so CI can build it ahead of time, with cached layers, and start the
+    # stack without rebuilding (#172). `up` builds it when it is not there yet.
+    image: ${ANONIFY_MIGRATOR_IMAGE:-anonify-migrator:local}
     build:
       context: .
       target: migrator
@@ -125,12 +128,10 @@ services:
     restart: "no"
 
   app:
+    image: ${ANONIFY_IMAGE:-anonify-app:local}
     build:
       context: .
       target: runner
-      args:
-        # Baked into the prerendered pages' link previews; see .env.example.
-        ANONIFY_PUBLIC_URL: ${ANONIFY_PUBLIC_URL:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -145,6 +146,13 @@ services:
       # so a .env written for host development still works unchanged.
       DATABASE_URL: postgresql://anonify:anonify@postgres:5432/anonify
       DATABASE_DRIVER: postgres
+      # The connection budget, stated so it is visible: one replica opens at
+      # most 10 + 10 + 1 of the bundled Postgres's 100. See
+      # docs/deploy/database.md before running several replicas.
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+      DATABASE_POOL_IDLE_TIMEOUT_MS: ${DATABASE_POOL_IDLE_TIMEOUT_MS:-10000}
+      WORKFLOW_POSTGRES_MAX_POOL_SIZE: ${WORKFLOW_POSTGRES_MAX_POOL_SIZE:-10}
+      WORKFLOW_POSTGRES_WORKER_CONCURRENCY: ${WORKFLOW_POSTGRES_WORKER_CONCURRENCY:-8}
       STORAGE_DRIVER: s3
       S3_ENDPOINT: http://rustfs:9000
       S3_BUCKET: ${S3_BUCKET:-anonify}
@@ -282,6 +290,21 @@ services:
       # that is 13 MB per language, every time.
       - tesseract-cache:/data/tesseract
     restart: unless-stopped
+    # Readiness, not the image's liveness check: `compose up --wait` and the
+    # scheduler's service_healthy then mean the database, storage and the
+    # workflow worker all answer, not just that the process is up (#167).
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 40s
+      retries: 10
 
   # Expiry sweep.
   #

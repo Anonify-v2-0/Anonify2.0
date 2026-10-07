@@ -33,6 +33,9 @@ export async function GET(request: Request) {
     }
 
     const marked = await markExpired()
+    // The whole backlog, within the budget (ANONIFY_CLEANUP_BUDGET_MS, inside
+    // this route's maxDuration). Another sweep already running is reported as
+    // skipped, with a 200: an overlapping cron is expected now and then (#170).
     const result = await cleanupExpired()
     // After the sweep, not before: a document that has just expired should not
     // be admitted a moment before it is deleted.

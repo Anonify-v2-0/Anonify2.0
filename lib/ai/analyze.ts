@@ -50,6 +50,7 @@ import {
   joinAdjacent,
   locateInPage,
 } from "@/lib/redaction/entities"
+import { mapWithConcurrency } from "@/lib/concurrency"
 import { normalizeValue } from "@/lib/documents/shared/text"
 import { serviceLimits } from "@/lib/services/limits"
 import type { NormalizedDocument, SpreadsheetSheet } from "@/types/document"
@@ -154,29 +155,6 @@ export type AnalysisPasses = {
 /** The same pattern hit, before and after verification gave it a new confidence. */
 function sameHit(a: Detection, b: Detection): boolean {
   return a.page === b.page && a.start === b.start && a.end === b.end
-}
-
-/** Runs tasks with a ceiling on how many are in flight at once. */
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  task: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let cursor = 0
-
-  const workers = Array.from(
-    { length: Math.min(limit, items.length) },
-    async () => {
-      while (cursor < items.length) {
-        const index = cursor++
-        results[index] = await task(items[index], index)
-      }
-    }
-  )
-
-  await Promise.all(workers)
-  return results
 }
 
 /**

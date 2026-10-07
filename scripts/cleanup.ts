@@ -30,7 +30,13 @@ async function main(): Promise<void> {
   const startedAt = Date.now()
 
   const marked = await markExpired()
-  const result = await cleanupExpired()
+  // No time budget: run from cron or a timer, it has no function limit to
+  // stay inside, so it clears the whole backlog (#170).
+  const result = await cleanupExpired({ budgetMs: Infinity })
+  if (result.skipped) {
+    console.log(`\n  Expiry sweep skipped: ${result.skipped}.\n`)
+    return
+  }
   const seconds = ((Date.now() - startedAt) / 1000).toFixed(1)
 
   console.log(
