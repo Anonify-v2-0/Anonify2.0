@@ -1,14 +1,16 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import Link from "next/link"
 import { UploadCloud } from "lucide-react"
 import { toast } from "sonner"
 
 import { BatchGroup } from "@/components/documents/batch-group"
 import { DocumentCard } from "@/components/documents/document-card"
+import { usePolling } from "@/hooks/use-polling"
 import { useRetryDocument } from "@/hooks/use-retry-document"
 import { toastFailure } from "@/lib/api/errors"
+import { conditionalFetcher } from "@/lib/api/poller"
 import { groupByBatch } from "@/lib/documents/grouping"
 import type { DocumentListItem } from "@/lib/documents/listing"
 
@@ -17,14 +19,13 @@ import type { DocumentListItem } from "@/lib/documents/listing"
  *
  * It refreshes on its own while anything is still processing, so a document
  * that was queued when the page loaded turns into a ready one without the user
- * reaching for reload. Once everything has settled the polling stops.
+ * reaching for reload. Once everything has settled the polling stops, and it
+ * pauses while the tab is hidden; see lib/api/poller.ts.
  *
  * Documents uploaded together are shown together. A batch is a single review
  * pass with decisions carried across it and one archive at the end, and a flat
  * list left the reviewer inferring all of that from filenames.
  */
-
-const POLL_INTERVAL_MS = 4000
 
 const IN_PROGRESS = new Set([
   "uploading",
@@ -48,34 +49,17 @@ export function DocumentList({
     IN_PROGRESS.has(document.status)
   )
 
-  useEffect(() => {
-    if (!anyWorking) return
+  const fetchDocuments = useMemo(
+    () => conditionalFetcher<{ documents: DocumentListItem[] }>(),
+    []
+  )
 
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
+  const refresh = useCallback(async () => {
+    const payload = await fetchDocuments("/api/documents")
+    if (payload) setDocuments(payload.documents)
+  }, [fetchDocuments])
 
-    async function poll() {
-      try {
-        const response = await fetch("/api/documents", { cache: "no-store" })
-        if (response.ok) {
-          const payload = (await response.json()) as {
-            documents: DocumentListItem[]
-          }
-          if (!cancelled) setDocuments(payload.documents)
-        }
-      } catch {
-        // A transient failure just means the next tick tries again.
-      }
-      if (!cancelled) timer = setTimeout(poll, POLL_INTERVAL_MS)
-    }
-
-    timer = setTimeout(poll, POLL_INTERVAL_MS)
-
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-    }
-  }, [anyWorking])
+  usePolling(refresh, anyWorking)
 
   const onExtended = useCallback((id: string, expiresAt: string) => {
     setDocuments((current) =>

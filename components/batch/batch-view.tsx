@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import Link from "next/link"
 import { Globe, Loader2, RotateCcw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -9,8 +9,10 @@ import { BatchDownloadButton } from "@/components/batch/batch-download-button"
 import { StatusPill } from "@/components/processing/status-pill"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { usePolling } from "@/hooks/use-polling"
 import { useRetryDocument } from "@/hooks/use-retry-document"
 import { toastFailure } from "@/lib/api/errors"
+import { conditionalFetcher } from "@/lib/api/poller"
 import type { BatchOverview } from "@/lib/documents/batches"
 import { isRetryable } from "@/lib/workflows/failure"
 import { cn } from "@/lib/utils"
@@ -35,8 +37,6 @@ const IN_PROGRESS = new Set([
   "rendering",
 ])
 
-const POLL_INTERVAL_MS = 4000
-
 export function BatchView({ initial }: { initial: BatchOverview }) {
   const [batch, setBatch] = useState(initial)
   const [removing, setRemoving] = useState<string | null>(null)
@@ -46,36 +46,21 @@ export function BatchView({ initial }: { initial: BatchOverview }) {
     IN_PROGRESS.has(document.status)
   )
 
+  const fetchBatch = useMemo(
+    () => conditionalFetcher<{ batch: BatchOverview }>(),
+    []
+  )
+
   const reload = useCallback(async () => {
     try {
-      const response = await fetch(`/api/batches/${initial.id}`, {
-        cache: "no-store",
-      })
-      if (!response.ok) return
-      const payload = (await response.json()) as { batch: BatchOverview }
-      setBatch(payload.batch)
+      const payload = await fetchBatch(`/api/batches/${initial.id}`)
+      if (payload) setBatch(payload.batch)
     } catch {
       // A transient failure just means the next tick tries again.
     }
-  }, [initial.id])
+  }, [fetchBatch, initial.id])
 
-  useEffect(() => {
-    if (!anyWorking) return
-
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-
-    async function poll() {
-      await reload()
-      if (!cancelled) timer = setTimeout(poll, POLL_INTERVAL_MS)
-    }
-
-    timer = setTimeout(poll, POLL_INTERVAL_MS)
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-    }
-  }, [anyWorking, reload])
+  usePolling(reload, anyWorking)
 
   const ready = batch.documents.filter(
     (document) => document.status === "ready"

@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { conditionalJsonResponse } from "@/lib/api/etag"
 import {
   errorResponse,
   handleRouteError,
@@ -25,7 +26,7 @@ export const runtime = "nodejs"
  * No session means no documents — not an error. The list is scoped by the same
  * owner key that guards every other read.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const identity = await peekIdentity()
 
@@ -36,7 +37,9 @@ export async function GET() {
 
     await consumeRateLimit("read", identity.networkKey)
 
-    return jsonResponse({ documents: await listDocuments(identity.ownerKey) })
+    return conditionalJsonResponse(request, {
+      documents: await listDocuments(identity.ownerKey),
+    })
   } catch (error) {
     return handleRouteError(error, "documents.list")
   }

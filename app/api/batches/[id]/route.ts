@@ -1,4 +1,5 @@
-import { handleRouteError, jsonResponse } from "@/lib/api/http"
+import { conditionalJsonResponse } from "@/lib/api/etag"
+import { handleRouteError } from "@/lib/api/http"
 import { batchOverview, requireBatch } from "@/lib/documents/batches"
 import { peekIdentity } from "@/lib/security/fingerprint"
 import { consumeRateLimit } from "@/lib/security/rate-limit"
@@ -10,6 +11,7 @@ export const runtime = "nodejs"
  *
  * The batch view polls this while anything is still processing, which is also
  * how a document that finishes later shows the rules it inherited on arrival.
+ * An unchanged batch answers 304; see lib/api/etag.ts.
  */
 export async function GET(
   request: Request,
@@ -22,7 +24,9 @@ export async function GET(
     const batch = await requireBatch(id, identity?.ownerKey)
     await consumeRateLimit("read", identity?.networkKey ?? "anonymous")
 
-    return jsonResponse({ batch: await batchOverview(batch) })
+    return conditionalJsonResponse(request, {
+      batch: await batchOverview(batch),
+    })
   } catch (error) {
     return handleRouteError(error, "batches.read")
   }
