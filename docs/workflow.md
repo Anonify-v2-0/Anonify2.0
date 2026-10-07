@@ -76,6 +76,11 @@ Two details are easy to get wrong and both fail quietly:
   is unset it defaults to `postgres://world:world@localhost:5432/world` rather
   than failing. `instrumentation.ts` therefore defaults it from `DATABASE_URL`,
   so one connection string configures both.
+- **Only a process that runs steps starts the worker.** With `ANONIFY_ROLE=web`
+  a process starts runs and reads their streams, and its runner never starts;
+  with `worker` or `all` it does, and delivers each step through a loopback
+  relay that proxy.ts checks for (#179). See
+  [architecture.md §10](./architecture.md#10-process-roles).
 
 ### Startup sequence
 

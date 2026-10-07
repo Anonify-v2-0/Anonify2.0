@@ -518,13 +518,70 @@ jobs:
       - name: Upload, process, export, download — every format
         run: pnpm smoke http://127.0.0.1:3000
 
+      # The runner delivers steps through a relay inside the process, with a
+      # token nobody outside it knows (#179). A delivery posted to the port,
+      # however well-formed, is a route that does not exist.
+      - name: Workflow routes refuse deliveries from outside the process
+        run: |
+          for route in step flow; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+              -H 'content-type: application/json' \
+              -H "x-vqs-queue-name: __wkf_${route}_smoke" \
+              -H 'x-vqs-message-id: msg_smoke' \
+              -H 'x-vqs-message-attempt: 1' \
+              --data '{}' "http://127.0.0.1:3000/.well-known/workflow/v1/${route}")
+            [ "$code" = 404 ] || { echo "::error::POST /.well-known/workflow/v1/${route} from outside answered $code"; exit 1; }
+          done
+
+      # Serving and processing in separate containers (#179): the app as the
+      # web role, and two workers with no published port.
+      - name: Split roles, one web and two workers
+        run: |
+          split="-f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.split.yml"
+          docker compose $split up -d --wait
+          docker compose $split logs app | grep -q '"worker":false' \
+            || { echo "::error::the web container did not report its role"; exit 1; }
+          started=$(docker compose $split logs worker | grep -c '"worker":true')
+          [ "$started" = 2 ] || { echo "::error::$started of 2 workers started their runner"; exit 1; }
+
+          # The web container executes no step. With the workers stopped, a
+          # document it accepts stays queued; started again, they finish it.
+          latest() {
+            docker compose $split exec -T postgres psql -U anonify -d anonify -tAc \
+              'select status from "Document" order by "createdAt" desc limit 1'
+          }
+          docker compose $split stop worker
+          timeout 45 pnpm smoke http://127.0.0.1:3000 --only=txt || true
+          status=$(latest)
+          [ "$status" = queued ] || { echo "::error::with no worker running, a document went to '$status'"; exit 1; }
+          docker compose $split start worker
+          for attempt in $(seq 1 60); do
+            status=$(latest)
+            [ "$status" = ready ] && break
+            sleep 2
+          done
+          [ "$status" = ready ] || { echo "::error::the workers left the queued document '$status'"; exit 1; }
+
+          pnpm smoke http://127.0.0.1:3000
+
+          # A worker serves its probes and nothing a person would ask for.
+          for container in $(docker compose $split ps -q worker); do
+            docker exec "$container" node -e "
+              const get = (path) => fetch('http://127.0.0.1:3000' + path).then((r) => r.status)
+              Promise.all(['/', '/api/documents', '/api/health'].map(get)).then((codes) => {
+                console.log(codes.join(' '))
+                process.exit(codes.join() === '404,404,200' ? 0 : 1)
+              })"
+          done
+
       - name: Show what the containers said
         if: failure()
-        run: docker compose logs --no-color --timestamps
+        # The split override names the workers too, whether or not they ran.
+        run: docker compose -f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.split.yml logs --no-color --timestamps
 
       - name: Tear down
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: docker compose -f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.split.yml down --volumes --remove-orphans
 
   # A pull request that moves the version owes a line saying what moved.
   #

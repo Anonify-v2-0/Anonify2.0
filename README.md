@@ -497,6 +497,7 @@ clone works before anything is decided.
 | `OCR_PROVIDER` | `tesseract`, `mistral` | `tesseract` — local, no account |
 | `ANONIFY_PROFILE` | `self-hosted`, `demo` | `self-hosted` |
 | `ANONIFY_PUBLIC_URL` | The address people reach the instance at | Vercel's own on Vercel; `http://localhost:3000` elsewhere |
+| `ANONIFY_ROLE` | `all`, `web` (serves, runs no step), `worker` (runs steps, serves no one) | `all`; see [Process roles](docs/architecture.md#10-process-roles) |
 
 `ANONIFY_PUBLIC_URL` is used only for absolute URLs in link previews. Set it on
 a self-hosted instance whose links get shared. It is read when a page is
