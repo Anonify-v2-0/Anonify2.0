@@ -167,7 +167,9 @@ services:
       S3_FORCE_PATH_STYLE: "true"
       # Browsers PUT straight to RustFS when "true". They reach it at the
       # published port, not at the service name; the bucket also needs a CORS
-      # rule for the app's origin. See docs/storage.md.
+      # rule for the app's origin. Off here, because CORS for localhost is
+      # fiddly and uploads through the app are streamed (#185); in production,
+      # turn it on. See docs/storage.md, "Direct uploads".
       S3_PRESIGNED_UPLOADS: ${S3_PRESIGNED_UPLOADS:-}
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
 

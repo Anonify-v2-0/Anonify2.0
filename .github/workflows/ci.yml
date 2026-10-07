@@ -544,6 +544,38 @@ jobs:
             [ "$code" = 404 ] || { echo "::error::POST /.well-known/workflow/v1/${route} from outside answered $code"; exit 1; }
           done
 
+      # Direct uploads to RustFS (#185). Without a CORS rule a browser could
+      # not PUT to the bucket, and /api/ready says so under `degraded` while
+      # staying 200; with one, it does not. Then a document through a
+      # presigned PUT. The rule is kept for five minutes, hence the recreate.
+      - name: Presigned uploads to RustFS, and the CORS readiness check
+        env:
+          S3_PRESIGNED_UPLOADS: "true"
+          S3_PUBLIC_ENDPOINT: http://127.0.0.1:9000
+          AWS_ACCESS_KEY_ID: anonify
+          AWS_SECRET_ACCESS_KEY: anonify-dev-secret
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          s3api="aws s3api --endpoint-url http://127.0.0.1:9000"
+          $s3api delete-bucket-cors --bucket anonify
+          docker compose up -d --wait --force-recreate app
+          curl -fsS http://127.0.0.1:3000/api/ready | tee ready.json
+          jq -e '.status == "ready" and (.degraded | index("presigned-cors"))' ready.json >/dev/null \
+            || { echo "::error::a bucket without CORS was not reported as degraded"; exit 1; }
+          docker compose logs app | grep -q 'no CORS rules' \
+            || { echo "::error::the readiness warning does not say what is missing"; exit 1; }
+
+          $s3api put-bucket-cors --bucket anonify --cors-configuration \
+            '{"CORSRules":[{"AllowedOrigins":["http://localhost:3000"],"AllowedMethods":["PUT"],"AllowedHeaders":["content-type"]}]}'
+          docker compose up -d --wait --force-recreate app
+          curl -fsS http://127.0.0.1:3000/api/ready | tee ready.json
+          jq -e '.status == "ready" and .degraded == null and (.checks | has("presigned-cors"))' ready.json >/dev/null \
+            || { echo "::error::a bucket with the CORS rule was still reported"; exit 1; }
+
+          pnpm smoke http://127.0.0.1:3000 --only=txt | tee smoke.log
+          grep -q 'straight to storage' smoke.log \
+            || { echo "::error::the smoke did not upload straight to the bucket"; exit 1; }
+
       # Serving and processing in separate containers (#179): the app as the
       # web role, and two workers with no published port.
       - name: Split roles, one web and two workers

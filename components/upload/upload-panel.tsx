@@ -16,6 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  uploadStraightToStorage,
+  uploadThroughServer,
+} from "@/components/upload/send"
 import { toastFailure } from "@/lib/api/errors"
 import {
   decodeUploadKey,
@@ -72,8 +76,10 @@ type Phase = "idle" | "reserving" | "uploading" | "starting"
  * With Vercel Blob the server signs a token scoped to one path and the browser
  * uploads straight to storage, so the file never travels through a serverless
  * function. S3 can do the same with a presigned PUT when the operator has
- * enabled it. Otherwise — the local filesystem, or a bucket browsers cannot
- * reach — the bytes go through our own route instead.
+ * enabled it, and Azure with a SAS. Otherwise — the local filesystem, or a
+ * bucket browsers cannot reach — the bytes go through our own route instead,
+ * which streams them to storage, and which a direct upload falls back to when
+ * the bucket does not answer the browser.
  *
  * The server decides which, because it is the thing that knows what is
  * configured. Both paths report real transfer progress and both end with the
@@ -109,113 +115,6 @@ function canSealUploads(): boolean {
 
 /** How much of the progress bar sealing gets; sending gets the rest. */
 const SEAL_SHARE = 10
-
-/**
- * Sends a body with XMLHttpRequest, reporting progress.
- *
- * XMLHttpRequest rather than fetch: fetch still cannot report upload progress
- * in browsers, and a 25 MB upload with no feedback looks like a hang.
- */
-function sendWithProgress(input: {
-  method: "POST" | "PUT"
-  url: string
-  body: XMLHttpRequestBodyInit
-  headers?: Record<string, string>
-  onProgress: (percentage: number) => void
-}): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest()
-    request.open(input.method, input.url)
-    for (const [name, value] of Object.entries(input.headers ?? {})) {
-      request.setRequestHeader(name, value)
-    }
-
-    request.upload.addEventListener("progress", (event) => {
-      if (event.lengthComputable) {
-        input.onProgress((event.loaded / event.total) * 100)
-      }
-    })
-
-    request.addEventListener("load", () => {
-      if (request.status >= 200 && request.status < 300) {
-        resolve(request.responseText)
-        return
-      }
-
-      let message = "Upload failed"
-      try {
-        message = (JSON.parse(request.responseText) as { error?: string }).error ?? message
-      } catch {
-        // Keep the generic message. A storage service answers in XML, and
-        // nothing in it is written for the person uploading.
-      }
-      reject(new Error(message))
-    })
-
-    request.addEventListener("error", () => reject(new Error("Upload failed")))
-    request.addEventListener("abort", () => reject(new Error("Upload cancelled")))
-
-    request.send(input.body)
-  })
-}
-
-/** Posts through our own route. */
-async function uploadThroughServer(
-  documentId: string,
-  body: Blob,
-  filename: string,
-  onProgress: (percentage: number) => void
-): Promise<{ url: string }> {
-  const form = new FormData()
-  form.append("documentId", documentId)
-  form.append("file", body, filename)
-
-  const response = await sendWithProgress({
-    method: "POST",
-    url: "/api/upload/local",
-    body: form,
-    onProgress,
-  })
-  try {
-    return JSON.parse(response) as { url: string }
-  } catch {
-    throw new Error("Malformed upload response")
-  }
-}
-
-/**
- * PUTs straight into the S3 bucket with a URL the server presigned for this
- * one object and exactly this many bytes.
- */
-async function uploadStraightToStorage(
-  documentId: string,
-  body: Blob,
-  onProgress: (percentage: number) => void
-): Promise<{ url: string }> {
-  const presign = await fetch("/api/upload/presign", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ documentId, size: body.size }),
-  })
-  const signed = (await presign.json()) as {
-    url?: string
-    headers?: Record<string, string>
-    handle?: string
-    error?: string
-  }
-  if (!presign.ok || !signed.url || !signed.handle) {
-    throw new Error(signed.error ?? "Upload failed")
-  }
-
-  await sendWithProgress({
-    method: "PUT",
-    url: signed.url,
-    body,
-    headers: signed.headers,
-    onProgress,
-  })
-  return { url: signed.handle }
-}
 
 /**
  * Seals the file in the page, when the reservation handed back a key for it.
@@ -281,13 +180,12 @@ async function transferFile(input: {
         : // Only ciphertext goes straight to the bucket; a page that could not
           // seal still has our own route.
           input.uploadMode === "s3-presigned" && sealed
-          ? await uploadStraightToStorage(input.documentId, body, onSendProgress)
-          : await uploadThroughServer(
+          ? await uploadStraightToStorage(
               input.documentId,
               body,
-              input.file.name,
               onSendProgress
             )
+          : await uploadThroughServer(input.documentId, body, onSendProgress)
     // The bytes are there. A small file can finish before the browser reports
     // any progress at all, and without this the bar would sit at 0% for as
     // long as starting the run takes.
@@ -402,7 +300,11 @@ export function UploadPanel() {
 
         if (!result.ok) {
           if (result.response) {
-            await toastFailure(toast, result.response, "Could not start processing")
+            await toastFailure(
+              toast,
+              result.response,
+              "Could not start processing"
+            )
           } else {
             toast.error(result.message ?? "Upload failed")
           }

@@ -1058,6 +1058,18 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
   return response
 }
 
+/** An upload's bytes through the app: the body is the file, nothing else. */
+function putLocal(documentId: string, body: Blob): Promise<Response> {
+  return call(
+    `/api/upload/local?documentId=${encodeURIComponent(documentId)}`,
+    {
+      method: "PUT",
+      headers: { "content-type": "application/octet-stream" },
+      body,
+    }
+  )
+}
+
 async function expectOk(response: Response, what: string): Promise<Response> {
   if (response.ok) return response
   const body = await response.text().catch(() => "")
@@ -1233,12 +1245,9 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
     handle = signed.handle
     step(`sealed and PUT ${sealed.size} bytes straight to storage`)
   } else {
-    const form = new FormData()
-    form.set("documentId", reserved.id)
-    form.set("file", new File([sealed], filename, { type: sealed.type }))
-
+    // Streamed by the route to storage (#185), as the browser sends it.
     const uploaded = await json<{ url: string; size: number }>(
-      await call("/api/upload/local", { method: "POST", body: form }),
+      await putLocal(reserved.id, sealed),
       "upload"
     )
     handle = uploaded.url
@@ -1494,14 +1503,8 @@ async function runMailbox(): Promise<void> {
   )
   step(`reserved ${reserved.id}`)
 
-  const form = new FormData()
-  form.set("documentId", reserved.id)
-  form.set(
-    "file",
-    new File([new Uint8Array(bytes)], filename, { type: "application/mbox" })
-  )
   const uploaded = await json<{ url: string; size: number }>(
-    await call("/api/upload/local", { method: "POST", body: form }),
+    await putLocal(reserved.id, new Blob([new Uint8Array(bytes)])),
     "upload"
   )
   step(`uploaded ${uploaded.size} bytes`)

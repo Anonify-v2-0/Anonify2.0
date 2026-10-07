@@ -6,6 +6,7 @@ import type {
   StorageSharedKeyCredential,
 } from "@azure/storage-blob"
 
+import { CorsRefusal, corsRefusal } from "@/lib/storage/cors"
 import type { PresignedUpload, StorageDriver } from "@/lib/storage/drivers"
 import {
   assertRange,
@@ -355,6 +356,32 @@ export function createAzureDriver(config: AzureConfig): StorageDriver {
 
     async probe() {
       await (await connection).container.getProperties()
+    },
+
+    // CORS is a property of the account's blob service, not the container.
+    async probeUploadCors(origin) {
+      let properties
+      try {
+        properties = await (await connection).service.getProperties()
+      } catch (error) {
+        // An identity with data access only, or Azurite's older versions.
+        const status = (error as { statusCode?: number }).statusCode
+        if (status === 403 || status === 501) return "unreadable"
+        throw error
+      }
+      const split = (list: string | undefined) =>
+        (list ?? "").split(",").filter((item) => item.trim())
+      const refusal = corsRefusal(
+        (properties.cors ?? []).map((rule) => ({
+          origins: split(rule.allowedOrigins),
+          methods: split(rule.allowedMethods),
+          headers: split(rule.allowedHeaders),
+        })),
+        origin,
+        ["content-type", "x-ms-blob-type"]
+      )
+      if (refusal) throw new CorsRefusal(refusal)
+      return "allowed"
     },
   }
 
