@@ -54,6 +54,8 @@ stack and the smoke test against it. A failure there opens an issue and moves
 no tag, since the image may already have been pulled. A publish that failed
 can be re-run from the Actions tab ("Publish image", with the version) without
 cutting a new release; re-publishing an older version does not move `latest`.
+A version that is already on Docker Hub is not rebuilt: the re-run reuses that
+image, so `X.Y.Z` keeps its digest.
 
 Release builds pass `ANONIFY_BUILD_ID=X_Y_Z-<short commit>` (underscores,
 because Next.js accepts only letters, digits, `-` and `_` in a
