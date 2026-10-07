@@ -88,3 +88,23 @@ export function freshState(config: BucketConfig, now: Date): BucketState {
 export function bucketFor(limit: number, windowSeconds: number): BucketConfig {
   return { burst: limit, refillPerSecond: limit / windowSeconds }
 }
+
+/**
+ * Pushes the bucket's next token back to `now + waitMs`, when it would
+ * otherwise have come sooner.
+ *
+ * For a provider's `Retry-After` (#184): the replica that got the 429 is not
+ * the only one about to send, and a shared bucket that knows when the limit
+ * clears holds every replica back, not just that one. The balance goes below
+ * zero, which `consume` already understands: it refills from there.
+ */
+export function deferBucket(
+  state: BucketState,
+  config: BucketConfig,
+  now: Date,
+  waitMs: number
+): BucketState {
+  const available = refill(state, config, now)
+  const deferred = 1 - (Math.max(0, waitMs) / 1000) * config.refillPerSecond
+  return { tokens: Math.min(available, deferred), updatedAt: now }
+}

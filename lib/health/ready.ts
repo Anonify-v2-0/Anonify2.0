@@ -10,13 +10,30 @@ import { healthState } from "@/lib/health/state"
  *
  * The answer is kept for a second, so a burst of probes from an orchestrator
  * cannot turn into a burst of queries against the database.
+ *
+ * A check made with `degraded()` cannot fail readiness. It is for something
+ * the replica works without, less well: Redis behind the AI pacing, which
+ * falls back to the process (#184), or a bucket's CORS behind direct uploads,
+ * which fall back to the app (#185). Taking the replica out of rotation would
+ * turn a precise warning into an outage. It is named under `degraded` and
+ * logged as a warning instead.
  */
 
-export type ReadinessCheck = () => Promise<void>
+export type ReadinessCheck = (() => Promise<void>) & { degraded?: true }
 
 export type Readiness =
-  | { status: "ready"; checks: Record<string, number> }
+  | {
+      status: "ready"
+      checks: Record<string, number>
+      /** Checks that failed without failing readiness; absent when none did. */
+      degraded?: string[]
+    }
   | { status: "not-ready"; failed: string[] }
+
+/** A check whose failure is reported but does not make the replica unready. */
+export function degraded(check: () => Promise<void>): ReadinessCheck {
+  return Object.assign(() => check(), { degraded: true as const })
+}
 
 export const DEFAULT_READY_TIMEOUT_MS = 2000
 const CACHE_MS = 1000
@@ -61,27 +78,38 @@ export async function checkReadiness(
       const began = performance.now()
       try {
         await withTimeout(check, timeoutMs)
-        return { name, ms: Math.round(performance.now() - began) }
+        return {
+          name,
+          ms: Math.round(performance.now() - began),
+          degraded: false,
+        }
       } catch (error) {
         // The detail is for the operator's logs, never for the response.
-        console.error(
+        const level = check.degraded ? "warn" : "error"
+        console[level](
           JSON.stringify({
-            level: "error",
+            level,
             context: "health.ready",
             check: name,
+            ...(check.degraded ? { degraded: true } : {}),
             message: error instanceof Error ? error.message : String(error),
           })
         )
-        return { name, ms: null }
+        return { name, ms: null, degraded: check.degraded === true }
       }
     })
   )
 
-  const failed = results.filter((r) => r.ms === null).map((r) => r.name)
+  const failed = results
+    .filter((r) => r.ms === null && !r.degraded)
+    .map((r) => r.name)
   if (failed.length > 0) return { status: "not-ready", failed }
+  const passed = results.filter((r) => r.ms !== null)
+  const degradedChecks = results.filter((r) => r.ms === null).map((r) => r.name)
   return {
     status: "ready",
-    checks: Object.fromEntries(results.map((r) => [r.name, r.ms as number])),
+    checks: Object.fromEntries(passed.map((r) => [r.name, r.ms as number])),
+    ...(degradedChecks.length > 0 ? { degraded: degradedChecks } : {}),
   }
 }
 

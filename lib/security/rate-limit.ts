@@ -4,6 +4,12 @@ import {
   type RateLimitName,
 } from "@/lib/security/rate-limit-config"
 import {
+  rateStoreKind,
+  reportRateStoreFailure,
+  type RateStore,
+} from "@/lib/services/rate-store"
+import { redisRateStore } from "@/lib/services/rate-store-redis"
+import {
   bucketFor,
   freshState,
   refill,
@@ -24,6 +30,9 @@ import {
  *
  * The maths is token-bucket.ts's, written in SQL; that file stays the
  * reference, and a test holds the two to the same answers.
+ *
+ * With ANONIFY_RATE_STORE=redis the buckets live in Redis or Valkey instead,
+ * in a Lua script with the same maths (lib/services/rate-store-redis.ts).
  */
 
 export type RateLimitResult = {
@@ -50,6 +59,11 @@ export type RateLimitResult = {
  * Time is passed as epoch seconds and turned into UTC in SQL, because
  * `updatedAt` is a timestamp without a zone, written as UTC, and comparing it
  * with a zoned parameter would shift it by the session's offset.
+ *
+ * `updatedAt` never moves backwards. Two replicas whose clocks differ by a
+ * few milliseconds, or two requests whose statements land in the other
+ * order, would otherwise each be refilled for the same stretch of time, and
+ * a bucket shared by a busy deployment would drift above its rate (#184).
  */
 export async function consumeRateLimit(
   name: RateLimitName,
@@ -57,11 +71,33 @@ export async function consumeRateLimit(
 ): Promise<RateLimitResult> {
   const { limits } = await effectiveLimits()
   const { limit, windowSeconds } = limits[name]
-  return spendToken(
-    `${name}:${identifier}`,
-    bucketFor(limit, windowSeconds),
-    new Date()
-  )
+  const key = `${name}:${identifier}`
+  const config = bucketFor(limit, windowSeconds)
+  const now = new Date()
+
+  // ANONIFY_RATE_STORE=redis moves the buckets off Postgres, where this is the
+  // hottest write there is (#184). Redis unreachable, the request is limited
+  // by Postgres instead: still shared, still atomic, and neither failing open
+  // nor refusing everyone because a cache is down.
+  const redis = inboundRedis()
+  if (redis) {
+    try {
+      const taken = await redis.take(key, config, now)
+      return {
+        allowed: taken.allowed,
+        remaining: taken.remaining,
+        resetAt: new Date(now.getTime() + taken.waitMs),
+      }
+    } catch (error) {
+      reportRateStoreFailure("redis", "inbound", "postgres", error)
+    }
+  }
+
+  return spendToken(key, config, now)
+}
+
+function inboundRedis(): RateStore | null {
+  return rateStoreKind() === "redis" ? redisRateStore() : null
 }
 
 /** `consumeRateLimit` for one key, bucket and moment; see above. */
@@ -92,7 +128,10 @@ export async function spendToken(
             ${nowSeconds}::float8 - EXTRACT(EPOCH FROM "RateLimit"."updatedAt")
           ) * ${rate}::float8
         ) - 1,
-        "updatedAt" = to_timestamp(${nowSeconds}::float8) AT TIME ZONE 'UTC'
+        "updatedAt" = GREATEST(
+          "RateLimit"."updatedAt",
+          to_timestamp(${nowSeconds}::float8) AT TIME ZONE 'UTC'
+        )
       WHERE LEAST(
           ${burst}::float8,
           "RateLimit"."tokens" + GREATEST(
@@ -121,7 +160,8 @@ export async function spendToken(
     return { allowed: true, remaining: Math.floor(row.spent), resetAt: now }
   }
 
-  const available = Math.max(0, Math.min(1, row?.available ?? 0))
+  // Below zero is a real balance: a bucket a Retry-After pushed back (#184).
+  const available = Math.min(1, row?.available ?? 0)
   return {
     allowed: false,
     remaining: 0,
@@ -144,11 +184,35 @@ export async function peekRateLimit(
   const { limits } = await effectiveLimits()
   const { limit, windowSeconds } = limits[name]
   const config = bucketFor(limit, windowSeconds)
+  const key = `${name}:${identifier}`
   const now = new Date()
 
-  const existing = await prisma.rateLimit.findUnique({
-    where: { key: `${name}:${identifier}` },
-  })
+  const redis = inboundRedis()
+  if (redis) {
+    try {
+      const peeked = await redis.peek(key, config, now)
+      return {
+        allowed: peeked.allowed,
+        remaining: peeked.remaining,
+        resetAt: new Date(now.getTime() + peeked.waitMs),
+        limit,
+        windowSeconds,
+      }
+    } catch (error) {
+      reportRateStoreFailure("redis", "inbound", "postgres", error)
+    }
+  }
+
+  return { ...(await peekBucket(key, config, now)), limit, windowSeconds }
+}
+
+/** `peekRateLimit` for one key, bucket and moment, from Postgres. */
+export async function peekBucket(
+  key: string,
+  config: BucketConfig,
+  now: Date
+): Promise<RateLimitResult> {
+  const existing = await prisma.rateLimit.findUnique({ where: { key } })
 
   const state: BucketState = existing
     ? { tokens: existing.tokens, updatedAt: existing.updatedAt }
@@ -161,13 +225,49 @@ export async function peekRateLimit(
 
   return {
     allowed: available >= 1,
-    remaining: Math.floor(available),
+    remaining: Math.max(0, Math.floor(available)),
     resetAt: new Date(
       now.getTime() + Math.ceil((shortfall / config.refillPerSecond) * 1000)
     ),
-    limit,
-    windowSeconds,
   }
+}
+
+/**
+ * deferBucket, in one statement: the balance becomes the lower of what it
+ * holds now and what puts the next token at `now + waitMs` (#184).
+ */
+export async function deferToken(
+  key: string,
+  config: BucketConfig,
+  now: Date,
+  waitMs: number
+): Promise<void> {
+  const nowSeconds = now.getTime() / 1000
+  const burst = config.burst
+  const rate = config.refillPerSecond
+  const deferred = 1 - (Math.max(0, waitMs) / 1000) * rate
+
+  await prisma.$executeRaw`
+    INSERT INTO "RateLimit" ("key", "tokens", "updatedAt")
+    VALUES (
+      ${key},
+      LEAST(${burst}::float8, ${deferred}::float8),
+      to_timestamp(${nowSeconds}::float8) AT TIME ZONE 'UTC'
+    )
+    ON CONFLICT ("key") DO UPDATE SET
+      "tokens" = LEAST(
+        ${burst}::float8,
+        "RateLimit"."tokens" + GREATEST(
+          0,
+          ${nowSeconds}::float8 - EXTRACT(EPOCH FROM "RateLimit"."updatedAt")
+        ) * ${rate}::float8,
+        ${deferred}::float8
+      ),
+      "updatedAt" = GREATEST(
+        "RateLimit"."updatedAt",
+        to_timestamp(${nowSeconds}::float8) AT TIME ZONE 'UTC'
+      )
+  `
 }
 
 /**

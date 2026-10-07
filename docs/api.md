@@ -1134,8 +1134,11 @@ for one second.
 
 - **Auth:** none
 - **Params:** none
-- **Response `200`:** `{ status: "ready", checks: { database, storage, world? } }`,
-  each the milliseconds the check took.
+- **Response `200`:** `{ status: "ready", checks: { database, storage, world? }, degraded? }`,
+  each the milliseconds the check took. `degraded` names the checks that
+  failed without making the replica unready: `redis`, with
+  `ANONIFY_RATE_STORE=redis`, which the replica works without (#184). It is
+  absent when there are none, and each one is logged as a warning.
 - **Response `503`:** `{ status: "not-ready", failed: [...] }`, the names of the
   checks that failed (`database`, `storage`, `world`, `draining`) and nothing
   else; the detail is logged with `context: "health.ready"`.

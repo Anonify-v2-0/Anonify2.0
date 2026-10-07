@@ -8,6 +8,16 @@ import {
   SERVICES,
   type ServiceName,
 } from "@/lib/services/limits"
+import {
+  rateStoreFailures,
+  rateStoreKind,
+  reportRateStoreFailure,
+  serviceLimitScope,
+  type RateStore,
+  type ServiceLimitScope,
+} from "@/lib/services/rate-store"
+import { postgresRateStore } from "@/lib/services/rate-store-postgres"
+import { redisRateStore } from "@/lib/services/rate-store-redis"
 
 /**
  * Pacing outbound work, and surviving the moment it is refused anyway.
@@ -36,11 +46,13 @@ import {
  * re-running the same burst against a limit that exists *because* of the burst
  * is the one response that reliably makes things worse.
  *
- * State is process-local and deliberately so. This paces one Node process
- * against one account; it is not a distributed budget and does not pretend to
- * be one. Where several replicas share an account, each one's share is its own
- * configuration — which is why the numbers are configuration in the first
- * place (see lib/services/limits.ts).
+ * State is process-local by default: this paces one Node process against one
+ * account, and with one container that is the whole deployment. With several
+ * replicas sharing an account, `ANONIFY_SERVICE_LIMIT_SCOPE=cluster` (#184)
+ * keeps the bucket and the in-flight count in a store they all reach, so the
+ * configured numbers mean the deployment rather than each container. The
+ * retry stays per request and per process either way; only the budget moves.
+ * See "the cluster budget" below.
  */
 
 function sleep(ms: number): Promise<void> {
@@ -319,12 +331,19 @@ function releaseSlot(service: ServiceName): void {
  * through the per-second one underneath it — and a per-second limit is exactly
  * what Mistral's free tier is.
  */
+function paceConfig(perMinute: number): BucketConfig {
+  return {
+    burst: Math.max(1, Math.ceil(perMinute / 60)),
+    refillPerSecond: perMinute / 60,
+  }
+}
+
 async function awaitToken(service: ServiceName): Promise<void> {
   const perMinute = serviceLimits(service).requestsPerMinute
   if (perMinute <= 0) return
 
-  const burst = Math.max(1, Math.ceil(perMinute / 60))
-  const config: BucketConfig = { burst, refillPerSecond: perMinute / 60 }
+  const config = paceConfig(perMinute)
+  const burst = config.burst
   const gate = gates[service]
 
   const reservation = gate.chain.then(async () => {
@@ -343,6 +362,198 @@ async function awaitToken(service: ServiceName): Promise<void> {
   // and should not depend on that staying true.
   gate.chain = reservation.catch(() => undefined)
   await reservation
+}
+
+// --- the cluster budget (#184) ----------------------------------------------
+
+/**
+ * How long a lease lives without a renewal, and how often a request in flight
+ * renews it. There is no timeout on a provider call to size the lease by (a
+ * long generation is a long call), so instead it is short and kept alive: a
+ * worker that dies mid-request frees its slot within thirty seconds.
+ */
+export const LEASE_TTL_MS = 30_000
+export const LEASE_RENEW_MS = 10_000
+
+/** Asking again for a lease: from 50 ms, doubling, to a second. */
+const LEASE_POLL_MIN_MS = 50
+const LEASE_POLL_MAX_MS = 1_000
+
+/**
+ * After the store fails, how long requests go straight to the process-local
+ * gate before trying it again. Without it every request would first wait on
+ * a store that has just been shown to be down.
+ */
+const STORE_RETRY_AFTER_MS = 10_000
+
+const keys = {
+  rate: (service: ServiceName) => `svc:${service}:rpm`,
+  lease: (service: ServiceName) => `svc:${service}:lease`,
+}
+
+let storeOverride: RateStore | null | undefined
+let storeDownUntil = 0
+const stores: Partial<Record<string, RateStore>> = {}
+
+/** The shared store, or null when the scope is the process. */
+function clusterStore(): RateStore | null {
+  if (storeOverride !== undefined) return storeOverride
+  if (serviceLimitScope() === "process") return null
+  const kind = rateStoreKind()
+  stores[kind] ??= kind === "redis" ? redisRateStore() : postgresRateStore()
+  return stores[kind]
+}
+
+/**
+ * The store fell over: this request carries on with the process-local gate,
+ * and so does every other for the next ten seconds. Documents keep
+ * processing, paced per replica rather than per deployment, which is less
+ * precise and much better than stopping.
+ */
+function storeFailed(store: RateStore, error: unknown): void {
+  storeDownUntil = Date.now() + STORE_RETRY_AFTER_MS
+  reportRateStoreFailure(store.kind, "outbound", "process", error)
+}
+
+function storeUp(): boolean {
+  return Date.now() >= storeDownUntil
+}
+
+function pollDelay(poll: number): number {
+  const ceiling = Math.min(LEASE_POLL_MAX_MS, LEASE_POLL_MIN_MS * 2 ** poll)
+  return Math.round(ceiling / 2 + Math.random() * (ceiling / 2))
+}
+
+/**
+ * The shared bucket. One caller per process asks the store at a time, behind
+ * the same chain as the local bucket, so a hundred queued pages are one
+ * client asking rather than a hundred.
+ */
+async function awaitSharedToken(
+  service: ServiceName,
+  store: RateStore
+): Promise<void> {
+  const perMinute = serviceLimits(service).requestsPerMinute
+  if (perMinute <= 0) return
+
+  const config = paceConfig(perMinute)
+  const gate = gates[service]
+
+  const reservation = gate.chain.then(async () => {
+    for (;;) {
+      const decision = await store.take(keys.rate(service), config, new Date())
+      if (decision.allowed) return
+      await sleep(Math.max(1, decision.waitMs))
+    }
+  })
+
+  gate.chain = reservation.catch(() => undefined)
+  await reservation
+}
+
+async function awaitLease(
+  service: ServiceName,
+  store: RateStore
+): Promise<string> {
+  for (let poll = 0; ; poll++) {
+    const lease = await store.acquireLease(
+      keys.lease(service),
+      concurrencyFor(service),
+      LEASE_TTL_MS
+    )
+    if (lease) return lease.id
+    await sleep(pollDelay(poll))
+  }
+}
+
+/**
+ * Lets one request go: a token, then a slot. Returns what gives the slot
+ * back.
+ *
+ * With the cluster scope the slot is two: the process-local one, which keeps
+ * a replica's own callers in a queue rather than all asking the store, and a
+ * lease, which is the deployment-wide limit. Both have the same limit, so the
+ * local one never binds before the lease does.
+ */
+async function admit(service: ServiceName): Promise<() => void> {
+  const store = clusterStore()
+  const local = () => releaseSlot(service)
+
+  if (!store || !storeUp()) {
+    await awaitToken(service)
+    await acquireSlot(service)
+    return local
+  }
+
+  try {
+    await awaitSharedToken(service, store)
+  } catch (error) {
+    storeFailed(store, error)
+    await awaitToken(service)
+  }
+
+  await acquireSlot(service)
+  if (!storeUp()) return local
+
+  let id: string
+  try {
+    id = await awaitLease(service, store)
+  } catch (error) {
+    storeFailed(store, error)
+    return local
+  }
+
+  const key = keys.lease(service)
+  const heartbeat = setInterval(() => {
+    store.renewLease(key, id, LEASE_TTL_MS).then(
+      (renewed) => {
+        if (!renewed)
+          console.warn(
+            JSON.stringify({
+              level: "warn",
+              context: "service.lease",
+              service,
+              message:
+                "a lease expired while its request was in flight; the cluster limit can be exceeded until it finishes",
+            })
+          )
+      },
+      (error) => storeFailed(store, error)
+    )
+  }, LEASE_RENEW_MS)
+  heartbeat.unref?.()
+
+  return () => {
+    clearInterval(heartbeat)
+    releaseSlot(service)
+    // Not awaited: the answer is already in hand, and a release that fails
+    // costs a slot for one TTL, not a request.
+    store.releaseLease(key, id).catch((error) => storeFailed(store, error))
+  }
+}
+
+/**
+ * A provider's `Retry-After`, told to every replica through the shared
+ * bucket. Only where there is one: with no rate configured there is no bucket
+ * to hold back, and the replica that was refused waits on its own, as before.
+ */
+async function deferShared(
+  service: ServiceName,
+  waitMs: number
+): Promise<void> {
+  const store = clusterStore()
+  const perMinute = serviceLimits(service).requestsPerMinute
+  if (!store || !storeUp() || perMinute <= 0) return
+  try {
+    await store.defer(
+      keys.rate(service),
+      paceConfig(perMinute),
+      new Date(),
+      waitMs
+    )
+  } catch (error) {
+    storeFailed(store, error)
+  }
 }
 
 export type ThrottleOptions = {
@@ -374,8 +585,7 @@ export async function runThrottled<T>(
   let lastError: unknown
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    await awaitToken(service)
-    await acquireSlot(service)
+    const release = await admit(service)
 
     try {
       return await request()
@@ -385,10 +595,12 @@ export async function runThrottled<T>(
       // Always, and before the wait: a slot is held for the duration of the
       // request and never across the pause between attempts, or one caller
       // sleeping off a 429 would block another that could go right now.
-      releaseSlot(service)
+      release()
     }
 
     const failure = classifyServiceError(lastError)
+    if (failure.kind === "rate-limit" && failure.retryAfterMs)
+      await deferShared(service, failure.retryAfterMs)
     if (!failure.retryable || attempt === attempts) throw lastError
 
     // The service's own number wins when it gave one: it is the only value in
@@ -420,6 +632,17 @@ export async function runThrottled<T>(
 /** Test seam: forgets pacing state so one test's burst is not another's wait. */
 export function resetThrottles(): void {
   for (const service of SERVICES) gates[service] = freshGate()
+  storeOverride = undefined
+  storeDownUntil = 0
+}
+
+/**
+ * Test seam: the store the cluster scope uses, whatever the environment says.
+ * `null` is the process scope; `undefined` goes back to the configuration.
+ */
+export function useRateStore(store: RateStore | null | undefined): void {
+  storeOverride = store
+  storeDownUntil = 0
 }
 
 /** What the gate is doing right now, for tests and for a diagnostic log line. */
@@ -427,11 +650,17 @@ export function throttleState(service: ServiceName): {
   active: number
   waiting: number
   ceiling: number | null
+  scope: ServiceLimitScope
+  /** How often the shared store failed and this process fell back. */
+  fallbacks: number
 } {
   const gate = gates[service]
+  const store = clusterStore()
   return {
     active: gate.active,
     waiting: gate.waiting.length,
     ceiling: gate.ceiling,
+    scope: store ? "cluster" : "process",
+    fallbacks: store ? rateStoreFailures(store.kind, "outbound") : 0,
   }
 }

@@ -410,3 +410,18 @@ model RateLimit {
 
   @@index([updatedAt])
 }
+
+/// A slot in a cluster-wide concurrency limit on an outbound service (#184),
+/// with ANONIFY_SERVICE_LIMIT_SCOPE=cluster. `key` is the service
+/// (`svc:ai:lease`), and a limit of N is slots 0 to N-1, so the primary key is
+/// what stops two replicas holding the same one. A slot whose lease has
+/// expired is free, and the next acquire overwrites it: a worker that crashed
+/// mid-request gives its slots back without anyone deleting anything.
+model ServiceLease {
+  key       String
+  slot      Int
+  id        String
+  expiresAt DateTime @db.Timestamptz(3)
+
+  @@id([key, slot])
+}

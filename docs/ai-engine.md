@@ -159,6 +159,35 @@ chosen. A `429`, `5xx` or timeout is retried with jitter, honouring
 `Retry-After`; a `401`, `402` or `403` is not retried at all, because no number
 of tries fixes a bad key or an empty balance.
 
+**One budget across replicas.** Those limits are per process by default, and
+with an autoscaler that is a limit nobody can set: N workers send N times the
+configured rate and concurrency at one account. With
+`ANONIFY_SERVICE_LIMIT_SCOPE=cluster` (#184) the bucket and the in-flight count
+live in a store every replica reaches (`lib/services/rate-store.ts`): Postgres
+by default, Redis or Valkey with `ANONIFY_RATE_STORE=redis`.
+
+- **The rate** is the token bucket shared: the inbound limiter's single
+  statement on Postgres, a Lua script with the same maths on Redis. One caller
+  per process asks at a time.
+- **Concurrency** is leases. On Postgres a limit of N is N slots in
+  `ServiceLease`, claimed in one statement; on Redis, a sorted set of lease
+  expiries. A lease lives 30 seconds and is renewed every 10 while its call is
+  in flight, so a worker that dies mid-call frees its slot within 30 seconds.
+  Expiry is the store's clock, so replicas whose clocks disagree still agree on
+  which leases are live.
+- **A `Retry-After`** pushes the shared bucket's next token back, so every
+  replica waits, not only the one that got the 429. That needs a bucket, so it
+  applies when a rate is configured for the service.
+- **Retries stay per request** and per process, as above.
+- **If the store fails**, the call goes ahead under the process-local gate, and
+  so does every call for the next ten seconds. The warning is logged at most
+  every 30 seconds, with how many calls fell back. Documents keep processing,
+  paced per replica, which is less precise and much better than stopping.
+
+The spend cap needed no change: it is already computed from `AiUsage` rows in
+the database, so every replica sees the same spend, and its one-at-a-time
+ceiling lowers the shared lease limit.
+
 **A budget, because the gateway meters spend.** The AI Gateway has a credit
 balance and a budget rather than a requests-per-minute number, so the ceiling
 worth enforcing is one the application applies to itself before the money is

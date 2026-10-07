@@ -1,7 +1,12 @@
 import { runsWorker } from "@/lib/config/role"
 import { prisma } from "@/lib/database/prisma"
-import { cachedReadiness, type ReadinessCheck } from "@/lib/health/ready"
+import {
+  cachedReadiness,
+  degraded,
+  type ReadinessCheck,
+} from "@/lib/health/ready"
 import { healthState } from "@/lib/health/state"
+import { redisRateStore } from "@/lib/services/rate-store-redis"
 import { probeStorage } from "@/lib/storage/blob"
 
 export const runtime = "nodejs"
@@ -14,6 +19,11 @@ export const dynamic = "force-dynamic"
  * database, the storage backend, the workflow worker, or that the replica is
  * draining. Unauthenticated, because a probe has no session, and it returns
  * no document data and no detail about a failure; the detail is logged.
+ *
+ * Redis, when ANONIFY_RATE_STORE=redis (#184), is checked but cannot fail
+ * readiness: without it the AI and OCR pacing falls back to each process and
+ * the inbound limiter to Postgres, so a replica still works. It is reported
+ * under `degraded`.
  */
 function checks(): Record<string, ReadinessCheck> {
   const all: Record<string, ReadinessCheck> = {
@@ -25,6 +35,9 @@ function checks(): Record<string, ReadinessCheck> {
   // A replica that runs the workflow worker is not ready until it has
   // started. One that does not, on Vercel or with ANONIFY_ROLE=web (#179),
   // has nothing to wait for.
+  if (process.env.ANONIFY_RATE_STORE?.trim().toLowerCase() === "redis") {
+    all.redis = degraded(() => redisRateStore().probe())
+  }
   if (process.env.WORKFLOW_TARGET_WORLD && runsWorker()) {
     all.world = async () => {
       if (!healthState().worldStarted)

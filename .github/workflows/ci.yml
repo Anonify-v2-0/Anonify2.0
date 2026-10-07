@@ -349,10 +349,21 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      # The optional store for the cluster-wide AI and OCR budget (#184).
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
 
     env:
       DATABASE_URL: postgresql://anonify:anonify@localhost:5432/anonify_test
       TEST_DATABASE_URL: postgresql://anonify:anonify@localhost:5432/anonify_test
+      TEST_REDIS_URL: redis://localhost:6379
       DATABASE_DRIVER: postgres
       # The suites write objects; the local filesystem driver keeps that on the
       # runner rather than pointed at anything real.
