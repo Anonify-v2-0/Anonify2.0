@@ -14,6 +14,25 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.15.0] - 2026-10-07
+
+### Added
+
+- Azure Blob Storage is a supported storage backend (`STORAGE_DRIVER=azure-blob`), with managed identity, account keys or a connection string, and direct browser uploads. Every upload is now also refused at ingest if its stored size is not the size it was reserved with (#176)
+- `ANONIFY_ROLE` runs a container as `web` (serves the app), `worker` (processes documents) or `all` (the default, as before), so serving and processing can be scaled separately. `docker-compose.split.yml` runs one web container and two workers (#179)
+
+### Changed
+
+- Scanned and image-heavy PDFs finish analysis sooner: the vision pass sends up to `ANONIFY_AI_CONCURRENCY` pages to the model at once instead of one at a time, and holds fewer page images in memory while it does (#173)
+- Exporting a redacted PDF is about three times faster, and a document whose pages share a font or an image no longer copies it once per page, so long documents export much smaller (a 50-page test document went from 33.7 MB to 2.6 MB) (#174)
+- The app image runs its own migrations (`docker run IMAGE migrate`, safe on every deploy and from several replicas at once) and the expiry sweep (`docker run IMAGE cleanup`), so Compose builds one image instead of two. The image now has an `anonify` entrypoint; a command override such as `node server.js` still works (#175)
+- The document list and the batch page stop checking for updates while their tab is in the background, and check once when you come back to it. When nothing has changed, the server answers without sending the list again (#177)
+- The container image includes the default OCR model, so scanned documents are read without internet access; runs under an init process; supports a read-only root filesystem with only `/tmp` and `/data` writable; is built on a digest-pinned base; and reports its build in `/api/health` and the startup log (#178)
+
+### Security
+
+- Outside Vercel, the internal workflow routes (`/.well-known/workflow/v1/flow` and `/step`) only accept deliveries from the instance's own job runner. Before, anyone who could reach the app's port could post a well-formed delivery to them (#179)
+
 ## [1.14.5] - 2026-10-07
 
 ### Security
