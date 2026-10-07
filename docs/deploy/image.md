@@ -55,7 +55,9 @@ no tag, since the image may already have been pulled. A publish that failed
 can be re-run from the Actions tab ("Publish image", with the version) without
 cutting a new release; re-publishing an older version does not move `latest`.
 
-Release builds pass `ANONIFY_BUILD_ID=X.Y.Z-<short commit>` and the
+Release builds pass `ANONIFY_BUILD_ID=X_Y_Z-<short commit>` (underscores,
+because Next.js accepts only letters, digits, `-` and `_` in a
+`deploymentId`) and the
 `OCI_*` labels described below.
 
 ## Migrations
@@ -126,7 +128,7 @@ server, so a `docker stop` or a pod deletion stops it promptly.
 
 | Argument | Becomes |
 | --- | --- |
-| `ANONIFY_BUILD_ID` | `ENV ANONIFY_BUILD_ID`, the Next.js `deploymentId`, the `build` field of `/api/health` and of the startup log line. `dev` locally. |
+| `ANONIFY_BUILD_ID` | `ENV ANONIFY_BUILD_ID`, the Next.js `deploymentId`, the `build` field of `/api/health` and of the startup log line. `dev` locally. Letters, digits, `-` and `_` only, or `next build` fails. |
 | `OCI_VERSION`, `OCI_REVISION`, `OCI_CREATED`, `OCI_SOURCE` | The `org.opencontainers.image.*` labels, with `licenses=Apache-2.0`, `title` and `description`. |
 
 The `deploymentId` matters during a rolling update: a browser that loaded one
