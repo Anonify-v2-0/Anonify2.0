@@ -638,6 +638,16 @@ bypass actor. A ruleset bypass cannot override classic branch protection — bot
 are enforced and the stricter wins — so `main`'s classic rule has to be deleted
 and re-expressed as ruleset rules at the same time.
 
+Each release is then published as an image to Docker Hub
+(`nabeelwasif/anonify2.0`, amd64 and arm64) by
+`.github/workflows/publish-image.yml`, which `release.yml` calls as its last
+job (#180). It needs the repository secrets `DOCKERHUB_USERNAME` and
+`DOCKERHUB_TOKEN`, a Docker Hub personal access token. Read & Write is enough
+to push; the Docker Hub page is only updated from `docs/docker-hub.md` when the
+token also has Delete scope, and is left alone otherwise. The repository
+variable `DOCKERHUB_REPOSITORY` overrides the image name. If the publish fails,
+the release stands: dispatch **Publish image** with the version.
+
 | Bump | Labels |
 | --- | --- |
 | **minor** — `1.1.0` → `1.2.0` | `enhancement`, `formats` |

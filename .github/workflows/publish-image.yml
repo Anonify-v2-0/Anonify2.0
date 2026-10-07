@@ -1,0 +1,406 @@
+name: Publish image
+
+# One image per release, on Docker Hub, for amd64 and arm64 (#180).
+#
+# Until this existed a self-hosted install built from source: about 2 GB of
+# dependencies, network access to npm and Google Fonts, several minutes, and a
+# result tied to whatever commit happened to be checked out rather than to a
+# release. A published image makes `docker compose pull` the install path,
+# gives platform recipes an immutable digest to reference, and gives us one
+# artifact to scan, attest and verify.
+#
+# Called from release.yml, not triggered by the release. The tag and the
+# release there are created with GITHUB_TOKEN, and events GITHUB_TOKEN causes
+# start no workflows, so an `on: release` or `on: push: tags` here would never
+# run. A reusable workflow called with `workflow_call` runs inside the release
+# run itself, where that rule does not apply.
+#
+# It can also be dispatched by hand for a version that is already tagged, so a
+# publish that failed, or a release from before this file existed, is re-run
+# without cutting a new release.
+#
+# Prerequisites, once: the repository on Docker Hub, and the secrets
+# DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (a personal access token). Optionally
+# the variable DOCKERHUB_REPOSITORY, when the image moves; the default below is
+# the one name everything else assumes.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The released version to publish, without the v (1.16.0)
+        type: string
+        required: true
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: An existing release to publish, without the v (1.16.0)
+        type: string
+        required: true
+
+# Each job asks for what it needs. Called from release.yml, these are further
+# capped by what the calling job grants.
+permissions:
+  contents: read
+
+env:
+  IMAGE: ${{ vars.DOCKERHUB_REPOSITORY || 'nabeelwasif/anonify2.0' }}
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  # One image per architecture, each on a runner of that architecture. No QEMU:
+  # emulated, the Next.js build alone takes the better part of an hour, and the
+  # lockfile already resolves sharp's and canvas's native arm64 packages.
+  #
+  # Each is pushed by digest only, with no tag. Nothing on Docker Hub points at
+  # either until `manifest` has both, so a release whose arm64 build fails never
+  # publishes an amd64-only `latest`.
+  build:
+    name: Build (${{ matrix.arch }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+
+    steps:
+      # Before anything is built: a version that is not a plain release, or a
+      # tag that does not exist, would publish an image of the wrong tree.
+      - name: Check the version
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$VERSION' is not a plain major.minor.patch. Give the version without the v."
+            exit 1
+          fi
+
+      # The tag, never a branch. Whatever main holds by now, the image is the
+      # tree that was released.
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+
+      # The labels have to be identical on both architectures, so nothing here
+      # reads the clock: `created` is the commit's time, not the build's.
+      - name: Build identity
+        id: identity
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          {
+            echo "revision=$sha"
+            echo "created=$(git log -1 --format=%cI HEAD)"
+            # A hyphen, not semver's `+`: this becomes the Next.js deploymentId,
+            # which goes into asset URLs as `?dpl=` unencoded, and a `+` in a
+            # query string reads back as a space.
+            echo "build-id=$VERSION-${sha::7}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Provenance and an SBOM are attached to each architecture's image here,
+      # and travel into the multi-arch index `manifest` assembles.
+      #
+      # The cache: release runs are triggered by a pull request closing, and an
+      # Actions cache written from a pull request's ref can be read by nothing
+      # after it. What a release can read is main's, so amd64 also starts from
+      # the layers CI's Compose job leaves under `runner` on every push to main.
+      # arm64 has no such neighbour and builds most of the way from scratch.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runner
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=docker.io/${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            ANONIFY_BUILD_ID=${{ steps.identity.outputs.build-id }}
+            OCI_VERSION=${{ inputs.version }}
+            OCI_REVISION=${{ steps.identity.outputs.revision }}
+            OCI_CREATED=${{ steps.identity.outputs.created }}
+            OCI_SOURCE=${{ github.server_url }}/${{ github.repository }}
+          provenance: mode=max
+          sbom: true
+          cache-from: |
+            type=gha,scope=release-${{ matrix.arch }}
+            ${{ matrix.arch == 'amd64' && 'type=gha,scope=runner' || '' }}
+          cache-to: type=gha,scope=release-${{ matrix.arch }},mode=max
+
+      - name: Keep the digest for the manifest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+          echo "::notice::linux/${{ matrix.arch }}: $DIGEST"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # The two images become one index, which is what every tag points at.
+  manifest:
+    name: Tag, attest and announce
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    # The tags are shared by every run. A release and a hand-dispatched re-run
+    # of an older version must not interleave their moves of `latest`.
+    concurrency:
+      group: docker-hub-tags
+      cancel-in-progress: false
+
+    permissions:
+      # The Docker section of the release notes.
+      contents: write
+      # The signed provenance attestation, stored by GitHub and pushed next to
+      # the image.
+      id-token: write
+      attestations: write
+
+    outputs:
+      digest: ${{ steps.index.outputs.digest }}
+
+    steps:
+      # Every tag, to decide which floating tags this version may take.
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+          fetch-depth: 0
+
+      # `X.Y.Z` and `sha-<short>` always. `X.Y`, `X` and `latest` only when this
+      # is the newest release in that line, so re-publishing an old version by
+      # hand does not move `latest` backwards. For the release run that called
+      # this, it always is.
+      - name: Choose the tags
+        id: tags
+        run: |
+          set -euo pipefail
+
+          IFS=. read -r major minor _ <<< "$VERSION"
+          newest() { git tag -l "$1" --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1; }
+
+          tags=("$VERSION" "sha-$(git rev-parse --short=7 HEAD)")
+          [ "$(newest "v$major.$minor.*")" = "v$VERSION" ] && tags+=("$major.$minor")
+          [ "$(newest "v$major.*")" = "v$VERSION" ] && tags+=("$major")
+          [ "$(newest 'v*')" = "v$VERSION" ] && tags+=(latest)
+
+          echo "tags=${tags[*]}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Tags: ${tags[*]}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create the multi-arch index
+        id: index
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          set -euo pipefail
+
+          args=()
+          for tag in $TAGS; do args+=(-t "docker.io/$IMAGE:$tag"); done
+
+          docker buildx imagetools create "${args[@]}" \
+            $(printf "docker.io/$IMAGE@sha256:%s " *)
+
+          docker buildx imagetools inspect "docker.io/$IMAGE:$VERSION"
+
+          digest=$(docker buildx imagetools inspect "docker.io/$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "::notice::docker.io/$IMAGE:$VERSION is $digest"
+
+      # Verifiable with `gh attestation verify oci://docker.io/IMAGE:VERSION
+      # --repo OWNER/REPO`: proof that this repository's workflow built the
+      # index, from which commit. The per-architecture provenance and SBOM that
+      # BuildKit attached are inside the index as well.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: index.docker.io/${{ env.IMAGE }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true
+
+      # The page people land on from a search. Docker Hub only accepts this with
+      # a token that has Delete scope, which pushing does not need; a token
+      # without it leaves the page as it was and says so, rather than failing a
+      # release that has already been published.
+      #
+      # The release's own copy of the page, or main's for a release older than
+      # the page.
+      - name: Find the Docker Hub page
+        id: page
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          page="$RUNNER_TEMP/docker-hub.md"
+          if [ -f docs/docker-hub.md ]; then
+            cp docs/docker-hub.md "$page"
+          else
+            git show origin/main:docs/docker-hub.md > "$page"
+          fi
+          echo "path=$page" >> "$GITHUB_OUTPUT"
+
+      - name: Update the Docker Hub page
+        uses: peter-evans/dockerhub-description@v4
+        continue-on-error: true
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE }}
+          short-description: Self-hosted document redaction. Find personal data, review it, export it removed.
+          readme-filepath: ${{ steps.page.outputs.path }}
+
+      # Between markers, so a re-run replaces its own section instead of
+      # appending a second one.
+      - name: Add the image to the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.index.outputs.digest }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          notes="$RUNNER_TEMP/notes.md"
+          gh release view "v$VERSION" --repo "$REPO" --json body --jq .body \
+            | sed '/<!-- docker-image -->/,/<!-- \/docker-image -->/d' > "$notes"
+
+          cat >> "$notes" <<NOTES
+          <!-- docker-image -->
+          ### Docker
+
+          \`\`\`sh
+          docker pull $IMAGE:$VERSION
+          \`\`\`
+
+          linux/amd64 and linux/arm64, index digest \`$DIGEST\`. To check it was built here, from this release:
+
+          \`\`\`sh
+          gh attestation verify oci://docker.io/$IMAGE:$VERSION --repo $REPO
+          \`\`\`
+          <!-- /docker-image -->
+          NOTES
+
+          gh release edit "v$VERSION" --repo "$REPO" --notes-file "$notes"
+
+      - name: Summary
+        env:
+          DIGEST: ${{ steps.index.outputs.digest }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          {
+            echo "## Published [\`$IMAGE\`](https://hub.docker.com/r/$IMAGE/tags)"
+            echo
+            echo "Tags: \`${TAGS// /\`, \`}\`"
+            echo
+            echo "Index digest: \`$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # What was pushed, pulled back by digest on each architecture and run the way
+  # a self-hoster runs it: the Compose stack on a read-only root filesystem,
+  # then the smoke test through every format. Nothing is built here.
+  #
+  # A failure does not delete or move any tag — someone may already have pulled
+  # it. It opens an issue instead, so a broken image is fixed forward.
+  verify:
+    name: Verify (${{ matrix.arch }})
+    needs: manifest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      issues: write
+
+    env:
+      ANONIFY_IMAGE: docker.io/${{ vars.DOCKERHUB_REPOSITORY || 'nabeelwasif/anonify2.0' }}@${{ needs.manifest.outputs.digest }}
+      # Placeholders; this stack is destroyed with the runner.
+      ENCRYPTION_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+      FINGERPRINT_SECRET: "feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface"
+      COMPOSE_FILE: docker-compose.yml:docker-compose.readonly.yml
+
+    steps:
+      # The release's Compose file and smoke test, against the release's image.
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+
+      - uses: ./.github/actions/setup
+
+      # Anonymously, as anyone installing it would.
+      - name: Pull the published image
+        run: |
+          set -euo pipefail
+          docker pull "$ANONIFY_IMAGE"
+          arch=$(docker image inspect "$ANONIFY_IMAGE" --format '{{.Architecture}}')
+          [ "$arch" = "${{ matrix.arch }}" ] || { echo "::error::pulled $arch on a ${{ matrix.arch }} runner"; exit 1; }
+          docker run --rm "$ANONIFY_IMAGE" help
+          version=$(docker image inspect "$ANONIFY_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')
+          [ "$version" = "$VERSION" ] || { echo "::error::the image says it is '$version', not $VERSION"; exit 1; }
+
+      - name: Start the stack
+        run: docker compose up -d --wait --no-build
+
+      - name: Upload, process, export, download — every format
+        run: pnpm smoke http://127.0.0.1:3000
+
+      - name: Compose logs
+        if: failure()
+        run: docker compose logs --no-color --timestamps
+
+      - name: Open an issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="The published v$VERSION image fails on ${{ matrix.arch }}"
+
+          if [ -n "$(gh issue list --repo "$REPO" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')" ]; then
+            echo "An issue is already open for this."
+            exit 0
+          fi
+
+          gh issue create --repo "$REPO" --label bug --title "$title" --body "$(cat <<BODY
+          \`$ANONIFY_IMAGE\` was published as v$VERSION and then failed verification on linux/${{ matrix.arch }}: $RUN_URL
+
+          The tags were left where they are, since the image may already have been pulled. Fix forward with a new release, or dispatch **Publish image** again for v$VERSION once the cause is outside the image.
+          BODY
+          )"

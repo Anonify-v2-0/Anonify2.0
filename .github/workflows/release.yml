@@ -90,6 +90,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    # What `image` below needs to publish this release. `published` is written
+    # only after `gh release create` succeeds, so a dry run, a merge that
+    # releases nothing, and a release that failed part-way all publish nothing.
+    outputs:
+      version: ${{ steps.version.outputs.next }}
+      published: ${{ steps.publish.outputs.published }}
+
     steps:
       # Always main, never `github.ref`. A dispatch from a topic branch is
       # still a release of main — there is nowhere else a version can come
@@ -303,6 +310,7 @@ jobs:
       # the build, the migrations and the compose stack against a diff whose
       # only content is a version number.
       - name: Open the bump as a pull request, merge it, tag it, release it
+        id: publish
         if: steps.resolve.outputs.bump != 'none' && inputs.dry_run != true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -488,6 +496,8 @@ jobs:
             --target "$sha" \
             --notes-file "$notes"
 
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
       - name: Say what happened
         if: steps.resolve.outputs.bump != 'none'
         env:
@@ -518,3 +528,27 @@ jobs:
             echo
             echo "$WHY"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # The release as an image on Docker Hub, for amd64 and arm64 (#180).
+  #
+  # A job in this run rather than a workflow of its own, because the tag and
+  # release above were made with GITHUB_TOKEN, which starts no other workflow.
+  # It is also inside this workflow's `release` concurrency group, so the next
+  # release waits for this one's image before it can move `latest`.
+  #
+  # If it fails, the release itself stands: dispatch "Publish image" with the
+  # version to publish it again.
+  image:
+    name: Image
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    uses: ./.github/workflows/publish-image.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
+    secrets: inherit
+    # The most the publish may use; each of its jobs asks for less.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      issues: write
