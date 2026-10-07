@@ -574,14 +574,35 @@ jobs:
               })"
           done
 
+      # The same stack on Azure Blob Storage, with Azurite (#176): the driver's
+      # own smoke from the host, which also creates the container, then every
+      # format through the app with browser uploads going to a SAS URL.
+      - name: Azure Blob Storage, through Azurite
+        env:
+          STORAGE_DRIVER: azure-blob
+          AZURE_STORAGE_CONTAINER: anonify
+          AZURE_STORAGE_PRESIGNED_UPLOADS: "true"
+          AZURE_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;"
+        run: |
+          azure="-f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.azure.yml"
+          docker compose $azure up -d azurite
+          for attempt in $(seq 1 30); do
+            curl -s -o /dev/null http://127.0.0.1:10000/ && break
+            sleep 1
+          done
+          pnpm smoke:driver --create-container
+          # Back to one app container, on Azure; the split's workers go.
+          docker compose $azure up -d --wait --remove-orphans
+          pnpm smoke http://127.0.0.1:3000
+
       - name: Show what the containers said
         if: failure()
-        # The split override names the workers too, whether or not they ran.
-        run: docker compose -f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.split.yml logs --no-color --timestamps
+        # The overrides name the workers and Azurite too, whether or not they ran.
+        run: docker compose -f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.split.yml -f docker-compose.azure.yml logs --no-color --timestamps
 
       - name: Tear down
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.split.yml down --volumes --remove-orphans
+        run: docker compose -f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.split.yml -f docker-compose.azure.yml down --volumes --remove-orphans
 
   # A pull request that moves the version owes a line saying what moved.
   #

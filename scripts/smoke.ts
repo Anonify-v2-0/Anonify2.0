@@ -41,6 +41,7 @@ import {
   sealFileForUpload,
   type UploadEncryption,
 } from "@/lib/storage/chunked-web"
+import { azureConfigFromEnv, createAzureDriver } from "@/lib/storage/azure"
 import { createS3Driver } from "@/lib/storage/drivers"
 
 const SENSITIVE = {
@@ -1080,9 +1081,9 @@ function step(message: string): void {
  * The upload as it landed, read straight from storage.
  *
  * From the host: the filesystem driver's directory when the app runs here,
- * or the S3 service at its host address (the Compose defaults, like
- * `pnpm smoke:storage`). Null when neither can be reached from where this
- * runs — an app on another machine, say.
+ * the S3 service at its host address (the Compose defaults, like
+ * `pnpm smoke:storage`), or Azure from AZURE_STORAGE_*. Null when none can
+ * be reached from where this runs — an app on another machine, say.
  */
 async function readLanded(handle: string): Promise<Buffer | null> {
   try {
@@ -1106,6 +1107,13 @@ async function readLanded(handle: string): Promise<Buffer | null> {
         forcePathStyle: true,
       })
       return await driver.get(handle)
+    }
+    if (handle.startsWith("azure:")) {
+      // The emulator or account as this machine reaches it, from the same
+      // AZURE_STORAGE_* settings the app reads.
+      const config = azureConfigFromEnv()
+      if (!config) return null
+      return await createAzureDriver(config).get(handle)
     }
   } catch {
     return null

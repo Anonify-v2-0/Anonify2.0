@@ -159,7 +159,13 @@ export function isUploadHandleFor(
   filename: string
 ): boolean {
   const path = uploadKey(documentId, filename)
-  if (handle === `local:${path}` || handle === `s3:${path}`) return true
+  if (
+    handle === `local:${path}` ||
+    handle === `s3:${path}` ||
+    handle === `azure:${path}`
+  ) {
+    return true
+  }
 
   let url: URL
   try {

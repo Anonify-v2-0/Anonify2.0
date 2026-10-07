@@ -493,7 +493,7 @@ clone works before anything is decided.
 | | Options | Default |
 | --- | --- | --- |
 | `DATABASE_DRIVER` | `postgres`, `neon` | Inferred from the connection string |
-| `STORAGE_DRIVER` | `s3`, `vercel-blob`, `local` | Inferred from what is configured |
+| `STORAGE_DRIVER` | `s3`, `azure-blob`, `vercel-blob`, `local` | Inferred from what is configured |
 | `OCR_PROVIDER` | `tesseract`, `mistral` | `tesseract` — local, no account |
 | `ANONIFY_PROFILE` | `self-hosted`, `demo` | `self-hosted` |
 | `ANONIFY_PUBLIC_URL` | The address people reach the instance at | Vercel's own on Vercel; `http://localhost:3000` elsewhere |
