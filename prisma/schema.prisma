@@ -110,6 +110,10 @@ model Document {
   /// "workflowRunId" IS NULL), which this schema cannot say; see the migration
   /// 20261006120000_add_admission_queue_index.
   @@index([userFingerprint, createdAt], map: "Document_admission_queue_idx")
+  /// Documents a run is working on, by last change (#181, #182): counted by
+  /// the global admission cap, and searched by the lost-worker sweep. Partial
+  /// in the database; see the migration 20261010120000_add_in_flight_index.
+  @@index([updatedAt], map: "Document_in_flight_idx")
   /// One child per part, enforced by the database rather than by the step that
   /// writes it. Expansion is retried like every other step and re-parses the
   /// message from scratch; this is what makes a second pass unable to produce

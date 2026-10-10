@@ -310,34 +310,44 @@ describe("the streaming budget", () => {
     process.env[CHUNK_SIZE_ENV] = "64KB"
   })
 
-  it("divides the budget by the documents processing at once", () => {
+  it("divides the budget by the jobs this process runs at once", () => {
     const limits = { chunkBytes: 1024 * 1024, memoryBudget: 96 * 1024 * 1024 }
     expect(maxInFlightChunks(limits, 6)).toBe(16)
     expect(maxInFlightChunks(limits, 3)).toBe(32)
   })
 
-  it("refuses a budget that cannot give every document two chunks", () => {
+  it("refuses a budget that cannot give every job two chunks, naming all three settings", () => {
     const limits = { chunkBytes: 1024 * 1024, memoryBudget: 8 * 1024 * 1024 }
     expect(() => maxInFlightChunks(limits, 6)).toThrow(MEMORY_BUDGET_ENV)
+    expect(() => maxInFlightChunks(limits, 6)).toThrow(CHUNK_SIZE_ENV)
+    expect(() => maxInFlightChunks(limits, 6)).toThrow(
+      "WORKFLOW_POSTGRES_WORKER_CONCURRENCY"
+    )
   })
 
-  it("chooses its default by deployment profile", () => {
+  it("sizes the default budget per process, from the job concurrency (#181)", () => {
     delete process.env[CHUNK_SIZE_ENV]
+    process.env.WORKFLOW_POSTGRES_WORKER_CONCURRENCY = "6"
     try {
-      expect(streamingLimits("demo").memoryBudget).toBe(24 * 1024 * 1024)
+      expect(streamingLimits("demo").memoryBudget).toBe(48 * 1024 * 1024)
+      expect(streamingLimits("self-hosted").memoryBudget).toBe(96 * 1024 * 1024)
+      // Not the per-owner processing limit any more.
+      process.env.ANONIFY_BATCH_PROCESSING = "64"
       expect(streamingLimits("self-hosted").memoryBudget).toBe(96 * 1024 * 1024)
     } finally {
       process.env[CHUNK_SIZE_ENV] = "64KB"
+      delete process.env.WORKFLOW_POSTGRES_WORKER_CONCURRENCY
+      delete process.env.ANONIFY_BATCH_PROCESSING
     }
   })
 
-  it("grows the default budget with the processing concurrency", () => {
-    process.env.ANONIFY_BATCH_PROCESSING = "64"
+  it("grows the default budget with the job concurrency", () => {
+    process.env.WORKFLOW_POSTGRES_WORKER_CONCURRENCY = "64"
     try {
-      // An install that raised concurrency before this existed still starts.
+      // A process given more jobs still starts on the default.
       expect(maxInFlightChunks(streamingLimits("self-hosted"), 64)).toBe(16)
     } finally {
-      delete process.env.ANONIFY_BATCH_PROCESSING
+      delete process.env.WORKFLOW_POSTGRES_WORKER_CONCURRENCY
     }
   })
 })

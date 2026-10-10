@@ -22,6 +22,7 @@ import type { AttachmentAction } from "@/lib/documents/eml/redact"
 import type { AttachmentExpectation } from "@/lib/documents/eml/validate"
 import { buildSurrogates, type Surrogates } from "@/lib/redaction/surrogates"
 import { verifyExport, type VerificationReport } from "@/lib/redaction/validation"
+import { withCpuSlot } from "@/lib/runtime/cpu-slots"
 import { sha256 } from "@/lib/storage/integrity"
 import type { DocumentKind, NormalizedDocument } from "@/types/document"
 import type { Redaction } from "@/types/redaction"
@@ -70,7 +71,7 @@ export class ExportVerificationError extends Error {
   }
 }
 
-export async function exportRedacted(input: {
+type ExportInput = {
   kind: DocumentKind
   source: Uint8Array
   model: NormalizedDocument
@@ -78,7 +79,22 @@ export async function exportRedacted(input: {
   options: ExportOptions
   mimeType?: string
   attachments?: AttachmentSubstitutions
-}): Promise<ExportResult> {
+}
+
+/**
+ * Rebuilds and verifies one document, in one CPU slot (#181).
+ *
+ * Everything here works on bytes already in memory: rasterising redacted
+ * pages, rebuilding the file and re-reading it for verification. No model
+ * call and no storage read, so the whole of it is CPU-bound work, and taking
+ * the slot once keeps a large export from being interleaved page by page with
+ * every other document's.
+ */
+export function exportRedacted(input: ExportInput): Promise<ExportResult> {
+  return withCpuSlot(() => buildExport(input))
+}
+
+async function buildExport(input: ExportInput): Promise<ExportResult> {
   const { kind, source, model, redactions, options: requested } = input
   const attachments = input.attachments ?? {}
   const accepted = redactions.filter(

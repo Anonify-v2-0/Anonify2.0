@@ -2,6 +2,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist"
 
 import { renderPage, RENDER_SCALE } from "@/lib/documents/pdf/render"
 import { TextStreamBuilder } from "@/lib/documents/shared/text"
+import { withCpuSlot } from "@/lib/runtime/cpu-slots"
 import type { OcrGranularity, OcrResult, OcrWord } from "@/lib/ocr"
 import type { NormalizedPage } from "@/types/document"
 
@@ -85,8 +86,10 @@ export async function ocrPdfPages(
   for (const pageNumber of pageNumbers) {
     const page = await pdf.getPage(pageNumber)
     try {
-      const rendered = await renderPage(page, scale)
-      const png = rendered.canvas.toBuffer("image/png")
+      // Drawing and encoding in one CPU slot; reading takes its own.
+      const png = await withCpuSlot(async () =>
+        (await renderPage(page, scale)).canvas.toBuffer("image/png")
+      )
       const { words, granularity } = await options.recognize(png)
 
       const result = spansFromWords(pageNumber, words, scale, granularity)

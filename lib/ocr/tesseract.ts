@@ -14,6 +14,7 @@ import type {
   OcrSession,
   OcrWord,
 } from "@/lib/ocr/types"
+import { withCpuSlot } from "@/lib/runtime/cpu-slots"
 
 /**
  * Tesseract: the local provider.
@@ -210,10 +211,10 @@ export const tesseractProvider: OcrProvider = {
       granularity: "word",
 
       async recognize(bytes: Uint8Array): Promise<OcrResult> {
-        const { data } = await worker.recognize(
-          Buffer.from(bytes),
-          {},
-          { blocks: true }
+        // In a CPU slot (#181): Tesseract runs on a worker thread, so ten
+        // documents' pages would otherwise all be read at once.
+        const { data } = await withCpuSlot(() =>
+          worker.recognize(Buffer.from(bytes), {}, { blocks: true })
         )
         return {
           words: wordsOf(data),

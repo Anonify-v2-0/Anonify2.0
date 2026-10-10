@@ -26,11 +26,20 @@ export async function register() {
   const { assertMasterKey } = await import("@/lib/storage/encryption")
   assertMasterKey()
 
+  // What this process may take on at once (#181): its CPU slots and its job
+  // concurrency, from its CPUs and its role unless set.
+  const { capacitySummary } = await import("@/lib/runtime/capacity")
+  const capacity = capacitySummary()
+
   // The same for the streaming budget: a chunk size nobody can use, or a
-  // budget too small for the documents allowed to process at once, is a line
-  // of configuration — and it should be reported next to it.
+  // budget too small for the jobs this process runs at once, is a line of
+  // configuration — and it should be reported next to it.
   const { maxInFlightChunks } = await import("@/lib/storage/streaming")
   maxInFlightChunks()
+
+  // The global processing cap, when one is set (#181).
+  const { processingGlobalMax } = await import("@/lib/documents/admission")
+  processingGlobalMax()
 
   // And a misspelt ANONIFY_UPLOAD_ENCRYPTION, which would otherwise surface as
   // every upload failing at reservation.
@@ -66,6 +75,7 @@ export async function register() {
       level: "info",
       context: "server",
       build: buildId(),
+      ...capacity,
       message: "server starting",
     })
   )
@@ -73,8 +83,10 @@ export async function register() {
   // What this process is for (#179). A misspelt role stops it here, and a
   // split deployment on one machine's disk is refused before it accepts a
   // document its workers could never read.
-  const { anonifyRole, assertRoleStorage, runsWorker, workflowPoolDefault } =
+  const { anonifyRole, assertRoleStorage, runsWorker } =
     await import("@/lib/config/role")
+  const { applyJobConcurrency, workflowPoolDefault } =
+    await import("@/lib/runtime/capacity")
   const role = anonifyRole()
   if (role !== "all") {
     const { storageDriverName } = await import("@/lib/storage/blob")
@@ -89,6 +101,11 @@ export async function register() {
   // Unset on Vercel, where the platform's own world is selected for us. Calling
   // start() there is harmless, but skipping makes the intent explicit.
   if (!process.env.WORKFLOW_TARGET_WORLD) return
+
+  // The world reads its job concurrency once, when it is created, and
+  // defaults to 10 whatever the machine: put the derived value in force
+  // before anything calls getWorld() (#181).
+  applyJobConcurrency()
 
   // The world's pool, sized for the role unless it was set (#179).
   const poolDefault = workflowPoolDefault()

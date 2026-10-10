@@ -43,32 +43,6 @@ export function servesTraffic(env: Env = process.env): boolean {
   return anonifyRole(env) !== "worker"
 }
 
-/** The world's own default for its job concurrency. */
-const WORLD_DEFAULT_CONCURRENCY = 10
-
-/**
- * The workflow world's pool, sized for the role when nobody has set it.
- *
- * A web process only enqueues jobs and reads run streams, so it needs few
- * connections. A worker holds one per running job, plus the queue's own
- * bookkeeping. `all` keeps the world's defaults, as before. An explicit
- * `WORKFLOW_POSTGRES_MAX_POOL_SIZE` always wins. See docs/deploy/database.md.
- */
-export function workflowPoolDefault(
-  env: Env = process.env
-): number | undefined {
-  switch (anonifyRole(env)) {
-    case "web":
-      return 4
-    case "worker": {
-      const raw = env.WORKFLOW_POSTGRES_WORKER_CONCURRENCY?.trim()
-      return (raw ? Number(raw) : WORLD_DEFAULT_CONCURRENCY) + 2
-    }
-    default:
-      return undefined
-  }
-}
-
 /**
  * A split deployment is several machines by definition, and the local
  * storage driver is one machine's disk: an upload accepted by a web process

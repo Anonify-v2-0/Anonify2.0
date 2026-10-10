@@ -592,16 +592,18 @@ file, but only if the chunks in flight are bounded too. The budget is stated
 once, as the product that matters:
 
 ```
-chunkBytes × maxInFlightChunks × processingConcurrency() <= memoryBudget
+chunkBytes × maxInFlightChunks × jobConcurrency() <= memoryBudget
 ```
 
-`processingConcurrency()` is the existing per-owner gate from
-`lib/documents/admission.ts`, so this composes with it rather than being a
-second limiter. `ANONIFY_ENCRYPTION_CHUNK_SIZE` (default `1MB`, a power of two
-between `64KB` and `16MB`) and `ANONIFY_STREAM_MEMORY_BUDGET` (default 8 chunks
-per processing document for a demo, 16 self-hosted) configure it. A budget that
-cannot give every concurrent document two chunks is refused at startup, from
-`instrumentation.ts`, rather than quietly exceeded.
+`jobConcurrency()` is the steps this process runs at once
+(`lib/runtime/capacity.ts`), so the budget is per process (#181). It used to be
+divided by the per-owner processing limit, which was the process's real
+concurrency only while one owner was active. `ANONIFY_ENCRYPTION_CHUNK_SIZE`
+(default `1MB`, a power of two between `64KB` and `16MB`) and
+`ANONIFY_STREAM_MEMORY_BUDGET` (default 8 chunks per job for a demo, 16
+self-hosted) configure it. A budget that cannot give every concurrent job two
+chunks is refused at startup, from `instrumentation.ts`, rather than quietly
+exceeded. See [deploy/capacity.md](./deploy/capacity.md).
 
 ---
 
