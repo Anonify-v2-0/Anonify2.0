@@ -87,7 +87,12 @@ describe.skipIf(!hasDatabase)("global admission", async () => {
 
   it("refuses an owner's document once the cap is reached", async () => {
     const owner = testFingerprint("capped")
-    await seedWaiting(owner, 2, 4)
+    const [running] = await seedWaiting(owner, 3, 4)
+    // One of its own in flight, so the cap below is at least one.
+    await prisma.document.update({
+      where: { id: running },
+      data: { workflowRunId: testId("run") },
+    })
     vi.stubEnv(
       "ANONIFY_PROCESSING_GLOBAL_MAX",
       String(await inFlightEverywhere())
