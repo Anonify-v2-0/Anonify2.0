@@ -3,10 +3,38 @@ import http from "node:http"
 import type { AddressInfo } from "node:net"
 
 import {
+  stepNameFromQueue,
+  stepStarted,
+  type StepOutcome,
+} from "@/lib/runtime/steps"
+import {
   RELAY_HEADER,
   relayToken,
   setRelayToken,
 } from "@/lib/security/workflow-guard"
+
+/**
+ * How much of a step's answer is looked at to tell a retry from a success: a
+ * retry is a small JSON body naming `timeoutSeconds`. Never more than this,
+ * and never logged.
+ */
+const ANSWER_PEEK_BYTES = 256
+
+/**
+ * Records each step delivery in lib/runtime/steps.ts, for the shutdown
+ * sequence and the metrics. Returns the function that records its end.
+ */
+function trackStep(
+  incoming: http.IncomingMessage
+): ((outcome: StepOutcome) => void) | undefined {
+  const header = (name: string) => {
+    const value = incoming.headers[name]
+    return Array.isArray(value) ? value[0] : value
+  }
+  const step = stepNameFromQueue(header("x-vqs-queue-name"))
+  if (!step) return undefined
+  return stepStarted(step, Number(header("x-vqs-message-attempt")))
+}
 
 /**
  * The loopback relay the workflow runner delivers steps through; see
@@ -24,6 +52,10 @@ export async function startWorkflowRelay(serverPort: number): Promise<string> {
   setRelayToken(token)
 
   const relay = http.createServer((incoming, outgoing) => {
+    const finish = trackStep(incoming)
+    let outcome: StepOutcome = "error"
+    outgoing.once("close", () => finish?.(outcome))
+
     const headers = { ...incoming.headers, [RELAY_HEADER]: token }
     // The upstream sees its own address, not the relay's port.
     headers.host = `127.0.0.1:${serverPort}`
@@ -37,7 +69,19 @@ export async function startWorkflowRelay(serverPort: number): Promise<string> {
         headers,
       },
       (answer) => {
-        outgoing.writeHead(answer.statusCode ?? 502, answer.headers)
+        const status = answer.statusCode ?? 502
+        if (finish && status < 400) {
+          let seen = ""
+          answer.on("data", (chunk: Buffer) => {
+            if (seen.length >= ANSWER_PEEK_BYTES) return
+            seen += chunk.subarray(0, ANSWER_PEEK_BYTES - seen.length).toString()
+          })
+          // Only an answer that arrived whole counts as one.
+          answer.once("end", () => {
+            outcome = seen.includes('"timeoutSeconds"') ? "retry" : "completed"
+          })
+        }
+        outgoing.writeHead(status, answer.headers)
         answer.pipe(outgoing)
       }
     )

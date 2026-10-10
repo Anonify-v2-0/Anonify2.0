@@ -1,7 +1,8 @@
-import { start } from "workflow/api"
+import { getRun, start } from "workflow/api"
 
 import type { StartRun } from "@/lib/documents/admission"
 import { processDocument } from "@/lib/workflows/process-document"
+import type { CancelRun } from "@/lib/workflows/recovery"
 
 /**
  * Starting one document's processing run.
@@ -17,4 +18,18 @@ import { processDocument } from "@/lib/workflows/process-document"
 export const startProcessing: StartRun = async (documentId) => {
   const run = await start(processDocument, [documentId])
   return run.runId
+}
+
+/** A run that has already ended needs no cancelling. */
+const ENDED = new Set(["completed", "failed", "cancelled"])
+
+/** Cancelling a lost run, for the recovery sweep (#182). */
+export const cancelProcessing: CancelRun = async (runId) => {
+  const run = getRun(runId)
+  try {
+    await run.cancel()
+  } catch (error) {
+    if (ENDED.has(await run.status.catch(() => ""))) return
+    throw error
+  }
 }

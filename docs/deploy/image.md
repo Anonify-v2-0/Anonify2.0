@@ -10,6 +10,11 @@ command you give it (#175):
 | `cleanup` | Runs the expiry sweep once, then exits. |
 | `help` | Lists these. |
 
+The image sets `NEXT_MANUAL_SIG_HANDLE=true`, so a stopped container
+finishes the steps it is running before it exits, for up to
+`ANONIFY_DRAIN_SECONDS` (#182). Give it a grace period to match; see
+[workflow.md](../workflow.md#8-shutdown-and-lost-workers).
+
 ```sh
 docker run IMAGE                 # serve
 docker run IMAGE migrate         # migrate, then exit

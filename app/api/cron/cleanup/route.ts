@@ -1,7 +1,11 @@
 import { handleRouteError, jsonResponse } from "@/lib/api/http"
 import { admitStalled } from "@/lib/documents/admission"
 import { cleanupExpired, markExpired } from "@/lib/workflows/cleanup"
-import { startProcessing } from "@/lib/workflows/start-processing"
+import { recoverLostRuns } from "@/lib/workflows/recovery"
+import {
+  cancelProcessing,
+  startProcessing,
+} from "@/lib/workflows/start-processing"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
@@ -37,11 +41,14 @@ export async function GET(request: Request) {
     // this route's maxDuration). Another sweep already running is reported as
     // skipped, with a 200: an overlapping cron is expected now and then (#170).
     const result = await cleanupExpired()
+    // Runs a dead worker left behind go back to the queue (#182), before
+    // admission, so they are started again in this same sweep.
+    const recovered = await recoverLostRuns(cancelProcessing)
     // After the sweep, not before: a document that has just expired should not
     // be admitted a moment before it is deleted.
     const admitted = await admitStalled(startProcessing)
 
-    return jsonResponse({ marked, ...result, admitted })
+    return jsonResponse({ marked, ...result, recovered, admitted })
   } catch (error) {
     return handleRouteError(error, "cron.cleanup")
   }

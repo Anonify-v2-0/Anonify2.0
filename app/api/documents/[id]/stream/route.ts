@@ -1,6 +1,7 @@
 import { getRun } from "workflow/api"
 
 import { errorResponse, handleRouteError } from "@/lib/api/http"
+import { endOnServerClose, SSE_HEADERS } from "@/lib/api/sse"
 import { prisma } from "@/lib/database/prisma"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
@@ -61,13 +62,10 @@ export async function GET(
       },
     })
 
-    return new Response(readable.pipeThrough(sse), {
-      headers: {
-        "content-type": "text/event-stream; charset=utf-8",
-        "cache-control": "no-store, no-transform",
-        connection: "keep-alive",
-        "x-accel-buffering": "no",
-      },
+    // Ended early, without the end frame, if this replica starts shutting
+    // down: the client then resumes from its last index elsewhere (#182).
+    return new Response(endOnServerClose(readable.pipeThrough(sse)), {
+      headers: SSE_HEADERS,
     })
   } catch (error) {
     return handleRouteError(error, "documents.stream")

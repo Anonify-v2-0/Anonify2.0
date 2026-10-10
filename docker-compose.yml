@@ -142,6 +142,10 @@ services:
         condition: service_completed_successfully
       rustfs-init:
         condition: service_completed_successfully
+    # A stopped container finishes the steps it is running first (#182), for
+    # up to ANONIFY_DRAIN_SECONDS. Compose's own default, 10s, would cut that
+    # short; this leaves the drain its 120s and ten more.
+    stop_grace_period: ${ANONIFY_STOP_GRACE_PERIOD:-130s}
     ports:
       - "127.0.0.1:${APP_PORT:-3000}:3000"
     extra_hosts:
@@ -157,7 +161,16 @@ services:
       DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
       DATABASE_POOL_IDLE_TIMEOUT_MS: ${DATABASE_POOL_IDLE_TIMEOUT_MS:-10000}
       WORKFLOW_POSTGRES_MAX_POOL_SIZE: ${WORKFLOW_POSTGRES_MAX_POOL_SIZE:-10}
-      WORKFLOW_POSTGRES_WORKER_CONCURRENCY: ${WORKFLOW_POSTGRES_WORKER_CONCURRENCY:-8}
+      # Empty derives it from the CPUs the container may use (#181); see
+      # docs/deploy/capacity.md.
+      WORKFLOW_POSTGRES_WORKER_CONCURRENCY: ${WORKFLOW_POSTGRES_WORKER_CONCURRENCY:-}
+      ANONIFY_CPU_CONCURRENCY: ${ANONIFY_CPU_CONCURRENCY:-}
+      ANONIFY_PROCESSING_GLOBAL_MAX: ${ANONIFY_PROCESSING_GLOBAL_MAX:-}
+      # Shutting down (#182): how long a stopped container may take to finish
+      # its steps, and how soon a run a dead worker left behind is restarted.
+      ANONIFY_DRAIN_SECONDS: ${ANONIFY_DRAIN_SECONDS:-}
+      ANONIFY_DRAIN_READY_DELAY_MS: ${ANONIFY_DRAIN_READY_DELAY_MS:-}
+      ANONIFY_STUCK_RUN_MINUTES: ${ANONIFY_STUCK_RUN_MINUTES:-}
       STORAGE_DRIVER: s3
       S3_ENDPOINT: http://rustfs:9000
       S3_BUCKET: ${S3_BUCKET:-anonify}

@@ -540,3 +540,88 @@ mutated, so it is simply true.
 
 The full list of failure codes, their meanings, retryability, and how a thrown
 error is classified into one is in [failure-codes.md](./failure-codes.md).
+
+## 8. Shutdown and lost workers
+
+`lib/runtime/shutdown.ts`, `lib/workflows/recovery.ts`
+
+Scaling *down* is where work gets lost (#182). Every rolling deploy,
+scale-in, spot reclaim and node drain sends `SIGTERM`, waits a grace period,
+then sends `SIGKILL`.
+
+### A graceful stop
+
+The image sets `NEXT_MANUAL_SIG_HANDLE=true`, so the app owns `SIGTERM` and
+`SIGINT` instead of Next.js, and `tini` forwards them. On the first one:
+
+1. **Readiness drops.** `/api/ready` answers 503, so load balancers stop
+   sending traffic. `/api/health` stays 200: nothing is broken.
+2. **A pause** of `ANONIFY_DRAIN_READY_DELAY_MS` (5000), so they notice
+   before anything stops answering. This is what avoids 502s in a rollout.
+3. **Workers stop taking work.** The job runner stops claiming jobs and
+   waits for the ones it holds (`world.close()`, graphile-worker's graceful
+   stop). Each of those steps reaches this server over HTTP through the
+   loopback relay, and the server is still listening, so they finish.
+4. **HTTP closes.** Progress streams end with a comment frame and no `end`
+   event, so their clients reconnect and resume from their last index on
+   another replica. The servers stop accepting connections and answer the
+   requests already in flight.
+5. **Connections are released**, and the process exits 0.
+
+The whole sequence has `ANONIFY_DRAIN_SECONDS` (120) from the signal. Past
+it, the process logs what was still running, step names, attempts and how
+long they had run and never content, and exits 1. A second signal exits at
+once.
+
+The job runner (graphile-worker) installs its own signal handlers, and the
+world gives no way to turn them off. They would race this sequence, and they
+re-raise the signal when they are done. So they are taken off once the runner
+has started, and stopping it is left to step 3.
+
+Without `NEXT_MANUAL_SIG_HANDLE=true` in the *process* environment (Next reads
+it before `.env`), Next closes its server at once, as before, and a worker
+logs a warning at start.
+
+### Grace periods per platform
+
+Give the drain `ANONIFY_DRAIN_SECONDS` = the platform's grace period minus
+ten seconds.
+
+| Platform | Setting | Default | Suggested |
+| --- | --- | --- | --- |
+| Docker Compose | `stop_grace_period` | 10s; Anonify's file sets 130s | 130s |
+| Kubernetes | `terminationGracePeriodSeconds` | 30 | 130 |
+| AWS ECS | `stopTimeout` | 30 | 120 (Fargate's maximum), with `ANONIFY_DRAIN_SECONDS=110` |
+| Azure Container Apps | `terminationGracePeriodSeconds` | 30 | 130 |
+| Google Cloud Run | none | 10s on scale-in | `ANONIFY_DRAIN_SECONDS=8`, `ANONIFY_DRAIN_READY_DELAY_MS=0` |
+
+Cloud Run's ten seconds is shorter than many steps. That is survivable
+because every step can be run again, and the next section is what runs it.
+
+### Lost workers
+
+A worker killed hard (out of memory, `SIGKILL` after its grace period, a node
+gone) keeps the lock on its job until graphile-worker decides the job is
+abandoned, about four hours later. graphile-worker 0.16.6 has no setting for
+that, and the world would not pass one through. The document would sit at
+"extracting" all that time.
+
+The sweep (`/api/cron/cleanup`) looks for documents a run is working on whose
+last sign of progress, the row changing or a processing event, is older than
+`ANONIFY_STUCK_RUN_MINUTES` (20). For each one it:
+
+1. cancels the run, so it cannot write over what happens next. A run that
+   will not cancel is left for the next sweep;
+2. clears `workflowRunId` and sets `queued`, counting the restart in
+   `metadata.recoveries`;
+3. lets admission, which runs next in the same sweep, start a fresh run.
+
+That is safe because every step can run again: ingest returns early once the
+source is stored, and usage is charged once, by a flag on the row (§3). After
+two restarts the third loss fails the document with `worker-lost`, which can
+be retried. Something about that document, or that deployment, is killing
+the process that reads it, and a loop would hide it.
+
+From here a run that is only waiting its turn in a backed-up queue looks the
+same as one whose worker died. Keep `ANONIFY_STUCK_RUN_MINUTES` above the
+longest healthy step and the longest a job waits for a worker.

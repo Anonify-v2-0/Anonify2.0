@@ -68,6 +68,10 @@ export async function register() {
   const { cleanupSettings } = await import("@/lib/workflows/cleanup")
   cleanupSettings()
 
+  // How long a run may show no progress before it counts as lost (#182).
+  const { stuckRunMinutes } = await import("@/lib/workflows/recovery")
+  stuckRunMinutes()
+
   // Which version this replica is, for whoever is watching a rollout (#178).
   const { buildId } = await import("@/lib/config/build")
   console.log(
@@ -96,6 +100,27 @@ export async function register() {
   if (role === "worker") {
     const { installWorkerGate } = await import("@/lib/config/worker-gate")
     installWorkerGate()
+  }
+
+  // Shutting down without losing work (#182): readiness drops first, the
+  // workers finish what they hold, then HTTP closes. Only when the app owns
+  // the signal (NEXT_MANUAL_SIG_HANDLE=true, set in the image); otherwise
+  // Next's own handler closes the server at once, as before.
+  const { trackHttpServers } = await import("@/lib/runtime/http-servers")
+  trackHttpServers()
+  const { drainSettings, installShutdown, onShutdown } =
+    await import("@/lib/runtime/shutdown")
+  drainSettings()
+  const drains = installShutdown()
+  if (!drains && runsWorker() && process.env.NODE_ENV === "production") {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        context: "shutdown",
+        message:
+          "NEXT_MANUAL_SIG_HANDLE is not set, so a SIGTERM closes this server at once and cuts off the steps it is running. The image sets it; set it in the process environment (not .env) when running the server another way. See docs/workflow.md.",
+      })
+    )
   }
 
   // Unset on Vercel, where the platform's own world is selected for us. Calling
@@ -194,7 +219,15 @@ export async function register() {
   )
 
   const { getWorld } = await import("workflow/runtime")
-  await getWorld().start?.()
+  // The job runner installs its own signal handlers, which would race the
+  // shutdown sequence; stopping it is that sequence's job (#182).
+  const { withoutForeignSignalHandlers } = await import("@/lib/runtime/shutdown")
+  await withoutForeignSignalHandlers(async () => getWorld().start?.())
+  onShutdown("workflow-world", async () => {
+    // Stops taking jobs and waits for the running ones, then closes the
+    // world's connections.
+    await getWorld().close?.()
+  })
 
   // /api/ready waits on this: until the worker runs, a replica that accepts
   // documents would never process them (#167).
