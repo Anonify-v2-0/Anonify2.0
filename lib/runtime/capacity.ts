@@ -60,13 +60,15 @@ const readIfPresent: ReadFile = (path) => {
 }
 
 /**
- * The CPUs a container's quota allows, rounded up, or undefined for none.
+ * The whole CPUs a container's quota allows, at least one, or undefined for
+ * none.
  *
- * `os.availableParallelism()` counts the CPUs the process may be scheduled on,
- * which in a container is usually every CPU on the host. Whether Node also
- * honours a CPU *quota* (`docker run --cpus`, a Kubernetes limit, a task's
- * vCPUs) depends on the libuv it ships with, so the quota is read here too and
- * the smaller answer wins. cgroup v2 first (`cpu.max`), then v1.
+ * `os.availableParallelism()` counts the CPUs the process may be scheduled on.
+ * Node 22's libuv also honours a CPU *quota* (`docker run --cpus`, a
+ * Kubernetes limit, a task's vCPUs), rounding down: measured in the image,
+ * `--cpus=1.5` answers 1 on 16 CPUs. Older runtimes did not, and the image's
+ * base moves, so the quota is read here too, rounded the same way, and the
+ * smaller answer wins. cgroup v2 first (`cpu.max`), then v1.
  */
 export function cgroupCpuLimit(
   read: ReadFile = readIfPresent
@@ -94,7 +96,7 @@ function quotaToCpus(quota: number, period: number): number | undefined {
   // -1 is v1's "no quota"; anything unreadable is treated the same way.
   if (!Number.isFinite(quota) || !Number.isFinite(period)) return undefined
   if (quota <= 0 || period <= 0) return undefined
-  return Math.max(1, Math.ceil(quota / period))
+  return Math.max(1, Math.floor(quota / period))
 }
 
 export type CpuProbe = {

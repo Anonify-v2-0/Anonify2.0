@@ -28,10 +28,15 @@ function probe(
 }
 
 describe("the CPUs a process may use", () => {
-  it("reads a cgroup v2 quota, rounding up", () => {
+  it("reads a cgroup v2 quota in whole CPUs, rounding down as libuv does", () => {
     expect(
       cgroupCpuLimit((p) =>
         p === "/sys/fs/cgroup/cpu.max" ? "150000 100000\n" : undefined
+      )
+    ).toBe(1)
+    expect(
+      cgroupCpuLimit((p) =>
+        p === "/sys/fs/cgroup/cpu.max" ? "250000 100000" : undefined
       )
     ).toBe(2)
     expect(

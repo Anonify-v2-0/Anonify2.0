@@ -30,12 +30,13 @@ and only as many rasters are alive as there are slots.
 
 ### How the CPUs are counted
 
-`os.availableParallelism()` counts the CPUs the process may be scheduled on. In
-a container that is often every CPU on the host, not the share the container is
-allowed. So Anonify also reads the cgroup CPU quota (`/sys/fs/cgroup/cpu.max`,
-or `cpu.cfs_quota_us` on cgroup v1) and takes the smaller of the two, rounding
-a fractional quota up. `docker run --cpus=1.5` is 2 slots, and a Kubernetes
-limit of `500m` is 1.
+The CPUs counted are the ones the container is allowed, not the host's. Node
+22's `os.availableParallelism()` honours a CPU quota already, and Anonify reads
+the cgroup quota itself as well (`/sys/fs/cgroup/cpu.max`, or
+`cpu.cfs_quota_us` on cgroup v1) for runtimes that do not, taking the smaller
+answer. A fractional quota rounds down, never below one: `docker run
+--cpus=1.5` is 1 slot (measured in the image), `--cpus=2.5` is 2, and a
+Kubernetes limit of `500m` is 1.
 
 A CPU *request* without a limit sets no quota. On such a pod, set
 `ANONIFY_CPU_CONCURRENCY` to the request.
