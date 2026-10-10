@@ -81,11 +81,15 @@ describe("the database connection budget (#169)", () => {
     vi.stubEnv("DATABASE_DRIVER", "postgres")
     vi.stubEnv("DATABASE_POOL_MAX", "5")
     getPrisma()
-    expect(adapters.pg[0]).toMatchObject({
+    // The app makes the node-postgres pool itself now, so its counters can be
+    // read for the metrics (#188); the adapter is handed the pool.
+    expect((adapters.pg[0] as { options: unknown }).options).toMatchObject({
       connectionString: "postgresql://a:b@localhost:5432/db",
       max: 5,
       idleTimeoutMillis: DEFAULT_POOL_IDLE_TIMEOUT_MS,
     })
+    const { appPoolStats } = await import("@/lib/database/prisma")
+    expect(appPoolStats()).toEqual({ total: 0, idle: 0, waiting: 0 })
 
     delete (globalThis as { prisma?: unknown }).prisma
     vi.stubEnv("DATABASE_DRIVER", "neon")
