@@ -39,6 +39,7 @@
     "corpus:status": "tsx benchmarks/corpus/archive.ts status",
     "corpus:score": "tsx benchmarks/score.ts",
     "bench:models": "tsx benchmarks/models.ts",
+    "bench:ocr": "tsx benchmarks/ocr.ts",
     "bench:charts": "tsx benchmarks/charts.ts",
     "workflow:bootstrap": "node node_modules/@workflow/world-postgres/bin/setup.js"
   },

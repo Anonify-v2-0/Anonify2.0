@@ -8,6 +8,10 @@ import { redactImage, sampleRegion } from "@/lib/documents/image/redact"
 import { newRedactionId } from "@/lib/documents/ids"
 import { ocrImage } from "@/lib/ocr"
 import { tesseractProvider } from "@/lib/ocr/tesseract"
+import {
+  closeTesseractPools,
+  tesseractPoolState,
+} from "@/lib/ocr/tesseract-pool"
 import { buildImagePlan } from "@/lib/redaction/apply"
 import type { BoundingBox } from "@/types/document"
 import { makeImageFixture } from "./fixtures"
@@ -85,10 +89,10 @@ describeWithOcrModel("Tesseract OCR", () => {
   )
 
   it(
-    "reads page after page with one worker, and closes it",
+    "shares warm workers across documents, and stops them when closed",
     async () => {
-      // A session is started once per document and reused across its pages;
-      // a worker that is not terminated keeps the process alive after the job.
+      // Two documents' sessions, one after the other, read with the same
+      // workers (#189): closing a session leaves them warm.
       for (let cycle = 0; cycle < 2; cycle++) {
         const session = await tesseractProvider.start()
         try {
@@ -99,6 +103,28 @@ describeWithOcrModel("Tesseract OCR", () => {
           await session.close()
         }
       }
+      const [pool] = tesseractPoolState()
+      expect(pool.workers).toBeGreaterThanOrEqual(1)
+      expect(pool.workers).toBeLessThanOrEqual(pool.size)
+
+      // A worker left running keeps the process alive, so the pool stops.
+      await closeTesseractPools()
+      expect(tesseractPoolState()).toEqual([])
+    },
+    OCR_TIMEOUT
+  )
+
+  it(
+    "never starts more workers than the process has CPU slots for",
+    async () => {
+      const session = await tesseractProvider.start()
+      const pages = await Promise.all(
+        Array.from({ length: 6 }, () => session.recognize(image))
+      )
+      for (const page of pages) expect(page.words).toEqual(pages[0].words)
+      const [pool] = tesseractPoolState()
+      expect(pool.workers).toBeLessThanOrEqual(pool.size)
+      await closeTesseractPools()
     },
     OCR_TIMEOUT
   )

@@ -5,6 +5,7 @@ import path from "node:path"
 import { afterAll, beforeAll, describe, it } from "vitest"
 
 import { cachePath } from "@/lib/ocr/tesseract"
+import { closeTesseractPools } from "@/lib/ocr/tesseract-pool"
 
 /**
  * The Tesseract model the OCR tests read with, pinned.
@@ -88,7 +89,9 @@ export function describeWithOcrModel(name: string, suite: () => void): void {
           delete process.env[variable]
         }
       })
-      afterAll(() => {
+      afterAll(async () => {
+        // The pool keeps its workers warm; a suite stops them when it ends.
+        await closeTesseractPools()
         for (const [variable, value] of saved) {
           if (value === undefined) delete process.env[variable]
           else process.env[variable] = value

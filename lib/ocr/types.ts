@@ -43,6 +43,12 @@ export type OcrResult = {
 export type OcrSession = {
   name: OcrProviderName
   granularity: OcrGranularity
+  /**
+   * How a rendered page should be encoded for `recognize` (#189): what the
+   * engine reads cheapest. PNG when absent. An uploaded image is always given
+   * as its own bytes.
+   */
+  rasterFormat?: "png" | "pgm"
   recognize: (bytes: Uint8Array) => Promise<OcrResult>
   close: () => Promise<void>
 }

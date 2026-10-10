@@ -103,8 +103,10 @@ share of it, and the rest is pdf.js, rasters, Tesseract's models and Node.
 Rules of thumb:
 
 - **Scanned documents dominate.** Allow about 300 MiB per CPU slot for a
-  replica that reads scans with Tesseract. A replica that mostly sees
-  born-digital documents needs far less.
+  replica that reads scans with Tesseract: each slot can have a warm OCR
+  worker with its own copy of the model (#189), stopped after
+  `ANONIFY_OCR_IDLE_SECONDS` idle. A replica that mostly sees born-digital
+  documents needs far less.
 - **Scale workers out before up.** Two 2-vCPU workers survive one being
   replaced, and one 4-vCPU worker does not.
 - **Lower the job concurrency, not the CPU slots,** if memory is tight. The

@@ -1,7 +1,9 @@
 import type { PDFDocumentProxy } from "pdfjs-dist"
 
+import { mapWithConcurrency } from "@/lib/concurrency"
 import { renderPage, RENDER_SCALE } from "@/lib/documents/pdf/render"
 import { TextStreamBuilder } from "@/lib/documents/shared/text"
+import { encodeRaster, type RasterFormat } from "@/lib/ocr/raster"
 import { withCpuSlot } from "@/lib/runtime/cpu-slots"
 import type { OcrGranularity, OcrResult, OcrWord } from "@/lib/ocr"
 import type { NormalizedPage } from "@/types/document"
@@ -20,7 +22,33 @@ import type { NormalizedPage } from "@/types/document"
 /** Words below this confidence are noise more often than text. */
 const MIN_WORD_CONFIDENCE = 40
 
-export type PageRecognizer = (png: Buffer) => Promise<OcrResult>
+/** Reads one rendered page, encoded as the options' `format`. */
+export type PageRecognizer = (image: Buffer) => Promise<OcrResult>
+
+export const OCR_RENDER_SCALE_ENV = "ANONIFY_OCR_RENDER_SCALE"
+
+/**
+ * The scale scanned pages are drawn at for OCR: `ANONIFY_OCR_RENDER_SCALE`
+ * (1–4), else the renderer's 2. Export draws at its own scale. Malformed
+ * throws. See docs/pipelines.md for the study behind the default.
+ */
+export function ocrRenderScale(
+  env: Record<string, string | undefined> = process.env
+): number {
+  const raw = env[OCR_RENDER_SCALE_ENV]?.trim()
+  if (!raw) return RENDER_SCALE
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value < 1 || value > 4)
+    throw new Error(`${OCR_RENDER_SCALE_ENV} must be a number from 1 to 4`)
+  return value
+}
+
+/**
+ * Pages drawn ahead of the one being read (#189). Drawing happens on this
+ * thread and reading on a worker's, so page 2 can be drawn while page 1 is
+ * read. At most this many plus one encoded pages are alive at once.
+ */
+export const OCR_LOOKAHEAD = 2
 
 export type OcrPageResult = {
   text: string
@@ -68,36 +96,56 @@ export function spansFromWords(
 export type OcrPagesOptions = {
   scale?: number
   recognize: PageRecognizer
+  /** How each page is encoded for `recognize`: PNG unless the engine says. */
+  format?: RasterFormat
+  lookahead?: number
 }
 
 /**
  * Rasterizes and reads the given pages. Returns only the pages that produced
  * usable text, so a page that is genuinely blank stays flagged rather than
  * being presented as successfully read.
+ *
+ * Pipelined (#189): pages are drawn one at a time, in order, and each is
+ * handed to the engine as soon as it is drawn, with up to `lookahead` pages
+ * drawn ahead of the slowest one still being read. The results land in a map
+ * by page number, so nothing depends on which finished first.
  */
 export async function ocrPdfPages(
   pdf: PDFDocumentProxy,
   pageNumbers: number[],
   options: OcrPagesOptions
 ): Promise<Map<number, OcrPageResult>> {
-  const scale = options.scale ?? RENDER_SCALE
+  const scale = options.scale ?? ocrRenderScale()
+  const format = options.format ?? "png"
+  const lookahead = Math.max(0, options.lookahead ?? OCR_LOOKAHEAD)
   const results = new Map<number, OcrPageResult>()
 
-  for (const pageNumber of pageNumbers) {
+  const draw = async (pageNumber: number): Promise<Buffer> => {
     const page = await pdf.getPage(pageNumber)
     try {
-      // Drawing and encoding in one CPU slot; reading takes its own.
-      const png = await withCpuSlot(async () =>
-        (await renderPage(page, scale)).canvas.toBuffer("image/png")
+      // Drawing and encoding in one CPU slot; the engine's workers are
+      // bounded by its own pool.
+      return await withCpuSlot(async () =>
+        encodeRaster((await renderPage(page, scale)).canvas, format)
       )
-      const { words, granularity } = await options.recognize(png)
-
-      const result = spansFromWords(pageNumber, words, scale, granularity)
-      if (result.words > 0) results.set(pageNumber, result)
     } finally {
       page.cleanup()
     }
   }
+
+  // Drawing takes turns: pdf.js draws on this thread whatever the
+  // concurrency, and one document proxy is not drawn from twice at once.
+  let turn: Promise<unknown> = Promise.resolve()
+
+  await mapWithConcurrency(pageNumbers, lookahead + 1, async (pageNumber) => {
+    const drawn = turn.then(() => draw(pageNumber))
+    turn = drawn.catch(() => {})
+    const { words, granularity } = await options.recognize(await drawn)
+
+    const result = spansFromWords(pageNumber, words, scale, granularity)
+    if (result.words > 0) results.set(pageNumber, result)
+  })
 
   return results
 }

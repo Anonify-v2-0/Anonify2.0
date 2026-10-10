@@ -234,6 +234,9 @@ services:
       ANONIFY_QUOTA_ASSISTANT_TOKENS: ${ANONIFY_QUOTA_ASSISTANT_TOKENS:-}
 
       OCR_PROVIDER: ${OCR_PROVIDER:-tesseract}
+      # The OCR render scale and how long idle workers are kept (#189).
+      ANONIFY_OCR_RENDER_SCALE: ${ANONIFY_OCR_RENDER_SCALE:-}
+      ANONIFY_OCR_IDLE_SECONDS: ${ANONIFY_OCR_IDLE_SECONDS:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
 
       # Which model each engine reads with. Both are validated against a fixed

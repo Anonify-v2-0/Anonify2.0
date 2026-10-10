@@ -81,6 +81,14 @@ export async function register() {
   const { cleanupSettings } = await import("@/lib/workflows/cleanup")
   cleanupSettings()
 
+  // OCR: the scale scans are drawn at, and how long idle workers are kept
+  // (#189). The pool is stopped after the steps that use it, on shutdown.
+  const { ocrRenderScale } = await import("@/lib/documents/pdf/ocr")
+  ocrRenderScale()
+  const { closeTesseractPools, ocrIdleMs } =
+    await import("@/lib/ocr/tesseract-pool")
+  ocrIdleMs()
+
   // The built-in scheduler's switch and interval (#183).
   const { schedulerSettings, startScheduler } =
     await import("@/lib/runtime/scheduler")
@@ -152,6 +160,7 @@ export async function register() {
     await import("@/lib/runtime/shutdown")
   drainSettings()
   const drains = installShutdown()
+  onShutdown("ocr-pool", closeTesseractPools, "release")
   if (!drains && runsWorker() && process.env.NODE_ENV === "production") {
     console.warn(
       JSON.stringify({

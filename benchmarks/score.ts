@@ -707,7 +707,15 @@ async function main() {
   await run(values)
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error)
-  process.exitCode = 1
-})
+main()
+  .catch((error) => {
+    console.error(error instanceof Error ? error.message : error)
+    process.exitCode = 1
+  })
+  // A short page in a rendered PDF is read with OCR, and the OCR workers are
+  // kept warm (#189): stopped here, or the run would not exit until idle.
+  .finally(() =>
+    import("@/lib/ocr/tesseract-pool").then((pool) =>
+      pool.closeTesseractPools()
+    )
+  )
