@@ -404,6 +404,9 @@ jobs:
       # The images built below, with cached layers, which compose then starts
       # as they are instead of building again.
       ANONIFY_IMAGE: anonify-app:ci
+      # Never a pulled image in place of this pull request's build: the
+      # Compose file defaults to the published one (#186).
+      ANONIFY_PULL_POLICY: never
       # The app and its migrations on a read-only root filesystem, with only
       # /tmp and /data writable (#178). Every `docker compose` below without
       # its own -f list uses both files.
@@ -446,6 +449,12 @@ jobs:
           [ "$status" = 64 ] || { echo "::error::an unknown command exited $status, not 64"; exit 1; }
           docker run --rm "$ANONIFY_IMAGE" node -e "process.exit(0)" \
             || { echo "::error::a command naming a program did not run as given"; exit 1; }
+          # The secrets for an install without a clone (#186): three, fresh.
+          docker run --rm "$ANONIFY_IMAGE" keys | tee keys.env
+          [ "$(grep -cE '^(ENCRYPTION_KEY|FINGERPRINT_SECRET|CRON_SECRET)=[0-9a-f]{64}$' keys.env)" = 3 ] \
+            || { echo "::error::anonify keys did not print three 32-byte hex secrets"; exit 1; }
+          [ "$(docker run --rm "$ANONIFY_IMAGE" keys | grep ENCRYPTION_KEY)" != "$(grep ENCRYPTION_KEY keys.env)" ] \
+            || { echo "::error::anonify keys printed the same key twice"; exit 1; }
           docker image inspect "$ANONIFY_IMAGE" --format 'image size: {{.Size}} bytes'
 
       # The hardening (#178): tini as PID 1, a stop that is prompt, the labels,
@@ -494,7 +503,14 @@ jobs:
         # migration jobs have exited successfully, and the app answers
         # /api/ready: database, storage and workflow worker. Reaching the next
         # step at all is most of the assertion.
-        run: docker compose up -d --wait
+        run: |
+          docker compose up -d --wait
+          # The stack runs this build, not an image of the same name from
+          # Docker Hub (#186).
+          built=$(docker image inspect "$ANONIFY_IMAGE" --format '{{.Id}}')
+          running=$(docker inspect "$(docker compose ps -q app)" --format '{{.Image}}')
+          [ "$built" = "$running" ] \
+            || { echo "::error::the app runs $running, not the image built here ($built)"; exit 1; }
 
       # ANONIFY_PUBLIC_URL is read per request, not baked at build (#168): the
       # image above was built without it, and the page must still name it.

@@ -8,6 +8,7 @@ command you give it (#175):
 | `serve` (the default) | Starts the web server on `$PORT` (3000). |
 | `migrate` | Applies the database migrations and the workflow schema, then exits. |
 | `cleanup` | Runs the expiry sweep once, then exits. |
+| `keys` | Prints new secrets for a `.env` file (#186). |
 | `help` | Lists these. |
 
 The image sets `NEXT_MANUAL_SIG_HANDLE=true`, so a stopped container
@@ -19,6 +20,7 @@ finishes the steps it is running before it exits, for up to
 docker run IMAGE                 # serve
 docker run IMAGE migrate         # migrate, then exit
 docker run IMAGE cleanup         # sweep, then exit
+docker run IMAGE keys            # print new secrets for .env
 ```
 
 A command that names a program runs as given, so `docker run IMAGE node
@@ -39,9 +41,38 @@ for `linux/amd64` and `linux/arm64` (#180):
 | `sha-<commit>` | The release built from that commit. |
 
 Each release's notes give its index digest. Deploy by digest, or at least by
-`X.Y.Z`: a floating tag changes what a restart runs. With Compose, set
-`ANONIFY_IMAGE=nabeelwasif/anonify2.0:X.Y.Z` in `.env`, then
-`docker compose pull` and `docker compose up -d --no-build`.
+`X.Y.Z`: a floating tag changes what a restart runs.
+
+### With Compose, and no clone (#186)
+
+`docker-compose.yml` runs the published image by default,
+`nabeelwasif/anonify2.0:${ANONIFY_VERSION:-latest}`, and each release has it
+attached, with `env.example`, so an install needs neither the repository nor
+Node:
+
+```sh
+curl -LO https://github.com/Anonify-v2-0/Anonify2.0/releases/latest/download/docker-compose.yml
+[ -e .env ] || docker run --rm nabeelwasif/anonify2.0 keys > .env
+docker compose up -d
+```
+
+| Setting in `.env` | Default | |
+| --- | --- | --- |
+| `ANONIFY_VERSION` | `latest` | The tag to run. Pin `X.Y.Z` for anything you keep. |
+| `ANONIFY_IMAGE` | `nabeelwasif/anonify2.0:$ANONIFY_VERSION` | The whole reference, for a mirror or a digest (`…@sha256:…`). |
+| `ANONIFY_PULL_POLICY` | `missing` | Compose's `pull_policy`. `never` runs only a local image, as CI does. |
+
+Upgrading is `docker compose pull && docker compose up -d`: the `migrate`
+service runs the new image's migrations before the app starts.
+
+From a clone, `docker compose up -d --build` builds the checkout and tags it
+with the same name, so what runs is your code; without `--build` Compose pulls
+the published image.
+
+`anonify keys` prints new `ENCRYPTION_KEY`, `FINGERPRINT_SECRET` and
+`CRON_SECRET` lines, 32 random bytes each, as hex. They are different every
+time: never redirect it over a `.env` that already has keys, because a new
+`ENCRYPTION_KEY` cannot read what the old one wrote.
 
 Each image carries BuildKit's provenance (`mode=max`) and an SBOM per
 architecture, and the index has a signed GitHub attestation, so you can check

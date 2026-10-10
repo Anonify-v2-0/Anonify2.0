@@ -12,6 +12,49 @@ under a black rectangle is not a redaction system.
 
 *Upload, review what was proposed, export a file the value is actually gone from.*
 
+## Run with Docker
+
+No clone, no Node and no build: the image is published to Docker Hub as
+[`nabeelwasif/anonify2.0`](https://hub.docker.com/r/nabeelwasif/anonify2.0)
+for `linux/amd64` and `linux/arm64`, so it runs natively on Apple silicon and
+ARM servers too. You need Docker with Compose v2.
+
+```sh
+mkdir anonify && cd anonify
+curl -LO https://github.com/Anonify-v2-0/Anonify2.0/releases/latest/download/docker-compose.yml
+[ -e .env ] || docker run --rm nabeelwasif/anonify2.0 keys > .env
+docker compose up -d
+```
+
+Then open <http://localhost:3000>. That starts Postgres and RustFS
+(S3-compatible storage), creates the bucket, applies the migrations and starts
+Anonify, with local OCR, no accounts anywhere, and every port bound to
+localhost.
+
+**Keep `.env`.** `anonify keys` prints a new `ENCRYPTION_KEY` every time, and
+it encrypts every stored document: a new key cannot read what the old one
+wrote. That is why the command above only writes `.env` when there is none.
+
+**Choose a version.** The file follows `latest`, which moves with every
+release. For anything you keep, pin one in `.env`:
+
+```env
+ANONIFY_VERSION=1.17.0   # exactly this release; 1.17 takes its patches; 1 every minor release
+```
+
+**Upgrading** is a pull. The `migrate` service runs the new image's migrations
+before the app starts, so there is nothing else to run:
+
+```sh
+docker compose pull && docker compose up -d
+```
+
+Read the [changelog](CHANGELOG.md) before a minor or major version. Every
+setting is in [`.env.example`](.env.example), also attached to each release as
+`env.example`; add what you need to `.env` and run `docker compose up -d`
+again. For other platforms, replicas and production settings see
+[docs/deploy/image.md](docs/deploy/image.md).
+
 ## Documentation
 
 | Document | What it covers |
@@ -306,7 +349,7 @@ A value judged sensitive once is expanded to its other occurrences by local
 string search. Seventeen mentions of a name cost one model call, not seventeen —
 and cannot come back with a different answer the second time.
 
-## Running it
+## Build from source
 
 Two supported setups. `pnpm setup` asks which you want and writes a working
 `.env`; everything below is what it does, in case you would rather do it by
@@ -372,16 +415,18 @@ limits and rollback requirements.
 ```bash
 git clone <this repo> && cd Anonify2.0
 pnpm install
-pnpm setup --local      # or just `pnpm setup` and choose; generates the secrets
-docker compose up -d    # Postgres, RustFS, migrations, then Anonify itself
-                        # http://localhost:3000
+pnpm setup --local              # or just `pnpm setup` and choose; generates the secrets
+docker compose up -d --build    # Postgres, RustFS, migrations, then Anonify itself
+                                # http://localhost:3000
 ```
 
-`docker compose up -d` runs the whole application. The app image is built from
-this repo, the schema is applied before the app starts, and nothing needs to be
-installed on the host beyond Docker itself — `pnpm install` and `pnpm setup` are
-there to write `.env`, which is where the encryption key and the fingerprint
-secret come from.
+`docker compose up -d --build` runs the whole application, with the app image
+built from this checkout and tagged as the published one. Without `--build`
+Compose runs the published image instead ([Run with Docker](#run-with-docker)),
+which is not your code. The schema is applied before the app starts, and
+nothing needs to be installed on the host beyond Docker itself — `pnpm install`
+and `pnpm setup` are there to write `.env`, which is where the encryption key
+and the fingerprint secret come from.
 
 **To develop against those services with the app on the host**, start only the
 dependencies so port 3000 stays free:
@@ -403,7 +448,7 @@ What `docker compose up -d` starts:
 
 | Service | Port | Credentials | Purpose |
 | --- | --- | --- | --- |
-| `app` | 3000 | — | Anonify, built from this repo |
+| `app` | 3000 | — | Anonify: the published image, or this checkout with `--build` |
 | Postgres 17 | 5432 | `anonify` / `anonify` | The database, in place of Neon |
 | RustFS | 9000 (API), 9001 (console) | `anonify` / `anonify-dev-secret` | S3-compatible storage, in place of Vercel Blob |
 | `rustfs-init` | — | — | Idempotently creates the `anonify` bucket, then exits |

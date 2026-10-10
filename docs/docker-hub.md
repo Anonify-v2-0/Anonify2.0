@@ -36,26 +36,28 @@ others) adds a contextual pass when one is configured.
 
 ## Quick start
 
-It needs Postgres and S3-compatible storage. The repository's Compose file
-runs both alongside the app, with local OCR, and needs no accounts anywhere.
+It needs Postgres and S3-compatible storage. The Compose file attached to each
+release runs both alongside the app, with local OCR, and needs no accounts
+anywhere. No clone, no Node, no build:
 
 ```sh
-git clone https://github.com/Anonify-v2-0/Anonify2.0.git && cd Anonify2.0
-cat > .env <<EOF
-ANONIFY_IMAGE=nabeelwasif/anonify2.0:1
-ENCRYPTION_KEY=$(openssl rand -hex 32)
-FINGERPRINT_SECRET=$(openssl rand -hex 32)
-EOF
-docker compose pull
-docker compose up -d --no-build
+mkdir anonify && cd anonify
+curl -LO https://github.com/Anonify-v2-0/Anonify2.0/releases/latest/download/docker-compose.yml
+[ -e .env ] || docker run --rm nabeelwasif/anonify2.0 keys > .env
+docker compose up -d
 ```
 
 Then open <http://localhost:3000>. This starts Postgres, RustFS (S3), creates
 the bucket, applies the migrations and starts Anonify. Every port is bound to
 localhost.
 
-**Keep `ENCRYPTION_KEY`.** It encrypts every stored document, and a new key
-cannot read what the old one wrote.
+**Keep `.env`.** `keys` prints a new `ENCRYPTION_KEY` each time, and it
+encrypts every stored document: a new key cannot read what the old one wrote.
+
+**Pin a version** for anything you keep, with `ANONIFY_VERSION=X.Y.Z` in
+`.env`; the file follows `latest` otherwise. **Upgrade** with
+`docker compose pull && docker compose up -d`: migrations run before the app
+starts.
 
 ## One image, several jobs
 
@@ -63,12 +65,25 @@ cannot read what the old one wrote.
 docker run IMAGE            # serve on :3000 (the default)
 docker run IMAGE migrate    # apply database migrations, then exit
 docker run IMAGE cleanup    # run the expiry sweep once, then exit
+docker run IMAGE keys       # print new secrets for a .env file
 docker run IMAGE help
 ```
 
 Run `migrate` with the image you are about to deploy, before rolling it out.
 It is idempotent and takes a Postgres advisory lock, so it is safe on every
 deploy and from several replicas at once.
+
+## The container
+
+| | |
+| --- | --- |
+| Port | `3000` (`PORT`) |
+| User | `nextjs`, UID 1001, GID 1001 |
+| Writable paths | `/tmp`, and `/data` (the OCR cache, `/data/tesseract`); the root filesystem can be read-only |
+| Required settings | `DATABASE_URL`, `ENCRYPTION_KEY`, `FINGERPRINT_SECRET`, and storage (`STORAGE_DRIVER` with its settings) |
+| Liveness / readiness | `GET /api/health` / `GET /api/ready` |
+| Stopping | Drains on `SIGTERM`: readiness drops, running steps finish, then it exits. Give it a 130s grace period |
+| Init | `tini` as PID 1 |
 
 ## Running it in production
 
@@ -82,8 +97,12 @@ deploy and from several replicas at once.
   with `/tmp` and `/data` writable, and runs under `tini` as PID 1.
 - **Health:** `/api/health` for liveness, `/api/ready` for readiness (database,
   storage and worker).
-- **Scaling:** several replicas share one database and bucket; AI and OCR
-  budgets can be shared through Postgres or Redis/Valkey.
+- **Scaling:** several replicas share one database and bucket, with
+  `ANONIFY_ROLE=web` or `worker` to split serving from processing. Each sizes
+  itself from its CPUs, and AI and OCR budgets can be shared through Postgres
+  or Redis/Valkey.
+- **No scheduler to run:** workers delete expired documents themselves, with
+  one replica leading at a time.
 
 Configuration, platforms and migrations:
 [docs/deploy/image.md](https://github.com/Anonify-v2-0/Anonify2.0/blob/main/docs/deploy/image.md).
