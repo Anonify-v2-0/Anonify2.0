@@ -12,3 +12,11 @@
 export function buildId(): string {
   return process.env.ANONIFY_BUILD_ID?.trim() || "dev"
 }
+
+/**
+ * The release this image was built as (`ANONIFY_BUILD_VERSION`, from the
+ * release job's version), or "dev". For the metrics' `build_info` (#188).
+ */
+export function buildVersion(): string {
+  return process.env.ANONIFY_BUILD_VERSION?.trim() || "dev"
+}

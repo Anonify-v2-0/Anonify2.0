@@ -31,9 +31,18 @@ function tracker(): ServerTracker {
 }
 
 type RequestStart = {
+  request: http.IncomingMessage
   server: http.Server
   response: http.ServerResponse
 }
+
+/**
+ * The connecting peer's address, as the socket saw it, for a route that has
+ * to know whether a request came from this network (/api/metrics, #188).
+ * Route handlers are given no socket. Set on every request, overwriting
+ * whatever a client sent under the same name, so it cannot be forged.
+ */
+export const PEER_ADDRESS_HEADER = "x-anonify-peer-address"
 
 /** Starts watching. Requests that arrived before this are not counted. */
 export function trackHttpServers(): void {
@@ -42,7 +51,8 @@ export function trackHttpServers(): void {
   state.channel = diagnostics.channel("http.server.request.start")
 
   state.channel.subscribe((message) => {
-    const { server, response } = message as RequestStart
+    const { request, server, response } = message as RequestStart
+    request.headers[PEER_ADDRESS_HEADER] = request.socket?.remoteAddress ?? ""
     state.servers.add(server)
     state.inFlight += 1
     response.once("close", () => {

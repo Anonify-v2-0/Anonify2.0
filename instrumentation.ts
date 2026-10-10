@@ -16,6 +16,19 @@ export async function register() {
   // The edge runtime has no long-lived process to poll from.
   if (process.env.NEXT_RUNTIME === "edge") return
 
+  // Traces, when an OTLP endpoint is set (#188). First, so everything after
+  // it is recorded; every span is scrubbed of messages before it leaves.
+  {
+    const { anonifyRole } = await import("@/lib/config/role")
+    const { buildId, buildVersion } = await import("@/lib/config/build")
+    const { startTracing } = await import("@/lib/metrics/tracing")
+    await startTracing({
+      "service.version": buildVersion(),
+      "anonify.build_id": buildId(),
+      "anonify.role": anonifyRole(),
+    })
+  }
+
   // Fail on the way up, not on the first document.
   //
   // ENCRYPTION_KEY is read lazily, deep in the pipeline, so a malformed one
@@ -105,6 +118,28 @@ export async function register() {
   if (role === "worker") {
     const { installWorkerGate } = await import("@/lib/config/worker-gate")
     installWorkerGate()
+  }
+
+  // Prometheus metrics, when on (#188): recording starts now, so the first
+  // scrape has the steps that ran before it.
+  const { metricsSettings } = await import("@/lib/metrics/settings")
+  const metrics = metricsSettings()
+  if (metrics.enabled) {
+    const { installMetrics } = await import("@/lib/metrics/registry")
+    await installMetrics()
+    console.log(
+      JSON.stringify({
+        level: "info",
+        context: "metrics",
+        path: "/api/metrics",
+        access: metrics.token
+          ? "bearer token"
+          : "direct peers on loopback or a private network only",
+        message: metrics.token
+          ? "metrics on, behind ANONIFY_METRICS_TOKEN"
+          : "metrics on without ANONIFY_METRICS_TOKEN: served only to direct peers on loopback or a private network, never through a proxy",
+      })
+    )
   }
 
   // Shutting down without losing work (#182): readiness drops first, the

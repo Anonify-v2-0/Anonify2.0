@@ -142,6 +142,8 @@ LABEL org.opencontainers.image.title="Anonify" \
       org.opencontainers.image.revision="$OCI_REVISION" \
       org.opencontainers.image.created="$OCI_CREATED"
 ENV ANONIFY_BUILD_ID=$ANONIFY_BUILD_ID
+# The release, for the metrics' build_info (#188).
+ENV ANONIFY_BUILD_VERSION=$OCI_VERSION
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

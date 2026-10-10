@@ -576,6 +576,36 @@ export type ThrottleOptions = {
  * is the caller's job — losing a page of OCR and losing the contextual pass are
  * different sizes of loss, and this layer is not the place that knows which.
  */
+/**
+ * What happens to calls, for the metrics (#188): how long each waited for
+ * its turn, and how each attempt ended. Never the request or the answer.
+ */
+export type ServiceObserver = {
+  waited: (service: ServiceName, ms: number) => void
+  finished: (service: ServiceName, outcome: "ok" | ServiceErrorKind) => void
+}
+
+const observing = globalThis as unknown as {
+  anonifyServiceObservers?: Set<ServiceObserver>
+}
+
+/** Subscribes to every call through the throttle; returns the unsubscribe. */
+export function observeServices(observer: ServiceObserver): () => void {
+  observing.anonifyServiceObservers ??= new Set()
+  observing.anonifyServiceObservers.add(observer)
+  return () => observing.anonifyServiceObservers?.delete(observer)
+}
+
+function observe(report: (observer: ServiceObserver) => void): void {
+  for (const observer of observing.anonifyServiceObservers ?? []) {
+    try {
+      report(observer)
+    } catch {
+      // A metric must never fail a call.
+    }
+  }
+}
+
 export async function runThrottled<T>(
   service: ServiceName,
   options: ThrottleOptions,
@@ -585,12 +615,19 @@ export async function runThrottled<T>(
   let lastError: unknown
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    const queued = performance.now()
     const release = await admit(service)
+    const waited = performance.now() - queued
+    observe((observer) => observer.waited(service, waited))
 
     try {
-      return await request()
+      const result = await request()
+      observe((observer) => observer.finished(service, "ok"))
+      return result
     } catch (error) {
       lastError = error
+      const kind = classifyServiceError(error).kind
+      observe((observer) => observer.finished(service, kind))
     } finally {
       // Always, and before the wait: a slot is held for the duration of the
       // request and never across the pause between attempts, or one caller

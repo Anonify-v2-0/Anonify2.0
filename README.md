@@ -65,6 +65,8 @@ again. For other platforms, replicas and production settings see
 | [docs/pipelines.md](docs/pipelines.md) | Why each format's pipeline is built the way it is |
 | [docs/presets.md](docs/presets.md) | The five shipped redaction presets and their detector/category memberships |
 | [docs/deploy-vercel.md](docs/deploy-vercel.md) | Deploying to Vercel on the Hobby plan, and the limits that shape it |
+| [docs/operations.md](docs/operations.md) | Metrics, autoscaling workers on the queue, traces and alerts |
+| [docs/deploy/capacity.md](docs/deploy/capacity.md) | What one replica takes on, and how to size it |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | The invariants, the roadmap, and the benchmarks we would like |
 
 ## What it can redact

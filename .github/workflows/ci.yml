@@ -376,6 +376,13 @@ jobs:
       - name: Apply migrations to an empty database
         run: pnpm db:migrate:deploy
 
+      # The job queue's schema, which the metrics' queue-depth query reads
+      # (#188): a package bump that changes it fails that suite.
+      - name: Apply the workflow schema
+        env:
+          WORKFLOW_POSTGRES_URL: postgresql://anonify:anonify@localhost:5432/anonify_test
+        run: pnpm workflow:bootstrap
+
       - name: Cleanup and quota suites
         run: pnpm test:db
 
@@ -564,6 +571,27 @@ jobs:
           [ "$left" = 0 ] || { echo "::error::the expired document was not swept"; exit 1; }
           docker compose logs app | grep -q '"context":"scheduler","leader":true' \
             || { echo "::error::the sweep did not log its leader line"; exit 1; }
+
+      # Metrics (#188): on, scraped from the host after a document has been
+      # through, with the queue gauges present and a step recorded. Nothing
+      # identifying a document is in the output.
+      - name: Metrics after a document
+        env:
+          ANONIFY_METRICS: "on"
+        run: |
+          docker compose up -d --wait --force-recreate app
+          pnpm smoke http://127.0.0.1:3000 --only=txt
+          curl -fsS http://127.0.0.1:3000/api/metrics | tee metrics.txt | grep '^anonify_' | head -40
+          grep -q '^anonify_queue_jobs_ready{queue="step"}' metrics.txt \
+            || { echo "::error::no queue gauge"; exit 1; }
+          count=$(grep '^anonify_step_duration_seconds_count{step="extractAndNormalize"' metrics.txt | awk '{ sum += $2 } END { print sum + 0 }')
+          [ "$count" -gt 0 ] || { echo "::error::no extractAndNormalize step recorded"; exit 1; }
+          if grep -E 'doc_|bat_|wrun_' metrics.txt; then
+            echo "::error::an id is in the metrics"; exit 1
+          fi
+          # Through a proxy, without a token, it is refused.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'x-forwarded-for: 203.0.113.9' http://127.0.0.1:3000/api/metrics)
+          [ "$code" = 403 ] || { echo "::error::a forwarded scrape answered $code"; exit 1; }
 
       # Stopping a container drains it (#182): readiness drops while health
       # stays up, and the process exits 0 once the sequence has finished.
