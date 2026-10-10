@@ -356,7 +356,54 @@ instead of tearing down a live stream.
 
 ---
 
-## 5. Batch export
+## 5. Exports
+
+### One document
+
+`lib/workflows/export-document.ts`
+
+A single export used to run inside its HTTP request: every redacted PDF page
+rasterised, the document rebuilt, re-opened for verification, sealed and
+stored, on the web tier and within the request's 300 seconds. A few at once
+starved the interface, and a replica recycled mid-request lost the export. It
+is now a run on the workers (#187):
+
+```
+POST   /api/documents/:id/export                     → a DocumentExport row, the run started, 202
+GET    /api/documents/:id/export/:exportId           → status, progress, and the artifacts once ready
+GET    /api/documents/:id/export/:exportId/stream    → progress as server-sent events
+GET    /api/documents/:id/export/:exportId/vault     → a variant's sealed vault, once
+DELETE /api/documents/:id/export/:exportId           → stop it
+```
+
+- **One step per variant**, each `exportAndStore`, so one definition of an
+  export and one verification gate, inside a CPU slot (#181). A variant's
+  artifact id is fixed by the export and its place, so a step that runs again
+  overwrites its own row (`@@unique([exportId, variant])`) instead of adding a
+  second.
+- **Progress** is a stage (`plan`, `render` with pages drawn of the total,
+  `verify`, `seal`) and a variant, written to the run's stream as it happens
+  and to the row at most once a second, so a dialog opened later reads where
+  it has got to.
+- **The vault** is sealed to the browser that asked, with ECDH P-256, HKDF and
+  AES-GCM, and stored only as that envelope, handed over once. Nothing a step
+  returns carries it: step results are persisted in the run's event log. See
+  [security-internals.md §11](./security-internals.md).
+- **The PDF source** is read by pdf.js in ranges over the bytes already in
+  memory, rather than given its own copy of the whole file. pdf-lib still holds
+  the file, to copy the untouched pages. Measured on a 51 MiB PDF with three
+  redacted pages (`benchmarks/export-memory.ts`): peak resident memory above
+  the start 526 → 451 MiB, heap plus external 317 → 280 MiB.
+- **Closing the dialog does not cancel**; opening it again follows the newest
+  export of the document, and a cancel button stops it before its next
+  variant. A failure is one of a few sentences for a person, never a raw
+  message.
+
+Without `Prefer: respond-async` the route still answers synchronously, for one
+release: it starts the same run, waits for it, and opens the vault with a key
+that exists only in that request (docs/api.md).
+
+### A batch
 
 `lib/workflows/export-batch.ts`
 

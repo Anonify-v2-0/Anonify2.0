@@ -13,9 +13,11 @@ import {
 import {
   copyBytes,
   loadPdfjsForRender,
+  openPdfDocument,
   renderPage,
   RENDER_SCALE,
 } from "@/lib/documents/pdf/render"
+import { bufferRangeSource } from "@/lib/storage/range-source"
 import type { Canvas, SKRSContext2D } from "@napi-rs/canvas"
 
 import type { BoundingBox } from "@/types/document"
@@ -52,6 +54,8 @@ export type PdfRedactionPlan = {
   sanitizeMetadata: boolean
   /** Raster resolution for redacted pages. */
   scale?: number
+  /** Called after each redacted page is drawn, for progress (#187). */
+  onPage?: (done: number, total: number) => void
 }
 
 const LABEL_FONT_RATIO = 0.6
@@ -193,16 +197,13 @@ export async function redactPdf(
   const scale = plan.scale ?? RENDER_SCALE
   const pdfjs = await loadPdfjsForRender()
 
-  const task = pdfjs.getDocument({
-    data: copyBytes(bytes),
-    disableFontFace: true,
-    useSystemFonts: false,
-    standardFontDataUrl: pdfjs.standardFontDataUrl,
-    cMapUrl: pdfjs.cMapUrl,
-    cMapPacked: true,
-  })
+  // pdf.js reads by ranges over the bytes already here, rather than being
+  // handed a copy of the whole file (#187): it reads the index and the pages
+  // it draws, and the source is held once, by pdf-lib, which needs all of it
+  // to copy the untouched pages.
+  const { task, guard } = await openPdfDocument(pdfjs, bufferRangeSource(bytes))
 
-  const rendered = await task.promise
+  const rendered = await guard(task.promise)
   const source = await PDFDocument.load(bytes, { ignoreEncryption: true })
   const output = await PDFDocument.create()
 
@@ -223,6 +224,9 @@ export async function redactPdf(
     untouched.forEach((index, at) => copies.set(index, copied[at]))
   }
 
+  const toDraw = pageCount - untouched.length
+  let drawn = 0
+
   try {
     for (let index = 0; index < pageCount; index++) {
       const copy = copies.get(index)
@@ -231,14 +235,17 @@ export async function redactPdf(
         continue
       }
 
-      const { canvas, width, height } = await renderRedactedPage(
-        rendered,
-        index + 1,
-        plan.boxesByPage.get(index + 1) ?? [],
-        plan.label,
-        scale
+      const { canvas, width, height } = await guard(
+        renderRedactedPage(
+          rendered,
+          index + 1,
+          plan.boxesByPage.get(index + 1) ?? [],
+          plan.label,
+          scale
+        )
       )
       addRasterPage(output, canvas, width, height)
+      plan.onPage?.(++drawn, toDraw)
     }
   } finally {
     await task.destroy()

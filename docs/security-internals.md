@@ -415,7 +415,7 @@ anyone who could reach the server's port (#179).
 CI posts a well-formed delivery to both routes from outside the container and
 expects 404.
 
-## 11. Single exports in the background: where the vault goes (#187) — proposed, awaiting sign-off
+## 11. Single exports in the background: where the vault goes (#187)
 
 A single export currently runs inside `POST /api/documents/:id/export` and
 hands the **vault** (what an `encrypt` export needs to be reversed) back in
@@ -464,8 +464,18 @@ Anonify **can** reverse an `encrypt` export. That is the batch guarantee,
 not the single-export one, and the docs and the export report would have to
 say so.
 
-### Recommendation
+### Decision
 
-(a). The "Anonify cannot reverse it" property is the reason to choose
-`encrypt` over `pseudonymise`, and (a) keeps it exactly, at the cost of one
-ECDH exchange in the dialog.
+(a), signed off by the maintainer, and implemented. The "Anonify cannot
+reverse it" property is the reason to choose `encrypt` over `pseudonymise`,
+and (a) keeps it exactly, at the cost of one ECDH exchange in the dialog.
+
+| Mechanism | Where | Why it is there |
+| --- | --- | --- |
+| A key pair per export | `newRecipientKeyPair` | Generated with `extractable: false` for the private half, so it cannot leave the browser's key store. Kept in IndexedDB by export id, so closing the dialog or reloading does not lose the vault, and deleted once the vaults are opened. |
+| Sealed in the step, then forgotten | `exportAndStore` → `sealVaultTo` | The run's own key pair is made per vault and its private half goes out of scope with the call. |
+| Bound to the export and the variant | HKDF info and GCM additional data | An envelope moved to another export or variant does not open. |
+| Never in a step's result | `lib/workflows/export-document.ts` | A step's return value is persisted in the run's event log; the steps return ids and a stop flag only. |
+| Stored only as the envelope | `ExportArtifact.vaultRecipient` | Under the document's seal as well, like every object, but what that seal opens is the envelope. |
+| Handed over once | `takeVaultEnvelope` | Claimed in the row before it is read, so two readers cannot both take it; deleted from storage after. A second request is a 410. |
+| The synchronous answer keeps the property | `awaitSynchronously` | It seals to a key made in the request, opens the envelope there, and returns the vault inline as before. |

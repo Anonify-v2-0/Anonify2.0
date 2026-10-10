@@ -9,7 +9,11 @@ import {
   resolveAttachments,
   type AttachmentOutcome,
 } from "@/lib/redaction/attachments"
-import { exportRedacted, ExportVerificationError } from "@/lib/redaction/export"
+import {
+  exportRedacted,
+  ExportVerificationError,
+  type ExportProgress,
+} from "@/lib/redaction/export"
 import { fromDatabaseRow } from "@/lib/redaction/model"
 import { presetById } from "@/lib/redaction/presets"
 import {
@@ -26,6 +30,10 @@ import {
   type TokenVault,
 } from "@/lib/redaction/vault"
 import type { ExportVariant } from "@/lib/redaction/variants"
+import {
+  sealVaultTo,
+  serializeEnvelope,
+} from "@/lib/redaction/vault-envelope"
 import {
   artifactKey,
   reportKey,
@@ -120,6 +128,29 @@ export type DeliveryOptions = {
    * available; past it, both are gone.
    */
   storeVault?: boolean
+  /**
+   * Seal each vault to this key instead, and store only the envelope (#187).
+   *
+   * A single export runs in the background and has no response to hand the
+   * vault back in. The requesting browser sends an ECDH P-256 public key; the
+   * vault is sealed to it and nothing Anonify holds can open what is stored.
+   * See lib/redaction/vault-envelope.ts.
+   */
+  recipientKey?: string
+  /** The single export these artifacts belong to (#187). */
+  exportId?: string
+  /**
+   * The artifact id to use for each variant, in order, so a step that is run
+   * again overwrites what its first attempt wrote. Random when absent.
+   */
+  artifactIds?: string[]
+  /**
+   * Whether the document's own pointer moves to the first variant. A single
+   * export run one variant per step points it from the first step only.
+   */
+  updatePointer?: boolean
+  /** Where each variant has got to, for a progress stream (#187). */
+  onProgress?: (progress: ExportProgress & { variant: string }) => void
 }
 
 export async function exportAndStore(
@@ -127,7 +158,13 @@ export async function exportAndStore(
   variants: ExportVariant[],
   delivery: DeliveryOptions = {}
 ): Promise<ExportOutcome> {
-  const { sharedKey, storeVault = false } = delivery
+  const {
+    sharedKey,
+    storeVault = false,
+    recipientKey,
+    exportId,
+    updatePointer = true,
+  } = delivery
   const document = await prisma.document.findUnique({
     where: { id: documentId },
     select: {
@@ -185,7 +222,11 @@ export async function exportAndStore(
   const artifacts: DeliveredArtifact[] = []
   let attachments: AttachmentOutcome[] = []
 
-  for (const variant of variants) {
+  for (const [position, variant] of variants.entries()) {
+    const progress = (update: ExportProgress) =>
+      delivery.onProgress?.({ ...update, variant: variant.name })
+    progress({ stage: "plan" })
+
     // One key per variant, made before the attachments are exported so the
     // message and everything inside it encrypt under the same one. Unused
     // keys are never reported: `Surrogates.key` stays null until something is
@@ -219,9 +260,11 @@ export async function exportAndStore(
       options,
       mimeType: document.mimeType,
       attachments: resolved.substitutions,
+      onProgress: progress,
     })
+    progress({ stage: "seal" })
 
-    const artifactId = randomId("exp", 16)
+    const artifactId = delivery.artifactIds?.[position] ?? randomId("exp", 16)
     const stored = await putSealed(
       artifactKey(document.id, artifactId, result.extension),
       result.bytes,
@@ -288,38 +331,55 @@ export async function exportAndStore(
           })
         : null
 
-    // Sealed only when the caller asked for it, which is only ever a batch.
-    // Everywhere else the vault exists in this function's return value and
-    // nowhere on disk.
-    const storedVault =
-      vault && storeVault
+    // A single export seals it to the requesting browser's key (#187), and
+    // only the envelope is written: nothing Anonify holds opens it. A batch
+    // seals it under the document key. Otherwise the vault exists in this
+    // function's return value and nowhere on disk.
+    const storedVault = !vault
+      ? null
+      : recipientKey
         ? await putSealed(
             vaultKey(document.id, artifactId),
-            serializeVault(vault),
+            serializeEnvelope(
+              await sealVaultTo(recipientKey, serializeVault(vault), {
+                exportId: exportId ?? artifactId,
+                variant: variant.name,
+              })
+            ),
             seal
           )
-        : null
+        : storeVault
+          ? await putSealed(
+              vaultKey(document.id, artifactId),
+              serializeVault(vault),
+              seal
+            )
+          : null
 
-    await prisma.exportArtifact.create({
-      data: {
-        id: artifactId,
-        documentId: document.id,
-        variant: variant.name,
-        blobKey: stored.key,
-        checksum: result.checksum,
-        mimeType: result.mimeType,
-        extension: result.extension,
-        size: result.bytes.byteLength,
-        appliedRedactions: result.appliedRedactions,
-        metadataSanitized: options.sanitizeMetadata,
-        labelsAdded: options.addLabels,
-        reportBlobKey: storedReport.key,
-        reportChecksum: sha256(reportBytes),
-        vaultBlobKey: storedVault?.key ?? null,
-        vaultChecksum: vault ? sha256(serializeVault(vault)) : null,
-      },
+    const row = {
+      documentId: document.id,
+      variant: variant.name,
+      blobKey: stored.key,
+      checksum: result.checksum,
+      mimeType: result.mimeType,
+      extension: result.extension,
+      size: result.bytes.byteLength,
+      appliedRedactions: result.appliedRedactions,
+      metadataSanitized: options.sanitizeMetadata,
+      labelsAdded: options.addLabels,
+      reportBlobKey: storedReport.key,
+      reportChecksum: sha256(reportBytes),
+      vaultBlobKey: storedVault?.key ?? null,
+      vaultChecksum: vault ? sha256(serializeVault(vault)) : null,
+      vaultRecipient: Boolean(storedVault && recipientKey),
+      exportId: exportId ?? null,
+    }
+    // Upserted: a step that runs again writes over its own artifact.
+    await prisma.exportArtifact.upsert({
+      where: { id: artifactId },
+      create: { id: artifactId, ...row },
+      update: row,
     })
-
     artifacts.push({
       artifactId,
       blobKey: stored.key,
@@ -346,13 +406,15 @@ export async function exportAndStore(
   // driver is entitled to store the object under a name of its own, and
   // reconstructing the path here would point the document at a key that does
   // not exist.
-  await prisma.document.update({
-    where: { id: document.id },
-    data: {
-      processedBlobKey: primary.blobKey,
-      processedChecksum: primary.checksum,
-    },
-  })
+  if (updatePointer) {
+    await prisma.document.update({
+      where: { id: document.id },
+      data: {
+        processedBlobKey: primary.blobKey,
+        processedChecksum: primary.checksum,
+      },
+    })
+  }
 
   return { ok: true, delivered: { artifacts, primary, attachments } }
 }

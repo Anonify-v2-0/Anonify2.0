@@ -71,6 +71,16 @@ export class ExportVerificationError extends Error {
   }
 }
 
+/** Where an export has got to, for a progress stream (#187). Never content. */
+export type ExportStage = "plan" | "render" | "verify" | "seal"
+
+export type ExportProgress = {
+  stage: ExportStage
+  /** Pages drawn so far, and of how many, while rendering a PDF. */
+  done?: number
+  total?: number
+}
+
 type ExportInput = {
   kind: DocumentKind
   source: Uint8Array
@@ -79,6 +89,7 @@ type ExportInput = {
   options: ExportOptions
   mimeType?: string
   attachments?: AttachmentSubstitutions
+  onProgress?: (progress: ExportProgress) => void
 }
 
 /**
@@ -114,7 +125,11 @@ async function buildExport(input: ExportInput): Promise<ExportResult> {
 
   switch (kind) {
     case "pdf":
-      bytes = await redactPdf(source, buildPdfPlan(model, accepted, options))
+      bytes = await redactPdf(source, {
+        ...buildPdfPlan(model, accepted, options),
+        onPage: (done, total) =>
+          input.onProgress?.({ stage: "render", done, total }),
+      })
       break
     case "docx":
       bytes = redactDocx(source, buildDocxPlan(model, accepted, options))
@@ -161,6 +176,8 @@ async function buildExport(input: ExportInput): Promise<ExportResult> {
     case "mbox":
       throw new Error("A mailbox is expanded rather than exported")
   }
+
+  input.onProgress?.({ stage: "verify" })
 
   // Verify against the artifact itself, not against the intent. For a message
   // that carries redacted enclosures this also re-decodes each substituted
