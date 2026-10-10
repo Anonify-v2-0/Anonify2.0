@@ -82,6 +82,7 @@ describe("the shutdown sequence", () => {
     expect(calls).toEqual([
       "draining",
       "sleep:5000",
+      "stage:intake",
       "stage:work",
       "closing",
       "close-http",

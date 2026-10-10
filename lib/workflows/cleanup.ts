@@ -47,6 +47,12 @@ export type CleanupOptions = {
   budgetMs?: number
   /** Documents purged at once. ANONIFY_CLEANUP_CONCURRENCY, else 8. */
   concurrency?: number
+  /**
+   * The caller already holds the sweep's lock (lib/workflows/sweep.ts), so
+   * this takes none of its own. A second lock would hold a second connection
+   * for nothing.
+   */
+  locked?: boolean
 }
 
 /** Documents read at a time. */
@@ -96,6 +102,8 @@ export async function cleanupExpired(
   const now = options.now ?? new Date()
   const budgetMs = options.budgetMs ?? settings.budgetMs
   const concurrency = options.concurrency ?? settings.concurrency
+
+  if (options.locked) return sweep(now, budgetMs, concurrency)
 
   const outcome = await withAdvisoryLock(
     LOCK,

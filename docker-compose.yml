@@ -171,6 +171,9 @@ services:
       ANONIFY_DRAIN_SECONDS: ${ANONIFY_DRAIN_SECONDS:-}
       ANONIFY_DRAIN_READY_DELAY_MS: ${ANONIFY_DRAIN_READY_DELAY_MS:-}
       ANONIFY_STUCK_RUN_MINUTES: ${ANONIFY_STUCK_RUN_MINUTES:-}
+      # The built-in sweep (#183): on by default, every 300s.
+      ANONIFY_SCHEDULER: ${ANONIFY_SCHEDULER:-}
+      ANONIFY_SCHEDULER_INTERVAL_SECONDS: ${ANONIFY_SCHEDULER_INTERVAL_SECONDS:-}
       STORAGE_DRIVER: s3
       S3_ENDPOINT: http://rustfs:9000
       S3_BUCKET: ${S3_BUCKET:-anonify}
@@ -326,19 +329,18 @@ services:
       start_period: 40s
       retries: 10
 
-  # Expiry sweep.
+  # Expiry sweep. DEPRECATED, and removed in 1.18.0: you no longer need it.
   #
-  # vercel.json's cron entry is read by Vercel and by nothing else, so a
-  # self-hosted install has no scheduler at all — and "temporary by default"
-  # stops being true the moment nothing is deleting anything.
-  #
-  # Opt in, because a short-lived local install has nothing worth sweeping:
+  # The app runs the sweep itself now, every ANONIFY_SCHEDULER_INTERVAL_SECONDS
+  # (300), with one replica leading at a time (#183). This service still works
+  # and shares the app's lock, so running both is harmless, but it is only
+  # another container and another copy of CRON_SECRET to keep in step. Stop
+  # starting it with `--profile scheduler`.
   #
   #   docker compose --profile scheduler up -d
   #
-  # If you would rather not run a container for this, `pnpm cleanup` does the
-  # same work directly against the database — point cron or a systemd timer at
-  # it instead.
+  # `pnpm cleanup` and `anonify cleanup` stay, for platforms whose workers are
+  # not long-lived.
   scheduler:
     image: curlimages/curl:8.22.0
     profiles: ["scheduler"]
@@ -367,6 +369,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        echo "warning: the scheduler service is deprecated and removed in 1.18.0. The app sweeps on its own timer now; stop starting this profile." >&2
         echo "expiry sweep every $${CLEANUP_INTERVAL_SECONDS}s against $$ANONIFY_URL"
         if [ -z "$$CRON_SECRET" ]; then
           # Not fatal: pointed at a development server on the host, which has no

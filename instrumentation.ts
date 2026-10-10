@@ -68,6 +68,11 @@ export async function register() {
   const { cleanupSettings } = await import("@/lib/workflows/cleanup")
   cleanupSettings()
 
+  // The built-in scheduler's switch and interval (#183).
+  const { schedulerSettings, startScheduler } =
+    await import("@/lib/runtime/scheduler")
+  const scheduling = schedulerSettings()
+
   // How long a run may show no progress before it counts as lost (#182).
   const { stuckRunMinutes } = await import("@/lib/workflows/recovery")
   stuckRunMinutes()
@@ -234,6 +239,25 @@ export async function register() {
   const { markWorldStarted } = await import("@/lib/health/state")
   markWorldStarted()
 
+  // The sweep, on a timer, with one leader across the replicas (#183): no
+  // external scheduler needed while a worker is running.
+  if (scheduling.enabled) {
+    const scheduler = startScheduler({
+      intervalMs: scheduling.intervalMs,
+      sweep: async (budgetMs) => {
+        const { sweep } = await import("@/lib/workflows/sweep")
+        const { cancelProcessing, startProcessing } =
+          await import("@/lib/workflows/start-processing")
+        return sweep({
+          budgetMs,
+          startRun: startProcessing,
+          cancelRun: cancelProcessing,
+        })
+      },
+    })
+    onShutdown("scheduler", () => scheduler.stop(), "intake")
+  }
+
   console.log(
     JSON.stringify({
       level: "info",
@@ -241,6 +265,7 @@ export async function register() {
       world: process.env.WORKFLOW_TARGET_WORLD,
       role,
       worker: true,
+      scheduler: scheduling.enabled ? scheduling.intervalMs / 1000 : "off",
       message: "workflow worker started",
     })
   )

@@ -448,10 +448,25 @@ asked for it.
 
 ## 6. Expiry
 
-A second workflow (`lib/workflows/cleanup.ts`) runs every 15 minutes. On Vercel
-that schedule comes from `vercel.json`; nothing outside Vercel reads that file,
-so a self-hosted install drives it with `pnpm cleanup` from cron or with the
-opt-in `scheduler` service in `docker-compose.yml`. Either way:
+The sweep (`lib/workflows/sweep.ts`) runs on a schedule, and three things can
+run it (#183):
+
+- **the built-in scheduler** in every process that runs workers
+  (`lib/runtime/scheduler.ts`): every `ANONIFY_SCHEDULER_INTERVAL_SECONDS`
+  (300), ±10%, the first tick one interval after start. A tick still running
+  when the next is due is skipped, and the scheduler stops, waiting for its
+  sweep, when the process drains (§8). `ANONIFY_SCHEDULER=off` turns it off;
+- **`/api/cron/cleanup`**, for Vercel's cron (`vercel.json`) and platform
+  schedulers that call a URL;
+- **`pnpm cleanup`** / **`anonify cleanup`**, for job-style schedulers. It is
+  bundled without the workflow runtime, so it purges and does not restart or
+  admit runs.
+
+Each sweep:
+
+0. Takes the sweep lock, `anonify.sweep`. Whichever trigger comes second
+   steps aside, so exactly one replica sweeps per interval, and mixing
+   triggers is safe.
 
 1. Mark documents past `expiresAt` as expired, so the workspace stops serving
    them mid-window.
@@ -459,6 +474,10 @@ opt-in `scheduler` service in `docker-compose.yml`. Either way:
    upload (and its key) if ingest never got to it, the normalized model, every export
    — then the row.
 3. Prune empty batches and stale rate-limit windows.
+4. Restart runs a lost worker left behind (§8).
+5. Admit documents stuck in the queue: admission's backstop.
+
+Each sweep the scheduler leads logs `{"context":"scheduler","leader":true,"durationMs":…}`.
 
 A single run is **bounded by time, not by a count** (#170). It reads expired
 documents 50 at a time and keeps going until there are none, or until
@@ -474,9 +493,9 @@ allows it (`DeleteObjects` on S3, `del` with a list on Vercel Blob). A message
 and its attachments on the same page are purged by the message alone, so no two
 workers touch the same rows.
 
-**One sweep at a time.** A cron, the Compose scheduler, `pnpm cleanup` and a
-slow run overlapping the next tick can all start a sweep. Each takes
-`pg_try_advisory_xact_lock(hashtext('anonify.cleanup'))` in a transaction held
+**One sweep at a time.** Every worker's timer, a platform cron, `pnpm cleanup`
+and a slow run overlapping the next tick can all start a sweep. Each takes
+`pg_try_advisory_xact_lock(hashtext('anonify.sweep'))` in a transaction held
 open for the run (`lib/database/locks.ts`). One that does not get it returns
 `{ skipped: "another sweep is running" }` with a 200 and does nothing. The lock
 is the transaction's, so it is released however the sweep ends, and it holds

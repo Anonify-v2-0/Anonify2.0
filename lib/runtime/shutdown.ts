@@ -18,10 +18,11 @@ import { stepsInFlight, type RunningStep } from "@/lib/runtime/steps"
  *    traffic. `/api/health` stays 200: the process is not broken.
  * 2. **A pause** of `ANONIFY_DRAIN_READY_DELAY_MS` (5000), so they have
  *    noticed before anything stops answering.
- * 3. **Stopping work:** the hooks registered with `onShutdown(…, "work")`.
- *    In a worker, the scheduler stops (#183) and the job runner stops taking
- *    jobs and waits for the ones it has; their requests still reach this
- *    server, which is still listening.
+ * 3. **Stopping work:** first the `"intake"` hooks, which stop starting new
+ *    work (the scheduler, #183, finishing a sweep it is in), then the
+ *    `"work"` hooks: the job runner stops taking jobs and waits for the ones
+ *    it has. Their requests still reach this server, which is still
+ *    listening.
  * 4. **Closing HTTP:** progress streams end themselves so their clients
  *    reconnect elsewhere, the servers stop accepting connections, and the
  *    requests already in flight are answered.
@@ -74,7 +75,7 @@ export function drainSettings(env: Env = process.env): DrainSettings {
   }
 }
 
-export type ShutdownStage = "work" | "release"
+export type ShutdownStage = "intake" | "work" | "release"
 
 type Hook = { name: string; stage: ShutdownStage; run: () => Promise<void> }
 
@@ -94,9 +95,10 @@ function status() {
 }
 
 /**
- * Registers something to stop on shutdown. `"work"` hooks stop taking work
- * and finish what they have, before HTTP closes; `"release"` hooks free
- * resources after it has. Hooks in a stage run together.
+ * Registers something to stop on shutdown. `"intake"` hooks stop starting
+ * new work; `"work"` hooks then stop taking work and finish what they have,
+ * before HTTP closes; `"release"` hooks free resources after it has. Hooks in
+ * a stage run together.
  */
 export function onShutdown(
   name: string,
@@ -176,6 +178,7 @@ export async function runShutdown(
     )
 
     deps.log({ phase: "stopping-work", elapsedMs: elapsed() })
+    await within(deps.stage("intake"), deadline, deps)
     await within(deps.stage("work"), deadline, deps)
 
     deps.log({ phase: "closing-http", elapsedMs: elapsed() })

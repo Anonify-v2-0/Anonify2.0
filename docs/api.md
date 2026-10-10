@@ -1122,16 +1122,19 @@ answered without touching the database.
 The scheduled expiry sweep. Vercel signs cron invocations with `CRON_SECRET`;
 without that header the endpoint refuses, so nobody can trigger deletion from
 outside. The work is idempotent, which is what makes retrying a partial run
-safe. Outside Vercel this is driven by `pnpm cleanup` or the `scheduler`
-service in `docker-compose.yml` (see [workflow.md](./workflow.md) §6).
+safe. Outside Vercel, workers run the same sweep on their own timer (#183),
+under the same lock, so this route is only needed by a platform scheduler (see
+[workflow.md](./workflow.md) §6).
 
 - **Auth:** `CRON_SECRET` — `Authorization: Bearer $CRON_SECRET`. If
   `CRON_SECRET` is unset, the endpoint allows the call only outside
   production (so local development does not require it).
 - **Params:** none
-- **Response `200`:** `{ marked, ...cleanupResult, admitted }` — the count of
-  rows marked expired, the result of deleting their artifacts, and the queued
-  documents admitted. The sweep works through the whole backlog within
+- **Response `200`:** `{ marked, ...cleanupResult, recovered, admitted,
+  durationMs }`: the count of rows marked expired, the result of deleting their
+  artifacts, the lost runs restarted or failed (`{ requeued, failed }`, #182),
+  and the queued documents admitted. The built-in scheduler and `pnpm cleanup`
+  produce the same shape (`lib/workflows/sweep.ts`). The sweep works through the whole backlog within
   `ANONIFY_CLEANUP_BUDGET_MS`; `remaining: true` means it stopped with expired
   documents left for the next run. When another sweep holds the lock it does
   nothing and returns `skipped: "another sweep is running"`, still with a 200.

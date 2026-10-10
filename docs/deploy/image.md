@@ -96,12 +96,16 @@ run side by side during a rollout. The rule contributors follow for that is in
 
 ## The expiry sweep
 
+A container that runs workers (`ANONIFY_ROLE` `all` or `worker`) runs the
+sweep itself, every five minutes, with one replica leading at a time (#183).
+You need an external schedule only when no worker is long-lived.
+
 `cleanup` talks to the database and storage directly, so a scheduler that
 runs a job (a Kubernetes CronJob, a scheduled ECS task, a Cloud Run Job on a
 schedule) needs no web replica up and no `CRON_SECRET`. It exits non-zero when
 a document could not be fully purged, so a scheduler that reports failures
 reports that one. A scheduler that calls a URL can call
-`/api/cron/cleanup` instead, as the Compose `scheduler` service does.
+`/api/cron/cleanup` instead. All three share one lock.
 
 ## Building and running it (#178)
 

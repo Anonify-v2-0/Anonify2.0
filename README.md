@@ -408,7 +408,7 @@ What `docker compose up -d` starts:
 | RustFS | 9000 (API), 9001 (console) | `anonify` / `anonify-dev-secret` | S3-compatible storage, in place of Vercel Blob |
 | `rustfs-init` | — | — | Idempotently creates the `anonify` bucket, then exits |
 | `migrate` | — | — | The app image running `anonify migrate`: migrations and the workflow schema, then exits |
-| `scheduler` | — | — | Opt-in expiry sweep; see [Scheduled cleanup](#scheduled-cleanup) |
+| `scheduler` | — | — | Deprecated, removed in 1.18.0: the app sweeps on its own. See [Expiring documents](#expiring-documents-when-you-self-host) |
 
 Every published port binds to `127.0.0.1` only, and the data lives in named
 volumes across restarts. The credentials are development defaults — do not reuse
@@ -779,15 +779,25 @@ column AN is charged for what it contains, not for the blanks between.
 ### Expiring documents when you self-host
 
 Documents are temporary, which is only true if something is actually deleting
-them. On Vercel that is the cron entry in `vercel.json`. **Nothing outside
-Vercel reads that file**, so a self-hosted install needs its own schedule.
+them. **A self-hosted Anonify does that itself:** every process that runs
+workers runs the sweep every five minutes, and one replica leads at a time, so
+one container or fifty, exactly one sweeps (#183). It deletes expired
+documents, restarts runs a crashed worker left behind, and starts documents
+stuck in the queue. Nothing to schedule and no secret to share.
 
-(On Vercel's Hobby plan that entry can only fire once a day — the plan rejects
-anything more frequent — so a Hobby deployment wants the same backstop for a
-different reason. See [docs/deploy-vercel.md](docs/deploy-vercel.md).)
+| Setting | Default | |
+| --- | --- | --- |
+| `ANONIFY_SCHEDULER` | `on` | `off` leaves the sweep to an external scheduler |
+| `ANONIFY_SCHEDULER_INTERVAL_SECONDS` | `300` | 10–86400, with ±10% jitter so replicas do not wake together |
 
-Either run the sweep directly — no server and no secret needed, so this suits
-cron, a systemd timer or Task Scheduler:
+On Vercel, which has no long-lived worker, the cron entry in `vercel.json`
+calls `/api/cron/cleanup` instead. (On the Hobby plan that entry can only fire
+once a day, so a Hobby deployment wants another backstop. See
+[docs/deploy-vercel.md](docs/deploy-vercel.md).)
+
+Where workers are not long-lived, run the sweep as a job. It needs no server
+and no secret, so it suits cron, a systemd timer, Task Scheduler or a
+Kubernetes CronJob:
 
 ```bash
 pnpm cleanup     # one pass: mark expired, delete documents, prune rate limits
@@ -797,26 +807,12 @@ pnpm cleanup     # one pass: mark expired, delete documents, prune rate limits
 */15 * * * *  cd /srv/anonify && pnpm cleanup
 ```
 
-Or let Compose call the endpoint for you:
+The internal timer, the route and the job share one lock, so running several
+is harmless: whichever comes second steps aside.
 
-```bash
-docker compose --profile scheduler up -d
-```
-
-It is opt-in because a short-lived local install has little worth sweeping. Tune
-with `CLEANUP_INTERVAL_SECONDS` (default 900) and `ANONIFY_URL` (default
-`http://app:3000` — point it at `http://host.docker.internal:3000` if you run
-the app on the host).
-
-Set `CRON_SECRET` before you do. The container image runs as production, where
-the cleanup endpoint refuses any request that does not carry it, so without one
-the scheduler starts, 401s every cycle, and documents outlive their retention
-window. It says so — once at startup and again on every refusal — rather than
-logging a status code nobody reads. `pnpm setup` generates it.
-
-It is a warning rather than a hard failure because pointing `ANONIFY_URL` at a
-development server on the host is legitimate: that server has no secret of its
-own, and the endpoint accepts an unauthenticated sweep outside production.
+The Compose `scheduler` service, which called the endpoint on a timer, is
+**deprecated and removed in 1.18.0**. Stop starting it with
+`--profile scheduler`; the app does its job now.
 
 Whichever you choose, the sweep deletes the source, the normalized model, every
 export and the database row — and is idempotent, so a failed run is retried
