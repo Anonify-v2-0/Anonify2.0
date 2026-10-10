@@ -1,5 +1,8 @@
 import { metricsSettings, mayScrape } from "@/lib/metrics/settings"
-import { PEER_ADDRESS_HEADER } from "@/lib/runtime/http-servers"
+import {
+  PEER_ADDRESS_HEADER,
+  PEER_FORWARDED_HEADER,
+} from "@/lib/runtime/http-servers"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -21,9 +24,14 @@ export async function GET(request: Request) {
     })
   }
 
+  // Stamped from the socket before Next.js saw the request; absent (as on a
+  // platform without our server) means unknown, which is treated as a proxy.
   const verdict = mayScrape(
     request.headers,
-    request.headers.get(PEER_ADDRESS_HEADER),
+    {
+      address: request.headers.get(PEER_ADDRESS_HEADER),
+      forwarded: request.headers.get(PEER_FORWARDED_HEADER) !== "0",
+    },
     settings
   )
   if (verdict === "unauthorized") {

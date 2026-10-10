@@ -44,6 +44,17 @@ type RequestStart = {
  */
 export const PEER_ADDRESS_HEADER = "x-anonify-peer-address"
 
+/**
+ * "1" when the request arrived carrying a forwarding header, so it came
+ * through a proxy; "0" when it did not. Read here, from the request as it
+ * arrived, because Next.js fills in `X-Forwarded-For` itself, from the
+ * socket, on every request that lacks one: by the time a route sees the
+ * request, every request looks forwarded. Overwritten like the address.
+ */
+export const PEER_FORWARDED_HEADER = "x-anonify-peer-forwarded"
+
+const FORWARDING_HEADERS = ["x-forwarded-for", "forwarded", "x-real-ip"]
+
 /** Starts watching. Requests that arrived before this are not counted. */
 export function trackHttpServers(): void {
   const state = tracker()
@@ -52,6 +63,8 @@ export function trackHttpServers(): void {
 
   state.channel.subscribe((message) => {
     const { request, server, response } = message as RequestStart
+    const forwarded = FORWARDING_HEADERS.some((name) => name in request.headers)
+    request.headers[PEER_FORWARDED_HEADER] = forwarded ? "1" : "0"
     request.headers[PEER_ADDRESS_HEADER] = request.socket?.remoteAddress ?? ""
     state.servers.add(server)
     state.inFlight += 1

@@ -82,27 +82,29 @@ describe("who may scrape", () => {
       expect(isPrivateAddress(address)).toBe(false)
   })
 
+  const direct = (address: string | null) => ({ address, forwarded: false })
+
   it("without a token, allows only a direct private peer", () => {
-    expect(mayScrape(new Headers(), "10.1.2.3", open)).toBe("allow")
-    expect(mayScrape(new Headers(), "203.0.113.9", open)).toBe("forbidden")
-    expect(mayScrape(new Headers(), null, open)).toBe("forbidden")
+    expect(mayScrape(new Headers(), direct("10.1.2.3"), open)).toBe("allow")
+    expect(mayScrape(new Headers(), direct("203.0.113.9"), open)).toBe(
+      "forbidden"
+    )
+    expect(mayScrape(new Headers(), direct(null), open)).toBe("forbidden")
     // Behind an ingress every visitor arrives from the proxy's private
-    // address; the forwarding header is what gives it away.
+    // address; the forwarding header it arrived with is what gives it away.
     expect(
-      mayScrape(
-        new Headers({ "x-forwarded-for": "203.0.113.9" }),
-        "10.1.2.3",
-        open
-      )
+      mayScrape(new Headers(), { address: "10.1.2.3", forwarded: true }, open)
     ).toBe("forbidden")
   })
 
   it("with a token, asks for it from everyone", () => {
-    expect(mayScrape(new Headers(), "127.0.0.1", token)).toBe("unauthorized")
+    expect(mayScrape(new Headers(), direct("127.0.0.1"), token)).toBe(
+      "unauthorized"
+    )
     expect(
       mayScrape(
         new Headers({ authorization: "Bearer 0123456789abcdef0123" }),
-        "203.0.113.9",
+        { address: "203.0.113.9", forwarded: true },
         token
       )
     ).toBe("allow")

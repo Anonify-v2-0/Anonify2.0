@@ -57,14 +57,19 @@ export function isPrivateAddress(address: string | null | undefined): boolean {
   return false
 }
 
-const FORWARDING_HEADERS = ["x-forwarded-for", "forwarded", "x-real-ip"]
-
 export type ScrapeVerdict = "allow" | "unauthorized" | "forbidden"
+
+/** Where a request came from, as the socket saw it (lib/runtime/http-servers.ts). */
+export type Peer = {
+  address: string | null
+  /** Whether it arrived carrying a forwarding header. Unknown counts as yes. */
+  forwarded: boolean
+}
 
 /** Whether this request may read the metrics. */
 export function mayScrape(
   headers: Headers,
-  peer: string | null,
+  peer: Peer,
   settings: MetricsSettings
 ): ScrapeVerdict {
   if (settings.token) {
@@ -72,6 +77,6 @@ export function mayScrape(
       ? "allow"
       : "unauthorized"
   }
-  if (FORWARDING_HEADERS.some((name) => headers.has(name))) return "forbidden"
-  return isPrivateAddress(peer) ? "allow" : "forbidden"
+  if (peer.forwarded) return "forbidden"
+  return isPrivateAddress(peer.address) ? "allow" : "forbidden"
 }

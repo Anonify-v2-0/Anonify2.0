@@ -302,3 +302,34 @@ describe("closing HTTP", () => {
     server.closeAllConnections()
   })
 })
+
+describe("the peer stamp", () => {
+  afterEach(() => resetHttpTracking())
+
+  it("records the socket's address and whether the request came forwarded, whatever the client sent", async () => {
+    trackHttpServers()
+    const seen: Record<string, string | string[] | undefined>[] = []
+    const server = http.createServer((request, response) => {
+      seen.push({ ...request.headers })
+      response.end()
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const { port } = server.address() as AddressInfo
+    try {
+      await fetch(`http://127.0.0.1:${port}/`, {
+        headers: {
+          "x-anonify-peer-address": "10.9.9.9",
+          "x-anonify-peer-forwarded": "0",
+        },
+      })
+      await fetch(`http://127.0.0.1:${port}/`, {
+        headers: { "x-forwarded-for": "203.0.113.9" },
+      })
+    } finally {
+      server.close()
+    }
+    expect(seen[0]["x-anonify-peer-address"]).toMatch(/127\.0\.0\.1/)
+    expect(seen[0]["x-anonify-peer-forwarded"]).toBe("0")
+    expect(seen[1]["x-anonify-peer-forwarded"]).toBe("1")
+  })
+})
