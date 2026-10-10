@@ -3,6 +3,7 @@ import { getRun } from "workflow/api"
 import { errorResponse, handleRouteError } from "@/lib/api/http"
 import { endOnServerClose, SSE_HEADERS } from "@/lib/api/sse"
 import { prisma } from "@/lib/database/prisma"
+import { isPendingRun } from "@/lib/documents/admission"
 import { requireDocument } from "@/lib/security/access-control"
 import { peekIdentity } from "@/lib/security/fingerprint"
 
@@ -34,7 +35,9 @@ export async function GET(
       select: { workflowRunId: true },
     })
 
-    if (!record?.workflowRunId) {
+    // A run claimed but still being started is not there to read yet; the
+    // client asks again on a 409.
+    if (!record?.workflowRunId || isPendingRun(record.workflowRunId)) {
       return errorResponse("No processing run for this document", 409)
     }
 

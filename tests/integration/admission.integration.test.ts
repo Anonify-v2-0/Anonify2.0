@@ -103,6 +103,38 @@ describe.skipIf(!hasDatabase)("global admission", async () => {
     expect(started).toEqual([])
   })
 
+  it("claims a document before starting its run, so two admissions start one run", async () => {
+    const owner = testFingerprint("racing")
+    const [id] = await seedWaiting(owner, 1, 6)
+    const started: string[] = []
+    // Both admissions read the document as waiting before either claims it.
+    const slowStart = async (documentId: string) => {
+      started.push(documentId)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      return testId("run")
+    }
+    const results = await Promise.all([
+      admitQueued(owner, slowStart),
+      admitQueued(owner, slowStart),
+    ])
+    expect(results.reduce((sum, n) => sum + n, 0)).toBe(1)
+    expect(started).toEqual([id])
+    const row = await prisma.document.findUniqueOrThrow({ where: { id } })
+    expect(row.workflowRunId).toMatch(/^run_/)
+  })
+
+  it("puts a document back when its run cannot start", async () => {
+    const owner = testFingerprint("unstartable")
+    const [id] = await seedWaiting(owner, 1, 7)
+    await expect(
+      admitQueued(owner, async () => {
+        throw new Error("world unreachable")
+      })
+    ).rejects.toThrow("world unreachable")
+    const row = await prisma.document.findUniqueOrThrow({ where: { id } })
+    expect(row.workflowRunId).toBeNull()
+  })
+
   it("admits each owner as far as their own limit without a cap", async () => {
     const owner = testFingerprint("uncapped")
     const ids = await seedWaiting(owner, 3, 5)

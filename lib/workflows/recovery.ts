@@ -1,5 +1,6 @@
 import type { Prisma } from "@/lib/database/generated/client"
 import { prisma } from "@/lib/database/prisma"
+import { isPendingRun } from "@/lib/documents/admission"
 import { newEventId } from "@/lib/documents/ids"
 import { failureForCode } from "@/lib/workflows/failure"
 
@@ -105,9 +106,11 @@ export async function recoverLostRuns(
     if (latest && latest.at >= cutoff) continue
 
     // Cancelled first, so the old run cannot write over what happens next.
-    // A run that will not cancel is left for the next sweep.
+    // A run that will not cancel is left for the next sweep. A claim whose
+    // run never started (the admitting process died in between) has nothing
+    // to cancel.
     try {
-      await cancelRun(runId)
+      if (!isPendingRun(runId)) await cancelRun(runId)
     } catch (error) {
       log({
         level: "warn",

@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto"
+
 import { processingConcurrency } from "@/lib/documents/batch-config"
 import { prisma } from "@/lib/database/prisma"
 
@@ -38,6 +40,21 @@ import { prisma } from "@/lib/database/prisma"
  */
 
 type Env = Record<string, string | undefined>
+
+/**
+ * What `workflowRunId` holds while a claimed document's run is being started:
+ * counted as in flight, and never a run anyone can read or cancel.
+ */
+export const PENDING_RUN_PREFIX = "pending_"
+
+function pendingRunId(): string {
+  return `${PENDING_RUN_PREFIX}${randomBytes(12).toString("hex")}`
+}
+
+/** A claim whose run is still being started, or was never started. */
+export function isPendingRun(runId: string | null | undefined): boolean {
+  return Boolean(runId?.startsWith(PENDING_RUN_PREFIX))
+}
 
 export const PROCESSING_GLOBAL_MAX_ENV = "ANONIFY_PROCESSING_GLOBAL_MAX"
 
@@ -153,17 +170,34 @@ export async function admitQueued(
   let admitted = 0
 
   for (const document of waiting) {
-    const runId = await startRun(document.id)
-
-    // Claimed only if nothing else claimed it first. Two admissions racing on
-    // the same document would otherwise leave the row naming the second run
-    // while the first one also worked on it.
+    // Claimed before the run is started, and only if nothing else claimed it
+    // first. It used to be started first and claimed after, so two admissions
+    // racing on one document (an upload landing as a sweep ran) both started
+    // a run, and the loser's kept working on a document that was not its own,
+    // failing once the document was gone. The built-in scheduler (#183) made
+    // that race a regular one.
+    const pending = pendingRunId()
     const claimed = await prisma.document.updateMany({
       where: { id: document.id, workflowRunId: null },
+      data: { workflowRunId: pending },
+    })
+    if (claimed.count === 0) continue
+
+    let runId: string
+    try {
+      runId = await startRun(document.id)
+    } catch (error) {
+      // Back to waiting, for the next admission to try.
+      await prisma.document.updateMany({
+        where: { id: document.id, workflowRunId: pending },
+        data: { workflowRunId: null },
+      })
+      throw error
+    }
+    await prisma.document.updateMany({
+      where: { id: document.id, workflowRunId: pending },
       data: { workflowRunId: runId },
     })
-
-    if (claimed.count === 0) continue
     admitted += 1
 
     console.log(
