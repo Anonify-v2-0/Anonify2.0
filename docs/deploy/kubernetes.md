@@ -5,11 +5,11 @@ Use the Helm chart: [deploy/helm/anonify](../../deploy/helm/anonify/README.md)
 same on EKS, GKE, AKS, OKE, k3s, OpenShift and on-prem.
 
 ```sh
-helm install anonify oci://registry-1.docker.io/nabeelwasif/anonify --version 1.18.0 \
+helm install anonify oci://registry-1.docker.io/nabeelwasif/anonify --version 1.19.0 \
   --namespace anonify --create-namespace -f my-values.yaml
 ```
 
-From 1.18.0 the chart is on Docker Hub next to the image; every release also
+From 1.19.0 the chart is on Docker Hub next to the image; every release also
 attaches it as a `.tgz` ([Install](../../deploy/helm/anonify/README.md#install)).
 
 **Verified on:** 2026-10-11, kind 1.31 with KEDA 2, Anonify 1.17.0: installed

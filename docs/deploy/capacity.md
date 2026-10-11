@@ -45,9 +45,9 @@ The slots count work; they do not say which thread does it. Since 1.18.0:
   stopped and its document fails as too complex, instead of holding the
   process.
 - **Very large PDF exports** (64 MiB or more) are rebuilt by pdf-lib on a
-  thread of their own (#245), in the CPU slot the export already holds. On a
-  361-page, 158 MiB scan the rebuild had held the event loop for up to
-  159ms. Smaller files are rebuilt on the main thread, where it takes less
+  thread of their own from 1.19.0 (#245), in the CPU slot the export
+  already holds. On a 361-page, 158 MiB scan the rebuild had held the event
+  loop for up to 159ms. Smaller files are rebuilt on the main thread, where it takes less
   than starting a thread would. `ANONIFY_RENDER_THREADS=off` keeps every
   rebuild on the main thread; the file is the same either way.
 - **What stays on the main thread:** reading a PDF's text layer during

@@ -33,11 +33,11 @@ It runs the published image, `nabeelwasif/anonify2.0`, at the chart's
 
 ## Install
 
-The chart is versioned with the app. From 1.18.0 it is on Docker Hub as an
+The chart is versioned with the app. From 1.19.0 it is on Docker Hub as an
 OCI artifact, next to the image (#246):
 
 ```sh
-helm install anonify oci://registry-1.docker.io/nabeelwasif/anonify --version 1.18.0 \
+helm install anonify oci://registry-1.docker.io/nabeelwasif/anonify --version 1.19.0 \
   --namespace anonify --create-namespace \
   --set database.url='postgresql://anonify:…@db.internal:5432/anonify' \
   --set storage.s3.bucket=my-anonify --set storage.s3.region=eu-west-1 \
