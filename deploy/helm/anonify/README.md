@@ -33,8 +33,20 @@ It runs the published image, `nabeelwasif/anonify2.0`, at the chart's
 
 ## Install
 
-Each release attaches the chart, versioned with it: `anonify-<version>.tgz`,
-and `anonify-chart.tgz` for the newest.
+The chart is versioned with the app. From 1.18.0 it is on Docker Hub as an
+OCI artifact, next to the image (#246):
+
+```sh
+helm install anonify oci://registry-1.docker.io/nabeelwasif/anonify --version 1.18.0 \
+  --namespace anonify --create-namespace \
+  --set database.url='postgresql://anonify:…@db.internal:5432/anonify' \
+  --set storage.s3.bucket=my-anonify --set storage.s3.region=eu-west-1 \
+  --set secrets.extra.S3_ACCESS_KEY_ID=… --set secrets.extra.S3_SECRET_ACCESS_KEY=… \
+  --set publicUrl=https://anonify.example.com
+```
+
+Leave out `--version` for the newest. Each release also attaches the chart:
+`anonify-<version>.tgz`, and `anonify-chart.tgz` for the newest.
 
 ```sh
 helm install anonify \
