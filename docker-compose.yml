@@ -237,6 +237,9 @@ services:
       # The OCR render scale and how long idle workers are kept (#189).
       ANONIFY_OCR_RENDER_SCALE: ${ANONIFY_OCR_RENDER_SCALE:-}
       ANONIFY_OCR_IDLE_SECONDS: ${ANONIFY_OCR_IDLE_SECONDS:-}
+      # PDF pages drawn on worker threads, and the limit per page (#194).
+      ANONIFY_RENDER_THREADS: ${ANONIFY_RENDER_THREADS:-}
+      ANONIFY_RENDER_TIMEOUT_MS: ${ANONIFY_RENDER_TIMEOUT_MS:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
 
       # Which model each engine reads with. Both are validated against a fixed

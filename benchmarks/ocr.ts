@@ -34,6 +34,8 @@ import { PDFDocument } from "pdf-lib"
 
 import { mapWithConcurrency } from "@/lib/concurrency"
 import { ocrPdfPages } from "@/lib/documents/pdf/ocr"
+import { openPageRenderer } from "@/lib/documents/pdf/page-renderer"
+import { closeRenderPool } from "@/lib/documents/pdf/render-pool"
 import {
   loadPdfjsForRender,
   openPdfDocument,
@@ -211,14 +213,16 @@ function score(document: LabelledDocument, read: string) {
   return { values: values.length, found, words: truth.length, matched }
 }
 
+/** As the pipeline reads a scan: drawn by the render pool (#194), read by the OCR pool. */
 async function ocrScan(scan: Scan, scale: number) {
-  const pdfjs = await loadPdfjsForRender()
-  const { task } = await openPdfDocument(pdfjs, scan.pdf)
-  const pdf = await task.promise
+  const renderer = await openPageRenderer(scan.pdf)
   const session = await tesseractProvider.start()
   try {
-    const pageNumbers = Array.from({ length: pdf.numPages }, (_, i) => i + 1)
-    const read = await ocrPdfPages(pdf, pageNumbers, {
+    const pageNumbers = Array.from(
+      { length: renderer.pageCount },
+      (_, i) => i + 1
+    )
+    const read = await ocrPdfPages(renderer, pageNumbers, {
       scale,
       recognize: (image) => session.recognize(image),
       format: session.rasterFormat ?? "png",
@@ -229,7 +233,7 @@ async function ocrScan(scan: Scan, scale: number) {
       .join("\n")
   } finally {
     await session.close()
-    await task.destroy()
+    await renderer.close()
   }
 }
 
@@ -349,6 +353,7 @@ async function main() {
   if (part === "all" || part === "scale") await scaleStudy(scanned, scales)
   if (part === "all" || part === "throughput") await throughput(scanned)
   await closeTesseractPools()
+  await closeRenderPool()
 }
 
 main().catch((error) => {

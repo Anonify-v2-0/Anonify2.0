@@ -1,4 +1,5 @@
 import { cpuConcurrency } from "@/lib/runtime/capacity"
+import { withCpuSlot } from "@/lib/runtime/cpu-slots"
 
 /**
  * Tesseract workers, shared by every document in the process (#189).
@@ -94,10 +95,13 @@ export class TesseractPool {
   recognize(image: Buffer): Promise<{ text?: string; blocks?: unknown }> {
     if (this.closed) return Promise.reject(new Error("the OCR pool is closed"))
     clearTimeout(this.idleTimer)
-    return new Promise((resolve, reject) => {
-      this.queue.push({ image, resolve, reject })
-      this.dispatch()
-    })
+    return withCpuSlot(
+      () =>
+        new Promise((resolve, reject) => {
+          this.queue.push({ image, resolve, reject })
+          this.dispatch()
+        })
+    )
   }
 
   private dispatch(): void {

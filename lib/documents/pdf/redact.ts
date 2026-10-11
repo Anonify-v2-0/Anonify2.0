@@ -1,6 +1,3 @@
-import { deflateSync } from "node:zlib"
-
-import type { PDFDocumentProxy } from "pdfjs-dist"
 import {
   concatTransformationMatrix,
   drawObject,
@@ -10,15 +7,14 @@ import {
   pushGraphicsState,
 } from "pdf-lib"
 
+import { openPageRenderer } from "@/lib/documents/pdf/page-renderer"
 import {
   copyBytes,
   loadPdfjsForRender,
-  openPdfDocument,
-  renderPage,
   RENDER_SCALE,
 } from "@/lib/documents/pdf/render"
+import type { EncodedPage } from "@/lib/documents/pdf/raster-core.mjs"
 import { bufferRangeSource } from "@/lib/storage/range-source"
-import type { Canvas, SKRSContext2D } from "@napi-rs/canvas"
 
 import type { BoundingBox } from "@/types/document"
 
@@ -58,65 +54,31 @@ export type PdfRedactionPlan = {
   onPage?: (done: number, total: number) => void
 }
 
-const LABEL_FONT_RATIO = 0.6
-const MIN_LABEL_HEIGHT = 8
-/** Below this the glyphs stop being glyphs, and a smear is worse than nothing. */
-const MIN_LABEL_PX = 6
-
-/** Renders one page with the redacted areas already burned in. */
-async function renderRedactedPage(
-  pdf: PDFDocumentProxy,
-  pageNumber: number,
-  boxes: LabeledBox[],
-  label: string | null,
-  scale: number
-): Promise<{ canvas: Canvas; width: number; height: number }> {
-  const page = await pdf.getPage(pageNumber)
-  const rendered = await renderPage(page, scale)
-  const canvas = rendered.canvas
-  const context = canvas.getContext("2d")
-
-  for (const box of boxes) {
-    const x = box.x * scale
-    const y = box.y * scale
-    const width = box.width * scale
-    const height = box.height * scale
-
-    context.fillStyle = "#000000"
-    context.fillRect(x, y, width, height)
-
-    // A box's own label is a surrogate and outranks the plan's marker: the
-    // marker says something was removed, the surrogate says what stands in
-    // its place, and only one of them can be painted in the space available.
-    const marker = box.label ?? label
-    if (marker && height >= MIN_LABEL_HEIGHT) {
-      drawStripText(context, marker, { x, y, width, height })
-    }
-  }
-
-  page.cleanup()
-
-  return { canvas, width: rendered.width, height: rendered.height }
-}
-
 /**
- * Adds a rendered page to `output` as a full-page image, `width` by `height`
+ * Adds a redacted page to `output` as a full-page image, `width` by `height`
  * points.
  *
- * The pixels go in as raw RGB, deflated once by zlib (#174). This used to be
- * a PNG from the canvas, which pdf-lib then decoded again in JavaScript and
- * deflated a second time for the PDF. The pixels in the file are the same;
- * getting them there takes about a quarter of the time. JPEG was measured
- * too: no faster to speak of, and no smaller on pages that are mostly text,
- * so there is nothing to trade the ringing around unredacted glyphs for.
+ * The page was drawn, its boxes burned in and its pixels deflated as raw RGB
+ * on a render thread (#194, raster-core.mjs); here they only become an image
+ * XObject. It used to be a PNG from the canvas, which pdf-lib then decoded
+ * again in JavaScript and deflated a second time for the PDF (#174). JPEG was
+ * measured too: no faster to speak of, and no smaller on pages that are
+ * mostly text, so there is nothing to trade the ringing around unredacted
+ * glyphs for.
  */
-function addRasterPage(
-  output: PDFDocument,
-  canvas: Canvas,
-  width: number,
-  height: number
-): void {
-  const image = output.context.register(flateImage(output, canvas))
+function addRasterPage(output: PDFDocument, drawn: EncodedPage): void {
+  const image = output.context.register(
+    output.context.stream(drawn.data, {
+      Type: "XObject",
+      Subtype: "Image",
+      Width: drawn.pixelWidth,
+      Height: drawn.pixelHeight,
+      ColorSpace: "DeviceRGB",
+      BitsPerComponent: 8,
+      Filter: "FlateDecode",
+    })
+  )
+  const { width, height } = drawn
   const page = output.addPage([width, height])
   const name = page.node.newXObject("Image", image)
   page.pushOperators(
@@ -127,83 +89,11 @@ function addRasterPage(
   )
 }
 
-/**
- * The canvas as an RGB image XObject.
- *
- * The page was filled with white before anything was drawn on it, so every
- * pixel is opaque and dropping the alpha channel loses nothing.
- */
-function flateImage(output: PDFDocument, canvas: Canvas) {
-  const { width, height } = canvas
-  const rgba = canvas.getContext("2d").getImageData(0, 0, width, height).data
-  const rgb = Buffer.allocUnsafe(width * height * 3)
-  for (let from = 0, to = 0; from < rgba.length; from += 4, to += 3) {
-    rgb[to] = rgba[from]
-    rgb[to + 1] = rgba[from + 1]
-    rgb[to + 2] = rgba[from + 2]
-  }
-
-  return output.context.stream(deflateSync(rgb), {
-    Type: "XObject",
-    Subtype: "Image",
-    Width: width,
-    Height: height,
-    ColorSpace: "DeviceRGB",
-    BitsPerComponent: 8,
-    Filter: "FlateDecode",
-  })
-}
-
-/**
- * Paints a marker onto a strip, shrinking it until it fits.
- *
- * A strip is exactly as wide as the value it covers, and a surrogate is rarely
- * the same length as what it replaces, so "draw it at the obvious size" is not
- * an option. The type shrinks until the string fits or until it stops being
- * readable, and below that nothing is drawn: a strip with an illegible smear
- * on it reads as a rendering fault, while a plain strip reads as a redaction,
- * which is what it is. The vault still names what the strip stood for.
- */
-function drawStripText(
-  context: SKRSContext2D,
-  marker: string,
-  box: { x: number; y: number; width: number; height: number }
-): void {
-  context.fillStyle = "#ffffff"
-  context.textBaseline = "middle"
-
-  let size = Math.max(MIN_LABEL_PX, box.height * LABEL_FONT_RATIO)
-
-  for (;;) {
-    context.font = `${size}px sans-serif`
-    const metrics = context.measureText(marker)
-    if (metrics.width < box.width) {
-      context.fillText(
-        marker,
-        box.x + (box.width - metrics.width) / 2,
-        box.y + box.height / 2
-      )
-      return
-    }
-    if (size <= MIN_LABEL_PX) return
-    size = Math.max(MIN_LABEL_PX, size - 1)
-  }
-}
-
 export async function redactPdf(
   bytes: Uint8Array,
   plan: PdfRedactionPlan
 ): Promise<Uint8Array> {
   const scale = plan.scale ?? RENDER_SCALE
-  const pdfjs = await loadPdfjsForRender()
-
-  // pdf.js reads by ranges over the bytes already here, rather than being
-  // handed a copy of the whole file (#187): it reads the index and the pages
-  // it draws, and the source is held once, by pdf-lib, which needs all of it
-  // to copy the untouched pages.
-  const { task, guard } = await openPdfDocument(pdfjs, bufferRangeSource(bytes))
-
-  const rendered = await guard(task.promise)
   const source = await PDFDocument.load(bytes, { ignoreEncryption: true })
   const output = await PDFDocument.create()
 
@@ -215,9 +105,10 @@ export async function redactPdf(
   // refers to once per call, so copying a page at a time cloned a font
   // shared by every page once per page, walking it again each time and
   // writing each clone into the output.
-  const untouched = Array.from({ length: pageCount }, (_, index) => index).filter(
-    (index) => !redacted(index)
-  )
+  const untouched = Array.from(
+    { length: pageCount },
+    (_, index) => index
+  ).filter((index) => !redacted(index))
   const copies = new Map<number, PDFPage>()
   if (untouched.length > 0) {
     const copied = await output.copyPages(source, untouched)
@@ -227,6 +118,14 @@ export async function redactPdf(
   const toDraw = pageCount - untouched.length
   let drawn = 0
 
+  // pdf.js reads by ranges over the bytes already here, rather than being
+  // handed a copy of the whole file (#187): it reads the index and the pages
+  // it draws, and the source is held once, by pdf-lib, which needs all of it
+  // to copy the untouched pages. On a render thread (#194) the ranges are
+  // sent to it as they are asked for. Nothing to draw, nothing opened.
+  const renderer =
+    toDraw > 0 ? await openPageRenderer(bufferRangeSource(bytes)) : null
+
   try {
     for (let index = 0; index < pageCount; index++) {
       const copy = copies.get(index)
@@ -235,20 +134,19 @@ export async function redactPdf(
         continue
       }
 
-      const { canvas, width, height } = await guard(
-        renderRedactedPage(
-          rendered,
-          index + 1,
-          plan.boxesByPage.get(index + 1) ?? [],
-          plan.label,
-          scale
-        )
+      addRasterPage(
+        output,
+        await renderer!.draw(index + 1, {
+          scale,
+          output: "flate-rgb",
+          boxes: plan.boxesByPage.get(index + 1) ?? [],
+          label: plan.label,
+        })
       )
-      addRasterPage(output, canvas, width, height)
       plan.onPage?.(++drawn, toDraw)
     }
   } finally {
-    await task.destroy()
+    await renderer?.close()
   }
 
   if (plan.sanitizeMetadata) {

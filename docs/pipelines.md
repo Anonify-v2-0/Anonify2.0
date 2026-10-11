@@ -119,9 +119,9 @@ every setting):
 - **One pool of Tesseract workers per process**, not a worker per document
   (`lib/ocr/tesseract-pool.ts`). At most `ANONIFY_CPU_CONCURRENCY` workers,
   started as pages queue, kept warm between documents, stopped after
-  `ANONIFY_OCR_IDLE_SECONDS` (300) idle and on shutdown. The pool is the CPU
-  bound for recognition: Tesseract runs on its own threads, so a page being
-  read holds no CPU slot, and the slots are left to drawing pages.
+  `ANONIFY_OCR_IDLE_SECONDS` (300) idle and on shutdown. Since #194 a page
+  being read also holds a CPU slot, so drawing and reading share one budget;
+  see "Drawing pages off the event loop" below.
 - **Pages are pipelined** within a document: drawn one at a time, in order,
   and handed to the pool as soon as each is drawn, with up to two drawn ahead
   of the slowest one being read. At most three encoded pages are alive per
@@ -153,6 +153,62 @@ Words and boxes were identical on all 48 pages, and the box-position suites
 every page drawn, encoded as PNG and read before the next is drawn. The 2-slot
 rows cap the pool at two workers on the same 16-CPU machine; on a real
 two-CPU host the five workers before would have shared two CPUs as well.
+
+#### Drawing pages off the event loop (#194)
+
+pdf.js runs its "worker" in-process on Node, so every page it drew, and every
+PNG, PGM or deflated raster made of one, ran on the thread that also answers
+HTTP. In `ANONIFY_ROLE=all` a forty-page scan stalled the workspace for
+everyone on the box, and even a dedicated worker could answer its own
+readiness probe a second late. Under the load test (#190), the 1.17.0 workers
+showed an event-loop p99 of 1.8–2.4 seconds.
+
+Pages are now drawn on a pool of worker threads
+(`lib/documents/pdf/render-pool.ts`):
+
+- **A document is opened on one thread** and all of its pages are drawn
+  there, so it is parsed once per pass (OCR, the vision pass, an export), as
+  before. pdf.js state cannot cross threads.
+- **The thread never holds a key.** Its pdf.js asks for byte ranges over a
+  message port; the main thread reads and decrypts them as it already did and
+  sends plaintext. See [security-internals.md](./security-internals.md) §12.
+- **One drawing implementation**, `lib/documents/pdf/raster-core.mjs`, plain
+  JavaScript because a thread's entry is loaded from disk outside the
+  bundler. The main thread imports the same file, so `ANONIFY_RENDER_THREADS=off`
+  draws identical pixels in-process, and the tests compare the two byte for
+  byte.
+- **One CPU budget.** At most `ANONIFY_CPU_CONCURRENCY` threads, every draw
+  takes a CPU slot as before, and so does every Tesseract recognition: with
+  drawing off the main thread, the two pools would otherwise keep twice as
+  many threads busy as there are CPUs.
+- **Failure.** A thread that dies is replaced; the page it was drawing fails
+  with a retryable error, and pages queued behind it move to a new thread. A
+  page that takes longer than `ANONIFY_RENDER_TIMEOUT_MS` (120000) has its
+  thread terminated, the only way to stop pdf.js mid-draw, and the document
+  fails as `too-complex`. Before, such a page held the whole process.
+
+Measured with `benchmarks/event-loop.ts`: a 40-page scan extracted with OCR,
+then exported with 10 pages redacted, in one process pinned to two CPUs
+(`ANONIFY_CPU_CONCURRENCY=2`), while a server on the same event loop answers
+a request every 50ms:
+
+| | Took | Loop p99 | Loop max | Request p99 |
+| --- | ---: | ---: | ---: | ---: |
+| Extract with OCR, threads off | 122.7s | 27ms | 1167ms | 18ms |
+| Extract with OCR, threads on | 120.5s | 34ms | 105ms | 17ms |
+| Export, threads off | 6.7s | 680ms | 694ms | 16ms |
+| Export, threads on | 6.2s | 23ms | 71ms | 71ms |
+
+What still runs on the main thread is pdf.js reading the text layer during
+extraction and pdf-lib rebuilding an export. The rebuild stayed under 100ms
+up to a 150-page, 65 MiB scan, and reached 159ms at 361 pages and 158 MiB;
+moving it is a follow-up.
+
+OCR throughput on the same two CPUs (`pnpm bench:ocr --part throughput --docs
+5`), against drawing in-process: 21.9 against 19.2 pages/min for one
+document, and 20–22 against 21.2 for five at once, which is within run-to-run
+noise. Peak RSS is about 100–150 MiB higher, for the threads' own copies of
+pdf.js.
 
 #### The render scale
 

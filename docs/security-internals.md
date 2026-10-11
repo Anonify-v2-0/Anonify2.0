@@ -479,3 +479,28 @@ and (a) keeps it exactly, at the cost of one ECDH exchange in the dialog.
 | Stored only as the envelope | `ExportArtifact.vaultRecipient` | Under the document's seal as well, like every object, but what that seal opens is the envelope. |
 | Handed over once | `takeVaultEnvelope` | Claimed in the row before it is read, so two readers cannot both take it; deleted from storage after. A second request is a 410. |
 | The synchronous answer keeps the property | `awaitSynchronously` | It seals to a key made in the request, opens the envelope there, and returns the vault inline as before. |
+
+## 12. Render threads hold no keys — `lib/documents/pdf/render-pool.ts`, `render-thread.mjs`
+
+PDF pages are drawn on worker threads (#194). A thread needs the document's
+bytes, and the bytes at rest are sealed under the document's data key, so the
+question was which side of the thread boundary opens them. Two designs:
+
+- **(a) The main thread opens them.** A thread's pdf.js asks for byte ranges
+  over a message port; the main thread reads them from the same range source
+  it already uses (`cachedRangeSource`, decrypting chunk by chunk) and sends
+  back plaintext.
+- **(b) Each thread opens them.** Give every thread a storage client and the
+  wrapped data key, and let it read and decrypt for itself. Simpler, and the
+  key material would then live in as many isolates as there are threads.
+
+(a) is implemented. Plaintext of the pages being drawn does cross into a
+thread, but plaintext of those pages is what drawing them means, and the
+in-process renderer held exactly the same bytes.
+
+| Mechanism | Where | Why it is there |
+| --- | --- | --- |
+| No key, no handle in a thread | `RenderThread`'s `workerData` | A thread is started with where pdf.js, its data and the canvas are, and nothing else. It never receives a storage handle, a key or a document id: sessions are numbers. |
+| Ranges answered by the main thread | `RenderThread.serve` | The only way a thread gets bytes is to ask for a range of a session it was given. The answer is copied out of the range cache before it is transferred. |
+| A read that fails is reported as itself | `RenderSession.readFailure` | A storage or decryption error under pdf.js is the error the step fails with, not "pdf.js gave up", so `upload-unreadable` and `storage` are still told apart. |
+| A stuck page cannot hold the process | `ANONIFY_RENDER_TIMEOUT_MS` | The thread is terminated and the document fails as `too-complex`. Before, a pathological page stopped the whole server, which made a malicious PDF a denial of service for every other user of the instance. |

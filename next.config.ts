@@ -19,6 +19,13 @@ const RENDERING_ASSETS = [
   "./node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/cmaps/**",
   "./node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs",
 
+  // The render pool's threads (#194). A thread's entry is opened by path and
+  // imports pdf.js by URL, so neither is an import edge tracing can follow.
+  "./lib/documents/pdf/render-thread.mjs",
+  "./lib/documents/pdf/raster-core.mjs",
+  "./node_modules/pdfjs-dist/legacy/build/pdf.mjs",
+  "./node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/legacy/build/pdf.mjs",
+
   // File tracing follows sharp's .node binding but not the libvips shared
   // object that binding dlopens at load time, so a bundle ships a binding that
   // cannot link.

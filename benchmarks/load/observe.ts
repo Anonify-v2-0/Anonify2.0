@@ -213,7 +213,8 @@ export class Observer {
         entry.cpuPercentMean = entry.cpuTotal / entry.samples
         entry.cpuPercentPeak = Math.max(entry.cpuPercentPeak, cpu)
         entry.memoryPeakBytes = Math.max(entry.memoryPeakBytes, bytes(used))
-        entry.memoryLimitBytes = bytes(limit)
+        // A stopped container reports no limit; keep the one it ran with.
+        entry.memoryLimitBytes = Math.max(entry.memoryLimitBytes, bytes(limit))
         this.containers.set(stat.Name, entry)
         this.latest.set(stat.Name, {
           name: stat.Name,

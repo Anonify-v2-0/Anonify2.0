@@ -1,10 +1,13 @@
 import type { PDFDocumentProxy } from "pdfjs-dist"
 
 import { mapWithConcurrency } from "@/lib/concurrency"
-import { renderPage, RENDER_SCALE } from "@/lib/documents/pdf/render"
+import {
+  inProcessRenderer,
+  type PageRenderer,
+} from "@/lib/documents/pdf/page-renderer"
+import { RENDER_SCALE } from "@/lib/documents/pdf/render"
 import { TextStreamBuilder } from "@/lib/documents/shared/text"
-import { encodeRaster, type RasterFormat } from "@/lib/ocr/raster"
-import { withCpuSlot } from "@/lib/runtime/cpu-slots"
+import type { RasterFormat } from "@/lib/ocr/raster"
 import type { OcrGranularity, OcrResult, OcrWord } from "@/lib/ocr"
 import type { NormalizedPage } from "@/types/document"
 
@@ -44,9 +47,10 @@ export function ocrRenderScale(
 }
 
 /**
- * Pages drawn ahead of the one being read (#189). Drawing happens on this
- * thread and reading on a worker's, so page 2 can be drawn while page 1 is
- * read. At most this many plus one encoded pages are alive at once.
+ * Pages drawn ahead of the one being read (#189). Drawing happens on a render
+ * thread (#194) and reading on a Tesseract worker, so page 2 can be drawn
+ * while page 1 is read. At most this many plus one encoded pages are alive
+ * at once.
  */
 export const OCR_LOOKAHEAD = 2
 
@@ -110,9 +114,12 @@ export type OcrPagesOptions = {
  * handed to the engine as soon as it is drawn, with up to `lookahead` pages
  * drawn ahead of the slowest one still being read. The results land in a map
  * by page number, so nothing depends on which finished first.
+ *
+ * `pages` draws them: a renderer on the pool's threads (#194), or a document
+ * open on this thread, drawn here.
  */
 export async function ocrPdfPages(
-  pdf: PDFDocumentProxy,
+  pages: PageRenderer | PDFDocumentProxy,
   pageNumbers: number[],
   options: OcrPagesOptions
 ): Promise<Map<number, OcrPageResult>> {
@@ -120,28 +127,13 @@ export async function ocrPdfPages(
   const format = options.format ?? "png"
   const lookahead = Math.max(0, options.lookahead ?? OCR_LOOKAHEAD)
   const results = new Map<number, OcrPageResult>()
-
-  const draw = async (pageNumber: number): Promise<Buffer> => {
-    const page = await pdf.getPage(pageNumber)
-    try {
-      // Drawing and encoding in one CPU slot; the engine's workers are
-      // bounded by its own pool.
-      return await withCpuSlot(async () =>
-        encodeRaster((await renderPage(page, scale)).canvas, format)
-      )
-    } finally {
-      page.cleanup()
-    }
-  }
-
-  // Drawing takes turns: pdf.js draws on this thread whatever the
-  // concurrency, and one document proxy is not drawn from twice at once.
-  let turn: Promise<unknown> = Promise.resolve()
+  const renderer = "draw" in pages ? pages : inProcessRenderer(pages)
 
   await mapWithConcurrency(pageNumbers, lookahead + 1, async (pageNumber) => {
-    const drawn = turn.then(() => draw(pageNumber))
-    turn = drawn.catch(() => {})
-    const { words, granularity } = await options.recognize(await drawn)
+    // Drawn and encoded in a CPU slot, in order; the engine's workers are
+    // bounded by its own pool.
+    const drawn = renderer.draw(pageNumber, { scale, output: format })
+    const { words, granularity } = await options.recognize((await drawn).data)
 
     const result = spansFromWords(pageNumber, words, scale, granularity)
     if (result.words > 0) results.set(pageNumber, result)
