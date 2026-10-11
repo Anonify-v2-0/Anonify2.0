@@ -402,7 +402,7 @@ jobs:
       # attached for the same reason and at the same moment: after the image
       # it names exists. anonify-chart.tgz is the stable name behind
       # releases/latest/download/.
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           version: v3.18.4
       - name: Attach the Helm chart to the release

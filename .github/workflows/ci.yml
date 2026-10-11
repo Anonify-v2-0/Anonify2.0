@@ -395,12 +395,61 @@ jobs:
   # workflow world resolved by a runtime `require` no bundler follows, an
   # environment variable that silently defaults to a database nobody runs.
   # Unit tests pass through all of them.
-  compose:
-    name: Compose stack
+  # The app image, built once for every Compose job below and handed to them
+  # as an artifact, so the stack checks can run side by side instead of one
+  # after another in a single half-hour job.
+  compose-image:
+    name: Compose image
     needs: decide
     if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # The image build was most of the old single job, from scratch every
+      # time (#172). Buildx keeps every layer in the Actions cache, so a run
+      # whose lockfile has not changed reuses the dependency install, and one
+      # whose source has not changed reuses the build too. The runner's scope is
+      # `mode=max`, so the builder stage is cached as well as the final image.
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build the app image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runner
+          load: true
+          tags: anonify-app:ci
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,scope=runner,mode=max
+
+      # zstd at a low level: most of the image is already-compressed layers,
+      # and the time saved packing beats the bytes saved moving it.
+      - name: Save the image
+        run: docker save anonify-app:ci | zstd -T0 -3 -q -o image.tar.zst
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: compose-image
+          path: image.tar.zst
+          retention-days: 1
+          compression-level: 0
+
+  # The built image and the stack around it, in groups that each start their
+  # own stack from nothing and run in parallel. A group's checks share one
+  # stack because they build on each other's state (the drain restarts the app
+  # the sweep check configured, and so on); groups share nothing.
+  compose:
+    name: Compose (${{ matrix.group }})
+    needs: [decide, compose-image]
+    if: needs.decide.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [image, core, lifecycle, presigned, split, azure]
 
     env:
       # The compose file refuses to start without these, deliberately — see the
@@ -408,8 +457,8 @@ jobs:
       # above; this stack is destroyed at the end of the job.
       ENCRYPTION_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
       FINGERPRINT_SECRET: "feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface"
-      # The images built below, with cached layers, which compose then starts
-      # as they are instead of building again.
+      # The image built by `compose-image`, which compose starts as it is
+      # instead of building again.
       ANONIFY_IMAGE: anonify-app:ci
       # Never a pulled image in place of this pull request's build: the
       # Compose file defaults to the published one (#186).
@@ -426,26 +475,17 @@ jobs:
       # the workspace. It does not need the app — that is running in a container.
       - uses: ./.github/actions/setup
 
-      # The image build was most of this job, from scratch every time (#172).
-      # Buildx keeps every layer in the Actions cache, so a run whose lockfile
-      # has not changed reuses the dependency install, and one whose source has
-      # not changed reuses the build too. The runner's scope is `mode=max`, so
-      # the builder stage is cached as well as the final image.
-      - uses: docker/setup-buildx-action@v4
-
-      - name: Build the app image
-        uses: docker/build-push-action@v7
+      - uses: actions/download-artifact@v8
         with:
-          context: .
-          target: runner
-          load: true
-          tags: ${{ env.ANONIFY_IMAGE }}
-          cache-from: type=gha,scope=runner
-          cache-to: type=gha,scope=runner,mode=max
+          name: compose-image
+
+      - name: Load the image
+        run: zstd -dc image.tar.zst | docker load && rm image.tar.zst
 
       # One image does every job (#175): the stack's `migrate` service is this
       # image running `anonify migrate`.
       - name: The image's commands
+        if: matrix.group == 'image'
         run: |
           docker run --rm "$ANONIFY_IMAGE" help | grep -q "migrate" \
             || { echo "::error::anonify help does not list its commands"; exit 1; }
@@ -467,6 +507,7 @@ jobs:
       # The hardening (#178): tini as PID 1, a stop that is prompt, the labels,
       # and the baked OCR model reading a scan with no network at all.
       - name: The image is hardened
+        if: matrix.group == 'image'
         run: |
           pid1=$(docker run --rm "$ANONIFY_IMAGE" sh -c 'cat /proc/1/comm')
           [ "$pid1" = tini ] || { echo "::error::PID 1 is $pid1, not tini"; exit 1; }
@@ -506,6 +547,7 @@ jobs:
             })().catch((error) => { console.error(error); process.exit(1) })"
 
       - name: Start the stack
+        if: contains(fromJSON('["core", "lifecycle", "presigned"]'), matrix.group)
         # --wait blocks until postgres and RustFS report healthy, the bucket and
         # migration jobs have exited successfully, and the app answers
         # /api/ready: database, storage and workflow worker. Reaching the next
@@ -522,6 +564,7 @@ jobs:
       # ANONIFY_PUBLIC_URL is read per request, not baked at build (#168): the
       # image above was built without it, and the page must still name it.
       - name: Link previews use the address set at run time
+        if: matrix.group == 'core'
         env:
           ANONIFY_PUBLIC_URL: https://anonify.ci.example
         run: |
@@ -530,18 +573,22 @@ jobs:
             || { echo "::error::The landing page does not resolve og:image against ANONIFY_PUBLIC_URL"; exit 1; }
 
       - name: Re-run bucket initialization
+        if: matrix.group == 'core'
         run: docker compose run --rm rustfs-init
 
       # Every deploy runs it, so a second run against a migrated database has
       # to find nothing to do and say so with exit 0.
       - name: Migrate again, as the next deploy would
+        if: matrix.group == 'core'
         run: docker compose run --rm migrate
 
       # The sweep as a job, with the app's configuration and no server.
       - name: Run the expiry sweep from the image
+        if: matrix.group == 'core'
         run: docker compose run --rm --no-deps app cleanup
 
       - name: Upload, download, list, presign and delete through RustFS
+        if: matrix.group == 'core'
         run: pnpm smoke:storage http://127.0.0.1:9000
 
       # Every supported format, each opened afterwards the way an adversary
@@ -550,12 +597,14 @@ jobs:
       # pixels sampled. Asserting a 200 here would prove only that the request
       # was answered.
       - name: Upload, process, export, download — every format
+        if: matrix.group == 'core'
         run: pnpm smoke http://127.0.0.1:3000
 
       # The app sweeps on its own timer, with no scheduler service (#183): a
-      # document made to expire is gone after a short interval. The smoke above
+      # document made to expire is gone after a short interval. The smoke
       # deletes what it makes, so this one is made here and kept.
       - name: The app sweeps expired documents itself
+        if: matrix.group == 'lifecycle'
         env:
           ANONIFY_SCHEDULER_INTERVAL_SECONDS: "10"
         run: |
@@ -578,6 +627,7 @@ jobs:
       # through, with the queue gauges present and a step recorded. Nothing
       # identifying a document is in the output.
       - name: Metrics after a document
+        if: matrix.group == 'lifecycle'
         env:
           ANONIFY_METRICS: "on"
         run: |
@@ -598,6 +648,7 @@ jobs:
       # Stopping a container drains it (#182): readiness drops while health
       # stays up, and the process exits 0 once the sequence has finished.
       - name: A stopped app drains, then exits cleanly
+        if: matrix.group == 'lifecycle'
         run: |
           docker compose stop app &
           stopping=$!
@@ -617,6 +668,7 @@ jobs:
       # token nobody outside it knows (#179). A delivery posted to the port,
       # however well-formed, is a route that does not exist.
       - name: Workflow routes refuse deliveries from outside the process
+        if: matrix.group == 'lifecycle'
         run: |
           for route in step flow; do
             code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
@@ -633,6 +685,7 @@ jobs:
       # staying 200; with one, it does not. Then a document through a
       # presigned PUT. The rule is kept for five minutes, hence the recreate.
       - name: Presigned uploads to RustFS, and the CORS readiness check
+        if: matrix.group == 'presigned'
         env:
           S3_PRESIGNED_UPLOADS: "true"
           S3_PUBLIC_ENDPOINT: http://127.0.0.1:9000
@@ -663,6 +716,7 @@ jobs:
       # Serving and processing in separate containers (#179): the app as the
       # web role, and two workers with no published port.
       - name: Split roles, one web and two workers
+        if: matrix.group == 'split'
         run: |
           split="-f docker-compose.yml -f docker-compose.readonly.yml -f docker-compose.split.yml"
           docker compose $split up -d --wait
@@ -705,6 +759,7 @@ jobs:
       # own smoke from the host, which also creates the container, then every
       # format through the app with browser uploads going to a SAS URL.
       - name: Azure Blob Storage, through Azurite
+        if: matrix.group == 'azure'
         env:
           STORAGE_DRIVER: azure-blob
           AZURE_STORAGE_CONTAINER: anonify
@@ -718,7 +773,6 @@ jobs:
             sleep 1
           done
           pnpm smoke:driver --create-container
-          # Back to one app container, on Azure; the split's workers go.
           docker compose $azure up -d --wait --remove-orphans
           pnpm smoke http://127.0.0.1:3000
 
@@ -803,6 +857,7 @@ jobs:
         build,
         migrations,
         database,
+        compose-image,
         compose,
         changelog,
       ]
@@ -818,6 +873,7 @@ jobs:
           echo "build:      ${{ needs.build.result }}"
           echo "migrations: ${{ needs.migrations.result }}"
           echo "database:   ${{ needs.database.result }}"
+          echo "compose image: ${{ needs.compose-image.result }}"
           echo "compose:    ${{ needs.compose.result }}"
           echo "changelog:  ${{ needs.changelog.result }}"
 

@@ -23,6 +23,7 @@ env:
   CHART: deploy/helm/anonify
   HELM_VERSION: v3.18.4
   KUBECONFORM_VERSION: v0.6.7
+  CT_VERSION: v3.13.0
 
 jobs:
   lint:
@@ -34,18 +35,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           version: ${{ env.HELM_VERSION }}
 
       - name: helm lint
         run: helm lint "$CHART" --strict --set database.url=postgresql://x@db/x
 
-      - uses: helm/chart-testing-action@v2
       - name: ct lint
-        # The chart is versioned with the app (Chart.yaml), so a chart change
-        # does not bump its version in the pull request.
-        run: ct lint --chart-dirs deploy/helm --charts "$CHART" --target-branch main --check-version-increment=false --validate-maintainers=false
+        # From chart-testing's own image, which carries ct, yamllint and
+        # yamale: the action sets up Python with uv's cache switched on and
+        # nothing here to key it, and warns about it on every run. The chart
+        # is versioned with the app (Chart.yaml), so a chart change does not
+        # bump its version in the pull request.
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo "quay.io/helmpack/chart-testing:$CT_VERSION" \
+            sh -c 'git config --global --add safe.directory /repo && ct lint --chart-dirs deploy/helm --charts "$0" --target-branch main --check-version-increment=false --validate-maintainers=false' "$CHART"
 
       - name: Render each shape
         run: |
@@ -93,7 +98,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           version: ${{ env.HELM_VERSION }}
 
@@ -126,7 +131,7 @@ jobs:
 
       - name: Workers scaled to zero while idle
         run: |
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             n=$(kubectl -n anonify get deploy anonify-worker -o jsonpath='{.status.replicas}')
             [ "${n:-0}" = "0" ] && { echo "worker replicas: 0"; exit 0; }
             sleep 5
@@ -143,7 +148,7 @@ jobs:
       - name: Smoke test, waking a worker from zero
         run: |
           kubectl -n anonify port-forward svc/anonify-web 3000:80 >/dev/null 2>&1 &
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3000/api/health >/dev/null && break; sleep 2; done
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:3000/api/health >/dev/null && break; sleep 2; done
           pnpm smoke http://127.0.0.1:3000
           kubectl -n anonify get deploy anonify-worker
 
