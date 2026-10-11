@@ -1,0 +1,51 @@
+// Anonify on Cloudflare Containers (#193): a spike. docs/deploy/cloudflare.md.
+//
+//   npm install
+//   npx wrangler secret put ENCRYPTION_KEY        # and the other secrets in src/index.ts
+//   npx wrangler deploy
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "anonify",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+
+  "containers": [
+    {
+      "class_name": "AnonifyWeb",
+      // Pulled from Docker Hub as published (amd64 is what runs).
+      "image": "docker.io/nabeelwasif/anonify2.0:1.17.0",
+      // 1 vCPU, 6 GiB.
+      "instance_type": "standard-2",
+      "max_instances": 4
+    },
+    {
+      "class_name": "AnonifyWorker",
+      "image": "docker.io/nabeelwasif/anonify2.0:1.17.0",
+      // 2 vCPU, 8 GiB: one worker unit (docs/deploy/capacity.md) with room.
+      "instance_type": "standard-3",
+      "max_instances": 2
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "WEB", "class_name": "AnonifyWeb" },
+      { "name": "WORKER", "class_name": "AnonifyWorker" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AnonifyWeb", "AnonifyWorker"] }
+  ],
+
+  // Keeps the workers started: see `scheduled` in src/index.ts.
+  "triggers": { "crons": ["*/2 * * * *"] },
+
+  "vars": {
+    "S3_ENDPOINT": "https://<account id>.r2.cloudflarestorage.com",
+    "S3_BUCKET": "anonify",
+    "ANONIFY_PUBLIC_URL": "https://anonify.<subdomain>.workers.dev",
+    "WEB_INSTANCES": "2",
+    "WORKER_INSTANCES": "1"
+  }
+}
