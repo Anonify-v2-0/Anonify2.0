@@ -41,6 +41,7 @@
     "bench:models": "tsx benchmarks/models.ts",
     "bench:ocr": "tsx benchmarks/ocr.ts",
     "bench:charts": "tsx benchmarks/charts.ts",
+    "load": "tsx benchmarks/load/run.ts",
     "workflow:bootstrap": "node node_modules/@workflow/world-postgres/bin/setup.js"
   },
   "dependencies": {

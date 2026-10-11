@@ -1,0 +1,49 @@
+# The topology a load test measures (#190), on top of the split one:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.split.yml \
+#     -f docker-compose.load.yml up -d --scale worker=2
+#   pnpm load stub                     # or --stub on the run itself
+#   pnpm load steady --stub --docker anonify --workers 2 --worker-cpus 2 --worker-memory 4g
+#
+# Each worker is one "worker unit": capped at LOAD_WORKER_CPUS vCPUs and
+# LOAD_WORKER_MEMORY, so a result says what one unit of that size handles. The
+# CPU and job concurrency derive from the cap (#181), as they would on a
+# platform with the same limit.
+#
+# The model is the harness's stub provider, on this machine at :4010, so the
+# numbers are Anonify's and cost nothing. The rate limits are raised because
+# every virtual reviewer shares the harness machine's one address; quotas are
+# already unlimited on a self-hosted profile.
+#
+# Not for anything but a load test: the limits it lifts are there for people.
+
+services:
+  postgres:
+    # Each replica opens up to 21 connections (docs/deploy/database.md); the
+    # default 100 is reached by five.
+    command: ["postgres", "-c", "max_connections=${LOAD_POSTGRES_MAX_CONNECTIONS:-400}"]
+
+  app:
+    environment: &load
+      AI_PROVIDER: openai-compatible
+      AI_BASE_URL: ${LOAD_STUB_URL:-http://host.docker.internal:4010/v1}
+      AI_MODEL: anonify-load-stub
+      # What setup's probe would write for the stub. It names the URL, so a
+      # different LOAD_STUB_URL needs the value `pnpm load stub` prints.
+      AI_MODEL_CAPABILITIES: ${LOAD_AI_MODEL_CAPABILITIES:-{"target":"[\"openai-compatible\",\"anonify-load-stub\",\"\",\"\",\"\",\"\",\"\",false,\"http://host.docker.internal:4010/v1\"]","structuredOutput":true,"vision":true}}
+      ANONIFY_RATE_LIMIT_UPLOAD: 100000/60
+      ANONIFY_RATE_LIMIT_PROCESSING: 100000/60
+      ANONIFY_RATE_LIMIT_EXPORT: 100000/60
+      ANONIFY_RATE_LIMIT_READ: 1000000/60
+      ANONIFY_RATE_LIMIT_SEARCH: 100000/60
+      ANONIFY_METRICS: "on"
+      # scale-in: a killed worker's run is found once it has been quiet this
+      # long, and the sweep looks every interval. The defaults (20 min, 300s)
+      # would make the scenario an hour long.
+      ANONIFY_STUCK_RUN_MINUTES: ${LOAD_STUCK_RUN_MINUTES:-5}
+      ANONIFY_SCHEDULER_INTERVAL_SECONDS: ${LOAD_SCHEDULER_INTERVAL_SECONDS:-30}
+
+  worker:
+    environment: *load
+    cpus: ${LOAD_WORKER_CPUS:-2}
+    mem_limit: ${LOAD_WORKER_MEMORY:-4g}
