@@ -4,6 +4,7 @@
  *   pnpm smoke                          # http://127.0.0.1:3000
  *   pnpm smoke http://localhost:8080
  *   pnpm smoke --only=docx,xlsx         # one or more cases
+ *   pnpm smoke --only=txt --keep        # leave the documents in place
  *   pnpm smoke --ai                     # the model pass, against a configured model
  *
  * For every supported format: upload, process, accept, export, download — then
@@ -1015,6 +1016,8 @@ function splitCsvRow(row: string): string[] {
 
 const argv = process.argv.slice(2)
 const ai = argv.includes("--ai")
+/** Leave each case's document behind, for a check that needs one (the sweep). */
+const keep = argv.includes("--keep")
 const only = argv
   .find((argument) => argument.startsWith("--only="))
   ?.slice("--only=".length)
@@ -1543,11 +1546,17 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
     })
     const answered = await json<{ downloadUrl?: string }>(legacy, "sync export")
     if (!answered.downloadUrl || !legacy.headers.get("deprecation"))
-      throw new Error("the synchronous export answer lost its link or its notice")
+      throw new Error(
+        "the synchronous export answer lost its link or its notice"
+      )
     step("synchronous export still answers, marked deprecated")
   }
 
   // 10. Clean up after ourselves, and exercise deletion while we are here.
+  if (keep) {
+    step(`kept ${reserved.id}`)
+    return
+  }
   await expectOk(
     await call(`/api/documents/${reserved.id}`, { method: "DELETE" }),
     "delete"

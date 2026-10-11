@@ -553,14 +553,16 @@ jobs:
         run: pnpm smoke http://127.0.0.1:3000
 
       # The app sweeps on its own timer, with no scheduler service (#183): a
-      # document made to expire is gone after a short interval.
+      # document made to expire is gone after a short interval. The smoke above
+      # deletes what it makes, so this one is made here and kept.
       - name: The app sweeps expired documents itself
         env:
           ANONIFY_SCHEDULER_INTERVAL_SECONDS: "10"
         run: |
+          set -o pipefail
           docker compose up -d --wait --force-recreate app
           sql() { docker compose exec -T postgres psql -U anonify -d anonify -tAc "$1"; }
-          id=$(sql 'select id from "Document" where "parentDocumentId" is null order by "createdAt" desc limit 1')
+          id=$(pnpm --silent smoke http://127.0.0.1:3000 --only=txt --keep | tee /dev/stderr | sed -n 's/.*kept \(doc_[A-Za-z0-9]*\).*/\1/p')
           [ -n "$id" ] || { echo "::error::no document to expire"; exit 1; }
           sql "update \"Document\" set \"expiresAt\" = now() - interval '1 minute' where id = '$id'"
           for attempt in $(seq 1 30); do
