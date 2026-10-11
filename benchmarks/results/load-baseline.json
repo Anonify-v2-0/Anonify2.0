@@ -1,0 +1,38 @@
+{
+  "kind": "anonify-load-baseline",
+  "version": 1,
+  "scenario": "steady",
+  "shape": {
+    "workers": 1,
+    "workerCpus": 2,
+    "workerMemory": "4g",
+    "reviewers": 4,
+    "formats": [
+      "docx",
+      "eml",
+      "image",
+      "pdf",
+      "scan",
+      "xlsx"
+    ]
+  },
+  "documentsPerMinute": 18,
+  "threshold": 0.2,
+  "runs": [
+    {
+      "startedAt": "2026-10-11T16:54:24.100Z",
+      "commit": "5e68c86",
+      "documentsPerMinute": 17.25
+    },
+    {
+      "startedAt": "2026-10-11T17:05:13.362Z",
+      "commit": "5e68c86",
+      "documentsPerMinute": 19
+    },
+    {
+      "startedAt": "2026-10-11T17:16:03.621Z",
+      "commit": "5e68c86",
+      "documentsPerMinute": 18
+    }
+  ]
+}
