@@ -10,6 +10,10 @@ import {
   type PageRecognizer,
 } from "@/lib/documents/pdf/ocr"
 import {
+  openPageRenderer,
+  type PageRenderer,
+} from "@/lib/documents/pdf/page-renderer"
+import {
   loadPdfjsForRender,
   openPdfDocument,
   type PdfSource,
@@ -269,8 +273,12 @@ export async function extractPdf(
           }
         : await startOcrRecognizer()
 
+      // Drawn on the render pool's threads (#194), from the same source; or
+      // here, from the document already open, when the pool is off.
+      let renderer: PageRenderer | null = null
       try {
-        const read = await ocrPdfPages(pdf, ocrPages, {
+        renderer = await openPageRenderer(source, pdf)
+        const read = await ocrPdfPages(renderer, ocrPages, {
           recognize: recognizer.recognize,
           format: recognizer.format,
         })
@@ -284,6 +292,7 @@ export async function extractPdf(
 
         remaining = ocrPages.filter((pageNumber) => !read.has(pageNumber))
       } finally {
+        await renderer?.close()
         await recognizer.close()
       }
     }

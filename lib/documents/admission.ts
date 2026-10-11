@@ -123,8 +123,12 @@ function waitingWhere(ownerKey?: string) {
     workflowRunId: null,
     status: "queued",
     // Bytes have to have landed. A reserved document whose upload never
-    // arrived is not waiting for a slot, it is waiting for a file.
-    uploadBlobKey: { not: null },
+    // arrived is not waiting for a slot, it is waiting for a file. Ingest
+    // swaps the upload for the stored source, so a run lost after ingest and
+    // queued again by recovery (#182) has only the source, and ingest skips
+    // straight past it when the new run starts. Requiring the upload alone
+    // left those documents queued until they expired (found by #190).
+    OR: [{ uploadBlobKey: { not: null } }, { sourceBlobKey: { not: null } }],
     expiresAt: { gt: new Date() },
   }
 }

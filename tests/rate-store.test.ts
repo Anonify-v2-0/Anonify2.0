@@ -129,43 +129,45 @@ const memory = memoryRateStore()
 rateStoreContract("memory", () => memory)
 
 describe("the throttle with a cluster-wide store", () => {
-  /** Runs `count` requests that each wait to be let go, and reports the peak. */
+  /** Holds each request for one simulated second, and reports the peak. */
   async function peakInFlight(count: number): Promise<number> {
     let peak = 0
     let inFlight = 0
-    const release: (() => void)[] = []
     const runs = Array.from({ length: count }, () =>
       runThrottled("ai", { label: "test" }, async () => {
         inFlight += 1
         peak = Math.max(peak, inFlight)
-        await new Promise<void>((resolve) => release.push(resolve))
+        await new Promise<void>((resolve) => setTimeout(resolve, 1_000))
         inFlight -= 1
       })
     )
-    await new Promise((resolve) => setTimeout(resolve, 30))
-    while (release.length > 0 || inFlight > 0) {
-      release.shift()?.()
-      await new Promise((resolve) => setTimeout(resolve, 60))
-    }
+    // Lease polls back off up to a second. Keep advancing through gaps with
+    // no active requests: other calls can still be waiting for their next poll.
+    await vi.advanceTimersByTimeAsync(count * 2_000)
     await Promise.all(runs)
     return peak
   }
 
-  it("counts what other replicas have in flight", async () => {
-    vi.stubEnv("ANONIFY_AI_CONCURRENCY", "3")
-    const store = memoryRateStore()
-    useRateStore(store)
+  it.each([0, 1])(
+    "counts what other replicas have in flight (jitter %s)",
+    async (jitter) => {
+      vi.useFakeTimers()
+      vi.spyOn(Math, "random").mockReturnValue(jitter)
+      vi.stubEnv("ANONIFY_AI_CONCURRENCY", "3")
+      const store = memoryRateStore()
+      useRateStore(store)
 
-    // Two calls held by another replica: this one may have one at a time.
-    await store.acquireLease("svc:ai:lease", 3, 60_000)
-    const other = await store.acquireLease("svc:ai:lease", 3, 60_000)
-    expect(await peakInFlight(3)).toBe(1)
+      // Two calls held by another replica: this one may have one at a time.
+      await store.acquireLease("svc:ai:lease", 3, 60_000)
+      const other = await store.acquireLease("svc:ai:lease", 3, 60_000)
+      expect(await peakInFlight(3)).toBe(1)
 
-    // That replica finishes one, and this one may have two.
-    await store.releaseLease("svc:ai:lease", other!.id)
-    expect(await peakInFlight(3)).toBe(2)
-    expect(throttleState("ai")).toMatchObject({ active: 0, scope: "cluster" })
-  })
+      // That replica finishes one, and this one may have two.
+      await store.releaseLease("svc:ai:lease", other!.id)
+      expect(await peakInFlight(3)).toBe(2)
+      expect(throttleState("ai")).toMatchObject({ active: 0, scope: "cluster" })
+    }
+  )
 
   it("gives every lease back, whatever the request did", async () => {
     const store = memoryRateStore()

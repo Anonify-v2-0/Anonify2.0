@@ -1,0 +1,91 @@
+# What the chart needs and does not install, for testing it on kind (#191):
+# Postgres and an S3-compatible bucket (RustFS, as Compose uses), in their own
+# namespace. Throwaway: no volumes, fixed credentials. Not for anything else.
+#
+#   kubectl create namespace deps
+#   kubectl -n deps apply -f deploy/helm/test/dependencies.yaml
+#   kubectl -n deps wait --for=condition=complete job/bucket --timeout=300s
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: { app: postgres }
+  ports: [{ port: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector: { matchLabels: { app: postgres } }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - { name: POSTGRES_USER, value: anonify }
+            - { name: POSTGRES_PASSWORD, value: anonify }
+            - { name: POSTGRES_DB, value: anonify }
+          args: ["-c", "max_connections=300"]
+          ports: [{ containerPort: 5432 }]
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "anonify"] }
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs
+spec:
+  selector: { app: rustfs }
+  ports: [{ port: 9000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rustfs
+spec:
+  selector: { matchLabels: { app: rustfs } }
+  template:
+    metadata:
+      labels: { app: rustfs }
+    spec:
+      containers:
+        - name: rustfs
+          image: rustfs/rustfs:1.0.0-rc.6
+          env:
+            - { name: RUSTFS_VOLUMES, value: /data }
+            - { name: RUSTFS_ADDRESS, value: "0.0.0.0:9000" }
+            - { name: RUSTFS_ACCESS_KEY, value: anonify }
+            - { name: RUSTFS_SECRET_KEY, value: anonify-dev-secret }
+            - { name: RUSTFS_REGION, value: us-east-1 }
+          ports: [{ containerPort: 9000 }]
+          volumeMounts: [{ name: data, mountPath: /data }]
+          readinessProbe:
+            httpGet: { path: /health/ready, port: 9000 }
+            periodSeconds: 3
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bucket
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bucket
+          image: rustfs/rc:v0.1.35
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              rc alias set local http://rustfs:9000 anonify anonify-dev-secret
+              rc bucket create local/anonify --ignore-existing

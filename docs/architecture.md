@@ -414,7 +414,9 @@ Every process used to be both the website and the document processor. The
 Postgres world's job runner started in each one, and it executes a step by
 posting it back to the same server, so rasterising a burst of scanned PDFs ran
 on the event loop that serves the UI, the API, the progress streams and the
-health check. `ANONIFY_ROLE` separates them (#179):
+health check. `ANONIFY_ROLE` separates them (#179), and PDF pages are now drawn
+on worker threads in every role (#194, [pipelines.md](./pipelines.md)), so
+even `all` keeps its event loop free:
 
 | Role | Serves people | Runs steps | Notes |
 | --- | --- | --- | --- |

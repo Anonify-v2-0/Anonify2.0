@@ -1,0 +1,170 @@
+name: Helm chart
+
+# The chart (#191), checked only when it changes: linted, rendered in each
+# shape it can take and validated against the Kubernetes and CRD schemas, then
+# installed on kind with KEDA and driven end to end by the smoke test.
+on:
+  pull_request:
+    branches: [main]
+    paths: ["deploy/helm/**", ".github/workflows/helm.yml"]
+  push:
+    branches: [main]
+    paths: ["deploy/helm/**", ".github/workflows/helm.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: helm-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CHART: deploy/helm/anonify
+  HELM_VERSION: v3.18.4
+  KUBECONFORM_VERSION: v0.6.7
+  CT_VERSION: v3.13.0
+
+jobs:
+  lint:
+    name: Lint and validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: helm lint
+        run: helm lint "$CHART" --strict --set database.url=postgresql://x@db/x
+
+      - name: ct lint
+        # From chart-testing's own image, which carries ct, yamllint and
+        # yamale: the action sets up Python with uv's cache switched on and
+        # nothing here to key it, and warns about it on every run. The chart
+        # is versioned with the app (Chart.yaml), so a chart change does not
+        # bump its version in the pull request.
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo "quay.io/helmpack/chart-testing:$CT_VERSION" \
+            sh -c 'git config --global --add safe.directory /repo && ct lint --chart-dirs deploy/helm --charts "$0" --target-branch main --check-version-increment=false --validate-maintainers=false' "$CHART"
+
+      - name: Render each shape
+        run: |
+          set -euo pipefail
+          mkdir -p rendered
+          url=postgresql://x@db/x
+          helm template t "$CHART" --set database.url=$url > rendered/default.yaml
+          helm template t "$CHART" --set database.url=$url --api-versions keda.sh/v1alpha1 > rendered/keda.yaml
+          helm template t "$CHART" --set database.url=$url --set worker.scheduler=false \
+            --set metrics.enabled=true --set metrics.serviceMonitor.enabled=true \
+            --set metrics.dashboard.enabled=true > rendered/metrics.yaml
+          helm template t "$CHART" --set secrets.existingSecret=mine --set ingress.enabled=true \
+            --set persistence.enabled=true > rendered/ingress.yaml
+          helm template t "$CHART" -f "$CHART/ci/kind-values.yaml" --api-versions keda.sh/v1alpha1 > rendered/kind.yaml
+
+      - name: Refuse what it should refuse
+        run: |
+          set -uo pipefail
+          # Scale to zero without KEDA: nothing would start the first worker.
+          if helm template t "$CHART" --set database.url=x --set worker.autoscaling.mode=hpa \
+            --set worker.autoscaling.minReplicas=0 2>err.txt; then
+            echo "::error::minReplicas 0 without KEDA rendered"; exit 1
+          fi
+          grep -q "at least 1 without KEDA" err.txt
+          # Local storage: web and worker pods cannot share it.
+          if helm template t "$CHART" --set database.url=x --set storage.driver=local 2>err.txt; then
+            echo "::error::local storage rendered"; exit 1
+          fi
+          grep -q "need shared storage" err.txt
+
+      - name: kubeconform
+        run: |
+          set -euo pipefail
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar xz kubeconform
+          ./kubeconform -strict -summary -kubernetes-version 1.30.0 \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            rendered/
+
+  install:
+    name: Install on kind, with KEDA
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      # Only parsed: the workspace's postinstall runs `prisma generate`, whose
+      # config wants a URL. The smoke test talks to the cluster over HTTP.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: anonify
+
+      - name: KEDA
+        run: |
+          helm repo add kedacore https://kedacore.github.io/charts
+          helm install keda kedacore/keda --namespace keda --create-namespace --wait --timeout 5m
+
+      - name: Postgres and a bucket
+        run: |
+          kubectl create namespace deps
+          kubectl -n deps apply -f deploy/helm/test/dependencies.yaml
+          kubectl -n deps rollout status deploy/postgres deploy/rustfs --timeout=300s
+          kubectl -n deps wait --for=condition=complete job/bucket --timeout=300s
+
+      - name: Install the chart, under the restricted Pod Security Standard
+        run: |
+          kubectl create namespace anonify
+          kubectl label namespace anonify pod-security.kubernetes.io/enforce=restricted
+          helm install anonify "$CHART" -n anonify -f "$CHART/ci/kind-values.yaml" \
+            --wait --timeout 10m
+          kubectl -n anonify get pods,scaledobject,hpa
+
+      - name: helm test
+        run: helm test anonify -n anonify --logs
+
+      - name: Workers scaled to zero while idle
+        run: |
+          for _ in $(seq 1 60); do
+            n=$(kubectl -n anonify get deploy anonify-worker -o jsonpath='{.status.replicas}')
+            [ "${n:-0}" = "0" ] && { echo "worker replicas: 0"; exit 0; }
+            sleep 5
+          done
+          echo "::error::the worker did not scale to zero"; kubectl -n anonify describe scaledobject; exit 1
+
+      # The smoke test is TypeScript and needs the workspace, installed the way
+      # every CI job installs it.
+      - uses: ./.github/actions/setup
+
+      - name: Smoke test, waking a worker from zero
+        run: |
+          kubectl -n anonify port-forward svc/anonify-web 3000:80 >/dev/null 2>&1 &
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:3000/api/health >/dev/null && break; sleep 2; done
+          pnpm smoke http://127.0.0.1:3000
+          kubectl -n anonify get deploy anonify-worker
+
+      - name: Upgrade runs the migration again and keeps the key
+        run: |
+          before=$(kubectl -n anonify get secret anonify -o jsonpath='{.data.ENCRYPTION_KEY}')
+          helm upgrade anonify "$CHART" -n anonify -f "$CHART/ci/kind-values.yaml" \
+            --set podAnnotations.upgraded=yes --wait --timeout 10m
+          after=$(kubectl -n anonify get secret anonify -o jsonpath='{.data.ENCRYPTION_KEY}')
+          [ "$before" = "$after" ] || { echo "::error::ENCRYPTION_KEY changed on upgrade"; exit 1; }
+          kubectl -n anonify get jobs
+
+      - name: What happened
+        if: failure()
+        run: |
+          kubectl get pods -A
+          kubectl -n anonify describe pods
+          kubectl -n anonify logs -l app.kubernetes.io/instance=anonify --all-containers --tail=200

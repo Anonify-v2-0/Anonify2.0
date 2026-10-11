@@ -1,0 +1,14 @@
+{{- if .Values.metrics.dashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "anonify.fullname" . }}-dashboard
+  labels:
+    {{- include "anonify.labels" . | nindent 4 }}
+    {{- with .Values.metrics.dashboard.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  anonify.json: |-
+    {{- .Files.Get "dashboards/anonify.json" | nindent 4 }}
+{{- end }}

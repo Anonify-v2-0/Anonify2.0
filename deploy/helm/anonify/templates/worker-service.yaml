@@ -1,0 +1,20 @@
+{{- /*
+Workers serve people nothing (#179): this Service is headless, for scraping
+each pod's metrics, and nothing routes requests through it.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "anonify.fullname" . }}-worker
+  labels:
+    {{- include "anonify.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  clusterIP: None
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "anonify.roleLabels" (dict "root" . "role" "worker") | nindent 4 }}

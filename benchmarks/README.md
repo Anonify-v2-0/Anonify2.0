@@ -24,6 +24,7 @@ are random and can coincide with a real one; see
 | `score.ts`: per-category precision and recall, weighted cost, agreement                             | done                                          |
 | `models.ts`: models against each other, and deterministic-first against model-only (#59, #55)       | done; two models on 100 test documents        |
 | `charts.ts`: the five charts in CONTRIBUTING §4, two for #55, and tokens and cost, from the results | done; see [Results](#results)                 |
+| `load/`: throughput and latency of a running deployment under load (#190)                            | harness done; see [Load testing](#load-testing) |
 
 ## Generating
 
@@ -1130,3 +1131,112 @@ headers and footers, and anything a real PDF writer does differently.
 - **The generator's own blind spots**: a detector from the generating model's
   family may do better on its own writing. Score with at least one model from
   a different family.
+
+## Load testing
+
+Everything above measures **what** Anonify finds. `pnpm load` measures **how
+much** a deployment gets through: documents and pages per minute per worker,
+time to ready by format, API latency, and where it saturates first (#190).
+
+```sh
+pnpm load steady http://localhost:3000 --stub --docker anonify --workers 2 --worker-cpus 2
+pnpm load burst https://anonify.example.com --documents 200 --window 60
+pnpm load read-heavy http://localhost:3000 --reviewers 50
+pnpm load scale-in http://localhost:3000 --stub --docker anonify
+pnpm load --help
+```
+
+It works against any URL, a cloud deployment included, because everything it
+does goes through the HTTP API the way a browser does. Each virtual reviewer
+has its own session, seals its uploads with the browser's code
+(`lib/storage/chunked-web`, as `pnpm smoke` does), starts each run, polls the
+batch with its ETag, accepts what was found, and exports in the background.
+
+| Scenario | What it does | What it answers |
+| --- | --- | --- |
+| `steady` | N reviewers, each uploading a batch (one file of each format), waiting for it, accepting, exporting, deleting, again, for `--duration` | Sustained throughput per worker, time to ready per format |
+| `burst` | `--documents` arriving within `--window` seconds, from `--reviewers` sessions | How long the queue takes to drain, and how old its oldest job gets |
+| `read-heavy` | Reviewers with finished documents listing, opening pages, reading suggestions and searching | Web-role latency with nothing to process |
+| `scale-in` | `steady`, with one worker stopped (`SIGTERM`) a third of the way in and another killed (`SIGKILL`) at two thirds | That no document is lost (#182). Exits 1 if one is |
+
+The uploads are made from the synthetic corpus, medium-length documents only:
+born-digital PDF, DOCX, XLSX and EML as `corpus:render` makes them, plus a
+**scan** (each PDF page rasterised at 200 DPI and put back with no text layer)
+and an **image** (a first page as a PNG), which go through OCR. They are built
+once into `benchmarks/load/.cache/` (`pnpm load fixtures`).
+
+### The deployment under test
+
+`docker-compose.load.yml` sets up the topology on this machine: the split
+roles (#179), each worker capped as one **worker unit** of `LOAD_WORKER_CPUS`
+(2) and `LOAD_WORKER_MEMORY` (4g), metrics on, and Postgres allowed enough
+connections for several replicas.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.split.yml \
+  -f docker-compose.load.yml up -d --scale worker=2
+pnpm load steady --stub --docker anonify --workers 2 --worker-cpus 2 --worker-memory 4g
+```
+
+For a deployment elsewhere, apply what the overlay applies:
+
+- **Rate limits.** The harness is one machine, so every reviewer shares one
+  network address, and rate limits are per address. Raise
+  `ANONIFY_RATE_LIMIT_*` for the test, or the run measures 429s. The harness
+  warns at the start when the upload limit looks low.
+- **The model.** `--stub` runs an OpenAI-compatible stub on this machine
+  (`benchmarks/load/stub-provider.ts`). It waits `--stub-latency` (800ms
+  median), refuses `--stub-429` of calls (2%) with 429, and answers every
+  structured call with the smallest object its schema allows: no detections.
+  So a run measures Anonify rather than a vendor, and spends nothing.
+  `pnpm load stub --stub-public-url <url>` prints the four `AI_*` settings the
+  deployment needs to reach it. Without `--stub`, the run uses whatever
+  provider the deployment has.
+- **Lost-run recovery,** for `scale-in`. A killed worker's runs are restarted
+  once they have been quiet for `ANONIFY_STUCK_RUN_MINUTES` (20) and the sweep
+  has run (`ANONIFY_SCHEDULER_INTERVAL_SECONDS`, 300). The overlay sets 5 and
+  30. `--recovery-timeout` (900s) is how long the harness waits before calling
+  a document lost.
+- **Observation.** `--metrics <url>` scrapes `/api/metrics` (#188), with
+  `--metrics-token` if one is set; repeat it per replica you can reach.
+  `--docker <name>` samples `docker stats` for every container whose name
+  contains it, and reads each one's metrics from inside over loopback, so a
+  worker with no published port is still measured.
+- **Scale-in commands.** With `--docker`, the defaults are `docker stop
+  --time 130` on the first worker container and `docker kill` on the second.
+  Elsewhere, give `--term-cmd` and `--kill-cmd` (`kubectl delete pod …`,
+  `kubectl delete pod --grace-period=0 --force …`, `aws ecs stop-task …`).
+
+### While it runs
+
+In a terminal, the run draws a live view in the style of the other
+benchmarks: the run's progress and phase (warming up, measuring, finishing
+open batches, waiting for recovered runs), counts of ready, in-flight,
+failed, lost and throttled documents, what each reviewer is doing, ready
+documents per ten seconds as a sparkline with the last minute's rate, time to
+ready per format so far, the queue's depth and oldest job, and each
+container's CPU and memory against its limit. Outside a terminal (CI, a pipe)
+it prints a status line every thirty seconds instead. Ctrl-C stops it and
+writes nothing; documents already handed over finish on the server.
+
+### The result
+
+Each run writes `benchmarks/results/load-<scenario>-<time>.json`, or
+`--out`: the options, the topology it was told about (`--workers`,
+`--worker-cpus`, `--worker-memory`, `--label key=value`), the commit, and the
+summary:
+
+| Field | How it is taken |
+| --- | --- |
+| `throughput` | Documents and pages that became ready inside the measured window (after `--warmup`, until `--duration`), per minute. `perWorker` divides by `--workers` |
+| `byFormat[].timeToReadyMs` | From the `process` call being accepted to the batch poll first seeing `ready`. The poll is every second, so that is the resolution |
+| `routes` | Each request, to its last byte, under a route label with ids taken out. 429s are counted apart, as `throttled` |
+| `sseLagMs` | For `--sse-sample` of documents, the progress stream followed: arrival time minus the event's own `at`. Comparable only when the harness and the server share a clock |
+| `documents.lost` | Handed over and never ready or failed by `--ready-timeout` (or, for `scale-in`, `--recovery-timeout`). Must be 0 |
+| `observation` | Peaks: CPU and memory per container, queue depth and age, CPU slots waiting, pool waits, event-loop p99 |
+
+A run on a laptop says how the harness behaves, not what a worker unit
+handles: the generator, the database and the workers share one machine's
+CPUs. The capacity numbers in
+[docs/deploy/capacity.md](../docs/deploy/capacity.md) are to come from runs on
+dedicated machines (#240).

@@ -1,0 +1,17 @@
+{
+  "name": "anonify-cloudflare",
+  "private": true,
+  "description": "Anonify on Cloudflare Containers: a spike (#193). See docs/deploy/cloudflare.md.",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261011.1",
+    "wrangler": "^4.149.0"
+  }
+}

@@ -9,6 +9,15 @@ import type { PDFPageProxy } from "pdfjs-dist"
 import { withCpuSlot } from "@/lib/runtime/cpu-slots"
 import type { RangeSource } from "@/lib/storage/range-source"
 
+import {
+  documentOptions,
+  drawPage,
+  RANGE_CHUNK_BYTES,
+  RENDER_SCALE,
+} from "./raster-core.mjs"
+
+export { RENDER_SCALE }
+
 /**
  * Shared pdf.js loading for the server.
  *
@@ -82,7 +91,9 @@ function pdfjsAsset(...segments: string[]): string {
  * `readFile` accepts them on Windows too.
  */
 function assetUrl(...segments: string[]): string {
-  return `${pdfjsAsset(...segments).split(path.sep).join("/")}/`
+  return `${pdfjsAsset(...segments)
+    .split(path.sep)
+    .join("/")}/`
 }
 
 export type PdfjsRuntime = Awaited<
@@ -100,9 +111,6 @@ export type PdfjsRuntime = Awaited<
 export function copyBytes(bytes: Uint8Array): Uint8Array {
   return new Uint8Array(bytes)
 }
-
-/** Default rasterization scale. Enough detail for OCR and for a redaction. */
-export const RENDER_SCALE = 2
 
 export type RenderedPage = {
   canvas: Canvas
@@ -126,36 +134,26 @@ export function renderPage(
   page: PDFPageProxy,
   scale = RENDER_SCALE
 ): Promise<RenderedPage> {
-  return withCpuSlot(() => drawPage(page, scale))
+  return withCpuSlot(() => drawPage(page, scale, createCanvas))
 }
 
-async function drawPage(
-  page: PDFPageProxy,
-  scale: number
-): Promise<RenderedPage> {
-  const viewport = page.getViewport({ scale })
-  const canvas = createCanvas(
-    Math.ceil(viewport.width),
-    Math.ceil(viewport.height)
-  )
-  const context = canvas.getContext("2d")
-
-  // Pages are transparent by default; OCR and redaction both want paper.
-  context.fillStyle = "#ffffff"
-  context.fillRect(0, 0, canvas.width, canvas.height)
-
-  await page.render({
-    // The napi canvas is API-compatible with the DOM one pdf.js expects.
-    canvas: canvas as unknown as HTMLCanvasElement,
-    canvasContext: context as unknown as CanvasRenderingContext2D,
-    viewport,
-  }).promise
-
+/**
+ * Where a render thread loads pdf.js and its data from (#194): the same
+ * validated package root this thread uses, as URLs and paths a thread can
+ * open without the bundler's help.
+ */
+export function renderThreadAssets(): {
+  pdfjsUrl: string
+  workerSrc: string
+  standardFontDataUrl: string
+  cMapUrl: string
+} {
   return {
-    canvas,
-    width: viewport.width / scale,
-    height: viewport.height / scale,
-    scale,
+    pdfjsUrl: pathToFileURL(pdfjsAsset("legacy", "build", "pdf.mjs")).href,
+    workerSrc: pathToFileURL(pdfjsAsset("legacy", "build", "pdf.worker.mjs"))
+      .href,
+    standardFontDataUrl: assetUrl("standard_fonts"),
+    cMapUrl: assetUrl("cmaps"),
   }
 }
 
@@ -179,14 +177,6 @@ export async function loadPdfjsForRender(): Promise<PdfjsRuntime> {
 
 /** A PDF to open: its bytes, or ranged reads of it. */
 export type PdfSource = Uint8Array | RangeSource
-
-/**
- * The unit pdf.js asks for when it reads by ranges. Small enough that a page
- * costs roughly what it references; the range source underneath widens reads
- * to whole storage chunks and keeps the last few, so neighbouring requests do
- * not each become a round trip.
- */
-const RANGE_CHUNK_BYTES = 64 * 1024
 
 export type OpenedPdf = {
   task: ReturnType<PdfjsRuntime["getDocument"]>
@@ -221,14 +211,8 @@ export async function openPdfDocument(
   pdfjs: PdfjsRuntime,
   source: PdfSource
 ): Promise<OpenedPdf> {
-  const common = {
-    // Untrusted input: no font-face injection, no network font fetches.
-    disableFontFace: true,
-    useSystemFonts: false,
-    standardFontDataUrl: pdfjs.standardFontDataUrl,
-    cMapUrl: pdfjs.cMapUrl,
-    cMapPacked: true,
-  }
+  // Untrusted input: no font-face injection, no network font fetches.
+  const common = documentOptions(pdfjs)
 
   if (source instanceof Uint8Array) {
     return {

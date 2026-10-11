@@ -11,6 +11,7 @@ describe.skipIf(!hasDatabase)("lost-run recovery", async () => {
   const { prisma } = await import("@/lib/database/prisma")
   const { MAX_RECOVERIES, recoverLostRuns } =
     await import("@/lib/workflows/recovery")
+  const { admitQueued } = await import("@/lib/documents/admission")
 
   const created: string[] = []
   const minutes = 20
@@ -21,8 +22,8 @@ describe.skipIf(!hasDatabase)("lost-run recovery", async () => {
   })
 
   async function seedRunning(
-    input: { recoveries?: number; status?: string } = {}
-  ): Promise<{ id: string; runId: string }> {
+    input: { recoveries?: number; status?: string; ingested?: boolean } = {}
+  ): Promise<{ id: string; runId: string; owner: string }> {
     const id = testId("doc")
     const runId = testId("wrun")
     const owner = testFingerprint("recovery")
@@ -39,6 +40,10 @@ describe.skipIf(!hasDatabase)("lost-run recovery", async () => {
         ttlSeconds: 3600,
         expiresAt: new Date(Date.now() + 3_600_000),
         workflowRunId: runId,
+        // Past ingest, the upload is gone and only the source is stored.
+        ...(input.ingested
+          ? { sourceBlobKey: `test/${id}/source.bin` }
+          : { uploadBlobKey: `test/${id}/upload.bin` }),
         ...(input.recoveries !== undefined
           ? { metadata: { recoveries: input.recoveries, kept: "yes" } }
           : {}),
@@ -47,7 +52,7 @@ describe.skipIf(!hasDatabase)("lost-run recovery", async () => {
     // @updatedAt is set by Prisma on every write, so the age is set directly.
     await prisma.$executeRaw`UPDATE "Document" SET "updatedAt" = ${longAgo} WHERE id = ${id}`
     created.push(id)
-    return { id, runId }
+    return { id, runId, owner }
   }
 
   function canceller() {
@@ -73,6 +78,22 @@ describe.skipIf(!hasDatabase)("lost-run recovery", async () => {
     expect(row.workflowRunId).toBeNull()
     // Counted, and nothing else in the metadata lost.
     expect(row.metadata).toEqual({ recoveries: 1, kept: "yes" })
+  })
+
+  it("starts a run lost after ingest again, from its stored source", async () => {
+    // Found by the scale-in load test (#190): a worker killed mid-analysis
+    // left documents queued with no upload, and admission waited for one.
+    const { id, owner } = await seedRunning({ recoveries: 0, ingested: true })
+    const { cancel } = canceller()
+    await recoverLostRuns(cancel, { minutes })
+
+    const started: string[] = []
+    const admitted = await admitQueued(owner, async (documentId) => {
+      started.push(documentId)
+      return testId("wrun")
+    })
+    expect(admitted).toBe(1)
+    expect(started).toEqual([id])
   })
 
   it("leaves alone a run that is still writing events", async () => {

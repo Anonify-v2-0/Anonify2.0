@@ -1,0 +1,59 @@
+{{- if .Values.migrate.enabled }}
+{{- /*
+`anonify migrate` before every install and upgrade (#175): the schema is in
+place before any pod of the new version starts, and a failed migration stops
+the upgrade with the old pods still serving. Only DATABASE_URL is read, and it
+is pointed at a direct connection: migrations do not go through a
+transaction pooler. The ConfigMap does not exist yet on a first install (it
+is not a hook), so nothing is read from it.
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "anonify.fullname" . }}-migrate
+  labels:
+    {{- include "anonify.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ .Values.migrate.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.migrate.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "anonify.roleLabels" (dict "root" . "role" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # The service account is not a hook either; migrating needs none.
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "anonify.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "anonify.secretName" . }}
+                  key: {{ include "anonify.directUrlKey" (dict "root" . "explicit" .Values.migrate.databaseUrlKey) }}
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

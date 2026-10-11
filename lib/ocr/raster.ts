@@ -1,5 +1,7 @@
 import type { Canvas } from "@napi-rs/canvas"
 
+import { encodeCanvas } from "@/lib/documents/pdf/raster-core.mjs"
+
 /**
  * How a rendered page is handed to the OCR engine (#189).
  *
@@ -20,31 +22,10 @@ import type { Canvas } from "@napi-rs/canvas"
 
 export type RasterFormat = "png" | "pgm"
 
-/** Leptonica's default luminance weights (L_RED_WEIGHT and the others). */
-const RED = 0.3
-const GREEN = 0.5
-const BLUE = 0.2
-
-/** The canvas as an 8-bit greyscale PGM (P5). */
-export function greyPgm(canvas: Canvas): Buffer {
-  const { width, height } = canvas
-  const rgba = canvas.getContext("2d").getImageData(0, 0, width, height).data
-  const header = Buffer.from(`P5\n${width} ${height}\n255\n`, "ascii")
-  const out = Buffer.allocUnsafe(header.length + width * height)
-  header.copy(out, 0)
-  // Pages are drawn on white and never transparent, so alpha is ignored.
-  for (let from = 0, to = header.length; from < rgba.length; from += 4, to++) {
-    out[to] =
-      (RED * rgba[from] +
-        GREEN * rgba[from + 1] +
-        BLUE * rgba[from + 2] +
-        0.5) |
-      0
-  }
-  return out
-}
+// One implementation, shared with the render threads (#194).
+export { greyPgm } from "@/lib/documents/pdf/raster-core.mjs"
 
 /** A rendered page, in the format its engine reads best. */
 export function encodeRaster(canvas: Canvas, format: RasterFormat): Buffer {
-  return format === "pgm" ? greyPgm(canvas) : canvas.toBuffer("image/png")
+  return encodeCanvas(canvas, format)
 }

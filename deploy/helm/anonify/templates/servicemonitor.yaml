@@ -1,0 +1,31 @@
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+{{- /* Every pod of both roles, scraped directly (#188). */ -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "anonify.fullname" . }}
+  labels:
+    {{- include "anonify.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "anonify.selectorLabels" . | nindent 6 }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [web, worker]
+  endpoints:
+    - port: http
+      path: /api/metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      {{- with .Values.metrics.serviceMonitor.tokenKey }}
+      # ANONIFY_METRICS_TOKEN, from the same Secret the pods read it from.
+      authorization:
+        credentials:
+          name: {{ include "anonify.secretName" $ }}
+          key: {{ . }}
+      {{- end }}
+{{- end }}

@@ -30,6 +30,7 @@ import {
   tesseractModel,
 } from "@/lib/ocr/models"
 import { cacheDirectory, modelPath } from "@/lib/ocr/tesseract"
+import { closeTesseractPools } from "@/lib/ocr/tesseract-pool"
 import { selectOcrProvider } from "@/lib/ocr"
 
 async function main(): Promise<void> {
@@ -91,9 +92,13 @@ async function main(): Promise<void> {
   )
 }
 
-main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error)
-  console.error(`\n  Could not warm the OCR model: ${message}`)
-  console.error("  It will be downloaded on first use instead.\n")
-  // Not fatal: this is a convenience, and OCR still works without it.
-})
+// Sessions leave pooled workers alive for the next document. This one-shot
+// script has no next document, so stop them even when warming fails.
+main()
+  .finally(closeTesseractPools)
+  .catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`\n  Could not warm the OCR model: ${message}`)
+    console.error("  It will be downloaded on first use instead.\n")
+    // Not fatal: this is a convenience, and OCR still works without it.
+  })

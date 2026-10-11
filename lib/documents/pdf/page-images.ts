@@ -1,11 +1,6 @@
 import { mapWithConcurrency } from "@/lib/concurrency"
-import { withCpuSlot } from "@/lib/runtime/cpu-slots"
-import {
-  loadPdfjsForRender,
-  openPdfDocument,
-  renderPage,
-  type PdfSource,
-} from "@/lib/documents/pdf/render"
+import { openPageRenderer } from "@/lib/documents/pdf/page-renderer"
+import type { PdfSource } from "@/lib/documents/pdf/render"
 
 /**
  * Rasterizing PDF pages for the vision pass.
@@ -52,10 +47,10 @@ export type RenderedPageImage = {
  * calls overlap, and a page's PNG lives from its render until its call
  * returns, so at most `concurrency` of them are alive.
  *
- * Rendering itself takes turns. pdf.js renders on this thread whatever the
- * slots, so running two at once gains nothing, and one at a time keeps the
- * document proxy away from concurrent use it was never promised to survive.
- * The overlap that pays is page two rendering while page one's call is out.
+ * Rendering itself takes turns: one document is drawn on one render thread
+ * (#194), a page at a time, and in-process one proxy is never drawn from
+ * twice at once. The overlap that pays is page two rendering while page
+ * one's call is out.
  *
  * Results come back in the order of `pageNumbers`, whatever order they
  * finished in, so nothing downstream depends on timing. Pages outside the
@@ -76,47 +71,25 @@ export async function analyzePagesForVision<R>(
 ): Promise<{ page: number; result: R }[]> {
   if (pageNumbers.length === 0) return []
 
-  const pdfjs = await loadPdfjsForRender()
-  const { task, guard } = await openPdfDocument(pdfjs, source)
-  let turn: Promise<unknown> = Promise.resolve()
-
-  const run = async () => {
-    const pdf = await task.promise
+  const renderer = await openPageRenderer(source)
+  try {
     const wanted = pageNumbers.filter(
-      (pageNumber) => pageNumber >= 1 && pageNumber <= pdf.numPages
+      (pageNumber) => pageNumber >= 1 && pageNumber <= renderer.pageCount
     )
-
-    const draw = async (pageNumber: number): Promise<Buffer> => {
-      const page = await pdf.getPage(pageNumber)
-      try {
-        // Drawing and encoding in one CPU slot (#181); the model call that
-        // follows holds none.
-        return await withCpuSlot(async () =>
-          (await renderPage(page, scale)).canvas.toBuffer("image/png")
-        )
-      } finally {
-        page.cleanup()
-      }
-    }
-
-    return mapWithConcurrency(wanted, concurrency, async (pageNumber) => {
-      const drawn = turn.then(() => draw(pageNumber))
-      // The next render waits for this one whether it worked or not; a
-      // failure is this task's to report.
-      turn = drawn.catch(() => {})
-      const png = await drawn
+    return await mapWithConcurrency(wanted, concurrency, async (pageNumber) => {
+      // Drawing and encoding in one CPU slot (#181); the model call that
+      // follows holds none.
+      const { data: png } = await renderer.draw(pageNumber, {
+        scale,
+        output: "png",
+      })
       return {
         page: pageNumber,
         result: await analyze({ page: pageNumber, png }),
       }
     })
-  }
-
-  try {
-    return await guard(run())
   } finally {
-    // The loading task owns the worker; destroying it is what releases both.
-    await task.destroy()
+    await renderer.close()
   }
 }
 

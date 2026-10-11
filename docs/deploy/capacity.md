@@ -28,6 +28,32 @@ five times as long, every raster was alive at the same moment, and every
 deadline slipped together. With them, the same work finishes in arrival order,
 and only as many rasters are alive as there are slots.
 
+### Where the work runs (#194)
+
+The slots count work; they do not say which thread does it. Since 1.18.0:
+
+- **PDF pages** are drawn and encoded on a pool of worker threads, at most
+  one per slot, so a long scan no longer stalls the event loop that answers
+  requests and probes. `ANONIFY_RENDER_THREADS=off` draws them on the main
+  thread as before; the output is identical. Each thread holds its own copy of
+  pdf.js and the documents open on it: allow about 50 MiB per slot more than
+  before, stopped after five idle minutes.
+- **Tesseract** reads on its own worker threads, one per slot (#189), and
+  each recognition now takes a slot too, so drawing and reading share one
+  budget instead of keeping twice as many threads busy as there are CPUs.
+- **A page that takes longer than `ANONIFY_RENDER_TIMEOUT_MS`** (120000) is
+  stopped and its document fails as too complex, instead of holding the
+  process.
+- **What stays on the main thread:** reading a PDF's text layer during
+  extraction, rebuilding an exported PDF with pdf-lib, and DOCX, XLSX and
+  email processing. `sharp` (image redaction) runs on libvips' own threads.
+  Node's libuv pool (`UV_THREADPOOL_SIZE`, 4) serves file system, DNS and
+  asynchronous zlib calls, none of them CPU-bound here; leave it alone.
+
+`nodejs_eventloop_lag_p99_seconds` in the metrics (#188) is the number to
+watch: under 0.05 while processing is the target, and above about one second
+is when probes start to time out.
+
 ### How the CPUs are counted
 
 The CPUs counted are the ones the container is allowed, not the host's. Node
@@ -89,7 +115,7 @@ than the cap. It bounds sustained concurrency; it is not a mutex.
 
 ## Sizing
 
-Starting points per replica, until the load test (#190) replaces them with
+Starting points per replica, until runs of the load harness (#190, #240) replace them with
 measured numbers. Memory is the container limit; the budget is the streaming
 share of it, and the rest is pdf.js, rasters, Tesseract's models and Node.
 

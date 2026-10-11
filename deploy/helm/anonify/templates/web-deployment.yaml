@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "anonify.fullname" . }}-web
+  labels:
+    {{- include "anonify.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  {{- $scaled := .Values.web.autoscaling.enabled }}
+  {{- if not $scaled }}
+  replicas: {{ .Values.web.replicas }}
+  {{- end }}
+  # A pod is only replaced once its successor is ready, and a stopping one
+  # drains first (#182), so a rollout loses no request and no step.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "anonify.roleLabels" (dict "root" . "role" "web") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "anonify.roleLabels" (dict "root" . "role" "web") | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # A changed setting rolls the pods.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "anonify.podSpec" (dict "root" . "role" "web") | nindent 6 }}

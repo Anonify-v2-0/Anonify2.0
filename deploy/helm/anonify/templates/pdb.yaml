@@ -1,0 +1,18 @@
+{{- range $role := list "web" "worker" }}
+{{- $values := index $.Values $role }}
+{{- if $values.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "anonify.fullname" $ }}-{{ $role }}
+  labels:
+    {{- include "anonify.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $role }}
+spec:
+  maxUnavailable: {{ $values.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "anonify.roleLabels" (dict "root" $ "role" $role) | nindent 6 }}
+{{- end }}
+{{- end }}

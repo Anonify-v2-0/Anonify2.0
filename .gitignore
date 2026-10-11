@@ -68,3 +68,6 @@ next-env.d.ts
 
 # bench:models: the benchmark's own environment and sign-in, kept apart from .env
 /benchmarks/.bench/
+
+# load harness: rendered fixtures
+/benchmarks/load/.cache/

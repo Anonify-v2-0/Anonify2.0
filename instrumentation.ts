@@ -89,6 +89,13 @@ export async function register() {
     await import("@/lib/ocr/tesseract-pool")
   ocrIdleMs()
 
+  // PDF pages are drawn on worker threads unless switched off, with a time
+  // limit per page (#194). The pool is stopped after the steps that use it.
+  const { closeRenderPool, renderThreadsEnabled, renderTimeoutMs } =
+    await import("@/lib/documents/pdf/render-pool")
+  renderThreadsEnabled()
+  renderTimeoutMs()
+
   // The built-in scheduler's switch and interval (#183).
   const { schedulerSettings, startScheduler } =
     await import("@/lib/runtime/scheduler")
@@ -161,6 +168,7 @@ export async function register() {
   drainSettings()
   const drains = installShutdown()
   onShutdown("ocr-pool", closeTesseractPools, "release")
+  onShutdown("render-pool", closeRenderPool, "release")
   if (!drains && runsWorker() && process.env.NODE_ENV === "production") {
     console.warn(
       JSON.stringify({

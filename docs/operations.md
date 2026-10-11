@@ -101,21 +101,29 @@ GROUP BY task_identifier
 workflow invocations (the prefix is `WORKFLOW_POSTGRES_JOB_PREFIX`). Scale on
 the steps.
 
-KEDA's `postgresql` scaler wants a single number:
+KEDA's `postgresql` scaler wants a single number. Count jobs that are ready
+**or running**, workflow invocations **and** steps (#191):
 
 ```yaml
 triggers:
   - type: postgresql
     metadata:
-      targetQueryValue: "5"          # ready step jobs per worker
-      activationTargetQueryValue: "1"
+      targetQueryValue: "4"          # jobs per worker: a worker unit's job concurrency
+      activationTargetQueryValue: "0"
       query: >-
         SELECT count(*) FROM graphile_worker.jobs
-        WHERE task_identifier = 'workflow_steps'
-          AND locked_at IS NULL AND attempts < max_attempts AND run_at <= now()
+        WHERE task_identifier IN ('workflow_flows', 'workflow_steps')
+          AND (locked_at IS NOT NULL OR (attempts < max_attempts AND run_at <= now()))
     authenticationRef:
       name: anonify-postgres         # a TriggerAuthentication with the connection string
 ```
+
+Ready steps alone is the right signal for adding workers to a running fleet,
+and the wrong one for this. A new document's first job is a workflow
+invocation, so a fleet at zero counting only steps never wakes. A step being
+worked on is locked rather than ready, so a fleet whose every job is running
+reads as idle and is scaled away mid-step. The Helm chart
+([deploy/helm/anonify](../deploy/helm/anonify/README.md)) sets this up.
 
 Azure Container Apps takes the same query in a KEDA `postgresql` custom scale
 rule. Give the scaler a direct or session connection, like the job queue

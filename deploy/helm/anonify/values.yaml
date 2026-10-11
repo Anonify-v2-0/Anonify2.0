@@ -1,0 +1,270 @@
+# Anonify on Kubernetes (#191). Every setting is documented in README.md;
+# the environment variables they become are documented in .env.example and
+# docs/deploy/.
+
+image:
+  repository: nabeelwasif/anonify2.0
+  # Empty installs the chart's appVersion. Prefer a digest in production: a
+  # tag can move, a digest cannot.
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# --- Secrets ------------------------------------------------------------------
+#
+# ENCRYPTION_KEY seals every stored document. Lose it and every document is
+# unreadable; change it and the same. Keep it somewhere other than this
+# cluster too.
+secrets:
+  # Recommended: a Secret you manage (External Secrets, Sealed Secrets, SOPS).
+  # Every key in it becomes an environment variable of every pod, so it holds
+  # ENCRYPTION_KEY, FINGERPRINT_SECRET, CRON_SECRET, DATABASE_URL and, when the
+  # app's URL is a pooler, WORKFLOW_POSTGRES_URL, plus any provider keys.
+  # `docker run --rm nabeelwasif/anonify2.0 keys` prints the first three.
+  existingSecret: ""
+  # Without one, the chart makes a Secret: the three keys are generated on
+  # install and read back on every upgrade, never regenerated. It is kept on
+  # `helm uninstall`; delete it yourself once the data it protects is gone.
+  generate: true
+  # More secret environment for the chart's Secret: S3 credentials, AI keys.
+  # Ignored with existingSecret (put them there instead).
+  extra: {}
+  #   S3_ACCESS_KEY_ID: ...
+  #   S3_SECRET_ACCESS_KEY: ...
+  #   OPENAI_API_KEY: ...
+
+# --- Database (#169) ----------------------------------------------------------
+#
+# Both go into the chart's Secret. With existingSecret, leave them empty and
+# put DATABASE_URL (and WORKFLOW_POSTGRES_URL) in that Secret.
+database:
+  # The app's connections. A transaction-mode pooler is fine here.
+  url: ""
+  # The job queue's: a direct or session-mode connection, because it LISTENs.
+  # Leave empty when `url` is already direct.
+  workflowUrl: ""
+
+# --- Storage (#176) -----------------------------------------------------------
+#
+# Shared object storage is required: web and worker pods are separate.
+storage:
+  driver: s3  # s3 | azure-blob
+  s3:
+    bucket: anonify
+    region: us-east-1
+    # Empty for AWS S3. For RustFS, MinIO, R2, GCS interop: its URL.
+    endpoint: ""
+    forcePathStyle: false
+    # Browsers upload straight to the bucket, sealed (#185). Needs CORS on the
+    # bucket; see docs/storage.md.
+    presignedUploads: false
+    # The bucket's URL as a browser reaches it, for presigned uploads.
+    publicEndpoint: ""
+  azure:
+    account: ""
+    container: anonify
+  # Credentials go in secrets.extra or the existing Secret
+  # (S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY, or AZURE_STORAGE_*), or come
+  # from workload identity (IRSA, GKE / Azure workload identity) through the
+  # service account below.
+
+# The public URL people open, for links and the session cookie.
+publicUrl: ""
+
+# Plain environment for every pod: anything in .env.example.
+env: {}
+#   AI_PROVIDER: openai
+#   AI_MODEL: gpt-5.2-mini
+#   ANONIFY_PROCESSING_GLOBAL_MAX: "40"
+envFrom: []
+
+# How long a stopped pod may take to finish what it is running (#182).
+# terminationGracePeriodSeconds is this plus 15.
+drainSeconds: 120
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/anonify
+
+podAnnotations: {}
+podLabels: {}
+
+# The `restricted` Pod Security Standard, with a read-only root filesystem
+# (#178). /tmp and /data are the only writable paths the image needs.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# /data holds the OCR model cache. The model is baked into the image, so an
+# emptyDir is enough; a volume only saves fetching another language again.
+persistence:
+  enabled: false
+  storageClass: ""
+  size: 2Gi
+  accessModes: ["ReadWriteOnce"]
+
+probes:
+  # /api/health: is the process answering? Touches no database or storage,
+  # so an outage elsewhere does not restart pods in a loop.
+  liveness:
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 4
+  # /api/ready: database, storage and (on a worker) the job runner answer.
+  # 503 from the first moment of a drain.
+  readiness:
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 3
+  # A generous budget for the first start.
+  startup:
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 36
+
+# --- Web: pages, the API, progress streams ------------------------------------
+web:
+  replicas: 2
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  env: {}
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 60
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+  service:
+    type: ClusterIP
+    port: 80
+    annotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+ingress:
+  enabled: false
+  className: ""
+  # Progress streams are long-lived text/event-stream responses: turn proxy
+  # buffering off and allow reads of at least 300s. README.md has these for
+  # ingress-nginx, Traefik, the AWS ALB and GKE.
+  annotations: {}
+  hosts:
+    - host: anonify.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# --- Worker: the job queue ----------------------------------------------------
+worker:
+  replicas: 1
+  # One worker unit (docs/deploy/capacity.md). ANONIFY_CPU_CONCURRENCY is set
+  # from limits.cpu, rounded down, unless env sets it.
+  resources:
+    requests: {cpu: "2", memory: 3Gi}
+    limits: {cpu: "2", memory: 4Gi}
+  env: {}
+  # The built-in sweep (#183): expiry, lost runs, the queue's backstop. Off
+  # here turns the cleanup CronJob on instead.
+  scheduler: true
+  autoscaling:
+    # auto: KEDA when its CRDs are installed, else an HPA on CPU.
+    # keda | hpa | none to choose.
+    mode: auto
+    minReplicas: 1
+    maxReplicas: 10
+    keda:
+      # 0 allows scale to zero. The first document after an idle period then
+      # waits for KEDA's next poll and a pod start, about pollingInterval plus
+      # 30-60s. Only with KEDA: without it the chart refuses 0.
+      minReplicas: 0
+      pollingInterval: 30
+      # Above the longest step, so a worker is not taken away mid-document.
+      cooldownPeriod: 600
+      # Jobs ready or running per worker: about the job concurrency of one
+      # worker unit (2 x vCPUs).
+      targetJobsPerWorker: 4
+      # The Postgres schema and job prefix of the queue
+      # (WORKFLOW_POSTGRES_JOB_PREFIX).
+      jobSchema: graphile_worker
+      jobPrefix: workflow_
+      # The key in the Secret holding the connection string KEDA queries.
+      # Empty: WORKFLOW_POSTGRES_URL when database.workflowUrl is set, else
+      # DATABASE_URL.
+      connectionKey: ""
+      # Optionally also scale on the oldest ready job's age, from Prometheus.
+      prometheus:
+        enabled: false
+        serverAddress: http://prometheus-operated.monitoring:9090
+        oldestReadySeconds: 60
+    hpa:
+      targetCPUUtilizationPercentage: 70
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# --- Jobs ---------------------------------------------------------------------
+migrate:
+  # `anonify migrate` as a pre-install and pre-upgrade hook (#175), so the
+  # schema is in place before any pod of the new version starts.
+  enabled: true
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  # The key whose URL it migrates through: a direct connection. Empty:
+  # WORKFLOW_POSTGRES_URL when database.workflowUrl is set, else DATABASE_URL.
+  databaseUrlKey: ""
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 512Mi}
+
+cleanup:
+  # `anonify cleanup` on a schedule. Off by default because the workers sweep
+  # by themselves (#183); on whenever worker.scheduler is false.
+  enabled: false
+  schedule: "*/10 * * * *"
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 512Mi}
+
+# --- Observability (#188) ------------------------------------------------------
+metrics:
+  # ANONIFY_METRICS=on: /api/metrics on every pod.
+  enabled: false
+  # Without a token, only a direct peer on a private network may scrape,
+  # which is what an in-cluster Prometheus scraping pods is. Put
+  # ANONIFY_METRICS_TOKEN in the Secret to require one.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+    # The Secret key holding ANONIFY_METRICS_TOKEN, when one is set.
+    tokenKey: ""
+  # A Grafana dashboard ConfigMap, for Grafana's sidecar.
+  dashboard:
+    enabled: false
+    labels:
+      grafana_dashboard: "1"

@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "anonify.fullname" . }}-test-ready
+  labels:
+    {{- include "anonify.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    # Kept until the next run, so `helm test --logs` can read it.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
+  containers:
+    # The app's own image, so the test pulls nothing else: does the web
+    # Service answer /api/ready, with the database and storage behind it?
+    - name: ready
+      image: {{ include "anonify.image" . }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      command: ["node", "-e"]
+      args:
+        - |
+          fetch("http://{{ include "anonify.fullname" . }}-web:{{ .Values.web.service.port }}/api/ready")
+            .then(async (r) => { console.log(r.status, await r.text()); process.exit(r.ok ? 0 : 1) })
+            .catch((e) => { console.error(e.message); process.exit(1) })
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      resources:
+        limits: { cpu: 200m, memory: 128Mi }
+        requests: { cpu: 50m, memory: 64Mi }

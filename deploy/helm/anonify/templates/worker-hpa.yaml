@@ -1,0 +1,34 @@
+{{- if eq (include "anonify.workerScaling" .) "hpa" }}
+{{- if lt (int .Values.worker.autoscaling.minReplicas) 1 }}
+{{- fail "worker.autoscaling.minReplicas must be at least 1 without KEDA: nothing would start a worker for the first document (#163). Install KEDA, or use mode: keda, to scale to zero." }}
+{{- end }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "anonify.fullname" . }}-worker
+  labels:
+    {{- include "anonify.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "anonify.fullname" . }}-worker
+  minReplicas: {{ .Values.worker.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.worker.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.worker.autoscaling.hpa.targetCPUUtilizationPercentage }}
+  behavior:
+    # Scale in slowly: a worker taken away drains for up to drainSeconds.
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+{{- end }}

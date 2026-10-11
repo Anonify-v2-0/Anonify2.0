@@ -1,0 +1,52 @@
+{{- if or .Values.cleanup.enabled (not .Values.worker.scheduler) }}
+{{- /* The sweep on a schedule, for when the workers do not run it (#183). */ -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "anonify.fullname" . }}-cleanup
+  labels:
+    {{- include "anonify.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cleanup
+spec:
+  schedule: {{ .Values.cleanup.schedule | quote }}
+  # The sweep takes a lock, so a second one at once would only wait.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "anonify.roleLabels" (dict "root" . "role" "cleanup") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "anonify.serviceAccountName" . }}
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: cleanup
+              image: {{ include "anonify.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args: ["cleanup"]
+              envFrom:
+                - configMapRef:
+                    name: {{ include "anonify.fullname" . }}
+                - secretRef:
+                    name: {{ include "anonify.secretName" . }}
+              resources:
+                {{- toYaml .Values.cleanup.resources | nindent 16 }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+{{- end }}

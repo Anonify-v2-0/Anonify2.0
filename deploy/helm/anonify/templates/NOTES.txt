@@ -1,0 +1,28 @@
+{{- $scaling := include "anonify.workerScaling" . -}}
+Anonify {{ .Chart.AppVersion }} is installing as {{ include "anonify.fullname" . }}.
+
+Web:     {{ include "anonify.fullname" . }}-web ({{ .Values.web.service.type }}, port {{ .Values.web.service.port }})
+Workers: {{ if eq $scaling "keda" }}KEDA, {{ .Values.worker.autoscaling.keda.minReplicas }} to {{ .Values.worker.autoscaling.maxReplicas }} on queue depth{{ else if eq $scaling "hpa" }}HPA, {{ .Values.worker.autoscaling.minReplicas }} to {{ .Values.worker.autoscaling.maxReplicas }} on CPU{{ else }}{{ .Values.worker.replicas }}, fixed{{ end }}
+{{- if and (eq $scaling "keda") (eq (int .Values.worker.autoscaling.keda.minReplicas) 0) }}
+         With no worker running, the first document waits for KEDA's next
+         poll ({{ .Values.worker.autoscaling.keda.pollingInterval }}s) and a pod start.
+{{- end }}
+{{ if .Values.ingress.enabled }}
+Open: {{ with index .Values.ingress.hosts 0 }}http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}{{ end }}
+{{- else }}
+Try it:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "anonify.fullname" . }}-web 3000:{{ .Values.web.service.port }}
+  open http://localhost:3000
+{{- end }}
+
+Check it end to end:
+  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+  pnpm smoke http://localhost:3000     # from a clone, through a port-forward
+{{- if and (not .Values.secrets.existingSecret) .Values.secrets.generate }}
+
+ENCRYPTION_KEY was generated into the Secret {{ include "anonify.fullname" . }}.
+Back it up: every stored document is unreadable without it. The Secret is
+kept when the release is uninstalled.
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "anonify.fullname" . }} \
+    -o jsonpath="{.data.ENCRYPTION_KEY}" | base64 -d
+{{- end }}
