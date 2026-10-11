@@ -316,6 +316,22 @@ reviewer's twenty-file batch stall everybody else's single document; the thing
 being rationed is one person's share, and the host's own ceiling is the rate
 limit above it.
 
+A shared deployment can add a global bound anyway,
+`ANONIFY_PROCESSING_GLOBAL_MAX` (#181), and the stall it would cause is
+answered by turns: owners are taken in the order of their oldest waiting
+document, one document each per turn, so a freed slot goes to whoever has
+waited longest.
+
+### One replica's ceiling
+
+Admission bounds documents; it does not bound what one process does with
+them. That is `lib/runtime/capacity.ts` (#181): `ANONIFY_CPU_CONCURRENCY` CPU
+slots for rendering, OCR, image work and export, and a job concurrency the
+workflow world is given before it starts, both derived from the CPUs the
+process can use. The streaming memory budget is divided by the job
+concurrency, so it is per process too. See
+[deploy/capacity.md](./deploy/capacity.md).
+
 Two admissions arriving together can start one document more than the limit
 says, because counting and starting are not one atomic act. That is deliberate:
 the alternative holds a database lock across a network call to the workflow

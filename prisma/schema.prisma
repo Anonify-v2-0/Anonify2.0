@@ -97,6 +97,7 @@ model Document {
   rules            GlobalRule[]
   events           ProcessingEvent[]
   exports          ExportArtifact[]
+  documentExports  DocumentExport[]
   batch            Batch?            @relation(fields: [batchId], references: [id], onDelete: SetNull)
   parent           Document?         @relation("Attachments", fields: [parentDocumentId], references: [id], onDelete: Cascade)
   attachments      Document[]        @relation("Attachments")
@@ -110,6 +111,10 @@ model Document {
   /// "workflowRunId" IS NULL), which this schema cannot say; see the migration
   /// 20261006120000_add_admission_queue_index.
   @@index([userFingerprint, createdAt], map: "Document_admission_queue_idx")
+  /// Documents a run is working on, by last change (#181, #182): counted by
+  /// the global admission cap, and searched by the lost-worker sweep. Partial
+  /// in the database; see the migration 20261010120000_add_in_flight_index.
+  @@index([updatedAt], map: "Document_in_flight_idx")
   /// One child per part, enforced by the database rather than by the step that
   /// writes it. Expansion is retried like every other step and re-parses the
   /// message from scratch; this is what makes a second pass unable to produce
@@ -346,10 +351,56 @@ model ExportArtifact {
   /// adds no capability that was not already there.
   vaultBlobKey      String?
   vaultChecksum     String?
+  /// True when the stored vault is sealed to the requesting browser's key
+  /// rather than the document's (#187): an envelope Anonify cannot open,
+  /// deleted once it has been fetched. See docs/security-internals.md §11.
+  vaultRecipient    Boolean  @default(false)
+  /// The single export that produced this artifact, when one did (#187).
+  /// A retried step overwrites its own row: one per (export, variant).
+  exportId          String?
 
-  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  export   DocumentExport? @relation(fields: [exportId], references: [id], onDelete: SetNull)
 
+  @@unique([exportId, variant])
   @@index([documentId])
+}
+
+/// One request to export one document, run in the background on a worker
+/// (#187). The batch export's single-document sibling: the route records it
+/// and starts the run, the run writes progress and artifacts here, and the
+/// dialog reads it back however often it is closed and reopened.
+model DocumentExport {
+  id                String   @id
+  documentId        String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  /// queued | running | ready | failed | cancelled
+  status            String   @default("queued")
+  /// The durable run doing the work.
+  workflowRunId     String?
+
+  /// The variants asked for, as the route parsed them (lib/redaction/variants.ts).
+  variants          Json
+  metadataSanitized Boolean  @default(true)
+  /// The requester's ECDH P-256 public key, raw and base64url. A vault is
+  /// sealed to it and to nothing Anonify holds. Null only on the deprecated
+  /// synchronous path, which seals to a key that lives in the request.
+  recipientKey      String?
+
+  /// Where the run has got to: a stage, a variant, a page of a total. Never
+  /// anything from the document.
+  progress          Json?
+  /// Set by the reviewer; the run stops before its next variant.
+  cancelRequested   Boolean  @default(false)
+  /// User-facing sentence. Never a raw thrown message.
+  error             String?
+
+  document  Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  artifacts ExportArtifact[]
+
+  @@index([documentId, createdAt])
 }
 
 /// Per-fingerprint daily quota accounting. Enforced server-side only.

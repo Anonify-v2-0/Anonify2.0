@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url"
 import { createCanvas, type Canvas } from "@napi-rs/canvas"
 import type { PDFPageProxy } from "pdfjs-dist"
 
+import { withCpuSlot } from "@/lib/runtime/cpu-slots"
 import type { RangeSource } from "@/lib/storage/range-source"
 
 /**
@@ -117,10 +118,20 @@ export type RenderedPage = {
  * Shared by redaction, which paints boxes onto the pixels before rebuilding the
  * page, and by OCR, which reads them. Both need the same geometry, so both go
  * through here rather than each growing their own copy of the transform.
+ *
+ * In a CPU slot (#181). A caller that goes on to encode the raster should
+ * take the slot around both, so the encode is counted too.
  */
-export async function renderPage(
+export function renderPage(
   page: PDFPageProxy,
   scale = RENDER_SCALE
+): Promise<RenderedPage> {
+  return withCpuSlot(() => drawPage(page, scale))
+}
+
+async function drawPage(
+  page: PDFPageProxy,
+  scale: number
 ): Promise<RenderedPage> {
   const viewport = page.getViewport({ scale })
   const canvas = createCanvas(

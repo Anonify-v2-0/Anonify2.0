@@ -4,6 +4,7 @@
 #   docker run IMAGE            serves the app (the default command)
 #   docker run IMAGE migrate    applies the schema and the workflow tables
 #   docker run IMAGE cleanup    runs the expiry sweep once
+#   docker run IMAGE keys       prints new secrets for a .env file
 #   docker run IMAGE help
 #
 # Anything else that names a program on the PATH runs as given, so a command
@@ -19,6 +20,8 @@ Commands:
   migrate   Apply database migrations and the workflow schema, then exit.
             Safe to run on every deploy and from several replicas at once.
   cleanup   Run the expiry sweep once, then exit
+  keys      Print new ENCRYPTION_KEY, FINGERPRINT_SECRET and CRON_SECRET
+            lines for a .env file
   help      Show this message
 EOF
 }
@@ -38,6 +41,20 @@ case "$command" in
     ;;
   cleanup)
     exec node /opt/anonify/bin/cleanup.mjs "$@"
+    ;;
+  keys)
+    # The secrets `pnpm setup` writes, for an install with no clone and no
+    # Node (#186): 32 random bytes each, as hex. Printed, never stored, and
+    # different every time, so redirect it into a .env that does not exist
+    # yet: a new ENCRYPTION_KEY cannot read what the old one wrote.
+    exec node -e '
+      const { randomBytes } = require("node:crypto")
+      const secret = () => randomBytes(32).toString("hex")
+      console.log("# Written by `anonify keys`. Keep ENCRYPTION_KEY: it encrypts every stored")
+      console.log("# document, and a new key cannot read what the old one wrote.")
+      for (const name of ["ENCRYPTION_KEY", "FINGERPRINT_SECRET", "CRON_SECRET"])
+        console.log(name + "=" + secret())
+    '
     ;;
   help | -h | --help)
     usage

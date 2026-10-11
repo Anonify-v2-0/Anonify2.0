@@ -1,24 +1,24 @@
 import { handleRouteError, jsonResponse } from "@/lib/api/http"
-import { admitStalled } from "@/lib/documents/admission"
-import { cleanupExpired, markExpired } from "@/lib/workflows/cleanup"
-import { startProcessing } from "@/lib/workflows/start-processing"
+import {
+  cancelProcessing,
+  startProcessing,
+} from "@/lib/workflows/start-processing"
+import { sweep } from "@/lib/workflows/sweep"
 
 export const runtime = "nodejs"
 export const maxDuration = 300
 
 /**
- * Scheduled expiry sweep, and the queue's backstop.
+ * The sweep, for an external scheduler: Vercel's cron, a platform scheduler,
+ * or Compose's deprecated `scheduler` service.
  *
  * Vercel signs cron invocations with CRON_SECRET; without that header the
  * endpoint refuses, so nobody can trigger deletion from outside. The work
  * itself is idempotent, which is what makes retrying a partial run safe.
  *
- * The admission sweep rides along because it wants exactly the same schedule
- * and the same authority. Processing is admitted by events — an upload, a
- * retry, a run finishing — and an event that never arrives leaves a document
- * queued behind a slot nothing will free: a run killed mid-flight, a deploy in
- * the middle of a batch. This turns that into a delay rather than a document
- * nobody looks at again.
+ * Self-hosted workers run the same sweep on their own timer (#183), under the
+ * same lock, so calling this as well is harmless. See lib/workflows/sweep.ts
+ * for what a sweep does.
  */
 function authorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET
@@ -32,16 +32,14 @@ export async function GET(request: Request) {
       return jsonResponse({ error: "Unauthorized" }, 401)
     }
 
-    const marked = await markExpired()
     // The whole backlog, within the budget (ANONIFY_CLEANUP_BUDGET_MS, inside
     // this route's maxDuration). Another sweep already running is reported as
-    // skipped, with a 200: an overlapping cron is expected now and then (#170).
-    const result = await cleanupExpired()
-    // After the sweep, not before: a document that has just expired should not
-    // be admitted a moment before it is deleted.
-    const admitted = await admitStalled(startProcessing)
-
-    return jsonResponse({ marked, ...result, admitted })
+    // skipped, with a 200: an overlapping trigger is expected now and then.
+    const result = await sweep({
+      startRun: startProcessing,
+      cancelRun: cancelProcessing,
+    })
+    return jsonResponse(result)
   } catch (error) {
     return handleRouteError(error, "cron.cleanup")
   }

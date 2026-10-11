@@ -1,6 +1,6 @@
 "use client"
 
-import { useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import {
   Check,
   ChevronDown,
@@ -10,6 +10,7 @@ import {
   KeyRound,
   Loader2,
   ShieldCheck,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -33,7 +34,21 @@ import {
 } from "@/components/ui/select"
 import { DocumentUsageSummary } from "@/components/documents/usage-summary"
 import { toastFailure } from "@/lib/api/errors"
+import type {
+  DocumentExportProgress,
+  DocumentExportStatus,
+  DocumentExportView,
+} from "@/lib/documents/document-exports"
 import { collectBundle, zipBundle } from "@/lib/redaction/export-bundle"
+import {
+  canUseBackgroundExport,
+  followExport,
+  openVaults,
+  readExport,
+  recallKey,
+  startBackgroundExport,
+  type OpenedVaults,
+} from "@/lib/redaction/export-client"
 import { categoriesAllowing } from "@/lib/redaction/methods"
 import type { ExportReport } from "@/lib/redaction/report"
 import type { TokenVault } from "@/lib/redaction/vault"
@@ -117,7 +132,7 @@ type ExportedArtifact = {
   variant: string
   downloadUrl: string
   reportUrl: string
-  report: ExportReport
+  report: ExportReport | null
   checksum: string
   appliedRedactions: number
   verifiedValues: number
@@ -128,6 +143,53 @@ type ExportedArtifact = {
 type ExportResponse = ExportedArtifact & {
   metadataSanitized: boolean
   artifacts: ExportedArtifact[]
+}
+
+/** A finished background export, in the shape the result view draws. */
+function responseOf(
+  view: DocumentExportView,
+  opened: OpenedVaults
+): ExportResponse | null {
+  const artifacts: ExportedArtifact[] = (view.artifacts ?? []).map(
+    (artifact) => {
+      // The vault's link is spent once opened; what is drawn is the vault.
+      const { vaultUrl, ...rest } = artifact
+      void vaultUrl
+      return { ...rest, vault: opened.vaults.get(artifact.artifactId) ?? null }
+    }
+  )
+  if (artifacts.length === 0) return null
+  return {
+    ...artifacts[0],
+    metadataSanitized: view.metadataSanitized,
+    artifacts,
+  }
+}
+
+type Running = {
+  exportId: string
+  status: DocumentExportStatus
+  progress: DocumentExportProgress | null
+}
+
+/** Where the run has got to, in words. */
+function describeProgress(running: Running): string {
+  const progress = running.progress
+  if (running.status === "queued" || !progress) return "Waiting for a worker…"
+  const of =
+    progress.variants > 1
+      ? ` (${progress.variantIndex + 1} of ${progress.variants})`
+      : ""
+  switch (progress.stage) {
+    case "render":
+      return `Redacting ${progress.variant}${of}: page ${progress.done ?? 0} of ${progress.total ?? 0}`
+    case "verify":
+      return `Verifying ${progress.variant}${of}: reading it back for anything left in`
+    case "seal":
+      return `Storing ${progress.variant}${of}`
+    default:
+      return `Preparing ${progress.variant}${of}`
+  }
 }
 
 /**
@@ -300,6 +362,93 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
   const [busy, setBusy] = useState(false)
   const [bundling, setBundling] = useState(false)
   const [result, setResult] = useState<ExportResponse | null>(null)
+  const [running, setRunning] = useState<Running | null>(null)
+  const [unopened, setUnopened] = useState<string[]>([])
+  const following = useRef<AbortController | null>(null)
+
+  /**
+   * Follows a background export to its end (#187), then opens its vaults.
+   * Closing the dialog stops the following, not the export; opening it again
+   * picks it back up.
+   */
+  async function follow(exportId: string) {
+    following.current?.abort()
+    const controller = new AbortController()
+    following.current = controller
+    setRunning({ exportId, status: "queued", progress: null })
+    try {
+      const view = await followExport(
+        summary.id,
+        exportId,
+        (update) =>
+          setRunning((current) =>
+            current && current.exportId === exportId
+              ? { ...current, ...update }
+              : current
+          ),
+        controller.signal
+      )
+      if (controller.signal.aborted) return
+      if (!view) {
+        toast.error("The export could not be read back. Try again.")
+      } else if (view.status === "ready") {
+        const opened = await openVaults(view)
+        setUnopened(opened.unopened)
+        setResult(responseOf(view, opened))
+      } else if (view.status === "failed") {
+        toast.error(view.error ?? "The export could not be generated.")
+      } else if (view.status === "cancelled") {
+        toast("Export cancelled.")
+      }
+    } finally {
+      if (following.current === controller) {
+        following.current = null
+        setRunning(null)
+      }
+    }
+  }
+
+  // Opening the dialog again picks up an export still running, or one that
+  // finished while it was closed and whose vaults this browser can still open.
+  useEffect(() => {
+    if (!open) {
+      following.current?.abort()
+      return
+    }
+    let stale = false
+    void (async () => {
+      const latest = await readExport(summary.id).catch(() => null)
+      if (stale || !latest) return
+      if (latest.status === "queued" || latest.status === "running") {
+        void follow(latest.id)
+      } else if (
+        latest.status === "ready" &&
+        (latest.artifacts ?? []).some((artifact) => artifact.vaultUrl) &&
+        (await recallKey(latest.id))
+      ) {
+        const opened = await openVaults(latest)
+        if (stale) return
+        setUnopened(opened.unopened)
+        setResult(responseOf(latest, opened))
+      }
+    })()
+    return () => {
+      stale = true
+    }
+    // follow is stable enough here: it reads only refs and setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, summary.id])
+
+  async function cancel() {
+    if (!running) return
+    const response = await fetch(
+      `/api/documents/${summary.id}/export/${running.exportId}`,
+      { method: "DELETE" }
+    )
+    if (!response.ok && response.status !== 409) {
+      await toastFailure(toast, response, "The export could not be stopped.")
+    }
+  }
 
   /** Every copy and its report, as one zip. See lib/redaction/export-bundle.ts. */
   async function downloadAll(artifacts: ExportedArtifact[]) {
@@ -332,6 +481,7 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
   async function generate() {
     setBusy(true)
     setResult(null)
+    setUnopened([])
 
     const base = { sanitizeMetadata, addLabels, imageStyle }
     const variants =
@@ -344,6 +494,33 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
               methods: categoriesAllowing(secondCopy as RedactionMethod),
             },
           ]
+
+    // In the background, with any vault sealed to this page (#187). A page
+    // without WebCrypto (plain HTTP, not localhost) cannot open a sealed
+    // vault, and uses the synchronous answer while it lasts.
+    if (canUseBackgroundExport()) {
+      try {
+        const started = await startBackgroundExport(summary.id, {
+          ...base,
+          variants,
+        })
+        if (!started.ok) {
+          await toastFailure(
+            toast,
+            started.response,
+            "The export could not be generated."
+          )
+          return
+        }
+        setBusy(false)
+        await follow(started.exportId)
+      } catch {
+        toast.error("The export could not be generated.")
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
 
     try {
       const response = await fetch(`/api/documents/${summary.id}/export`, {
@@ -457,7 +634,40 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
                 </p>
               ) : null}
 
+              {unopened.length > 0 ? (
+                <p className="text-[11px] leading-relaxed text-primary">
+                  The vault for {unopened.join(" and ")} could not be opened
+                  here. A vault is sealed to the browser that asked for the
+                  export, and handed over once.
+                </p>
+              ) : null}
+
               <DocumentUsageSummary documentId={summary.id} />
+            </div>
+          ) : running ? (
+            <div className="space-y-3 py-4 text-sm" aria-live="polite">
+              <p className="flex items-center gap-2 text-text-secondary">
+                <Loader2 className="size-4 animate-spin" />
+                {describeProgress(running)}
+              </p>
+              {running.progress?.stage === "render" &&
+              running.progress.total ? (
+                <div className="h-1.5 overflow-hidden rounded-full bg-border">
+                  <div
+                    className="h-full bg-primary transition-[width]"
+                    style={{
+                      width: `${Math.round(
+                        (100 * (running.progress.done ?? 0)) /
+                          running.progress.total
+                      )}%`,
+                    }}
+                  />
+                </div>
+              ) : null}
+              <p className="text-[11px] leading-relaxed text-text-muted">
+                This runs on the server. You can close this dialog: the export
+                carries on, and opening it again shows where it has got to.
+              </p>
             </div>
           ) : (
             <div className="space-y-3 py-2">
@@ -609,6 +819,15 @@ export function ExportDialog({ summary }: { summary: DocumentSummary }) {
                 Download
               </a>
             </>
+          ) : running ? (
+            <Button
+              variant="outline"
+              className="btn-pill h-10"
+              onClick={() => void cancel()}
+            >
+              <X className="size-4" />
+              Cancel export
+            </Button>
           ) : (
             <Button
               className="btn-pill h-10"

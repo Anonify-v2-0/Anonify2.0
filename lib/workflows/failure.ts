@@ -47,6 +47,7 @@ export const FAILURE_CODES = [
   "storage",
   "database",
   "timeout",
+  "worker-lost",
   "unknown",
 ] as const
 
@@ -160,6 +161,13 @@ const FAILURES: Record<FailureCode, Omit<DocumentFailure, "code">> = {
   timeout: {
     message:
       "Analyzing this document took longer than allowed and was stopped. That is usually temporary.",
+    retryable: true,
+  },
+  // Set by the lost-worker sweep, never matched from an error (#182): the
+  // process running this document stopped mid-step, more than once.
+  "worker-lost": {
+    message:
+      "The server processing this document stopped before it finished, more than once. That is usually temporary.",
     retryable: true,
   },
   unknown: {

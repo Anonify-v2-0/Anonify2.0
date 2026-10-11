@@ -1,4 +1,5 @@
 import { mapWithConcurrency } from "@/lib/concurrency"
+import { withCpuSlot } from "@/lib/runtime/cpu-slots"
 import {
   loadPdfjsForRender,
   openPdfDocument,
@@ -88,8 +89,11 @@ export async function analyzePagesForVision<R>(
     const draw = async (pageNumber: number): Promise<Buffer> => {
       const page = await pdf.getPage(pageNumber)
       try {
-        const { canvas } = await renderPage(page, scale)
-        return canvas.toBuffer("image/png")
+        // Drawing and encoding in one CPU slot (#181); the model call that
+        // follows holds none.
+        return await withCpuSlot(async () =>
+          (await renderPage(page, scale)).canvas.toBuffer("image/png")
+        )
       } finally {
         page.cleanup()
       }

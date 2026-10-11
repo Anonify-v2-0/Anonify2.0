@@ -4,6 +4,7 @@
  *   pnpm smoke                          # http://127.0.0.1:3000
  *   pnpm smoke http://localhost:8080
  *   pnpm smoke --only=docx,xlsx         # one or more cases
+ *   pnpm smoke --only=txt --keep        # leave the documents in place
  *   pnpm smoke --ai                     # the model pass, against a configured model
  *
  * For every supported format: upload, process, accept, export, download — then
@@ -41,6 +42,12 @@ import {
   sealFileForUpload,
   type UploadEncryption,
 } from "@/lib/storage/chunked-web"
+import { categoriesAllowing } from "@/lib/redaction/methods"
+import {
+  newRecipientKeyPair,
+  openVaultEnvelope,
+  parseEnvelope,
+} from "@/lib/redaction/vault-envelope"
 import { azureConfigFromEnv, createAzureDriver } from "@/lib/storage/azure"
 import { createS3Driver } from "@/lib/storage/drivers"
 
@@ -1009,6 +1016,8 @@ function splitCsvRow(row: string): string[] {
 
 const argv = process.argv.slice(2)
 const ai = argv.includes("--ai")
+/** Leave each case's document behind, for a check that needs one (the sweep). */
+const keep = argv.includes("--keep")
 const only = argv
   .find((argument) => argument.startsWith("--only="))
   ?.slice("--only=".length)
@@ -1068,6 +1077,73 @@ function putLocal(documentId: string, body: Blob): Promise<Response> {
       body,
     }
   )
+}
+
+type ExportedArtifactView = {
+  artifactId: string
+  variant: string
+  size: number
+  appliedRedactions: number
+  verifiedValues: number
+  downloadUrl: string
+  reportUrl: string
+  vaultUrl: string | null
+}
+
+type ExportView = {
+  id: string
+  status: string
+  error: string | null
+  artifacts: ExportedArtifactView[] | null
+}
+
+/**
+ * An export, the way the dialog asks for one (#187): in the background, with
+ * a key the vault is sealed to, followed on its progress stream to the end,
+ * then read back. Returns the view and how many progress events arrived.
+ */
+async function exportInBackground(
+  documentId: string,
+  body: Record<string, unknown>,
+  recipientKey: string
+): Promise<{ view: ExportView; events: number }> {
+  const started = await json<{
+    exportId: string
+    statusUrl: string
+    streamUrl: string
+  }>(
+    await call(`/api/documents/${documentId}/export`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        prefer: "respond-async",
+      },
+      body: JSON.stringify({ ...body, recipientKey }),
+    }),
+    "export"
+  )
+
+  // The stream runs until the export finishes; a 409 means it already has.
+  let events = 0
+  const stream = await call(started.streamUrl, {
+    headers: { accept: "text/event-stream" },
+  })
+  if (stream.ok)
+    events = ((await stream.text()).match(/^data: /gm) ?? []).length
+
+  for (let attempt = 0; attempt < 240; attempt++) {
+    const { export: view } = await json<{ export: ExportView }>(
+      await call(started.statusUrl),
+      "export status"
+    )
+    if (view.status === "ready") return { view, events }
+    if (view.status === "failed" || view.status === "cancelled")
+      throw new Error(
+        `export ${view.status}: ${view.error ?? "no reason given"}`
+      )
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  throw new Error("export did not finish within two minutes")
 }
 
 async function expectOk(response: Response, what: string): Promise<Response> {
@@ -1352,22 +1428,18 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
   }
   step(`accepted ${ids.length + created.length}`)
 
-  const exported = await json<{
-    size: number
-    appliedRedactions: number
-    verifiedValues: number
-    downloadUrl: string
-    reportUrl: string
-  }>(
-    await call(`/api/documents/${reserved.id}/export`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ addLabels: false, sanitizeMetadata: true }),
-    }),
-    "export"
+  // In the background, on a worker, as the dialog does it (#187).
+  const recipient = await newRecipientKeyPair()
+  const { view, events } = await exportInBackground(
+    reserved.id,
+    { addLabels: false, sanitizeMetadata: true },
+    recipient.publicKey
   )
+  const exported = view.artifacts?.[0]
+  if (!exported) throw new Error("the finished export has no artifact")
   step(
-    `exported ${exported.size} bytes, ${exported.appliedRedactions} applied, ` +
+    `exported ${exported.size} bytes in the background (${events} progress ` +
+      `event(s)), ${exported.appliedRedactions} applied, ` +
       `${exported.verifiedValues} verified`
   )
 
@@ -1420,7 +1492,71 @@ async function runCase(smokeCase: SmokeCase): Promise<void> {
   assertAbsent(reportText, accepted, "the export report")
   step(`report accounts for ${report.removed.total} removals and quotes none`)
 
-  // 9. Clean up after ourselves, and exercise deletion while we are here.
+  // 9. A vault (#187), once: an encrypted second copy, whose vault is sealed
+  //    to this smoke's key. That key opens it, another does not, and it is
+  //    handed over once, so a second fetch finds nothing stored.
+  if (smokeCase.name === "txt") {
+    const sealedTo = await newRecipientKeyPair()
+    const stranger = await newRecipientKeyPair()
+    const base = { addLabels: false, sanitizeMetadata: true }
+    const { view: copies } = await exportInBackground(
+      reserved.id,
+      {
+        ...base,
+        variants: [base, { ...base, methods: categoriesAllowing("encrypt") }],
+      },
+      sealedTo.publicKey
+    )
+    const sealed = copies.artifacts?.find((artifact) => artifact.vaultUrl)
+    if (!sealed?.vaultUrl) throw new Error("the encrypted copy has no vault")
+    const envelope = parseEnvelope(
+      new Uint8Array(
+        await (
+          await expectOk(await call(sealed.vaultUrl), "vault")
+        ).arrayBuffer()
+      )
+    )
+    const context = { exportId: copies.id, variant: sealed.variant }
+    const opened = JSON.parse(
+      new TextDecoder().decode(
+        await openVaultEnvelope(envelope, sealedTo.privateKey, context)
+      )
+    ) as { key?: string | null; entries: unknown[] }
+    if (!opened.key) throw new Error("the opened vault carries no key")
+    const strangerOpened = await openVaultEnvelope(
+      envelope,
+      stranger.privateKey,
+      context
+    ).then(
+      () => true,
+      () => false
+    )
+    if (strangerOpened) throw new Error("another key opened the vault")
+    const again = await call(sealed.vaultUrl)
+    if (again.status !== 410)
+      throw new Error(`a second vault fetch answered ${again.status}, not 410`)
+    step("vault sealed to this key, opened once, and gone")
+
+    // The synchronous answer, for API scripts, until 1.18.0: the same run,
+    // awaited, and marked deprecated.
+    const legacy = await call(`/api/documents/${reserved.id}/export`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(base),
+    })
+    const answered = await json<{ downloadUrl?: string }>(legacy, "sync export")
+    if (!answered.downloadUrl || !legacy.headers.get("deprecation"))
+      throw new Error(
+        "the synchronous export answer lost its link or its notice"
+      )
+    step("synchronous export still answers, marked deprecated")
+  }
+
+  // 10. Clean up after ourselves, and exercise deletion while we are here.
+  if (keep) {
+    step(`kept ${reserved.id}`)
+    return
+  }
   await expectOk(
     await call(`/api/documents/${reserved.id}`, { method: "DELETE" }),
     "delete"

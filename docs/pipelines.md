@@ -108,6 +108,70 @@ transform and two copies would drift.
 A page the recognizer cannot read stays flagged rather than being presented as
 successfully read and empty.
 
+#### Reading scans faster (#189)
+
+Scanned documents are the slowest thing Anonify processes, and nearly all of
+that time is local OCR. Three changes, measured with `pnpm bench:ocr` on
+corpus documents rendered to PDF and rasterised at 200 DPI into image-only
+"scans" (the corpus has no real scans, and a clean scan is the same input for
+every setting):
+
+- **One pool of Tesseract workers per process**, not a worker per document
+  (`lib/ocr/tesseract-pool.ts`). At most `ANONIFY_CPU_CONCURRENCY` workers,
+  started as pages queue, kept warm between documents, stopped after
+  `ANONIFY_OCR_IDLE_SECONDS` (300) idle and on shutdown. The pool is the CPU
+  bound for recognition: Tesseract runs on its own threads, so a page being
+  read holds no CPU slot, and the slots are left to drawing pages.
+- **Pages are pipelined** within a document: drawn one at a time, in order,
+  and handed to the pool as soon as each is drawn, with up to two drawn ahead
+  of the slowest one being read. At most three encoded pages are alive per
+  document. Results land in a map by page number, so nothing downstream
+  depends on timing.
+- **A cheaper hand-off.** A page went to Tesseract as a PNG: zlib at 2x, then
+  undone in WebAssembly. It now goes as an 8-bit greyscale PGM, which
+  Leptonica reads natively, made with Leptonica's own luminance weights so
+  the grey Tesseract reads is the grey it would have computed. BMP was not an
+  option: tesseract.js re-encodes every BMP in JavaScript first. Mistral still
+  gets PNG, which is what its API takes.
+
+| Hand-off (48 pages at 2x, one worker) | Encode ms/page | Recognize ms/page | Size/page |
+| --- | ---: | ---: | ---: |
+| PNG | 97.0 | 2923 | 650 KiB |
+| Greyscale PGM | 18.1 | 2783 | 1959 KiB |
+
+Words and boxes were identical on all 48 pages, and the box-position suites
+(`tests/image-ocr.test.ts`, `tests/pdf-ocr.test.ts`) pass unchanged.
+
+| Throughput, scale 2 | Pages | Before | Now | Peak RSS before → now |
+| --- | ---: | ---: | ---: | ---: |
+| One document, 16 CPUs | 4 | 15.6 pages/min | 31.7 pages/min | 597 → 698 MiB |
+| Five documents at once, 16 CPUs | 24 | 35.6 pages/min | 60.8 pages/min | 827 → 996 MiB |
+| One document, 2 CPU slots | 4 | 14.8 pages/min | 27.8 pages/min | 591 → 662 MiB |
+| Five documents at once, 2 CPU slots | 24 | 30.6 pages/min | 30.6 pages/min | 767 → 692 MiB |
+
+"Before" is reproduced in the benchmark: a worker started for each document,
+every page drawn, encoded as PNG and read before the next is drawn. The 2-slot
+rows cap the pool at two workers on the same 16-CPU machine; on a real
+two-CPU host the five workers before would have shared two CPUs as well.
+
+#### The render scale
+
+Scans are drawn at `ANONIFY_OCR_RENDER_SCALE` (1–4), 2 by default. Export
+draws at its own scale. Measured over 12 documents (66 pages), scored against
+the corpus labels: the share of labelled values found in the OCR text, spaces
+ignored, and the share of the document's words read.
+
+| Scale | Labelled values found | Words read | ms/page |
+| ---: | ---: | ---: | ---: |
+| 1.5 | 83.1% (265 of 319) | 96.5% | 1262 |
+| 2 | 84.3% (269 of 319) | 96.7% | 1590 |
+| 2.5 | 83.7% (267 of 319) | 96.6% | 1693 |
+
+The default stays at 2. 1.5 is 21% faster, and the difference is within the
+noise (2.5 scores below 2), but it found four fewer labelled values, and in a
+redaction tool a value not read is a value not removed. Set it to 1.5 where
+speed matters more than that.
+
 ### Export
 
 ```

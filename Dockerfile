@@ -142,9 +142,15 @@ LABEL org.opencontainers.image.title="Anonify" \
       org.opencontainers.image.revision="$OCI_REVISION" \
       org.opencontainers.image.created="$OCI_CREATED"
 ENV ANONIFY_BUILD_ID=$ANONIFY_BUILD_ID
+# The release, for the metrics' build_info (#188).
+ENV ANONIFY_BUILD_VERSION=$OCI_VERSION
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# The app owns SIGTERM, so a container that is stopped finishes its steps
+# before it closes its HTTP server (#182). Next reads this from the process
+# environment, never from .env. tini (below) forwards the signal.
+ENV NEXT_MANUAL_SIG_HANDLE=true
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 # Durable runs live in Postgres. instrumentation.ts defaults the world's

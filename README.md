@@ -12,6 +12,49 @@ under a black rectangle is not a redaction system.
 
 *Upload, review what was proposed, export a file the value is actually gone from.*
 
+## Run with Docker
+
+No clone, no Node and no build: the image is published to Docker Hub as
+[`nabeelwasif/anonify2.0`](https://hub.docker.com/r/nabeelwasif/anonify2.0)
+for `linux/amd64` and `linux/arm64`, so it runs natively on Apple silicon and
+ARM servers too. You need Docker with Compose v2.
+
+```sh
+mkdir anonify && cd anonify
+curl -LO https://github.com/Anonify-v2-0/Anonify2.0/releases/latest/download/docker-compose.yml
+[ -e .env ] || docker run --rm nabeelwasif/anonify2.0 keys > .env
+docker compose up -d
+```
+
+Then open <http://localhost:3000>. That starts Postgres and RustFS
+(S3-compatible storage), creates the bucket, applies the migrations and starts
+Anonify, with local OCR, no accounts anywhere, and every port bound to
+localhost.
+
+**Keep `.env`.** `anonify keys` prints a new `ENCRYPTION_KEY` every time, and
+it encrypts every stored document: a new key cannot read what the old one
+wrote. That is why the command above only writes `.env` when there is none.
+
+**Choose a version.** The file follows `latest`, which moves with every
+release. For anything you keep, pin one in `.env`:
+
+```env
+ANONIFY_VERSION=1.17.0   # exactly this release; 1.17 takes its patches; 1 every minor release
+```
+
+**Upgrading** is a pull. The `migrate` service runs the new image's migrations
+before the app starts, so there is nothing else to run:
+
+```sh
+docker compose pull && docker compose up -d
+```
+
+Read the [changelog](CHANGELOG.md) before a minor or major version. Every
+setting is in [`.env.example`](.env.example), also attached to each release as
+`env.example`; add what you need to `.env` and run `docker compose up -d`
+again. For other platforms, replicas and production settings see
+[docs/deploy/image.md](docs/deploy/image.md).
+
 ## Documentation
 
 | Document | What it covers |
@@ -22,6 +65,8 @@ under a black rectangle is not a redaction system.
 | [docs/pipelines.md](docs/pipelines.md) | Why each format's pipeline is built the way it is |
 | [docs/presets.md](docs/presets.md) | The five shipped redaction presets and their detector/category memberships |
 | [docs/deploy-vercel.md](docs/deploy-vercel.md) | Deploying to Vercel on the Hobby plan, and the limits that shape it |
+| [docs/operations.md](docs/operations.md) | Metrics, autoscaling workers on the queue, traces and alerts |
+| [docs/deploy/capacity.md](docs/deploy/capacity.md) | What one replica takes on, and how to size it |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | The invariants, the roadmap, and the benchmarks we would like |
 
 ## What it can redact
@@ -306,7 +351,7 @@ A value judged sensitive once is expanded to its other occurrences by local
 string search. Seventeen mentions of a name cost one model call, not seventeen —
 and cannot come back with a different answer the second time.
 
-## Running it
+## Build from source
 
 Two supported setups. `pnpm setup` asks which you want and writes a working
 `.env`; everything below is what it does, in case you would rather do it by
@@ -372,16 +417,18 @@ limits and rollback requirements.
 ```bash
 git clone <this repo> && cd Anonify2.0
 pnpm install
-pnpm setup --local      # or just `pnpm setup` and choose; generates the secrets
-docker compose up -d    # Postgres, RustFS, migrations, then Anonify itself
-                        # http://localhost:3000
+pnpm setup --local              # or just `pnpm setup` and choose; generates the secrets
+docker compose up -d --build    # Postgres, RustFS, migrations, then Anonify itself
+                                # http://localhost:3000
 ```
 
-`docker compose up -d` runs the whole application. The app image is built from
-this repo, the schema is applied before the app starts, and nothing needs to be
-installed on the host beyond Docker itself — `pnpm install` and `pnpm setup` are
-there to write `.env`, which is where the encryption key and the fingerprint
-secret come from.
+`docker compose up -d --build` runs the whole application, with the app image
+built from this checkout and tagged as the published one. Without `--build`
+Compose runs the published image instead ([Run with Docker](#run-with-docker)),
+which is not your code. The schema is applied before the app starts, and
+nothing needs to be installed on the host beyond Docker itself — `pnpm install`
+and `pnpm setup` are there to write `.env`, which is where the encryption key
+and the fingerprint secret come from.
 
 **To develop against those services with the app on the host**, start only the
 dependencies so port 3000 stays free:
@@ -403,12 +450,12 @@ What `docker compose up -d` starts:
 
 | Service | Port | Credentials | Purpose |
 | --- | --- | --- | --- |
-| `app` | 3000 | — | Anonify, built from this repo |
+| `app` | 3000 | — | Anonify: the published image, or this checkout with `--build` |
 | Postgres 17 | 5432 | `anonify` / `anonify` | The database, in place of Neon |
 | RustFS | 9000 (API), 9001 (console) | `anonify` / `anonify-dev-secret` | S3-compatible storage, in place of Vercel Blob |
 | `rustfs-init` | — | — | Idempotently creates the `anonify` bucket, then exits |
 | `migrate` | — | — | The app image running `anonify migrate`: migrations and the workflow schema, then exits |
-| `scheduler` | — | — | Opt-in expiry sweep; see [Scheduled cleanup](#scheduled-cleanup) |
+| `scheduler` | — | — | Deprecated, removed in 1.18.0: the app sweeps on its own. See [Expiring documents](#expiring-documents-when-you-self-host) |
 
 Every published port binds to `127.0.0.1` only, and the data lives in named
 volumes across restarts. The credentials are development defaults — do not reuse
@@ -779,15 +826,25 @@ column AN is charged for what it contains, not for the blanks between.
 ### Expiring documents when you self-host
 
 Documents are temporary, which is only true if something is actually deleting
-them. On Vercel that is the cron entry in `vercel.json`. **Nothing outside
-Vercel reads that file**, so a self-hosted install needs its own schedule.
+them. **A self-hosted Anonify does that itself:** every process that runs
+workers runs the sweep every five minutes, and one replica leads at a time, so
+one container or fifty, exactly one sweeps (#183). It deletes expired
+documents, restarts runs a crashed worker left behind, and starts documents
+stuck in the queue. Nothing to schedule and no secret to share.
 
-(On Vercel's Hobby plan that entry can only fire once a day — the plan rejects
-anything more frequent — so a Hobby deployment wants the same backstop for a
-different reason. See [docs/deploy-vercel.md](docs/deploy-vercel.md).)
+| Setting | Default | |
+| --- | --- | --- |
+| `ANONIFY_SCHEDULER` | `on` | `off` leaves the sweep to an external scheduler |
+| `ANONIFY_SCHEDULER_INTERVAL_SECONDS` | `300` | 10–86400, with ±10% jitter so replicas do not wake together |
 
-Either run the sweep directly — no server and no secret needed, so this suits
-cron, a systemd timer or Task Scheduler:
+On Vercel, which has no long-lived worker, the cron entry in `vercel.json`
+calls `/api/cron/cleanup` instead. (On the Hobby plan that entry can only fire
+once a day, so a Hobby deployment wants another backstop. See
+[docs/deploy-vercel.md](docs/deploy-vercel.md).)
+
+Where workers are not long-lived, run the sweep as a job. It needs no server
+and no secret, so it suits cron, a systemd timer, Task Scheduler or a
+Kubernetes CronJob:
 
 ```bash
 pnpm cleanup     # one pass: mark expired, delete documents, prune rate limits
@@ -797,26 +854,12 @@ pnpm cleanup     # one pass: mark expired, delete documents, prune rate limits
 */15 * * * *  cd /srv/anonify && pnpm cleanup
 ```
 
-Or let Compose call the endpoint for you:
+The internal timer, the route and the job share one lock, so running several
+is harmless: whichever comes second steps aside.
 
-```bash
-docker compose --profile scheduler up -d
-```
-
-It is opt-in because a short-lived local install has little worth sweeping. Tune
-with `CLEANUP_INTERVAL_SECONDS` (default 900) and `ANONIFY_URL` (default
-`http://app:3000` — point it at `http://host.docker.internal:3000` if you run
-the app on the host).
-
-Set `CRON_SECRET` before you do. The container image runs as production, where
-the cleanup endpoint refuses any request that does not carry it, so without one
-the scheduler starts, 401s every cycle, and documents outlive their retention
-window. It says so — once at startup and again on every refusal — rather than
-logging a status code nobody reads. `pnpm setup` generates it.
-
-It is a warning rather than a hard failure because pointing `ANONIFY_URL` at a
-development server on the host is legitimate: that server has no secret of its
-own, and the endpoint accepts an unauthenticated sweep outside production.
+The Compose `scheduler` service, which called the endpoint on a timer, is
+**deprecated and removed in 1.18.0**. Stop starting it with
+`--profile scheduler`; the app does its job now.
 
 Whichever you choose, the sweep deletes the source, the normalized model, every
 export and the database row — and is idempotent, so a failed run is retried

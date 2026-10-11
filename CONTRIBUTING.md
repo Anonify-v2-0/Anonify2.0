@@ -115,9 +115,10 @@ Done.
 
 ### 3.1 Make it actually clone-and-run
 
-Done. A fresh clone now runs with `pnpm setup && docker compose up -d`, which
-builds and starts Anonify along with local Postgres and RustFS, with no account
-anywhere.
+Done. A fresh clone now runs with `pnpm setup && docker compose up -d --build`,
+which builds and starts Anonify along with local Postgres and RustFS, with no
+account anywhere. Without a clone, the published image runs from the Compose
+file alone (#186; README, "Run with Docker").
 
 - [x] ~~**Browser uploads require a real Blob store.**~~ The server reports which
       upload mode is configured and the client follows; `/api/upload/local`
@@ -467,7 +468,8 @@ pnpm dev
 `pnpm setup` asks five things — how to run it, who can reach it, which
 services, what the limits should be, and whether to keep the secrets already in
 your `.env` — and the commands above are the local path. To run the whole thing
-in containers instead, `docker compose up -d` and skip the rest.
+in containers instead, `docker compose up -d --build` and skip the rest.
+Without `--build` Compose runs the published image, not your checkout.
 `pnpm setup --local --defaults --yes` answers all of it with defaults, which is
 what a scripted install or a Dockerfile wants.
 

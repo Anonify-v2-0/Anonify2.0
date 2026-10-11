@@ -24,7 +24,7 @@ pulling the server in behind it.
 
 ---
 
-## The 17 codes
+## The 18 codes
 
 Every code carries a short message written for a person and a `retryable`
 flag. The message is fixed per code — it is never derived from the thrown
@@ -48,6 +48,7 @@ error's text.
 | `storage` | The file store could not be reached while processing this document. That is usually temporary. | Yes |
 | `database` | The database could not be reached while processing this document. That is usually temporary. | Yes |
 | `timeout` | Analyzing this document took longer than allowed and was stopped. That is usually temporary. | Yes |
+| `worker-lost` | The process running this document stopped mid-step (killed, out of memory, its machine gone) and the lost-worker sweep restarted it, until it had done so twice and the document still had not finished. Never matched from an error: only the sweep sets it. See [workflow.md](./workflow.md#8-shutdown-and-lost-workers). | Yes |
 | `unknown` | Something went wrong while analyzing this document. The original file was not modified. The catch-all for anything the matchers do not recognise. | Yes |
 
 ---

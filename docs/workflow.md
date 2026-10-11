@@ -356,7 +356,54 @@ instead of tearing down a live stream.
 
 ---
 
-## 5. Batch export
+## 5. Exports
+
+### One document
+
+`lib/workflows/export-document.ts`
+
+A single export used to run inside its HTTP request: every redacted PDF page
+rasterised, the document rebuilt, re-opened for verification, sealed and
+stored, on the web tier and within the request's 300 seconds. A few at once
+starved the interface, and a replica recycled mid-request lost the export. It
+is now a run on the workers (#187):
+
+```
+POST   /api/documents/:id/export                     → a DocumentExport row, the run started, 202
+GET    /api/documents/:id/export/:exportId           → status, progress, and the artifacts once ready
+GET    /api/documents/:id/export/:exportId/stream    → progress as server-sent events
+GET    /api/documents/:id/export/:exportId/vault     → a variant's sealed vault, once
+DELETE /api/documents/:id/export/:exportId           → stop it
+```
+
+- **One step per variant**, each `exportAndStore`, so one definition of an
+  export and one verification gate, inside a CPU slot (#181). A variant's
+  artifact id is fixed by the export and its place, so a step that runs again
+  overwrites its own row (`@@unique([exportId, variant])`) instead of adding a
+  second.
+- **Progress** is a stage (`plan`, `render` with pages drawn of the total,
+  `verify`, `seal`) and a variant, written to the run's stream as it happens
+  and to the row at most once a second, so a dialog opened later reads where
+  it has got to.
+- **The vault** is sealed to the browser that asked, with ECDH P-256, HKDF and
+  AES-GCM, and stored only as that envelope, handed over once. Nothing a step
+  returns carries it: step results are persisted in the run's event log. See
+  [security-internals.md §11](./security-internals.md).
+- **The PDF source** is read by pdf.js in ranges over the bytes already in
+  memory, rather than given its own copy of the whole file. pdf-lib still holds
+  the file, to copy the untouched pages. Measured on a 51 MiB PDF with three
+  redacted pages (`benchmarks/export-memory.ts`): peak resident memory above
+  the start 526 → 451 MiB, heap plus external 317 → 280 MiB.
+- **Closing the dialog does not cancel**; opening it again follows the newest
+  export of the document, and a cancel button stops it before its next
+  variant. A failure is one of a few sentences for a person, never a raw
+  message.
+
+Without `Prefer: respond-async` the route still answers synchronously, for one
+release: it starts the same run, waits for it, and opens the vault with a key
+that exists only in that request (docs/api.md).
+
+### A batch
 
 `lib/workflows/export-batch.ts`
 
@@ -448,10 +495,25 @@ asked for it.
 
 ## 6. Expiry
 
-A second workflow (`lib/workflows/cleanup.ts`) runs every 15 minutes. On Vercel
-that schedule comes from `vercel.json`; nothing outside Vercel reads that file,
-so a self-hosted install drives it with `pnpm cleanup` from cron or with the
-opt-in `scheduler` service in `docker-compose.yml`. Either way:
+The sweep (`lib/workflows/sweep.ts`) runs on a schedule, and three things can
+run it (#183):
+
+- **the built-in scheduler** in every process that runs workers
+  (`lib/runtime/scheduler.ts`): every `ANONIFY_SCHEDULER_INTERVAL_SECONDS`
+  (300), ±10%, the first tick one interval after start. A tick still running
+  when the next is due is skipped, and the scheduler stops, waiting for its
+  sweep, when the process drains (§8). `ANONIFY_SCHEDULER=off` turns it off;
+- **`/api/cron/cleanup`**, for Vercel's cron (`vercel.json`) and platform
+  schedulers that call a URL;
+- **`pnpm cleanup`** / **`anonify cleanup`**, for job-style schedulers. It is
+  bundled without the workflow runtime, so it purges and does not restart or
+  admit runs.
+
+Each sweep:
+
+0. Takes the sweep lock, `anonify.sweep`. Whichever trigger comes second
+   steps aside, so exactly one replica sweeps per interval, and mixing
+   triggers is safe.
 
 1. Mark documents past `expiresAt` as expired, so the workspace stops serving
    them mid-window.
@@ -459,6 +521,10 @@ opt-in `scheduler` service in `docker-compose.yml`. Either way:
    upload (and its key) if ingest never got to it, the normalized model, every export
    — then the row.
 3. Prune empty batches and stale rate-limit windows.
+4. Restart runs a lost worker left behind (§8).
+5. Admit documents stuck in the queue: admission's backstop.
+
+Each sweep the scheduler leads logs `{"context":"scheduler","leader":true,"durationMs":…}`.
 
 A single run is **bounded by time, not by a count** (#170). It reads expired
 documents 50 at a time and keeps going until there are none, or until
@@ -474,9 +540,9 @@ allows it (`DeleteObjects` on S3, `del` with a list on Vercel Blob). A message
 and its attachments on the same page are purged by the message alone, so no two
 workers touch the same rows.
 
-**One sweep at a time.** A cron, the Compose scheduler, `pnpm cleanup` and a
-slow run overlapping the next tick can all start a sweep. Each takes
-`pg_try_advisory_xact_lock(hashtext('anonify.cleanup'))` in a transaction held
+**One sweep at a time.** Every worker's timer, a platform cron, `pnpm cleanup`
+and a slow run overlapping the next tick can all start a sweep. Each takes
+`pg_try_advisory_xact_lock(hashtext('anonify.sweep'))` in a transaction held
 open for the run (`lib/database/locks.ts`). One that does not get it returns
 `{ skipped: "another sweep is running" }` with a 200 and does nothing. The lock
 is the transaction's, so it is released however the sweep ends, and it holds
@@ -540,3 +606,88 @@ mutated, so it is simply true.
 
 The full list of failure codes, their meanings, retryability, and how a thrown
 error is classified into one is in [failure-codes.md](./failure-codes.md).
+
+## 8. Shutdown and lost workers
+
+`lib/runtime/shutdown.ts`, `lib/workflows/recovery.ts`
+
+Scaling *down* is where work gets lost (#182). Every rolling deploy,
+scale-in, spot reclaim and node drain sends `SIGTERM`, waits a grace period,
+then sends `SIGKILL`.
+
+### A graceful stop
+
+The image sets `NEXT_MANUAL_SIG_HANDLE=true`, so the app owns `SIGTERM` and
+`SIGINT` instead of Next.js, and `tini` forwards them. On the first one:
+
+1. **Readiness drops.** `/api/ready` answers 503, so load balancers stop
+   sending traffic. `/api/health` stays 200: nothing is broken.
+2. **A pause** of `ANONIFY_DRAIN_READY_DELAY_MS` (5000), so they notice
+   before anything stops answering. This is what avoids 502s in a rollout.
+3. **Workers stop taking work.** The job runner stops claiming jobs and
+   waits for the ones it holds (`world.close()`, graphile-worker's graceful
+   stop). Each of those steps reaches this server over HTTP through the
+   loopback relay, and the server is still listening, so they finish.
+4. **HTTP closes.** Progress streams end with a comment frame and no `end`
+   event, so their clients reconnect and resume from their last index on
+   another replica. The servers stop accepting connections and answer the
+   requests already in flight.
+5. **Connections are released**, and the process exits 0.
+
+The whole sequence has `ANONIFY_DRAIN_SECONDS` (120) from the signal. Past
+it, the process logs what was still running, step names, attempts and how
+long they had run and never content, and exits 1. A second signal exits at
+once.
+
+The job runner (graphile-worker) installs its own signal handlers, and the
+world gives no way to turn them off. They would race this sequence, and they
+re-raise the signal when they are done. So they are taken off once the runner
+has started, and stopping it is left to step 3.
+
+Without `NEXT_MANUAL_SIG_HANDLE=true` in the *process* environment (Next reads
+it before `.env`), Next closes its server at once, as before, and a worker
+logs a warning at start.
+
+### Grace periods per platform
+
+Give the drain `ANONIFY_DRAIN_SECONDS` = the platform's grace period minus
+ten seconds.
+
+| Platform | Setting | Default | Suggested |
+| --- | --- | --- | --- |
+| Docker Compose | `stop_grace_period` | 10s; Anonify's file sets 130s | 130s |
+| Kubernetes | `terminationGracePeriodSeconds` | 30 | 130 |
+| AWS ECS | `stopTimeout` | 30 | 120 (Fargate's maximum), with `ANONIFY_DRAIN_SECONDS=110` |
+| Azure Container Apps | `terminationGracePeriodSeconds` | 30 | 130 |
+| Google Cloud Run | none | 10s on scale-in | `ANONIFY_DRAIN_SECONDS=8`, `ANONIFY_DRAIN_READY_DELAY_MS=0` |
+
+Cloud Run's ten seconds is shorter than many steps. That is survivable
+because every step can be run again, and the next section is what runs it.
+
+### Lost workers
+
+A worker killed hard (out of memory, `SIGKILL` after its grace period, a node
+gone) keeps the lock on its job until graphile-worker decides the job is
+abandoned, about four hours later. graphile-worker 0.16.6 has no setting for
+that, and the world would not pass one through. The document would sit at
+"extracting" all that time.
+
+The sweep (`/api/cron/cleanup`) looks for documents a run is working on whose
+last sign of progress, the row changing or a processing event, is older than
+`ANONIFY_STUCK_RUN_MINUTES` (20). For each one it:
+
+1. cancels the run, so it cannot write over what happens next. A run that
+   will not cancel is left for the next sweep;
+2. clears `workflowRunId` and sets `queued`, counting the restart in
+   `metadata.recoveries`;
+3. lets admission, which runs next in the same sweep, start a fresh run.
+
+That is safe because every step can run again: ingest returns early once the
+source is stored, and usage is charged once, by a flag on the row (§3). After
+two restarts the third loss fails the document with `worker-lost`, which can
+be retried. Something about that document, or that deployment, is killing
+the process that reads it, and a loop would hide it.
+
+From here a run that is only waiting its turn in a backed-up queue looks the
+same as one whose worker died. Keep `ANONIFY_STUCK_RUN_MINUTES` above the
+longest healthy step and the longest a job waits for a worker.

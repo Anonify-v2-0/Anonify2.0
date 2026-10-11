@@ -1,9 +1,6 @@
 import { formatByteSize, readByteSizeEnv } from "@/lib/config/bytes"
 import { activeProfile, type Profile } from "@/lib/config/profile"
-import {
-  batchLimits,
-  processingConcurrency,
-} from "@/lib/documents/batch-config"
+import { JOB_CONCURRENCY_ENV, jobConcurrency } from "@/lib/runtime/capacity"
 
 /**
  * How much memory streaming is allowed to use.
@@ -16,13 +13,17 @@ import {
  * product that actually matters:
  *
  * ```
- * chunkBytes × maxInFlightChunks × processingConcurrency() <= memoryBudget
+ * chunkBytes × maxInFlightChunks × jobConcurrency() <= memoryBudget
  * ```
  *
- * `processingConcurrency()` already answers "how many documents at once" — it
- * is the per-owner gate in lib/documents/admission.ts — and this answers "how
- * many chunks per document" by dividing the budget by it, rather than being a
- * second, independent limiter that could disagree with the first.
+ * `jobConcurrency()` answers "how many steps at once in this process"
+ * (lib/runtime/capacity.ts), and this answers "how many chunks per step" by
+ * dividing the budget by it, rather than being a second, independent limiter
+ * that could disagree with the first.
+ *
+ * Per process (#181). It used to be divided by the per-*owner* processing
+ * limit, which was only the process's real concurrency while one owner was
+ * active: ten owners' documents shared a budget sized for one owner's six.
  *
  * Ingest of an upload the browser sealed runs one stage more than any other
  * read: a `ChunkOpener` in front of the sniff and the sealer, holding the
@@ -42,7 +43,7 @@ export type StreamingLimits = {
    * anything already stored unreadable.
    */
   chunkBytes: number
-  /** The whole streaming footprint, across every document processing at once. */
+  /** The whole streaming footprint, across every step this process runs at once. */
   memoryBudget: number
 }
 
@@ -55,14 +56,13 @@ export type StreamingLimits = {
 const DEFAULT_CHUNK_BYTES = 1024 * 1024
 
 /**
- * How many chunks each processing document gets when no budget is set, per
- * profile like the batch limits this composes with.
+ * How many chunks each running step gets when no budget is set, per profile.
  *
- * The default budget is this times the chunk size times the processing
- * concurrency — 24 MiB for a demo at its default of three, 96 MiB self-hosted
- * at six — rather than a fixed number, so an install that already raised
- * `ANONIFY_BATCH_PROCESSING` gets a budget that grew with it instead of one it
- * suddenly does not fit in. Only a budget somebody set can be too small.
+ * The default budget is this times the chunk size times the job concurrency —
+ * 64 MiB self-hosted on two CPUs (`all`, four jobs) — rather than a fixed
+ * number, so a process given more jobs gets a budget that grew with it instead
+ * of one it suddenly does not fit in. Only a budget somebody set can be too
+ * small.
  */
 const DEFAULT_CHUNKS_PER_DOCUMENT: Record<Profile, number> = {
   demo: 8,
@@ -102,9 +102,7 @@ export function streamingLimits(
 
   const memoryBudget = readByteSizeEnv(
     MEMORY_BUDGET_ENV,
-    chunkBytes *
-      DEFAULT_CHUNKS_PER_DOCUMENT[profile] *
-      batchLimits(profile).processing
+    chunkBytes * DEFAULT_CHUNKS_PER_DOCUMENT[profile] * jobConcurrency()
   )
   return { chunkBytes, memoryBudget }
 }
@@ -117,7 +115,7 @@ export function chunkShift(
 }
 
 /**
- * How many chunks one document may have in flight.
+ * How many chunks one step may have in flight.
  *
  * A budget too small to give every concurrent document two chunks is refused
  * rather than quietly floored. A limit somebody believes they set and which is
@@ -127,7 +125,7 @@ export function chunkShift(
  */
 export function maxInFlightChunks(
   limits: StreamingLimits = streamingLimits(),
-  concurrency: number = processingConcurrency()
+  concurrency: number = jobConcurrency()
 ): number {
   const perDocument = Math.floor(
     limits.memoryBudget / (limits.chunkBytes * concurrency)
@@ -136,14 +134,15 @@ export function maxInFlightChunks(
     throw new Error(
       `${MEMORY_BUDGET_ENV} of ${formatByteSize(limits.memoryBudget)} cannot ` +
         `hold ${MIN_IN_FLIGHT} chunks of ${formatByteSize(limits.chunkBytes)} ` +
-        `for each of ${concurrency} documents processing at once. Raise it, ` +
-        `lower ${CHUNK_SIZE_ENV}, or lower ANONIFY_BATCH_PROCESSING.`
+        `for each of the ${concurrency} jobs this process runs at once. Raise ` +
+        `it, lower ${CHUNK_SIZE_ENV}, or lower ${JOB_CONCURRENCY_ENV} (which ` +
+        `defaults from the CPUs available and ANONIFY_ROLE).`
     )
   }
   return perDocument
 }
 
-/** One document's share of the budget, in bytes. */
+/** One step's share of the budget, in bytes. */
 export function perDocumentStreamBytes(
   limits: StreamingLimits = streamingLimits()
 ): number {

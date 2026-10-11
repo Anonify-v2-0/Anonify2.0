@@ -376,6 +376,13 @@ jobs:
       - name: Apply migrations to an empty database
         run: pnpm db:migrate:deploy
 
+      # The job queue's schema, which the metrics' queue-depth query reads
+      # (#188): a package bump that changes it fails that suite.
+      - name: Apply the workflow schema
+        env:
+          WORKFLOW_POSTGRES_URL: postgresql://anonify:anonify@localhost:5432/anonify_test
+        run: pnpm workflow:bootstrap
+
       - name: Cleanup and quota suites
         run: pnpm test:db
 
@@ -404,6 +411,9 @@ jobs:
       # The images built below, with cached layers, which compose then starts
       # as they are instead of building again.
       ANONIFY_IMAGE: anonify-app:ci
+      # Never a pulled image in place of this pull request's build: the
+      # Compose file defaults to the published one (#186).
+      ANONIFY_PULL_POLICY: never
       # The app and its migrations on a read-only root filesystem, with only
       # /tmp and /data writable (#178). Every `docker compose` below without
       # its own -f list uses both files.
@@ -446,6 +456,12 @@ jobs:
           [ "$status" = 64 ] || { echo "::error::an unknown command exited $status, not 64"; exit 1; }
           docker run --rm "$ANONIFY_IMAGE" node -e "process.exit(0)" \
             || { echo "::error::a command naming a program did not run as given"; exit 1; }
+          # The secrets for an install without a clone (#186): three, fresh.
+          docker run --rm "$ANONIFY_IMAGE" keys | tee keys.env
+          [ "$(grep -cE '^(ENCRYPTION_KEY|FINGERPRINT_SECRET|CRON_SECRET)=[0-9a-f]{64}$' keys.env)" = 3 ] \
+            || { echo "::error::anonify keys did not print three 32-byte hex secrets"; exit 1; }
+          [ "$(docker run --rm "$ANONIFY_IMAGE" keys | grep ENCRYPTION_KEY)" != "$(grep ENCRYPTION_KEY keys.env)" ] \
+            || { echo "::error::anonify keys printed the same key twice"; exit 1; }
           docker image inspect "$ANONIFY_IMAGE" --format 'image size: {{.Size}} bytes'
 
       # The hardening (#178): tini as PID 1, a stop that is prompt, the labels,
@@ -494,7 +510,14 @@ jobs:
         # migration jobs have exited successfully, and the app answers
         # /api/ready: database, storage and workflow worker. Reaching the next
         # step at all is most of the assertion.
-        run: docker compose up -d --wait
+        run: |
+          docker compose up -d --wait
+          # The stack runs this build, not an image of the same name from
+          # Docker Hub (#186).
+          built=$(docker image inspect "$ANONIFY_IMAGE" --format '{{.Id}}')
+          running=$(docker inspect "$(docker compose ps -q app)" --format '{{.Image}}')
+          [ "$built" = "$running" ] \
+            || { echo "::error::the app runs $running, not the image built here ($built)"; exit 1; }
 
       # ANONIFY_PUBLIC_URL is read per request, not baked at build (#168): the
       # image above was built without it, and the page must still name it.
@@ -528,6 +551,67 @@ jobs:
       # was answered.
       - name: Upload, process, export, download — every format
         run: pnpm smoke http://127.0.0.1:3000
+
+      # The app sweeps on its own timer, with no scheduler service (#183): a
+      # document made to expire is gone after a short interval. The smoke above
+      # deletes what it makes, so this one is made here and kept.
+      - name: The app sweeps expired documents itself
+        env:
+          ANONIFY_SCHEDULER_INTERVAL_SECONDS: "10"
+        run: |
+          set -o pipefail
+          docker compose up -d --wait --force-recreate app
+          sql() { docker compose exec -T postgres psql -U anonify -d anonify -tAc "$1"; }
+          id=$(pnpm --silent smoke http://127.0.0.1:3000 --only=txt --keep | tee /dev/stderr | sed -n 's/.*kept \(doc_[A-Za-z0-9]*\).*/\1/p')
+          [ -n "$id" ] || { echo "::error::no document to expire"; exit 1; }
+          sql "update \"Document\" set \"expiresAt\" = now() - interval '1 minute' where id = '$id'"
+          for attempt in $(seq 1 30); do
+            left=$(sql "select count(*) from \"Document\" where id = '$id'")
+            [ "$left" = 0 ] && break
+            sleep 2
+          done
+          [ "$left" = 0 ] || { echo "::error::the expired document was not swept"; exit 1; }
+          docker compose logs app | grep -q '"context":"scheduler","leader":true' \
+            || { echo "::error::the sweep did not log its leader line"; exit 1; }
+
+      # Metrics (#188): on, scraped from the host after a document has been
+      # through, with the queue gauges present and a step recorded. Nothing
+      # identifying a document is in the output.
+      - name: Metrics after a document
+        env:
+          ANONIFY_METRICS: "on"
+        run: |
+          docker compose up -d --wait --force-recreate app
+          pnpm smoke http://127.0.0.1:3000 --only=txt
+          curl -fsS http://127.0.0.1:3000/api/metrics | tee metrics.txt | grep '^anonify_' | head -40
+          grep -q '^anonify_queue_jobs_ready{queue="step"}' metrics.txt \
+            || { echo "::error::no queue gauge"; exit 1; }
+          count=$(grep '^anonify_step_duration_seconds_count{step="extractAndNormalize"' metrics.txt | awk '{ sum += $2 } END { print sum + 0 }')
+          [ "$count" -gt 0 ] || { echo "::error::no extractAndNormalize step recorded"; exit 1; }
+          if grep -E 'doc_|bat_|wrun_' metrics.txt; then
+            echo "::error::an id is in the metrics"; exit 1
+          fi
+          # Through a proxy, without a token, it is refused.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'x-forwarded-for: 203.0.113.9' http://127.0.0.1:3000/api/metrics)
+          [ "$code" = 403 ] || { echo "::error::a forwarded scrape answered $code"; exit 1; }
+
+      # Stopping a container drains it (#182): readiness drops while health
+      # stays up, and the process exits 0 once the sequence has finished.
+      - name: A stopped app drains, then exits cleanly
+        run: |
+          docker compose stop app &
+          stopping=$!
+          sleep 1
+          ready=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/ready)
+          health=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/health)
+          wait $stopping
+          [ "$ready" = 503 ] && [ "$health" = 200 ] \
+            || { echo "::error::while draining, ready answered $ready and health $health"; exit 1; }
+          code=$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -aq app)")
+          [ "$code" = 0 ] || { echo "::error::the app exited $code"; docker compose logs app | tail -20; exit 1; }
+          docker compose logs app | grep -q '"context":"shutdown","phase":"done"' \
+            || { echo "::error::the drain did not finish"; exit 1; }
+          docker compose up -d --wait app
 
       # The runner delivers steps through a relay inside the process, with a
       # token nobody outside it knows (#179). A delivery posted to the port,

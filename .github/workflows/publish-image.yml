@@ -365,10 +365,38 @@ jobs:
           \`\`\`sh
           gh attestation verify oci://docker.io/$IMAGE:$VERSION --repo $REPO
           \`\`\`
+
+          To run this release with Compose, without cloning anything:
+
+          \`\`\`sh
+          curl -LO https://github.com/$REPO/releases/download/v$VERSION/docker-compose.yml
+          [ -e .env ] || docker run --rm $IMAGE:$VERSION keys > .env
+          echo "ANONIFY_VERSION=$VERSION" >> .env
+          docker compose up -d
+          \`\`\`
           <!-- /docker-image -->
           NOTES
 
           gh release edit "v$VERSION" --repo "$REPO" --notes-file "$notes"
+
+      # An install needs no clone (#186): this release's Compose file and its
+      # settings reference, from the release page and from
+      # releases/latest/download/. Attached after the image is published, so
+      # the file never points at a version nobody can pull yet.
+      - name: Attach the Compose file to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          assets="$RUNNER_TEMP/assets"
+          mkdir -p "$assets"
+          # The checkout is this release's tag.
+          cp docker-compose.yml "$assets/docker-compose.yml"
+          # GitHub renames an asset whose name starts with a dot.
+          cp .env.example "$assets/env.example"
+          gh release upload "v$VERSION" --repo "$REPO" --clobber \
+            "$assets/docker-compose.yml" "$assets/env.example"
 
       - name: Summary
         env:
@@ -418,6 +446,8 @@ jobs:
       ENCRYPTION_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
       FINGERPRINT_SECRET: "feedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface"
       COMPOSE_FILE: docker-compose.yml:docker-compose.readonly.yml
+      # One project name, whichever directory a step runs Compose from.
+      COMPOSE_PROJECT_NAME: anonify
 
     steps:
       # The release's Compose file and smoke test, against the release's image.
@@ -438,8 +468,26 @@ jobs:
           version=$(docker image inspect "$ANONIFY_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')
           [ "$version" = "$VERSION" ] || { echo "::error::the image says it is '$version', not $VERSION"; exit 1; }
 
-      - name: Start the stack
-        run: docker compose up -d --wait --no-build
+      # As someone without a clone installs it (#186): the release's Compose
+      # file alone in an empty directory, and secrets from the image itself.
+      - name: Start the stack from the Compose file alone
+        run: |
+          set -euo pipefail
+          install="$RUNNER_TEMP/install"
+          mkdir -p "$install"
+          cp docker-compose.yml docker-compose.readonly.yml "$install/"
+          cd "$install"
+          # `keys` arrived in 1.17.0; an older version re-published by hand
+          # gets its secrets the way its own docs said.
+          if docker run --rm "$ANONIFY_IMAGE" help | grep -q keys; then
+            docker run --rm "$ANONIFY_IMAGE" keys > .env
+          else
+            printf 'ENCRYPTION_KEY=%s\nFINGERPRINT_SECRET=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > .env
+          fi
+          echo "ANONIFY_IMAGE=$ANONIFY_IMAGE" >> .env
+          # The job's placeholders would hide the .env; this install has none.
+          env -u ENCRYPTION_KEY -u FINGERPRINT_SECRET -u ANONIFY_IMAGE \
+            docker compose up -d --wait --no-build
 
       - name: Upload, process, export, download — every format
         run: pnpm smoke http://127.0.0.1:3000

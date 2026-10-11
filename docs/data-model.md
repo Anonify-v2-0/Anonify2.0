@@ -39,6 +39,8 @@ erDiagram
     OwnerRule ||--o{ GlobalRule : "copies — unenforced ownerRuleId"
     Document ||--o{ ProcessingEvent : "run history"
     Document ||--o{ ExportArtifact : "generated outputs"
+    Document ||--o{ DocumentExport : "one background export"
+    DocumentExport ||--o{ ExportArtifact : "one per variant"
     Document ||--o{ AiUsage : "tokens — unenforced documentId"
 
     Document {
@@ -441,12 +443,34 @@ A generated export. Kept encrypted, addressed only by signed token.
 | `labelsAdded` | `Boolean` `@default(false)` | Whether redaction labels were added to the output. |
 | `variant` | `String?` | Which output of one review this is, when the reviewer asked for more than one. Null means the single default output. The name is derived from the methods the variant applied, never typed by the reviewer — it reaches the export report, which must carry no free strings. See `lib/redaction/variants.ts`. |
 | `reportBlobKey` | `String?` | The export report generated with this artifact: counts, styles and both checksums, stored encrypted beside the file it describes. Null for artifacts exported before reports existed. |
-| `vaultBlobKey` | `String?` | The token vault for this artifact, **written only by a batch export**. A single export hands its vault back in the response and stores nothing, which is what makes an `encrypt` export unreversible by this tool; a batch run is collected as a zip minutes later and has no response to hand it back in, so the vault is sealed under the same per-document key and purged by the same sweep. Within that window the source document is already in the same bucket under the same key, so this grants nothing that was not already available. |
+| `vaultBlobKey` | `String?` | The token vault for this artifact. A **batch** export seals it under the per-document key: it is collected as a zip minutes later, with no response to hand it back in, and is purged by the same sweep; within that window the source document is already in the same bucket under the same key, so this grants nothing that was not already available. A **single** export (#187) stores only an envelope sealed to the requesting browser's key (`vaultRecipient`), which nothing Anonify holds opens, and deletes it once fetched; that is what keeps an `encrypt` export unreversible by this tool. See [security-internals.md §11](./security-internals.md). |
+| `vaultRecipient` | `Boolean` `@default(false)` | True when `vaultBlobKey` is an envelope sealed to the requester rather than a vault under the document key (#187). |
+| `exportId` | `String?` | The single export that produced this artifact (#187). `@@unique([exportId, variant])`: a retried step overwrites its own row. `onDelete: SetNull`. |
 | `vaultChecksum` | `String?` | SHA-256 of the vault blob. Re-checked when the archive is assembled; a mismatch leaves the vault out rather than shipping half a mapping. |
 | `reportChecksum` | `String?` | SHA-256 of the report blob. |
 | `document` | `Document` | Relation via `documentId`, `onDelete: Cascade`. |
 
 Index: `@@index([documentId])`.
+
+### 11a. `DocumentExport`
+
+One request to export one document, run in the background on a worker
+(#187). The batch export's single-document sibling.
+
+| Column | Type | Purpose / notes |
+| --- | --- | --- |
+| `id` | `String` `@id` | `dex_…`. |
+| `documentId` | `String` | The document. `onDelete: Cascade`. |
+| `status` | `String` | `queued` → `running` → `ready` \| `failed` \| `cancelled`. |
+| `workflowRunId` | `String?` | The durable run doing the work. |
+| `variants` | `Json` | The variants asked for, as the route named them. |
+| `metadataSanitized` | `Boolean` | For the response. |
+| `recipientKey` | `String?` | The requester's ECDH P-256 public key, raw, base64url. Any vault is sealed to it. |
+| `progress` | `Json?` | Stage, variant, and pages drawn of the total. Never anything from the file. |
+| `cancelRequested` | `Boolean` | Set by the reviewer; the run stops before its next variant. |
+| `error` | `String?` | A sentence for a person, never a raw message. |
+
+Index: `@@index([documentId, createdAt])`, for the newest export of a document.
 
 ---
 

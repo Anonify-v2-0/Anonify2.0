@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto"
+
 import { processingConcurrency } from "@/lib/documents/batch-config"
 import { prisma } from "@/lib/database/prisma"
 
@@ -29,8 +31,49 @@ import { prisma } from "@/lib/database/prisma"
  * one host, but a global bound would let one reviewer's twenty-file batch stall
  * everybody else's single document — the thing being rationed is one person's
  * share, and the host's own ceiling is the rate limit above this.
+ *
+ * A shared deployment can add a global ceiling too,
+ * `ANONIFY_PROCESSING_GLOBAL_MAX` (#181): documents in flight across every
+ * owner. With one set, a slot that frees goes to whichever owner has waited
+ * longest, one document per owner per turn, so one large batch cannot starve
+ * everybody else's.
  */
 
+type Env = Record<string, string | undefined>
+
+/**
+ * What `workflowRunId` holds while a claimed document's run is being started:
+ * counted as in flight, and never a run anyone can read or cancel.
+ */
+export const PENDING_RUN_PREFIX = "pending_"
+
+function pendingRunId(): string {
+  return `${PENDING_RUN_PREFIX}${randomBytes(12).toString("hex")}`
+}
+
+/** A claim whose run is still being started, or was never started. */
+export function isPendingRun(runId: string | null | undefined): boolean {
+  return Boolean(runId?.startsWith(PENDING_RUN_PREFIX))
+}
+
+export const PROCESSING_GLOBAL_MAX_ENV = "ANONIFY_PROCESSING_GLOBAL_MAX"
+
+/**
+ * `ANONIFY_PROCESSING_GLOBAL_MAX` (1–100000): documents processing at once
+ * across every owner, or undefined for no cap (the default). Malformed throws.
+ */
+export function processingGlobalMax(
+  env: Env = process.env
+): number | undefined {
+  const raw = env[PROCESSING_GLOBAL_MAX_ENV]?.trim()
+  if (!raw) return undefined
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 1 || value > 100_000)
+    throw new Error(
+      `${PROCESSING_GLOBAL_MAX_ENV} must be a whole number from 1 to 100000, got "${raw}"`
+    )
+  return value
+}
 
 /**
  * Starting one document's run, supplied by the caller.
@@ -55,15 +98,35 @@ const WORKING_STATUSES = ["queued", "extracting", "normalizing", "analyzing"]
  * A run that exists is in flight whatever stage it reports, and a document with
  * no run is not — which is exactly the distinction `workflowRunId` draws.
  */
-async function inFlight(ownerKey: string): Promise<number> {
+async function inFlight(ownerKey?: string): Promise<number> {
   return prisma.document.count({
     where: {
-      userFingerprint: ownerKey,
+      ...(ownerKey !== undefined ? { userFingerprint: ownerKey } : {}),
       workflowRunId: { not: null },
       status: { in: WORKING_STATUSES },
       expiresAt: { gt: new Date() },
     },
   })
+}
+
+/** Room under the global cap: unbounded when none is set. */
+async function globalRoom(): Promise<number> {
+  const cap = processingGlobalMax()
+  if (cap === undefined) return Number.POSITIVE_INFINITY
+  return cap - (await inFlight())
+}
+
+/** Documents waiting for a slot, as a query. */
+function waitingWhere(ownerKey?: string) {
+  return {
+    ...(ownerKey !== undefined ? { userFingerprint: ownerKey } : {}),
+    workflowRunId: null,
+    status: "queued",
+    // Bytes have to have landed. A reserved document whose upload never
+    // arrived is not waiting for a slot, it is waiting for a file.
+    uploadBlobKey: { not: null },
+    expiresAt: { gt: new Date() },
+  }
 }
 
 /**
@@ -78,28 +141,27 @@ async function inFlight(ownerKey: string): Promise<number> {
  * network call to the workflow runtime, and holding a database lock across one
  * of those to save an occasional off-by-one is a worse trade. The limit bounds
  * sustained concurrency, and is documented as doing that rather than as a
- * mutex.
+ * mutex. The global cap, when one is set, is the same kind of bound.
+ *
+ * `max` admits at most that many, for the fair pass below.
  */
 export async function admitQueued(
   ownerKey: string | undefined,
-  startRun: StartRun
+  startRun: StartRun,
+  { max = Number.POSITIVE_INFINITY }: { max?: number } = {}
 ): Promise<number> {
   if (!ownerKey) return 0
 
   const limit = processingConcurrency()
-  const room = limit - (await inFlight(ownerKey))
+  const room = Math.min(
+    max,
+    limit - (await inFlight(ownerKey)),
+    await globalRoom()
+  )
   if (room <= 0) return 0
 
   const waiting = await prisma.document.findMany({
-    where: {
-      userFingerprint: ownerKey,
-      workflowRunId: null,
-      status: "queued",
-      // Bytes have to have landed. A reserved document whose upload never
-      // arrived is not waiting for a slot, it is waiting for a file.
-      uploadBlobKey: { not: null },
-      expiresAt: { gt: new Date() },
-    },
+    where: waitingWhere(ownerKey),
     orderBy: { createdAt: "asc" },
     take: room,
     select: { id: true },
@@ -108,17 +170,34 @@ export async function admitQueued(
   let admitted = 0
 
   for (const document of waiting) {
-    const runId = await startRun(document.id)
-
-    // Claimed only if nothing else claimed it first. Two admissions racing on
-    // the same document would otherwise leave the row naming the second run
-    // while the first one also worked on it.
+    // Claimed before the run is started, and only if nothing else claimed it
+    // first. It used to be started first and claimed after, so two admissions
+    // racing on one document (an upload landing as a sweep ran) both started
+    // a run, and the loser's kept working on a document that was not its own,
+    // failing once the document was gone. The built-in scheduler (#183) made
+    // that race a regular one.
+    const pending = pendingRunId()
     const claimed = await prisma.document.updateMany({
       where: { id: document.id, workflowRunId: null },
+      data: { workflowRunId: pending },
+    })
+    if (claimed.count === 0) continue
+
+    let runId: string
+    try {
+      runId = await startRun(document.id)
+    } catch (error) {
+      // Back to waiting, for the next admission to try.
+      await prisma.document.updateMany({
+        where: { id: document.id, workflowRunId: pending },
+        data: { workflowRunId: null },
+      })
+      throw error
+    }
+    await prisma.document.updateMany({
+      where: { id: document.id, workflowRunId: pending },
       data: { workflowRunId: runId },
     })
-
-    if (claimed.count === 0) continue
     admitted += 1
 
     console.log(
@@ -163,7 +242,10 @@ export async function admitAfter(
   startRun: StartRun
 ): Promise<void> {
   try {
-    await admitQueued(await ownerOf(documentId), startRun)
+    // Under a global cap the slot just freed is everybody's, so it goes to
+    // whoever has waited longest rather than to the next of this owner's.
+    if (processingGlobalMax() !== undefined) await admitFairly(startRun)
+    else await admitQueued(await ownerOf(documentId), startRun)
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -187,20 +269,43 @@ export async function admitAfter(
  * delay rather than a document nobody will ever look at again.
  */
 export async function admitStalled(startRun: StartRun): Promise<number> {
-  const owners = await prisma.document.findMany({
-    where: {
-      workflowRunId: null,
-      status: "queued",
-      uploadBlobKey: { not: null },
-      expiresAt: { gt: new Date() },
-    },
-    distinct: ["userFingerprint"],
-    select: { userFingerprint: true },
+  return admitFairly(startRun)
+}
+
+/**
+ * Every owner with something waiting, in turns (#181).
+ *
+ * Owners are taken in the order of their oldest waiting document. With no
+ * global cap each is admitted as far as their own limit allows, as before.
+ * With one, each turn admits one document per owner, round and round until
+ * the cap is reached or nobody has room, so the first owner's batch of fifty
+ * does not take every slot before the second owner's one document is looked
+ * at.
+ */
+export async function admitFairly(startRun: StartRun): Promise<number> {
+  const owners = await prisma.document.groupBy({
+    by: ["userFingerprint"],
+    where: waitingWhere(),
+    _min: { createdAt: true },
+    orderBy: { _min: { createdAt: "asc" } },
   })
 
+  const capped = processingGlobalMax() !== undefined
+  let turn = owners.map((owner) => owner.userFingerprint)
   let admitted = 0
-  for (const owner of owners) {
-    admitted += await admitQueued(owner.userFingerprint, startRun)
+
+  while (turn.length > 0) {
+    const again: string[] = []
+    for (const owner of turn) {
+      if (capped && (await globalRoom()) <= 0) return admitted
+      const started = await admitQueued(owner, startRun, {
+        max: capped ? 1 : Number.POSITIVE_INFINITY,
+      })
+      admitted += started
+      // Uncapped, one call has already taken all this owner had room for.
+      if (capped && started > 0) again.push(owner)
+    }
+    turn = again
   }
   return admitted
 }

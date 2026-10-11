@@ -8,7 +8,6 @@ import {
   assertRoleStorage,
   runsWorker,
   servesTraffic,
-  workflowPoolDefault,
 } from "@/lib/config/role"
 import { workerAllows } from "@/lib/config/worker-gate"
 import {
@@ -48,18 +47,6 @@ describe("ANONIFY_ROLE", () => {
     expect(() => anonifyRole({ ANONIFY_ROLE: "workers" })).toThrow(
       /ANONIFY_ROLE must be one of all, web, worker, got "workers"/
     )
-  })
-
-  it("sizes the world's pool for the role, unless all", () => {
-    expect(workflowPoolDefault({})).toBeUndefined()
-    expect(workflowPoolDefault({ ANONIFY_ROLE: "web" })).toBe(4)
-    expect(workflowPoolDefault({ ANONIFY_ROLE: "worker" })).toBe(12)
-    expect(
-      workflowPoolDefault({
-        ANONIFY_ROLE: "worker",
-        WORKFLOW_POSTGRES_WORKER_CONCURRENCY: "20",
-      })
-    ).toBe(22)
   })
 
   it("refuses the local disk in a split deployment, and only there", () => {

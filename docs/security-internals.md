@@ -414,3 +414,68 @@ anyone who could reach the server's port (#179).
 
 CI posts a well-formed delivery to both routes from outside the container and
 expects 404.
+
+## 11. Single exports in the background: where the vault goes (#187)
+
+A single export currently runs inside `POST /api/documents/:id/export` and
+hands the **vault** (what an `encrypt` export needs to be reversed) back in
+that response. It is never stored: `DeliveryOptions.storeVault` is false for a
+single export, and that is what makes an `encrypt` export something Anonify
+itself cannot reverse afterwards. #187 moves the export into a durable run on
+the workers, so it survives a replica being replaced and stops tying up the
+web tier. A run has no response to put the vault in, so where the vault goes
+has to change. Two designs:
+
+### (a) Sealed to a key only the requesting browser holds (recommended)
+
+1. The export dialog generates an ephemeral ECDH P-256 key pair with WebCrypto
+   (`extractable: false` for the private half), and sends the raw public key
+   with the request. P-256 rather than X25519 because every browser's
+   WebCrypto has it; X25519 only arrived in recent versions.
+2. The run, once the variant is verified, generates its own ephemeral P-256
+   key pair, derives a key with ECDH and HKDF-SHA256 (salt: a random 32 bytes;
+   info: `anonify-vault|<exportId>|<variant>`), and seals the vault with
+   AES-256-GCM. It stores `{ serverPublicKey, salt, iv, ciphertext }` beside
+   the artifact and **discards its private key**; nothing that could open the
+   blob is ever written down.
+3. The browser fetches that blob with the artifact, derives the same key and
+   opens it. The blob is deleted once it has been fetched, and in any case at
+   the document's expiry.
+
+What it keeps: the server never holds anything that opens a stored vault. A
+database dump, a bucket listing, the master key, an operator: none of them
+can reverse an `encrypt` export. That is the same guarantee as today. The
+process that generates the export holds the vault in memory while generating
+it, as it does now when it writes the HTTP response.
+
+What it costs: a client without WebCrypto (a page on plain HTTP other than
+localhost) cannot ask for an `encrypt` export through the background path. It
+keeps the synchronous route for the one deprecation release, and after that
+needs HTTPS, as sealed uploads already do (§9). API scripts send a public key
+of their own.
+
+### (b) Sealed under the document key, like batch export
+
+The run seals the vault under the per-document key beside the artifact
+(`storeVault: true`), as `export-batch.ts` already does, and the purge
+removes it with the document. Simpler, and no browser crypto. But the vault
+is then stored under a key the server holds, so for the document's lifetime
+Anonify **can** reverse an `encrypt` export. That is the batch guarantee,
+not the single-export one, and the docs and the export report would have to
+say so.
+
+### Decision
+
+(a), signed off by the maintainer, and implemented. The "Anonify cannot
+reverse it" property is the reason to choose `encrypt` over `pseudonymise`,
+and (a) keeps it exactly, at the cost of one ECDH exchange in the dialog.
+
+| Mechanism | Where | Why it is there |
+| --- | --- | --- |
+| A key pair per export | `newRecipientKeyPair` | Generated with `extractable: false` for the private half, so it cannot leave the browser's key store. Kept in IndexedDB by export id, so closing the dialog or reloading does not lose the vault, and deleted once the vaults are opened. |
+| Sealed in the step, then forgotten | `exportAndStore` → `sealVaultTo` | The run's own key pair is made per vault and its private half goes out of scope with the call. |
+| Bound to the export and the variant | HKDF info and GCM additional data | An envelope moved to another export or variant does not open. |
+| Never in a step's result | `lib/workflows/export-document.ts` | A step's return value is persisted in the run's event log; the steps return ids and a stop flag only. |
+| Stored only as the envelope | `ExportArtifact.vaultRecipient` | Under the document's seal as well, like every object, but what that seal opens is the envelope. |
+| Handed over once | `takeVaultEnvelope` | Claimed in the row before it is read, so two readers cannot both take it; deleted from storage after. A second request is a 410. |
+| The synchronous answer keeps the property | `awaitSynchronously` | It seals to a key made in the request, opens the envelope there, and returns the vault inline as before. |

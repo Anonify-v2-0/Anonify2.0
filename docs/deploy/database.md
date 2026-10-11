@@ -13,8 +13,9 @@ front of the app without breaking the job queue.
 | Workflow world | runs, steps, events, the job queue | world default 10 | `WORKFLOW_POSTGRES_MAX_POOL_SIZE` (1–100) |
 | Stream `LISTEN` client | live progress to the browser | 1, dedicated | none |
 
-The worker's job concurrency, `WORKFLOW_POSTGRES_WORKER_CONCURRENCY` (default
-10), draws on the world's pool: each running job holds one of its
+The worker's job concurrency, `WORKFLOW_POSTGRES_WORKER_CONCURRENCY` (derived
+from the CPUs when unset, see [capacity.md](./capacity.md)), draws on the
+world's pool: each running job holds one of its
 connections. Keep the concurrency below the world pool's size, so the queue's
 own `LISTEN` and the run bookkeeping always have a connection left.
 
@@ -32,9 +33,9 @@ the world's pool defaults to what the role uses, unless
 
 | Role | World pool default | Why |
 | --- | --- | --- |
-| `all` | 10 (the world's own) | As before. |
+| `all` | 10 (the world's own), or the job concurrency + 2 when more | As before, unless its jobs need more. |
 | `web` | 4 | It only inserts jobs and reads run streams. |
-| `worker` | `WORKFLOW_POSTGRES_WORKER_CONCURRENCY` + 2 (12) | One per running job, and two for the queue's bookkeeping. |
+| `worker` | the job concurrency + 2 (6 on two CPUs) | One per running job, and two for the queue's bookkeeping. |
 
 So splitting does not have to cost connections: a web replica opens at most
 `DATABASE_POOL_MAX` + 4 + 1.

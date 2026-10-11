@@ -553,22 +553,30 @@ stages, counts and durations — never document text.
 ### `POST /api/documents/:id/export`
 
 Generates the redacted document: deterministic from accepted redactions,
-verified against the artifact it just produced, checksummed, stored encrypted,
-and handed back as a signed short-lived link rather than a storage URL. A
+verified against the artifact it just produced, checksummed and stored
+encrypted, with signed short-lived links rather than storage URLs. A
 verification failure is a refusal to deliver — never a warning on a leaking
 file. Shares one definition of "export" (and one verification gate) with the
 batch exporter via `lib/redaction/deliver.ts`.
 
+The work runs **in the background**, as a durable run on a worker (#187): it
+does not hold the web tier, survives a replica being replaced, and reports its
+progress. Send `Prefer: respond-async` and a `recipientKey`, and follow the
+export with the routes below.
+
 - **Auth:** session
-- **Rate limit:** `export`, charged **once per variant**. Each variant is a full
-  pass over the document, so a four-variant request spends four of the day's
-  exports. If the allowance does not stretch to all of them the whole request
-  is refused rather than truncated — a reviewer who asked for a tokenized copy
-  and silently got only the masked one has been told something untrue.
+- **Rate limit:** `export`, charged **once per variant**, here, before any
+  work starts. Each variant is a full pass over the document, so a
+  four-variant request spends four of the day's exports. If the allowance does
+  not stretch to all of them the whole request is refused rather than
+  truncated — a reviewer who asked for a tokenized copy and silently got only
+  the masked one has been told something untrue.
 - **Path params:** `id`
-- **Body** (all optional, defaults shown):
+- **Headers:** `Prefer: respond-async`.
+- **Body** (all optional except `recipientKey`, defaults shown):
   ```json
   {
+    "recipientKey": "BH8c…",
     "addLabels": false,
     "sanitizeMetadata": true,
     "imageStyle": "solid",
@@ -579,6 +587,13 @@ batch exporter via `lib/redaction/deliver.ts`.
     ]
   }
   ```
+  `recipientKey` is an ECDH P-256 public key, raw (the 65-byte uncompressed
+  point) and base64url. A variant's vault is sealed to it and nothing Anonify
+  holds can open what is stored; see `vault` below. Make a fresh key pair for
+  each export and keep the private half: WebCrypto's
+  `generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"])`,
+  or `newRecipientKeyPair()` in `lib/redaction/vault-envelope.ts`.
+
   `imageStyle` is `solid` | `blur` | `pixelate`. `methods` asks for a method by
   category, overriding what each redaction carries; keys are
   `REDACTION_CATEGORIES` and values `REDACTION_METHODS`. An override for a
@@ -588,36 +603,102 @@ batch exporter via `lib/redaction/deliver.ts`.
 
   `variants` asks for more than one output from one review, up to four. Each is
   a full pass with its own artifact, verification and report. Omit it and the
-  body is read as a single variant, which is what an older client sends.
-- **Response `200`:** the first variant's fields, plus every variant under
-  `artifacts`:
+  body is read as a single variant.
+- **Response `202`:**
   ```json
   {
-    "artifactId": "art_...",
-    "variant": "redacted",
-    "checksum": "sha256...",
-    "size": 98765,
-    "appliedRedactions": 12,
-    "metadataSanitized": true,
-    "verifiedValues": 12,
-    "downloadUrl": "/api/documents/<id>/download?token=<token>",
-    "reportUrl": "/api/documents/<id>/download?token=<token>&part=report",
-    "report": { ... },
-    "vault": null,
-    "artifacts": [ { "...": "one entry per variant" } ]
+    "exportId": "dex_...",
+    "statusUrl": "/api/documents/<id>/export/<exportId>",
+    "streamUrl": "/api/documents/<id>/export/<exportId>/stream",
+    "export": { "id": "dex_...", "status": "queued", "progress": null, "...": "..." }
   }
   ```
-  Each artifact's `downloadUrl` and `reportUrl` carry its own short-lived signed
-  token.
+- **Errors:** `400` invalid options, or no valid `recipientKey`; `429` export
+  rate limit.
 
-  `vault` is non-null when that variant tokenized or encrypted something. It is
-  returned **inline and stored nowhere** — not in the database, not in blob
-  storage — because it holds the original values and the key that recovers
-  them. There is no URL for it and no way to ask for it again: the client saves
-  it or it is gone. That is also why Anonify cannot reverse an `encrypt` export.
+**Without `Prefer: respond-async`** (deprecated, removed in 1.18.0): the old
+synchronous answer, for API scripts. The same run, awaited, with each vault
+sealed to a key that exists only in that request and opened there, then
+returned inline. Answers carry `Deprecation` and `Link` headers, and its use
+is logged at most once an hour.
+
+- **Response `200`:** the first variant's fields, plus every variant under
+  `artifacts`: `artifactId`, `variant`, `checksum`, `size`,
+  `appliedRedactions`, `verifiedValues`, `downloadUrl`, `reportUrl`, `report`,
+  and `vault` (null unless that variant tokenized or encrypted something), and
+  `metadataSanitized`.
 - **Errors:** `409` document is not ready; `500` the generated document did
   not pass verification (not saved), **or** the export report did not pass
-  verification (not saved); `429` export rate limit.
+  verification (not saved); `504` still running after 280 s (the answer names
+  the export id to follow); `429` export rate limit.
+
+### `GET /api/documents/:id/export`
+
+The document's newest export, `{ export: <view> | null }`, so a dialog opened
+again picks up an export still running.
+
+### `GET /api/documents/:id/export/:exportId`
+
+One export: `{ export: <view> }`.
+
+```json
+{
+  "id": "dex_...",
+  "status": "running",
+  "progress": { "stage": "render", "variant": "redacted", "variantIndex": 0, "variants": 1, "done": 2, "total": 3 },
+  "error": null,
+  "metadataSanitized": true,
+  "streamUrl": "/api/documents/<id>/export/<exportId>/stream",
+  "artifacts": null
+}
+```
+
+`status` is `queued` | `running` | `ready` | `failed` | `cancelled`.
+`progress.stage` is `plan` | `render` (pages of a PDF, `done` of `total`) |
+`verify` | `seal`. Nothing from the document is ever in it. `error` is a
+sentence for a person, never a raw message. Once `ready`, `artifacts` lists
+each variant as the synchronous answer does, with links minted for this read,
+and `vaultUrl` in place of `vault`: non-null when that variant has a vault
+waiting to be collected.
+
+### `DELETE /api/documents/:id/export/:exportId`
+
+Stops an export that is queued or running. The variant being built is
+finished and kept; nothing after it starts. `409` when it is not running.
+
+### `GET /api/documents/:id/export/:exportId/stream`
+
+Server-sent events with the export's progress: one JSON snapshot per event,
+`{ type, at, status, progress, error }`, resumable with `?startIndex=` as the
+processing stream is. Ends with an `end` event when the export finishes; a
+replica shutting down ends it early with a comment and no `end`, and the
+client resumes elsewhere. `409` when the export is not running.
+
+### `GET /api/documents/:id/export/:exportId/vault?artifact=<artifactId>`
+
+A variant's vault, sealed to `recipientKey`, **handed over once**: read,
+deleted from storage and from the record, then gone; a second request is a
+`410`. The body is an envelope:
+
+```json
+{
+  "version": 1,
+  "algorithm": "ECDH-P256+HKDF-SHA256+AES-256-GCM",
+  "serverPublicKey": "…",
+  "salt": "…",
+  "iv": "…",
+  "ciphertext": "…"
+}
+```
+
+Open it with the private half of `recipientKey`: ECDH with `serverPublicKey`,
+HKDF-SHA256 over the shared secret with `salt` and the info
+`anonify-vault|<exportId>|<variant>`, then AES-256-GCM with `iv` and the same
+info as additional data (`openVaultEnvelope` in
+`lib/redaction/vault-envelope.ts`). The vault holds the original values or the
+key that recovers them, which is why it is sealed to you and to nothing
+Anonify holds, and why Anonify cannot reverse an `encrypt` export. See
+[security-internals.md §11](./security-internals.md).
 
 ### `POST /api/restore`
 
@@ -1122,16 +1203,19 @@ answered without touching the database.
 The scheduled expiry sweep. Vercel signs cron invocations with `CRON_SECRET`;
 without that header the endpoint refuses, so nobody can trigger deletion from
 outside. The work is idempotent, which is what makes retrying a partial run
-safe. Outside Vercel this is driven by `pnpm cleanup` or the `scheduler`
-service in `docker-compose.yml` (see [workflow.md](./workflow.md) §6).
+safe. Outside Vercel, workers run the same sweep on their own timer (#183),
+under the same lock, so this route is only needed by a platform scheduler (see
+[workflow.md](./workflow.md) §6).
 
 - **Auth:** `CRON_SECRET` — `Authorization: Bearer $CRON_SECRET`. If
   `CRON_SECRET` is unset, the endpoint allows the call only outside
   production (so local development does not require it).
 - **Params:** none
-- **Response `200`:** `{ marked, ...cleanupResult, admitted }` — the count of
-  rows marked expired, the result of deleting their artifacts, and the queued
-  documents admitted. The sweep works through the whole backlog within
+- **Response `200`:** `{ marked, ...cleanupResult, recovered, admitted,
+  durationMs }`: the count of rows marked expired, the result of deleting their
+  artifacts, the lost runs restarted or failed (`{ requeued, failed }`, #182),
+  and the queued documents admitted. The built-in scheduler and `pnpm cleanup`
+  produce the same shape (`lib/workflows/sweep.ts`). The sweep works through the whole backlog within
   `ANONIFY_CLEANUP_BUDGET_MS`; `remaining: true` means it stopped with expired
   documents left for the next run. When another sweep holds the lock it does
   nothing and returns `skipped: "another sweep is running"`, still with a 200.

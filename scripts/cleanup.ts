@@ -13,7 +13,12 @@
  *
  *   crontab:        star/15 * * * *  cd /srv/anonify && pnpm cleanup
  *   systemd timer:  OnUnitActiveSec=15min
- *   docker compose: the `scheduler` service, which calls the endpoint instead
+ *
+ * A self-hosted worker already runs the sweep on its own timer (#183), so this
+ * is for deployments whose workers are not long-lived. It shares the sweep's
+ * lock with them and with /api/cron/cleanup. It runs the expiry only: it is
+ * bundled without the workflow runtime, so restarting lost runs and admitting
+ * queued documents is left to a worker's sweep or the route.
  *
  * Exits non-zero when a document could not be fully purged, so a scheduler that
  * reports failures actually reports this one.
@@ -24,15 +29,15 @@
 // database simply appears to be unset.
 import "dotenv/config"
 
-import { cleanupExpired, markExpired } from "@/lib/workflows/cleanup"
+import { sweep } from "@/lib/workflows/sweep"
 
 async function main(): Promise<void> {
   const startedAt = Date.now()
 
-  const marked = await markExpired()
   // No time budget: run from cron or a timer, it has no function limit to
   // stay inside, so it clears the whole backlog (#170).
-  const result = await cleanupExpired({ budgetMs: Infinity })
+  const result = await sweep({ budgetMs: Infinity })
+  const { marked } = result
   if (result.skipped) {
     console.log(`\n  Expiry sweep skipped: ${result.skipped}.\n`)
     return

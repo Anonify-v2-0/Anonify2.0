@@ -262,12 +262,17 @@ export async function extractPdf(
     // instead of being presented as successfully read and empty.
     if (options.ocr && ocrPages.length > 0) {
       const recognizer = options.recognize
-        ? { recognize: options.recognize, close: async () => {} }
+        ? {
+            recognize: options.recognize,
+            format: "png" as const,
+            close: async () => {},
+          }
         : await startOcrRecognizer()
 
       try {
         const read = await ocrPdfPages(pdf, ocrPages, {
           recognize: recognizer.recognize,
+          format: recognizer.format,
         })
 
         for (const [pageNumber, result] of read) {
@@ -352,7 +357,8 @@ function pageHasImages(ops: Operators, list: OperatorList): boolean {
 async function startOcrRecognizer() {
   const session = await startOcr()
   return {
-    recognize: (png: Buffer) => session.recognize(png),
+    recognize: (image: Buffer) => session.recognize(image),
+    format: session.rasterFormat ?? "png",
     close: () => session.close(),
   }
 }

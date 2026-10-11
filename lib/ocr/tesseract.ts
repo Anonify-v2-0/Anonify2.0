@@ -14,6 +14,7 @@ import type {
   OcrSession,
   OcrWord,
 } from "@/lib/ocr/types"
+import { tesseractPool, type PoolWorker } from "@/lib/ocr/tesseract-pool"
 
 /**
  * Tesseract: the local provider.
@@ -22,8 +23,10 @@ import type {
  * the precision the redaction geometry actually wants. It is the default for a
  * self-hosted install for both reasons.
  *
- * Starting a worker costs far more than reading a page, so a session starts one
- * and reuses it across every page of a document.
+ * Starting a worker costs far more than reading a page, so workers are shared
+ * by every document in the process and kept warm between them
+ * (lib/ocr/tesseract-pool.ts, #189). A session is a handle on that pool, and
+ * closing it leaves the workers running for the next document.
  *
  * Which language it reads and how large a model it reads with are configuration
  * — see lib/ocr/models.ts. Nothing here is paced or retried: Tesseract runs on
@@ -135,14 +138,6 @@ export async function modelDirectory(): Promise<string> {
   return cache
 }
 
-type Recognizer = {
-  recognize: (
-    image: Buffer,
-    options?: unknown,
-    output?: unknown
-  ) => Promise<{ data: { text?: string; blocks?: unknown } }>
-  terminate: () => Promise<unknown>
-}
 
 type TesseractBlock = {
   paragraphs?: { lines?: { words?: OcrWord[] }[] }[]
@@ -197,24 +192,30 @@ export const tesseractProvider: OcrProvider = {
       await mkdir(directory, { recursive: true }).catch(() => undefined)
     }
 
-    const worker = (await createWorker(language, undefined, {
-      cachePath: directory,
-      // Undefined rather than null: the library branches on falsiness to pick
-      // its own default, and a variant of "standard" is a request for exactly
-      // that default rather than for a URL of ours.
-      ...(langPath ? { langPath } : {}),
-    })) as unknown as Recognizer
+    // One pool per configuration: a worker reads with the model it started
+    // with, so a different language or variant is a different pool.
+    const pool = tesseractPool(
+      [language, directory, langPath ?? ""].join("|"),
+      async () =>
+        (await createWorker(language, undefined, {
+          cachePath: directory,
+          // Undefined rather than null: the library branches on falsiness to
+          // pick its own default, and a variant of "standard" is a request for
+          // exactly that default rather than for a URL of ours.
+          ...(langPath ? { langPath } : {}),
+        })) as unknown as PoolWorker
+    )
 
     return {
       name: "tesseract",
       granularity: "word",
+      // Leptonica reads PNM natively; see lib/ocr/raster.ts.
+      rasterFormat: "pgm",
 
       async recognize(bytes: Uint8Array): Promise<OcrResult> {
-        const { data } = await worker.recognize(
-          Buffer.from(bytes),
-          {},
-          { blocks: true }
-        )
+        // No CPU slot: the pool, at most cpuConcurrency() workers on their own
+        // threads, is the bound on recognition (#181, #189).
+        const data = await pool.recognize(Buffer.from(bytes))
         return {
           words: wordsOf(data),
           text: data.text ?? "",
@@ -222,9 +223,9 @@ export const tesseractProvider: OcrProvider = {
         }
       },
 
-      async close() {
-        await worker.terminate()
-      },
+      // The workers stay warm for the next document; the pool stops them
+      // when idle or on shutdown.
+      async close() {},
     }
   },
 }

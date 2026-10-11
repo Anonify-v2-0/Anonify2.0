@@ -1,5 +1,6 @@
 import { PrismaNeon } from "@prisma/adapter-neon"
 import { PrismaPg } from "@prisma/adapter-pg"
+import { Pool } from "pg"
 
 import type { PrismaClient as PrismaClientType } from "./generated/client"
 import { PrismaClient } from "./generated/client"
@@ -24,6 +25,8 @@ export type DatabaseDriver = (typeof DATABASE_DRIVERS)[number]
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClientType | undefined
+  /** The node-postgres pool behind it, kept for its counters (#188). */
+  prismaPool?: Pool
 }
 
 /**
@@ -66,10 +69,16 @@ function createClient(): PrismaClientType {
   // The pool is sized by DATABASE_POOL_MAX, so the connection budget across
   // replicas is something an operator can set (#169).
   const pool = databasePoolConfig()
-  const adapter =
-    driver === "neon"
-      ? new PrismaNeon({ connectionString, ...pool })
-      : new PrismaPg({ connectionString, ...pool })
+  let adapter: PrismaNeon | PrismaPg
+  if (driver === "neon") {
+    adapter = new PrismaNeon({ connectionString, ...pool })
+  } else {
+    // Created here rather than by the adapter, so the metrics can read how
+    // full it is (#188). The same settings the adapter would have used.
+    const pg = new Pool({ connectionString, ...pool })
+    globalForPrisma.prismaPool = pg
+    adapter = new PrismaPg(pg)
+  }
 
   return new PrismaClient({ adapter, log })
 }
@@ -79,6 +88,23 @@ export function getPrisma(): PrismaClientType {
     globalForPrisma.prisma = createClient()
   }
   return globalForPrisma.prisma
+}
+
+/**
+ * The app pool's connections: open, idle, and callers waiting for one.
+ * Undefined before the first query, and with the Neon driver, which pools
+ * over HTTP.
+ */
+export function appPoolStats():
+  | { total: number; idle: number; waiting: number }
+  | undefined {
+  const pool = globalForPrisma.prismaPool
+  if (!pool) return undefined
+  return {
+    total: pool.totalCount,
+    idle: pool.idleCount,
+    waiting: pool.waitingCount,
+  }
 }
 
 export const prisma = new Proxy({} as PrismaClientType, {
