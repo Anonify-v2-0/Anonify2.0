@@ -52,7 +52,7 @@ database:
 #
 # Shared object storage is required: web and worker pods are separate.
 storage:
-  driver: s3 # s3 | azure-blob
+  driver: s3  # s3 | azure-blob
   s3:
     bucket: anonify
     region: us-east-1
@@ -141,8 +141,8 @@ probes:
 web:
   replicas: 2
   resources:
-    requests: { cpu: 250m, memory: 512Mi }
-    limits: { cpu: "1", memory: 1Gi }
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 1Gi}
   env: {}
   autoscaling:
     enabled: true
@@ -181,8 +181,8 @@ worker:
   # One worker unit (docs/deploy/capacity.md). ANONIFY_CPU_CONCURRENCY is set
   # from limits.cpu, rounded down, unless env sets it.
   resources:
-    requests: { cpu: "2", memory: 3Gi }
-    limits: { cpu: "2", memory: 4Gi }
+    requests: {cpu: "2", memory: 3Gi}
+    limits: {cpu: "2", memory: 4Gi}
   env: {}
   # The built-in sweep (#183): expiry, lost runs, the queue's backstop. Off
   # here turns the cleanup CronJob on instead.
@@ -238,8 +238,8 @@ migrate:
   # WORKFLOW_POSTGRES_URL when database.workflowUrl is set, else DATABASE_URL.
   databaseUrlKey: ""
   resources:
-    requests: { cpu: 100m, memory: 256Mi }
-    limits: { cpu: "1", memory: 512Mi }
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 512Mi}
 
 cleanup:
   # `anonify cleanup` on a schedule. Off by default because the workers sweep
@@ -247,8 +247,8 @@ cleanup:
   enabled: false
   schedule: "*/10 * * * *"
   resources:
-    requests: { cpu: 100m, memory: 256Mi }
-    limits: { cpu: "1", memory: 512Mi }
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 512Mi}
 
 # --- Observability (#188) ------------------------------------------------------
 metrics:
