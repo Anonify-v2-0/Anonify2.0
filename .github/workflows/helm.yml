@@ -95,6 +95,10 @@ jobs:
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      # Only parsed: the workspace's postinstall runs `prisma generate`, whose
+      # config wants a URL. The smoke test talks to the cluster over HTTP.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
     steps:
       - uses: actions/checkout@v5
 
@@ -138,12 +142,9 @@ jobs:
           done
           echo "::error::the worker did not scale to zero"; kubectl -n anonify describe scaledobject; exit 1
 
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      # The smoke test is TypeScript and needs the workspace, installed the way
+      # every CI job installs it.
+      - uses: ./.github/actions/setup
 
       - name: Smoke test, waking a worker from zero
         run: |
