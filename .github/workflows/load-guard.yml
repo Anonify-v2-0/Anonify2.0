@@ -37,6 +37,10 @@ jobs:
     timeout-minutes: 45
 
     env:
+      # A placeholder, as in ci.yml: postinstall runs `prisma generate`, and
+      # prisma.config.ts refuses to load without a DATABASE_URL. The stack is
+      # given its own in docker-compose.yml, so this reaches nothing.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
       # Placeholders, as in ci.yml's Compose jobs; the stack is destroyed with
       # the runner.
       ENCRYPTION_KEY: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
