@@ -1,4 +1,39 @@
-{{- /* Plain environment for every pod. Secrets are in secret.yaml. */ -}}
+{{- /*
+Plain environment for every pod; secrets are in secret.yaml. Built as one
+dictionary so a key set in `env` replaces the chart's own rather than
+appearing twice.
+*/ -}}
+{{- $data := dict
+  "DATABASE_DRIVER" "postgres"
+  "ANONIFY_PROFILE" "self-hosted"
+  "ANONIFY_DRAIN_SECONDS" (toString .Values.drainSeconds)
+  "ANONIFY_SCHEDULER" (ternary "on" "off" .Values.worker.scheduler)
+  "ANONIFY_METRICS" (ternary "on" "off" .Values.metrics.enabled)
+  "STORAGE_DRIVER" .Values.storage.driver
+}}
+{{- with .Values.publicUrl }}
+{{- $_ := set $data "ANONIFY_PUBLIC_URL" . }}
+{{- end }}
+{{- if eq .Values.storage.driver "s3" }}
+{{- with .Values.storage.s3 }}
+{{- $_ := set $data "S3_BUCKET" .bucket }}
+{{- $_ := set $data "S3_REGION" .region }}
+{{- with .endpoint }}{{ $_ := set $data "S3_ENDPOINT" . }}{{ end }}
+{{- $_ := set $data "S3_FORCE_PATH_STYLE" (toString .forcePathStyle) }}
+{{- $_ := set $data "S3_PRESIGNED_UPLOADS" (toString .presignedUploads) }}
+{{- with .publicEndpoint }}{{ $_ := set $data "S3_PUBLIC_ENDPOINT" . }}{{ end }}
+{{- end }}
+{{- else if eq .Values.storage.driver "azure-blob" }}
+{{- with .Values.storage.azure }}
+{{- with .account }}{{ $_ := set $data "AZURE_STORAGE_ACCOUNT" . }}{{ end }}
+{{- $_ := set $data "AZURE_STORAGE_CONTAINER" .container }}
+{{- end }}
+{{- else }}
+{{- fail (printf "storage.driver must be s3 or azure-blob, not %q: web and worker pods need shared storage" .Values.storage.driver) }}
+{{- end }}
+{{- range $name, $value := .Values.env }}
+{{- $_ := set $data $name (toString $value) }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,38 +41,6 @@ metadata:
   labels:
     {{- include "anonify.labels" . | nindent 4 }}
 data:
-  DATABASE_DRIVER: postgres
-  ANONIFY_PROFILE: self-hosted
-  ANONIFY_DRAIN_SECONDS: {{ .Values.drainSeconds | quote }}
-  ANONIFY_SCHEDULER: {{ ternary "on" "off" .Values.worker.scheduler | quote }}
-  ANONIFY_METRICS: {{ ternary "on" "off" .Values.metrics.enabled | quote }}
-  {{- with .Values.publicUrl }}
-  ANONIFY_PUBLIC_URL: {{ . | quote }}
-  {{- end }}
-  STORAGE_DRIVER: {{ .Values.storage.driver | quote }}
-  {{- if eq .Values.storage.driver "s3" }}
-  {{- with .Values.storage.s3 }}
-  S3_BUCKET: {{ .bucket | quote }}
-  S3_REGION: {{ .region | quote }}
-  {{- with .endpoint }}
-  S3_ENDPOINT: {{ . | quote }}
-  {{- end }}
-  S3_FORCE_PATH_STYLE: {{ .forcePathStyle | toString | quote }}
-  S3_PRESIGNED_UPLOADS: {{ .presignedUploads | toString | quote }}
-  {{- with .publicEndpoint }}
-  S3_PUBLIC_ENDPOINT: {{ . | quote }}
-  {{- end }}
-  {{- end }}
-  {{- else if eq .Values.storage.driver "azure-blob" }}
-  {{- with .Values.storage.azure }}
-  {{- with .account }}
-  AZURE_STORAGE_ACCOUNT: {{ . | quote }}
-  {{- end }}
-  AZURE_STORAGE_CONTAINER: {{ .container | quote }}
-  {{- end }}
-  {{- else }}
-  {{- fail (printf "storage.driver must be s3 or azure-blob, not %q: web and worker pods need shared storage" .Values.storage.driver) }}
-  {{- end }}
-  {{- range $name, $value := .Values.env }}
-  {{ $name }}: {{ $value | toString | quote }}
+  {{- range $name, $value := $data }}
+  {{ $name }}: {{ $value | quote }}
   {{- end }}
