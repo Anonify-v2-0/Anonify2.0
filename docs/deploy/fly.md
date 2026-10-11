@@ -2,7 +2,7 @@
 
 > **Draft.** Written from the Fly.io documentation and the
 > [contract](./README.md#the-contract); not yet followed end to end on a Fly
-> account. Verification is tracked in the follow-up to #192.
+> account. Verification is tracked in #247.
 
 **Verified on:** not yet.
 

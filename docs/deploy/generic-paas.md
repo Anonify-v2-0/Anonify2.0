@@ -2,7 +2,7 @@
 
 > **Draft.** Written from each platform's documentation and the
 > [contract](./README.md#the-contract); not yet followed end to end on these
-> platforms. Verification is tracked in the follow-up to #192.
+> platforms. Verification is tracked in #247.
 
 **Verified on:** not yet.
 

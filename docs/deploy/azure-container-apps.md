@@ -2,7 +2,7 @@
 
 > **Draft.** Written from the Azure documentation and the
 > [contract](./README.md#the-contract); not yet followed end to end on an
-> Azure subscription. Verification is tracked in the follow-up to #192.
+> Azure subscription. Verification is tracked in #247.
 
 **Verified on:** not yet.
 

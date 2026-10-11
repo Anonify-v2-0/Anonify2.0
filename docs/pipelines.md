@@ -202,7 +202,7 @@ a request every 50ms:
 What still runs on the main thread is pdf.js reading the text layer during
 extraction and pdf-lib rebuilding an export. The rebuild stayed under 100ms
 up to a 150-page, 65 MiB scan, and reached 159ms at 361 pages and 158 MiB;
-moving it is a follow-up.
+moving it is #245.
 
 OCR throughput on the same two CPUs (`pnpm bench:ocr --part throughput --docs
 5`), against drawing in-process: 21.9 against 19.2 pages/min for one

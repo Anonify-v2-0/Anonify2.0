@@ -4,7 +4,7 @@
 > Cloudflare's documentation as of 2026-10-11 and from a configuration that
 > type-checks and bundles (`wrangler deploy --dry-run`). Nothing has run on
 > Cloudflare yet. The hands-on half of the spike, with the verdict it is
-> meant to produce, is tracked in the follow-up to #193. Do not run
+> meant to produce, is tracked in #248. Do not run
 > production on this.
 
 **Verified on:** not yet.
@@ -66,7 +66,7 @@ traffic, so they can run anywhere that reaches the database and the bucket.
     CPU on use (worker at half its 2 vCPU, web at a tenth of 1: about $58),
     plus the $5 Workers Paid plan: **about $160 a month**. Memory dominates,
     because of the 3 GiB-per-vCPU floor. The comparison with Cloud Run and
-    Fly for the same unit is part of the hands-on follow-up.
+    Fly for the same unit is part of the hands-on run (#248).
 
 ## The configuration
 

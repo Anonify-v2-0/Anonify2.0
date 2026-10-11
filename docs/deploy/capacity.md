@@ -115,7 +115,7 @@ than the cap. It bounds sustained concurrency; it is not a mutex.
 
 ## Sizing
 
-Starting points per replica, until the load test (#190) replaces them with
+Starting points per replica, until runs of the load harness (#190, #240) replace them with
 measured numbers. Memory is the container limit; the budget is the streaming
 share of it, and the rest is pdf.js, rasters, Tesseract's models and Node.
 

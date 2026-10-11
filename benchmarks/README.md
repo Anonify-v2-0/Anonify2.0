@@ -1238,5 +1238,5 @@ summary:
 A run on a laptop says how the harness behaves, not what a worker unit
 handles: the generator, the database and the workers share one machine's
 CPUs. The capacity numbers in
-[docs/deploy/capacity.md](../docs/deploy/capacity.md) come from runs on
-dedicated machines.
+[docs/deploy/capacity.md](../docs/deploy/capacity.md) are to come from runs on
+dedicated machines (#240).

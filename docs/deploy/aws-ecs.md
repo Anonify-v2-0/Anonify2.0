@@ -2,7 +2,7 @@
 
 > **Draft.** Written from the AWS documentation and the
 > [contract](./README.md#the-contract); not yet followed end to end on an AWS
-> account. Verification is tracked in the follow-up to #192. Expect to adjust
+> account. Verification is tracked in #247. Expect to adjust
 > details; the contract parts hold everywhere.
 
 **Verified on:** not yet.
