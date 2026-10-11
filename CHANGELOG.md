@@ -14,6 +14,41 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.18.0] - 2026-10-11
+
+### Added
+
+- A Helm chart for Kubernetes, attached to every release
+  (`releases/latest/download/anonify-chart.tgz`): separate web and worker
+  deployments, migrations before every install and upgrade, health probes, a
+  graceful drain on rollouts, pods that pass the `restricted` Pod Security
+  Standard, and worker autoscaling on queue depth with KEDA, including scale to
+  zero. See `deploy/helm/anonify/README.md` (#191)
+
+### Changed
+
+- Heavy PDF work runs on background threads, so the app stays responsive while
+  documents process, even on a single container: drawing pages for OCR, the
+  vision pass and export no longer stalls requests and health checks (event-loop
+  delay at the 99th percentile went from 680ms to 23ms while exporting a scan).
+  A page that takes longer than `ANONIFY_RENDER_TIMEOUT_MS` (two minutes) to draw
+  now fails its document as too complex instead of holding up the whole server.
+  `ANONIFY_RENDER_THREADS=off` draws pages on the main thread as before (#194)
+
+### Fixed
+
+- A document whose worker was killed after its file had been read in (a
+  `SIGKILL`, an out-of-memory kill, a node lost) is processed again once the
+  sweep recovers it. Recovery queued it again, but nothing started it, so it sat
+  at "queued" until it expired (#190)
+- Docker builds and `pnpm ocr:warm` stop OCR workers as soon as warming finishes,
+  avoiding an extra five-minute wait before exiting.
+
+### Security
+
+- Next.js receives security patches for cache poisoning, information disclosure,
+  and server-side request forgery. (#249)
+
 ## [1.17.0] - 2026-10-11
 
 ### Added
