@@ -14,6 +14,34 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.19.0] - 2026-10-11
+
+### Added
+
+- The Helm chart is published to Docker Hub next to the image, so
+  `helm install anonify oci://registry-1.docker.io/nabeelwasif/anonify --version <version>`
+  installs a release without downloading the chart first. It is still attached
+  to every GitHub release as well (#246)
+
+### Changed
+
+- Progress streams send a keep-alive comment after 15 quiet seconds, so a
+  proxy or load balancer that closes idle connections after a minute (the AWS
+  ALB's default, Fly's proxy, ingress-nginx) no longer cuts them while a long
+  step runs. No setting needs raising for that any more (#244)
+- A PDF export of 64 MiB or more is rebuilt by pdf-lib on a thread of its own,
+  so the rebuild no longer pauses the server's other requests and health
+  probes (by up to 160ms on a 361-page scan). The exported file is the same as
+  before, and `ANONIFY_RENDER_THREADS=off` keeps it on the main thread (#245)
+
+### Fixed
+
+- An export a killed worker left behind (a background export or a batch
+  export) is started again by the sweep after `ANONIFY_STUCK_RUN_MINUTES`, as
+  document processing already was. Before, it sat at "running" for about four
+  hours. After two restarts it fails with a message saying to start it again.
+  Adds a migration (#243)
+
 ## [1.18.0] - 2026-10-11
 
 ### Added
