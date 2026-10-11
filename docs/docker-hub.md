@@ -103,6 +103,9 @@ deploy and from several replicas at once.
   or Redis/Valkey.
 - **No scheduler to run:** workers delete expired documents themselves, with
   one replica leading at a time.
+- **Kubernetes:** a Helm chart, versioned with the image, at
+  `oci://registry-1.docker.io/nabeelwasif/anonify`, with KEDA scaling the
+  workers on the queue.
 
 Configuration, platforms and migrations:
 [docs/deploy/image.md](https://github.com/Anonify-v2-0/Anonify2.0/blob/main/docs/deploy/image.md).

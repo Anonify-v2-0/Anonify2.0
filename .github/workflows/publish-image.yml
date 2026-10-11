@@ -418,6 +418,42 @@ jobs:
           cp "$charts/anonify-$VERSION.tgz" "$charts/anonify-chart.tgz"
           gh release upload "v$VERSION" --repo "$REPO" --clobber \
             "$charts/anonify-$VERSION.tgz" "$charts/anonify-chart.tgz"
+          echo "CHART_PACKAGE=$charts/anonify-$VERSION.tgz" >> "$GITHUB_ENV"
+
+      # The same chart as an OCI artifact next to the image (#246), so
+      # `helm install anonify oci://registry-1.docker.io/nabeelwasif/anonify`
+      # needs no download. Pushed to the image's namespace; the repository is
+      # the chart's name, `anonify`, and is created by the first push.
+      #
+      # Like the image, a published chart version never moves: a re-run finds
+      # it there and pushes nothing. A failure here leaves a release whose
+      # image is already out as it is, with a warning, since the chart is on
+      # the release page either way.
+      - name: Push the Helm chart to Docker Hub
+        id: chart
+        continue-on-error: true
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          namespace="${IMAGE%%/*}"
+          chart="oci://registry-1.docker.io/$namespace/anonify"
+          printf '%s' "$DOCKERHUB_TOKEN" | helm registry login registry-1.docker.io \
+            --username "$DOCKERHUB_USERNAME" --password-stdin
+          if helm show chart "$chart" --version "$VERSION" >/dev/null 2>&1; then
+            echo "$chart:$VERSION is already published; leaving it as it is."
+          else
+            helm push "$CHART_PACKAGE" "oci://registry-1.docker.io/$namespace"
+          fi
+          # Pulled back, so a push the registry quietly mangled fails here.
+          helm show chart "$chart" --version "$VERSION" | grep -qx "version: $VERSION"
+          echo "chart=$chart" >> "$GITHUB_OUTPUT"
+
+      - name: Warn when the chart did not reach Docker Hub
+        if: steps.chart.outcome == 'failure'
+        run: |
+          echo "::warning::The Helm chart was not pushed to Docker Hub. It is attached to the release; re-run this workflow by hand for $VERSION once the cause is fixed."
 
       - name: Summary
         env:

@@ -200,9 +200,22 @@ a request every 50ms:
 | Export, threads on | 6.2s | 23ms | 71ms | 71ms |
 
 What still runs on the main thread is pdf.js reading the text layer during
-extraction and pdf-lib rebuilding an export. The rebuild stayed under 100ms
-up to a 150-page, 65 MiB scan, and reached 159ms at 361 pages and 158 MiB;
-moving it is #245.
+extraction and pdf-lib rebuilding an export under 64 MiB. The rebuild stayed
+under 100ms up to a 150-page, 65 MiB scan, and reached 159ms at 361 pages and
+158 MiB, so from 64 MiB it runs on a thread of its own
+(`lib/documents/pdf/rebuild.ts`, #245). It runs the same rebuild-core.mjs as
+the main thread, so the file is the same byte for byte, and the tests compare
+the two. Exporting a 361-page, 191 MiB scan with five pages redacted, on 16
+CPUs with two CPU slots:
+
+| Rebuild | Took | Loop p99 | Loop max |
+| --- | ---: | ---: | ---: |
+| Main thread | 5.0–5.9s | 25–32ms | 80–102ms |
+| Its own thread | 5.3–5.5s | 17–25ms | 22–28ms |
+
+The source is copied to the thread 16 MiB at a time, with a turn of the event
+loop between slices, because copying 190 MiB in one go was itself a pause of
+about 30ms.
 
 OCR throughput on the same two CPUs (`pnpm bench:ocr --part throughput --docs
 5`), against drawing in-process: 21.9 against 19.2 pages/min for one

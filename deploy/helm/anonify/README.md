@@ -33,8 +33,20 @@ It runs the published image, `nabeelwasif/anonify2.0`, at the chart's
 
 ## Install
 
-Each release attaches the chart, versioned with it: `anonify-<version>.tgz`,
-and `anonify-chart.tgz` for the newest.
+The chart is versioned with the app. From 1.19.0 it is on Docker Hub as an
+OCI artifact, next to the image (#246):
+
+```sh
+helm install anonify oci://registry-1.docker.io/nabeelwasif/anonify --version 1.19.0 \
+  --namespace anonify --create-namespace \
+  --set database.url='postgresql://anonify:…@db.internal:5432/anonify' \
+  --set storage.s3.bucket=my-anonify --set storage.s3.region=eu-west-1 \
+  --set secrets.extra.S3_ACCESS_KEY_ID=… --set secrets.extra.S3_SECRET_ACCESS_KEY=… \
+  --set publicUrl=https://anonify.example.com
+```
+
+Leave out `--version` for the newest. Each release also attaches the chart:
+`anonify-<version>.tgz`, and `anonify-chart.tgz` for the newest.
 
 ```sh
 helm install anonify \
@@ -151,18 +163,20 @@ scale on CPU from at least one (the decision in #163).
 ## Ingress and progress streams
 
 The review screen follows progress over `text/event-stream`, a response that
-stays open for minutes. A proxy that buffers it, or times it out at 60s,
-shows a document stuck at "processing". Set:
+stays open for minutes. The stream sends a keep-alive comment after 15 quiet
+seconds (#244), so timeouts on *idle* connections (ingress-nginx's
+`proxy-read-timeout`, the AWS ALB's idle timeout) do not cut it at their
+defaults. What still matters is buffering, and a limit on a response's
+*total* time:
 
 | Controller | Annotations |
 | --- | --- |
-| ingress-nginx | `nginx.ingress.kubernetes.io/proxy-buffering: "off"`, `nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"`, `nginx.ingress.kubernetes.io/proxy-body-size: "0"` (uploads stream through the app unless presigned) |
-| Traefik | none for buffering (it streams); raise `respondingTimeouts.readTimeout` on the entrypoint if set |
-| AWS Load Balancer Controller | `alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=3600` |
-| GKE Ingress | a `BackendConfig` with `timeoutSec: 3600`, referenced by `cloud.google.com/backend-config` on the Service (`web.service.annotations`) |
+| ingress-nginx | `nginx.ingress.kubernetes.io/proxy-buffering: "off"`, and `nginx.ingress.kubernetes.io/proxy-body-size: "0"` (uploads stream through the app unless presigned) |
+| Traefik | none (it streams); a `respondingTimeouts.writeTimeout` on the entrypoint, if set, is a total limit: raise it |
+| AWS Load Balancer Controller | none |
+| GKE Ingress | a `BackendConfig` with `timeoutSec: 3600`, referenced by `cloud.google.com/backend-config` on the Service (`web.service.annotations`): the backend timeout is a total limit, 30s by default |
 
-A stream that is cut anyway reconnects and resumes from its last event; the
-settings above only stop it happening every minute.
+A stream that is cut anyway reconnects and resumes from its last event.
 
 ## Upgrades
 

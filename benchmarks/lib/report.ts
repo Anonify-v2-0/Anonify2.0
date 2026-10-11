@@ -103,7 +103,7 @@ function tokens(value: number): string {
   return String(Math.round(value))
 }
 
-function table(head: string[], rows: string[][]): string {
+export function table(head: string[], rows: string[][]): string {
   const line = (cells: string[]) => `| ${cells.join(" | ")} |`
   return [
     line(head),
@@ -112,7 +112,9 @@ function table(head: string[], rows: string[][]): string {
   ].join("\n")
 }
 
-function both(draw: (theme: Theme) => string): Record<Theme["name"], string> {
+export function both(
+  draw: (theme: Theme) => string
+): Record<Theme["name"], string> {
   return Object.fromEntries(
     THEMES.map((theme) => [theme.name, draw(theme)])
   ) as Record<Theme["name"], string>
@@ -795,7 +797,7 @@ function pctChange(spent: number, without: number): string {
 
 // --- the Markdown -----------------------------------------------------------
 
-function picture(chart: Chart, prefix: string): string {
+export function picture(chart: Chart, prefix: string): string {
   return [
     "<picture>",
     `  <source media="(prefers-color-scheme: dark)" srcset="${prefix}${chart.name}-dark.svg">`,
@@ -1149,16 +1151,20 @@ export function rootMarkdown(report: Report): string {
 }
 
 /** Replaces the generated section of a document, or says where it is missing. */
-export function replaceSection(document: string, section: string): string {
-  const start = document.indexOf(MARKERS.start)
-  const end = document.indexOf(MARKERS.end)
+export function replaceSection(
+  document: string,
+  section: string,
+  markers: { start: string; end: string } = MARKERS
+): string {
+  const start = document.indexOf(markers.start)
+  const end = document.indexOf(markers.end)
   if (start === -1 || end === -1 || end < start)
     throw new Error(
-      `the document has no ${MARKERS.start} … ${MARKERS.end} section`
+      `the document has no ${markers.start} … ${markers.end} section`
     )
   return (
     document.slice(0, start) +
     section +
-    document.slice(end + MARKERS.end.length)
+    document.slice(end + markers.end.length)
   )
 }

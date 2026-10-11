@@ -10,6 +10,9 @@
  * benchmarks/README.md and README.md are rewritten to show them with the
  * numbers behind each. Nothing here calls a model: the charts are always
  * redrawn from what is committed, so they cannot say more than the data does.
+ *
+ * The load-test results `pnpm load` wrote (`benchmarks/results/load-*.json`)
+ * are charted beside them, into their own section under "Load testing" (#241).
  */
 
 import { existsSync } from "node:fs"
@@ -22,8 +25,16 @@ import { box, palette } from "./corpus/lib/tui"
 import { resultsDirectory, type ModelResults } from "./lib/bench"
 import { corpusHash, parseSplit } from "./lib/corpus"
 import {
+  buildLoadReport,
+  isLoadResult,
+  LOAD_MARKERS,
+  loadMarkdown,
+  type LoadResult,
+} from "./lib/load-report"
+import {
   benchmarksMarkdown,
   buildReport,
+  MARKERS,
   replaceSection,
   rootMarkdown,
   type PatternsBaseline,
@@ -107,16 +118,40 @@ async function main() {
   })
   const sources = `\`${path.relative(REPO, directory).replace(/\\/g, "/")}/\`${baseline ? ` and \`${path.relative(REPO, baselineFile).replace(/\\/g, "/")}\`` : ""}`
 
+  const resultsRoot = path.join(HERE, "results")
+  const loadFiles = (await readdir(resultsRoot))
+    .filter((f) => /^load-.*\.json$/.test(f))
+    .sort()
+  const loadResults: { file: string; result: LoadResult }[] = []
+  for (const f of loadFiles) {
+    const parsed: unknown = JSON.parse(
+      await readFile(path.join(resultsRoot, f), "utf8")
+    )
+    // A baseline, or anything else that is not one run's result, is not charted.
+    if (isLoadResult(parsed))
+      loadResults.push({ file: `benchmarks/results/${f}`, result: parsed })
+  }
+  const load = buildLoadReport(loadResults)
+
   const wanted = new Map<string, string>()
-  for (const chart of report.charts)
+  for (const chart of [...report.charts, ...load.charts])
     for (const [theme, svg] of Object.entries(chart.svg))
       wanted.set(`${chart.name}-${theme}.svg`, `${svg}\n`)
   const documents = [
     {
       file: path.join(HERE, "README.md"),
-      section: benchmarksMarkdown(report, context, sources),
+      sections: [
+        {
+          section: benchmarksMarkdown(report, context, sources),
+          markers: MARKERS,
+        },
+        { section: loadMarkdown(load), markers: LOAD_MARKERS },
+      ],
     },
-    { file: path.join(REPO, "README.md"), section: rootMarkdown(report) },
+    {
+      file: path.join(REPO, "README.md"),
+      sections: [{ section: rootMarkdown(report), markers: MARKERS }],
+    },
   ]
 
   const stale: string[] = []
@@ -139,12 +174,16 @@ async function main() {
   const rewritten = await Promise.all(
     documents.map(async (d) => {
       const before = await readFile(d.file, "utf8")
-      // Written in the document's own line endings, so a checkout with CRLF
-      // (git on Windows) is not "out of date" for being on Windows.
-      const section = before.includes("\r\n")
-        ? d.section.replace(/\r?\n/g, "\r\n")
-        : d.section
-      return { ...d, before, after: replaceSection(before, section) }
+      let after = before
+      for (const { section, markers } of d.sections)
+        // Written in the document's own line endings, so a checkout with
+        // CRLF (git on Windows) is not "out of date" for being on Windows.
+        after = replaceSection(
+          after,
+          before.includes("\r\n") ? section.replace(/\r?\n/g, "\r\n") : section,
+          markers
+        )
+      return { ...d, before, after }
     })
   )
   for (const d of rewritten)
@@ -199,6 +238,16 @@ async function main() {
     ),
     ...report.excluded.map((e) => `${c.yellow("!")} ${e.model}: ${e.reason}`),
     ...report.caveats.map((caveat) => `${c.yellow("!")} ${caveat}`),
+    "",
+    `${c.dim("from")} ${load.runs} load result${load.runs === 1 ? "" : "s"} in benchmarks/results/`,
+    ...load.charts.map(
+      (chart) =>
+        `${c.green("✓")} ${chart.title}  ${c.dim(`charts/${chart.name}-{light,dark}.svg`)}`
+    ),
+    ...load.missing.map(
+      (m) => `${c.gray("·")} ${c.dim(`${m.title}: needs ${m.needs}`)}`
+    ),
+    ...load.excluded.map((e) => `${c.yellow("!")} ${e.file}: ${e.reason}`),
     "",
     stale.length
       ? `${c.dim("updated")} ${stale.length} file${stale.length === 1 ? "" : "s"}`

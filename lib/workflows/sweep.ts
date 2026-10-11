@@ -11,6 +11,11 @@ import {
   type CancelRun,
   type RecoveryResult,
 } from "@/lib/workflows/recovery"
+import {
+  recoverLostExports,
+  type ExportRecoveryResult,
+  type ExportRestarts,
+} from "@/lib/workflows/export-recovery"
 
 /**
  * The sweep: everything that has to happen on a schedule, in one place (#183).
@@ -41,12 +46,15 @@ export type SweepOptions = {
   startRun?: StartRun
   /** Cancels a run; without it, lost runs are left for a sweep that can. */
   cancelRun?: CancelRun
+  /** Starts export runs again; with cancelRun, lost exports are restarted (#243). */
+  restartExports?: ExportRestarts
   now?: Date
 }
 
 export type SweepResult = CleanupResult & {
   marked: number
   recovered: RecoveryResult
+  exportsRecovered: ExportRecoveryResult
   admitted: number
   durationMs: number
 }
@@ -77,7 +85,11 @@ export async function sweep(options: SweepOptions = {}): Promise<SweepResult> {
     // After the purge, not before: a document that has just expired should
     // not be admitted a moment before it is deleted.
     const admitted = options.startRun ? await admitStalled(options.startRun) : 0
-    return { ...result, marked, recovered, admitted }
+    const exportsRecovered =
+      options.cancelRun && options.restartExports
+        ? await recoverLostExports(options.cancelRun, options.restartExports)
+        : { restarted: 0, failed: 0, cancelled: 0 }
+    return { ...result, marked, recovered, exportsRecovered, admitted }
   })
 
   const durationMs = Date.now() - began
@@ -94,6 +106,7 @@ export async function sweep(options: SweepOptions = {}): Promise<SweepResult> {
     remaining: true,
     skipped: "another sweep is running",
     recovered: { requeued: 0, failed: 0 },
+    exportsRecovered: { restarted: 0, failed: 0, cancelled: 0 },
     admitted: 0,
     durationMs,
   }

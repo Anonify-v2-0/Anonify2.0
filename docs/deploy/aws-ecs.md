@@ -10,7 +10,7 @@
 ## Architecture
 
 ```
- browser ─► ALB (HTTPS, idle timeout 3600s) ─► ECS service "web" (Fargate, ANONIFY_ROLE=web)
+ browser ─► ALB (HTTPS) ─► ECS service "web" (Fargate, ANONIFY_ROLE=web)
                                                         │
                        RDS Proxy ◄── web               │ starts runs
  RDS / Aurora PostgreSQL ◄─────────── ECS service "worker" (Fargate, ANONIFY_ROLE=worker, no LB)
@@ -136,8 +136,9 @@ Built into the workers. Or turn it off (`ANONIFY_SCHEDULER=off`) and run
 
 ## Timeouts and progress streams
 
-- **ALB idle timeout:** 60s by default. Raise it to 3600 (the streams are
-  quiet between events, and a cut stream reconnects but flickers).
+- **ALB idle timeout:** the default 60s is enough. Progress streams send a
+  keep-alive comment after 15 quiet seconds (#244), so the ALB never sees
+  them idle.
 - **Fargate `stopTimeout`:** at most 120s. Set `ANONIFY_DRAIN_SECONDS=110`.
   ECS deregisters a task from the target group first, waits the
   deregistration delay, then sends `SIGTERM`; keep the deregistration delay

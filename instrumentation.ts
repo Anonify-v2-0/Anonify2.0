@@ -298,12 +298,13 @@ export async function register() {
       intervalMs: scheduling.intervalMs,
       sweep: async (budgetMs) => {
         const { sweep } = await import("@/lib/workflows/sweep")
-        const { cancelProcessing, startProcessing } =
+        const { cancelProcessing, restartExports, startProcessing } =
           await import("@/lib/workflows/start-processing")
         return sweep({
           budgetMs,
           startRun: startProcessing,
           cancelRun: cancelProcessing,
+          restartExports,
         })
       },
     })

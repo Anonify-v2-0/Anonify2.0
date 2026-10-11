@@ -26,6 +26,16 @@ const RENDERING_ASSETS = [
   "./node_modules/pdfjs-dist/legacy/build/pdf.mjs",
   "./node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/legacy/build/pdf.mjs",
 
+  // The rebuild thread for very large exports (#245), which imports pdf-lib's
+  // self-contained ES module build by URL; the bundler inlines pdf-lib for
+  // the main thread, so nothing else ships it.
+  "./lib/documents/pdf/rebuild-thread.mjs",
+  "./lib/documents/pdf/rebuild-core.mjs",
+  "./node_modules/pdf-lib/dist/pdf-lib.esm.min.js",
+  "./node_modules/.pnpm/pdf-lib@*/node_modules/pdf-lib/dist/pdf-lib.esm.min.js",
+  "./node_modules/pdf-lib/package.json",
+  "./node_modules/.pnpm/pdf-lib@*/node_modules/pdf-lib/package.json",
+
   // File tracing follows sharp's .node binding but not the libvips shared
   // object that binding dlopens at load time, so a bundle ships a binding that
   // cannot link.
