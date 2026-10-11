@@ -32,11 +32,12 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 # ---- build ------------------------------------------------------------------
 FROM deps AS builder
 COPY . .
-# Placeholders: the build never opens a connection, but modules that read these
-# at import time must find something well-formed.
+# Placeholder: the build never opens a connection, but modules that read it at
+# import time must find something well-formed. ENCRYPTION_KEY and
+# FINGERPRINT_SECRET are the same kind of placeholder, but are made fresh in
+# the build step below rather than set here, so no key is written into the
+# image's configuration, not even a throwaway one.
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
-ENV ENCRYPTION_KEY="0000000000000000000000000000000000000000000000000000000000000000"
-ENV FINGERPRINT_SECRET="1111111111111111111111111111111111111111111111111111111111111111"
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_OUTPUT=standalone
 # ANONIFY_PUBLIC_URL is not needed here: the root layout reads it per request,
@@ -54,6 +55,8 @@ ENV ANONIFY_BUILD_ID=$ANONIFY_BUILD_ID
 # after a small change recompiles only what changed (#172). It is not part of
 # the image: the standalone output under .next/standalone is.
 RUN --mount=type=cache,id=next-cache,target=/app/.next/cache \
+    ENCRYPTION_KEY=$(openssl rand -hex 32) \
+    FINGERPRINT_SECRET=$(openssl rand -hex 32) \
     pnpm run build
 # `anonify cleanup`: the expiry sweep as one bundled file, since the image has
 # no tsx and no TypeScript sources to run scripts/cleanup.ts from (#175).
