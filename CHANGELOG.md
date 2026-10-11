@@ -14,6 +14,82 @@ new section below at the moment it moves the version. See
 
 <!-- next-version -->
 
+## [1.17.0] - 2026-10-11
+
+### Added
+
+- Containers shut down gracefully: on `SIGTERM` readiness drops first, the
+  worker stops taking jobs and finishes the steps it is running, progress
+  streams hand their clients to another replica, and then the process exits,
+  within `ANONIFY_DRAIN_SECONDS` (120). The image sets `NEXT_MANUAL_SIG_HANDLE`
+  for this, and Compose now gives the app a 130s `stop_grace_period`; on other
+  platforms raise the grace period to match (docs/workflow.md). Documents left
+  behind by a crashed or killed worker are picked up again by the sweep after
+  `ANONIFY_STUCK_RUN_MINUTES` (20) instead of about four hours, and fail with
+  the retryable `worker-lost` code if that happens three times (#182)
+- Worker containers run the sweep themselves (expiry, restarting lost runs and
+  starting documents stuck in the queue) every five minutes, with one replica
+  leading at a time, so a self-hosted install no longer needs a separate
+  scheduler container, cron job or shared `CRON_SECRET`. `ANONIFY_SCHEDULER=off`
+  and `ANONIFY_SCHEDULER_INTERVAL_SECONDS` control it. `/api/cron/cleanup` and
+  `anonify cleanup` keep working and share its lock (#183)
+- Install with Docker without cloning the repository: each release attaches its
+  `docker-compose.yml`, which now runs the published `nabeelwasif/anonify2.0`
+  image (pin it with `ANONIFY_VERSION`), and `docker run nabeelwasif/anonify2.0
+  keys` prints the secrets a `.env` needs. Upgrading is
+  `docker compose pull && docker compose up -d`. From a clone,
+  `docker compose up -d` now runs the published image too: add `--build` to
+  run your checkout (#186)
+- Optional Prometheus metrics at `/api/metrics` (`ANONIFY_METRICS=on`, behind
+  `ANONIFY_METRICS_TOKEN` or served only to direct peers on a private network),
+  including the job queue's depth for autoscaling workers, step durations and
+  retries, CPU slots, provider calls and the database pool, with the
+  equivalent KEDA query in docs/operations.md. Setting
+  `OTEL_EXPORTER_OTLP_ENDPOINT` exports traces for requests and workflow steps.
+  No document data appears in any metric, and error messages and URL query
+  strings are removed from every span (#188)
+
+### Changed
+
+- Each container bounds the CPU-heavy work it runs at once
+  (`ANONIFY_CPU_CONCURRENCY`) and the jobs it takes
+  (`WORKFLOW_POSTGRES_WORKER_CONCURRENCY`), both defaulting from the CPUs it may
+  use, its CPU quota included, where the job count used to be 10 on any machine.
+  The streaming memory budget is now per container and divided by its job count.
+  An `ANONIFY_STREAM_MEMORY_BUDGET` you set yourself can be refused at start on
+  a machine with many CPUs, with a message saying what to change.
+  `ANONIFY_PROCESSING_GLOBAL_MAX` optionally caps documents processing across
+  all owners, handing freed slots to whoever has waited longest (#181)
+- Exports run in the background on a worker and show their progress: closing
+  the export dialog no longer loses an export in progress, a server restart
+  picks it up again, and large PDFs export with less memory. A tokenized or
+  encrypted copy's vault is sealed to the browser that asked for it and handed
+  over once, so Anonify still cannot reverse an encrypted export. Opening a vault
+  needs the page served over HTTPS or from localhost (#187)
+- Scanned documents are read about twice as fast: OCR workers are kept warm and
+  shared across documents (at most one per CPU, stopped after
+  `ANONIFY_OCR_IDLE_SECONDS` idle), a document's pages are drawn while earlier
+  ones are being read, and pages reach Tesseract without a PNG round trip. The
+  words and boxes read are unchanged. `ANONIFY_OCR_RENDER_SCALE` sets the scale
+  scans are drawn at (2, as before) (#189)
+
+### Deprecated
+
+- The Compose `scheduler` service (`--profile scheduler`), which is no longer
+  needed now that the app sweeps on its own timer. It still works, warns when
+  it starts, and is removed in 1.18.0 (#183)
+- `POST /api/documents/:id/export` without `Prefer: respond-async`, for scripts
+  that export through the API: the synchronous answer is removed in 1.18.0. Send
+  the header and a `recipientKey`, then follow the export (docs/api.md). Until
+  then it answers as before, with a `Deprecation` header (#187)
+
+### Fixed
+
+- A document whose upload landed just as a sweep ran could be started twice,
+  the second run working on a document that was not its own and logging
+  `internal-state` failures once the first had finished. Admission now claims
+  a document before starting its run (#183)
+
 ## [1.16.2] - 2026-10-07
 
 ### Fixed
