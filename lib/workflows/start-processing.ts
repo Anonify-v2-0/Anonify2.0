@@ -1,6 +1,9 @@
 import { getRun, start } from "workflow/api"
 
 import type { StartRun } from "@/lib/documents/admission"
+import { exportBatch } from "@/lib/workflows/export-batch"
+import { exportSingleDocument } from "@/lib/workflows/export-document"
+import type { ExportRestarts } from "@/lib/workflows/export-recovery"
 import { processDocument } from "@/lib/workflows/process-document"
 import type { CancelRun } from "@/lib/workflows/recovery"
 
@@ -32,4 +35,11 @@ export const cancelProcessing: CancelRun = async (runId) => {
     if (ENDED.has(await run.status.catch(() => ""))) return
     throw error
   }
+}
+
+/** Starting an export run again on its export, for the sweep (#243). */
+export const restartExports: ExportRestarts = {
+  document: async (exportId) =>
+    (await start(exportSingleDocument, [exportId])).runId,
+  batch: async (exportId) => (await start(exportBatch, [exportId])).runId,
 }

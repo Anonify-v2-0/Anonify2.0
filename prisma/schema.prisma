@@ -173,6 +173,8 @@ model BatchExport {
 
   /// Set by the reviewer; the run stops at the next document boundary.
   cancelRequested Boolean  @default(false)
+  /// Times the sweep restarted a run a dead worker left behind (#243).
+  recoveries      Int      @default(0)
   /// User-facing sentence. Never a raw thrown message.
   error           String?
 
@@ -394,6 +396,8 @@ model DocumentExport {
   progress          Json?
   /// Set by the reviewer; the run stops before its next variant.
   cancelRequested   Boolean  @default(false)
+  /// Times the sweep restarted a run a dead worker left behind (#243).
+  recoveries        Int      @default(0)
   /// User-facing sentence. Never a raw thrown message.
   error             String?
 

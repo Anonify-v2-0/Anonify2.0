@@ -76,6 +76,7 @@ describe.skipIf(!hasDatabase)("the scheduler across replicas", async () => {
         "ownerRulesPruned",
         "rateLimitsPruned",
         "recovered",
+        "exportsRecovered",
         "remaining",
       ].sort()
     )

@@ -1,6 +1,7 @@
 import { handleRouteError, jsonResponse } from "@/lib/api/http"
 import {
   cancelProcessing,
+  restartExports,
   startProcessing,
 } from "@/lib/workflows/start-processing"
 import { sweep } from "@/lib/workflows/sweep"
@@ -38,6 +39,7 @@ export async function GET(request: Request) {
     const result = await sweep({
       startRun: startProcessing,
       cancelRun: cancelProcessing,
+      restartExports,
     })
     return jsonResponse(result)
   } catch (error) {
