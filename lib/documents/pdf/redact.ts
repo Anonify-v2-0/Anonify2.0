@@ -1,19 +1,14 @@
-import {
-  concatTransformationMatrix,
-  drawObject,
-  PDFDocument,
-  type PDFPage,
-  popGraphicsState,
-  pushGraphicsState,
-} from "pdf-lib"
-
 import { openPageRenderer } from "@/lib/documents/pdf/page-renderer"
 import {
   copyBytes,
   loadPdfjsForRender,
   RENDER_SCALE,
 } from "@/lib/documents/pdf/render"
-import type { EncodedPage } from "@/lib/documents/pdf/raster-core.mjs"
+import type { DrawnPage } from "@/lib/documents/pdf/rebuild-core.mjs"
+import {
+  rebuildRedactedPdf,
+  type RebuildWhere,
+} from "@/lib/documents/pdf/rebuild"
 import { bufferRangeSource } from "@/lib/storage/range-source"
 
 import type { BoundingBox } from "@/types/document"
@@ -52,41 +47,8 @@ export type PdfRedactionPlan = {
   scale?: number
   /** Called after each redacted page is drawn, for progress (#187). */
   onPage?: (done: number, total: number) => void
-}
-
-/**
- * Adds a redacted page to `output` as a full-page image, `width` by `height`
- * points.
- *
- * The page was drawn, its boxes burned in and its pixels deflated as raw RGB
- * on a render thread (#194, raster-core.mjs); here they only become an image
- * XObject. It used to be a PNG from the canvas, which pdf-lib then decoded
- * again in JavaScript and deflated a second time for the PDF (#174). JPEG was
- * measured too: no faster to speak of, and no smaller on pages that are
- * mostly text, so there is nothing to trade the ringing around unredacted
- * glyphs for.
- */
-function addRasterPage(output: PDFDocument, drawn: EncodedPage): void {
-  const image = output.context.register(
-    output.context.stream(drawn.data, {
-      Type: "XObject",
-      Subtype: "Image",
-      Width: drawn.pixelWidth,
-      Height: drawn.pixelHeight,
-      ColorSpace: "DeviceRGB",
-      BitsPerComponent: 8,
-      Filter: "FlateDecode",
-    })
-  )
-  const { width, height } = drawn
-  const page = output.addPage([width, height])
-  const name = page.node.newXObject("Image", image)
-  page.pushOperators(
-    pushGraphicsState(),
-    concatTransformationMatrix(width, 0, 0, height, 0, 0),
-    drawObject(name),
-    popGraphicsState()
-  )
+  /** Where to rebuild the file; by its size unless forced (#245). */
+  rebuild?: RebuildWhere
 }
 
 export async function redactPdf(
@@ -94,79 +56,50 @@ export async function redactPdf(
   plan: PdfRedactionPlan
 ): Promise<Uint8Array> {
   const scale = plan.scale ?? RENDER_SCALE
-  const source = await PDFDocument.load(bytes, { ignoreEncryption: true })
-  const output = await PDFDocument.create()
+  // Zero-based, as pdf-lib counts.
+  const redacted = new Set(
+    [...plan.boxesByPage]
+      .filter(([, boxes]) => boxes.length > 0)
+      .map(([page]) => page - 1)
+  )
+  const drawn = new Map<number, DrawnPage>()
 
-  const pageCount = source.getPageCount()
-  const redacted = (index: number) =>
-    (plan.boxesByPage.get(index + 1)?.length ?? 0) > 0
-
-  // Every untouched page in one call (#174). pdf-lib clones what a page
-  // refers to once per call, so copying a page at a time cloned a font
-  // shared by every page once per page, walking it again each time and
-  // writing each clone into the output.
-  const untouched = Array.from(
-    { length: pageCount },
-    (_, index) => index
-  ).filter((index) => !redacted(index))
-  const copies = new Map<number, PDFPage>()
-  if (untouched.length > 0) {
-    const copied = await output.copyPages(source, untouched)
-    untouched.forEach((index, at) => copies.set(index, copied[at]))
-  }
-
-  const toDraw = pageCount - untouched.length
-  let drawn = 0
-
-  // pdf.js reads by ranges over the bytes already here, rather than being
-  // handed a copy of the whole file (#187): it reads the index and the pages
-  // it draws, and the source is held once, by pdf-lib, which needs all of it
-  // to copy the untouched pages. On a render thread (#194) the ranges are
-  // sent to it as they are asked for. Nothing to draw, nothing opened.
-  const renderer =
-    toDraw > 0 ? await openPageRenderer(bufferRangeSource(bytes)) : null
-
-  try {
-    for (let index = 0; index < pageCount; index++) {
-      const copy = copies.get(index)
-      if (copy) {
-        output.addPage(copy)
-        continue
+  // The redacted pages are drawn first, then the file is rebuilt from them
+  // and the source in one go (rebuild-core.mjs), on this thread or, for a
+  // very large file, on one of its own (#245). pdf.js reads by ranges over
+  // the bytes already here rather than a copy of the whole file (#187), on a
+  // render thread (#194) as they are asked for. Nothing to draw, nothing
+  // opened.
+  if (redacted.size > 0) {
+    const renderer = await openPageRenderer(bufferRangeSource(bytes))
+    try {
+      // A page past the end is not drawn; if pdf-lib counts it anyway, the
+      // rebuild refuses rather than copying it through.
+      const pages = [...redacted]
+        .filter((index) => index < renderer.pageCount)
+        .sort((a, b) => a - b)
+      for (const index of pages) {
+        drawn.set(
+          index,
+          await renderer.draw(index + 1, {
+            scale,
+            output: "flate-rgb",
+            boxes: plan.boxesByPage.get(index + 1) ?? [],
+            label: plan.label,
+          })
+        )
+        plan.onPage?.(drawn.size, pages.length)
       }
-
-      addRasterPage(
-        output,
-        await renderer!.draw(index + 1, {
-          scale,
-          output: "flate-rgb",
-          boxes: plan.boxesByPage.get(index + 1) ?? [],
-          label: plan.label,
-        })
-      )
-      plan.onPage?.(++drawn, toDraw)
+    } finally {
+      await renderer.close()
     }
-  } finally {
-    await renderer?.close()
   }
 
-  if (plan.sanitizeMetadata) {
-    sanitizePdfMetadata(output)
-  }
-
-  return output.save({ useObjectStreams: true })
-}
-
-/** Clears authorship and tooling fingerprints from the exported document. */
-export function sanitizePdfMetadata(pdf: PDFDocument): void {
-  pdf.setTitle("")
-  pdf.setAuthor("")
-  pdf.setSubject("")
-  pdf.setKeywords([])
-  pdf.setProducer("")
-  pdf.setCreator("")
-  const epoch = new Date(0)
-  pdf.setCreationDate(epoch)
-  pdf.setModificationDate(epoch)
+  return rebuildRedactedPdf(
+    bytes,
+    { redacted, drawn, sanitizeMetadata: plan.sanitizeMetadata },
+    plan.rebuild
+  )
 }
 
 /** Extracts the text of an exported PDF, for the redaction-correctness tests. */
