@@ -1,0 +1,65 @@
+{{- if eq (include "anonify.workerScaling" .) "keda" }}
+{{- $keda := .Values.worker.autoscaling.keda }}
+{{- $fullname := include "anonify.fullname" . }}
+{{- /*
+Jobs ready to run and jobs running, workflow invocations and steps alike.
+Counting only ready steps (the query in docs/operations.md, for a running
+fleet) never wakes a fleet at zero, because a new document's first job is a
+workflow invocation, and lets a fleet whose every job is running look idle
+and be scaled away mid-step.
+*/ -}}
+{{- $query := printf "SELECT count(*) FROM %s.jobs WHERE task_identifier IN ('%sflows', '%ssteps') AND (locked_at IS NOT NULL OR (attempts < max_attempts AND run_at <= now()))" $keda.jobSchema $keda.jobPrefix $keda.jobPrefix }}
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ $fullname }}-queue
+  labels:
+    {{- include "anonify.labels" . | nindent 4 }}
+spec:
+  secretTargetRef:
+    - parameter: connection
+      name: {{ include "anonify.secretName" . }}
+      key: {{ include "anonify.directUrlKey" (dict "root" . "explicit" $keda.connectionKey) }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ $fullname }}-worker
+  labels:
+    {{- include "anonify.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    name: {{ $fullname }}-worker
+  minReplicaCount: {{ $keda.minReplicas }}
+  maxReplicaCount: {{ .Values.worker.autoscaling.maxReplicas }}
+  pollingInterval: {{ $keda.pollingInterval }}
+  cooldownPeriod: {{ $keda.cooldownPeriod }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 600
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 120
+  triggers:
+    - type: postgresql
+      name: queue
+      metadata:
+        query: {{ $query | quote }}
+        targetQueryValue: {{ $keda.targetJobsPerWorker | quote }}
+        # Any job at all wakes a fleet at zero.
+        activationTargetQueryValue: "0"
+      authenticationRef:
+        name: {{ $fullname }}-queue
+    {{- if $keda.prometheus.enabled }}
+    - type: prometheus
+      name: oldest-ready
+      metadata:
+        serverAddress: {{ $keda.prometheus.serverAddress | quote }}
+        query: max(anonify_queue_oldest_ready_seconds{queue="step"})
+        threshold: {{ $keda.prometheus.oldestReadySeconds | quote }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,28 @@
+apiVersion: v2
+name: anonify
+description: >-
+  Anonify on Kubernetes: separate web and worker Deployments, migrations
+  before every install and upgrade, health probes, a graceful drain, and
+  worker autoscaling on queue depth with KEDA, including scale to zero.
+type: application
+# Released with Anonify, in lockstep: the release workflow packages the chart
+# as the release's version, with appVersion the same, and attaches it to the
+# GitHub release. So anonify-1.18.0.tgz installs Anonify 1.18.0, and a chart
+# change ships, and is listed, with the release that carries it.
+version: 1.17.0
+# The image tag installed by default.
+appVersion: "1.17.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/Anonify-v2-0/Anonify2.0
+sources:
+  - https://github.com/Anonify-v2-0/Anonify2.0/tree/main/deploy/helm/anonify
+icon: https://raw.githubusercontent.com/Anonify-v2-0/Anonify2.0/main/public/Anonify.png
+keywords:
+  - anonymization
+  - redaction
+  - pii
+maintainers:
+  - name: Anonify
+    url: https://github.com/Anonify-v2-0/Anonify2.0
+annotations:
+  artifacthub.io/license: Apache-2.0

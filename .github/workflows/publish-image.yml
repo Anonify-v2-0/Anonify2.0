@@ -398,6 +398,27 @@ jobs:
           gh release upload "v$VERSION" --repo "$REPO" --clobber \
             "$assets/docker-compose.yml" "$assets/env.example"
 
+      # The Helm chart (#191), versioned with the release and installing it,
+      # attached for the same reason and at the same moment: after the image
+      # it names exists. anonify-chart.tgz is the stable name behind
+      # releases/latest/download/.
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
+      - name: Attach the Helm chart to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          charts="$RUNNER_TEMP/charts"
+          mkdir -p "$charts"
+          helm package deploy/helm/anonify --version "$VERSION" \
+            --app-version "$VERSION" --destination "$charts"
+          cp "$charts/anonify-$VERSION.tgz" "$charts/anonify-chart.tgz"
+          gh release upload "v$VERSION" --repo "$REPO" --clobber \
+            "$charts/anonify-$VERSION.tgz" "$charts/anonify-chart.tgz"
+
       - name: Summary
         env:
           DIGEST: ${{ steps.index.outputs.digest }}
