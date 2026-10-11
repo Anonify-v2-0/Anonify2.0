@@ -117,9 +117,9 @@ Built into the workers.
 
 ## Timeouts and progress streams
 
-Fly's proxy closes connections that stay idle too long; progress streams are
-quiet between events. A cut stream reconnects and resumes, so this shows as
-a reconnect. `kill_timeout = 120` with `ANONIFY_DRAIN_SECONDS = 110` gives
+Fly's proxy closes connections that stay idle too long. Progress streams
+send a keep-alive comment after 15 quiet seconds (#244), so they are never
+idle that long. `kill_timeout = 120` with `ANONIFY_DRAIN_SECONDS = 110` gives
 the drain its time on deploys.
 
 ## Upgrades

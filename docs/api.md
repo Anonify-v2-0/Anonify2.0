@@ -547,7 +547,10 @@ stages, counts and durations — never document text.
 - **Query params:** `startIndex` — index of the next event to receive
   (defaults to 0). On reconnect, `lastIndex + 1`.
 - **Response `200`:** `text/event-stream`. Each frame is `id: <n>\ndata:
-  <json>\n\n`; the stream ends with `event: end`. `maxDuration` 900s.
+  <json>\n\n`; the stream ends with `event: end`. `maxDuration` 900s. After
+  15 seconds with nothing to send, a comment (`: keep-alive`) goes out so
+  proxies do not close the connection as idle (#244); this applies to the
+  export progress streams below as well. SSE clients ignore comments.
 - **Errors:** `404`/`410` access; `409` no processing run for this document.
 
 ### `POST /api/documents/:id/export`

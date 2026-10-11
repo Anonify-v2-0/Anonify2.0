@@ -36,8 +36,10 @@ directly, with the same image for each part.
 - **Shutdown grace.** Set `ANONIFY_DRAIN_SECONDS` to the platform's grace
   period minus ten seconds. Where it is short or fixed, a step cut short runs
   again and a lost run is restarted by the sweep (#182).
-- **Request timeouts.** Progress streams stay open for minutes between
-  events. A platform that ends long responses makes the browser reconnect,
-  which works but flickers.
+- **Request timeouts.** Progress streams stay open for minutes, sending a
+  keep-alive comment after 15 quiet seconds (#244), so idle timeouts do not
+  cut them. A platform that ends any response after a fixed total time makes
+  the browser reconnect, which works but flickers; raise that limit if it
+  can be raised.
 - **Spaces** needs `S3_FORCE_PATH_STYLE=false` and the region's endpoint,
   for example `https://ams3.digitaloceanspaces.com`.

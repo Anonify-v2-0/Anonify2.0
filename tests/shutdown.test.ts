@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { CLOSING_FRAME, endOnServerClose } from "@/lib/api/sse"
+import { CLOSING_FRAME, endOnServerClose, KEEPALIVE_FRAME } from "@/lib/api/sse"
 import { healthState, markClosing, resetHealthState } from "@/lib/health/state"
 import {
   closeHttpServers,
@@ -258,6 +258,78 @@ describe("progress streams on shutdown", () => {
     expect(body).toBe(`id: 0\ndata: {}\n\n${CLOSING_FRAME}`)
     expect(body).not.toContain("event: end")
     expect(cancelled).toBe(true)
+  })
+})
+
+describe("progress streams while quiet (#244)", () => {
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
+
+  /** Chunks as they arrive, until the stream ends or `ms` pass. */
+  async function collect(
+    stream: ReadableStream<Uint8Array>,
+    ms: number
+  ): Promise<string[]> {
+    const reader = stream.getReader()
+    const chunks: string[] = []
+    const deadline = Date.now() + ms
+    for (;;) {
+      const left = deadline - Date.now()
+      if (left <= 0) break
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), left)),
+      ])
+      if (!next || next.done) break
+      chunks.push(decoder.decode(next.value))
+    }
+    await reader.cancel().catch(() => undefined)
+    return chunks
+  }
+
+  it("sends a comment when nothing has been sent for the interval", async () => {
+    // A run between events: open, one frame, then silence.
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("id: 0\ndata: {}\n\n"))
+      },
+    })
+    const chunks = await collect(
+      endOnServerClose(source, { keepAliveMs: 30 }),
+      150
+    )
+    expect(chunks[0]).toBe("id: 0\ndata: {}\n\n")
+    expect(chunks.slice(1).length).toBeGreaterThanOrEqual(2)
+    expect(new Set(chunks.slice(1))).toEqual(new Set([KEEPALIVE_FRAME]))
+  })
+
+  it("sends none while events are flowing", async () => {
+    let index = 0
+    const source = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        controller.enqueue(encoder.encode(`id: ${index++}\ndata: {}\n\n`))
+      },
+    })
+    const chunks = await collect(
+      endOnServerClose(source, { keepAliveMs: 60 }),
+      150
+    )
+    expect(chunks.length).toBeGreaterThan(3)
+    expect(chunks).not.toContain(KEEPALIVE_FRAME)
+  })
+
+  it("stops when the stream ends, so nothing is sent after the end", async () => {
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("event: end\ndata: {}\n\n"))
+        controller.close()
+      },
+    })
+    const body = await new Response(
+      endOnServerClose(source, { keepAliveMs: 5 })
+    ).text()
+    expect(body).toBe("event: end\ndata: {}\n\n")
   })
 })
 
