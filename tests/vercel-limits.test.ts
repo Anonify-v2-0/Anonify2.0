@@ -8,7 +8,7 @@ import { selectStorageDriver } from "@/lib/storage/drivers"
  *
  * Both are invisible locally — the container has neither a 4.5 MB response cap
  * nor a read-only filesystem — so nothing else in this suite would notice them
- * regressing. See docs/deploy-vercel.md.
+ * regressing. See docs/deploy/vercel.md.
  */
 
 const ENV_KEYS = [

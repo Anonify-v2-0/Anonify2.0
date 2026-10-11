@@ -64,7 +64,8 @@ again. For other platforms, replicas and production settings see
 | [docs/ai-engine.md](docs/ai-engine.md) | Detection order, cost discipline, prompts, suggestion → decision → removal |
 | [docs/pipelines.md](docs/pipelines.md) | Why each format's pipeline is built the way it is |
 | [docs/presets.md](docs/presets.md) | The five shipped redaction presets and their detector/category memberships |
-| [docs/deploy-vercel.md](docs/deploy-vercel.md) | Deploying to Vercel on the Hobby plan, and the limits that shape it |
+| [docs/deploy/README.md](docs/deploy/README.md) | Where to run it: the contract every platform relies on, and a recipe per platform |
+| [docs/deploy/vercel.md](docs/deploy/vercel.md) | Deploying to Vercel on the Hobby plan, and the limits that shape it |
 | [docs/operations.md](docs/operations.md) | Metrics, autoscaling workers on the queue, traces and alerts |
 | [docs/deploy/capacity.md](docs/deploy/capacity.md) | What one replica takes on, and how to size it |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | The invariants, the roadmap, and the benchmarks we would like |
@@ -840,7 +841,7 @@ stuck in the queue. Nothing to schedule and no secret to share.
 On Vercel, which has no long-lived worker, the cron entry in `vercel.json`
 calls `/api/cron/cleanup` instead. (On the Hobby plan that entry can only fire
 once a day, so a Hobby deployment wants another backstop. See
-[docs/deploy-vercel.md](docs/deploy-vercel.md).)
+[docs/deploy/vercel.md](docs/deploy/vercel.md).)
 
 Where workers are not long-lived, run the sweep as a job. It needs no server
 and no secret, so it suits cron, a systemd timer, Task Scheduler or a
