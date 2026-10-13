@@ -645,8 +645,9 @@ Each release is then published as an image to Docker Hub
 `.github/workflows/publish-image.yml`, which `release.yml` calls as its last
 job (#180). It needs the repository secrets `DOCKERHUB_USERNAME` and
 `DOCKERHUB_TOKEN`, a Docker Hub personal access token. Read & Write is enough
-to push; the Docker Hub page is only updated from `docs/docker-hub.md` when the
-token also has Delete scope, and is left alone otherwise. The repository
+to push; the Docker Hub pages are only updated, the image's from
+`docs/docker-hub.md` and the Helm chart's from `docs/docker-hub-chart.md`, when
+the token also has Delete scope, and are left alone otherwise. The repository
 variable `DOCKERHUB_REPOSITORY` overrides the image name. If the publish fails,
 the release stands: dispatch **Publish image** with the version.
 
