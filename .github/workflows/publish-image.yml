@@ -455,6 +455,33 @@ jobs:
         run: |
           echo "::warning::The Helm chart was not pushed to Docker Hub. It is attached to the release; re-run this workflow by hand for $VERSION once the cause is fixed."
 
+      # The chart's own page, from docs/docker-hub-chart.md, on the same terms
+      # as the image's above: main's copy, a token with Delete scope, and a
+      # page left as it was rather than a failed release otherwise. Only once
+      # the chart is there, since the first push is what creates its
+      # repository.
+      - name: Find the chart's Docker Hub page
+        id: chart-page
+        if: steps.chart.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          page="$RUNNER_TEMP/docker-hub-chart.md"
+          git show origin/main:docs/docker-hub-chart.md > "$page"
+          echo "path=$page" >> "$GITHUB_OUTPUT"
+          echo "repository=${IMAGE%%/*}/anonify" >> "$GITHUB_OUTPUT"
+
+      - name: Update the chart's Docker Hub page
+        if: steps.chart-page.outcome == 'success'
+        uses: peter-evans/dockerhub-description@v5
+        continue-on-error: true
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ steps.chart-page.outputs.repository }}
+          short-description: Helm chart for Anonify, self-hosted document redaction, on Kubernetes. Workers autoscale with KEDA.
+          readme-filepath: ${{ steps.chart-page.outputs.path }}
+
       - name: Summary
         env:
           DIGEST: ${{ steps.index.outputs.digest }}
